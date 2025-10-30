@@ -38,6 +38,7 @@ export function BatchExportsMetrics({ id }: { id: string }): JSX.Element {
     const logicKey = `batch-exports-metrics-${id}`
     const logic = appMetricsLogic({
         logicKey,
+        loadOnMount: true,
         loadOnChanges: true,
         forceParams: {
             appSource: 'batch_export',

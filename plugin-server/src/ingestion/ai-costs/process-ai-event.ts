@@ -13,8 +13,10 @@ import {
 import { calculateInputCost } from './input-costs'
 import { calculateOutputCost } from './output-costs'
 import { ResolvedModelCost } from './providers/types'
+import { calculateRequestCost } from './request-costs'
+import { calculateWebSearchCost } from './web-search-costs'
 
-interface EventWithProperties extends PluginEvent {
+export interface EventWithProperties extends PluginEvent {
     properties: Properties
 }
 
@@ -54,7 +56,7 @@ export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithPrope
 
 export const normalizeTraceProperties = (event: EventWithProperties): EventWithProperties => {
     // List of properties that should always be strings
-    const keys = ['$ai_trace_id', '$ai_parent_id', '$ai_span_id', '$ai_generation_id']
+    const keys = ['$ai_trace_id', '$ai_parent_id', '$ai_span_id', '$ai_generation_id', '$ai_session_id']
 
     for (const key of keys) {
         const value: unknown = event.properties[key]
@@ -80,19 +82,34 @@ export const normalizeTraceProperties = (event: EventWithProperties): EventWithP
 const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): void => {
     event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
     event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
+    event.properties['$ai_request_cost_usd'] = parseFloat(calculateRequestCost(event, cost))
+    event.properties['$ai_web_search_cost_usd'] = parseFloat(calculateWebSearchCost(event, cost))
 
-    event.properties['$ai_total_cost_usd'] = parseFloat(
-        bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
-    )
+    // Sum all cost components for total
+    let total = bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
+    total = bigDecimal.add(total, event.properties['$ai_request_cost_usd'])
+    total = bigDecimal.add(total, event.properties['$ai_web_search_cost_usd'])
+
+    event.properties['$ai_total_cost_usd'] = parseFloat(total)
 }
 
 const processCost = (event: EventWithProperties): EventWithProperties => {
     // If we already have input and output costs, we can skip the rest of the logic
     if (event.properties['$ai_input_cost_usd'] && event.properties['$ai_output_cost_usd']) {
         if (!event.properties['$ai_total_cost_usd']) {
-            event.properties['$ai_total_cost_usd'] = parseFloat(
-                bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
-            )
+            let total = bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
+
+            // Add pre-calculated request cost if present
+            if (event.properties['$ai_request_cost_usd']) {
+                total = bigDecimal.add(total, event.properties['$ai_request_cost_usd'])
+            }
+
+            // Add pre-calculated web search cost if present
+            if (event.properties['$ai_web_search_cost_usd']) {
+                total = bigDecimal.add(total, event.properties['$ai_web_search_cost_usd'])
+            }
+
+            event.properties['$ai_total_cost_usd'] = parseFloat(total)
         }
 
         return event
@@ -112,6 +129,8 @@ const processCost = (event: EventWithProperties): EventWithProperties => {
                 completion_token: event.properties['$ai_output_token_price'],
                 cache_read_token: event.properties['$ai_cache_read_token_price'],
                 cache_write_token: event.properties['$ai_cache_write_token_price'],
+                request: event.properties['$ai_request_price'],
+                web_search: event.properties['$ai_web_search_price'],
             },
         }
 

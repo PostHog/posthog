@@ -1,3 +1,11 @@
+## Creating ClickHouse schema changes
+
+**Important:** ClickHouse schema changes should be created as a separate PR from application code changes. This allows for:
+
+- Independent review and testing of schema migrations
+- Safer rollout of database changes
+- Clear separation between infrastructure and application logic changes
+
 ## About migrations
 
 Not all migrations are intended to run on all nodes every time, because of the topologies we run. Some nodes are intended to only perform compute operations and do not contain sharded tables.

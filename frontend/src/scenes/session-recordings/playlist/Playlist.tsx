@@ -146,20 +146,20 @@ export function Playlist({
     return (
         <>
             <div
-                className={clsx('w-full gap-2 grow', {
+                className={clsx('w-full gap-2 h-full', {
                     'flex flex-col xl:flex-row order-last': !showCinemaMode,
                 })}
             >
                 <div
                     className={clsx('Playlist w-full min-w-96', {
-                        'min-h-96 lg:min-w-[560px] order-first xl:order-none': !showCinemaMode,
+                        'h-full min-h-96 lg:min-w-[560px] order-first xl:order-none': !showCinemaMode,
                         'order-first mb-2': showCinemaMode,
                         'Playlist--wide': size !== 'small',
                         'Playlist--embedded': embedded,
                     })}
                 >
                     {!isFiltersExpanded && content && (
-                        <div className="Playlist__main">
+                        <div className="Playlist__main h-full">
                             {' '}
                             {typeof content === 'function' ? content({ activeItem }) : content}
                         </div>
@@ -171,7 +171,7 @@ export function Playlist({
                 </div>
                 <div
                     className={clsx('flex flex-col min-w-60', {
-                        'xl:max-w-80 xl:min-w-80 order-first mt-2 xl:mt-0': !showCinemaMode,
+                        'xl:max-w-80 xl:min-w-80 order-first mt-2': !showCinemaMode,
                     })}
                 >
                     {filterActions && (

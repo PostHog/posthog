@@ -1,11 +1,15 @@
+from typing import cast
+
 from posthog.schema import (
     ActionsNode,
-    EventsNode,
+    ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
+    ExperimentRatioMetric,
     MultipleVariantHandling,
+    StepOrderValue,
 )
 
 from posthog.hogql import ast
@@ -15,6 +19,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
     conversion_window_to_seconds,
+    data_warehouse_node_to_filter,
     event_or_action_to_filter,
     funnel_evaluation_expr,
     funnel_steps_to_filter,
@@ -57,7 +62,7 @@ class ExperimentQueryBuilder:
         self,
         team: Team,
         feature_flag_key: str,
-        metric: ExperimentMeanMetric | ExperimentFunnelMetric,
+        metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
         exposure_config: ExperimentEventExposureConfig | ActionsNode,
         filter_test_accounts: bool,
         multiple_variant_handling: MultipleVariantHandling,
@@ -84,8 +89,12 @@ class ExperimentQueryBuilder:
                 return self._build_funnel_query()
             case ExperimentMeanMetric():
                 return self._build_mean_query()
+            case ExperimentRatioMetric():
+                return self._build_ratio_query()
             case _:
-                raise NotImplementedError(f"Only funnel and mean metrics are supported. Got {type(self.metric)}")
+                raise NotImplementedError(
+                    f"Only funnel, mean, and ratio metrics are supported. Got {type(self.metric)}"
+                )
 
     def _get_conversion_window_seconds(self) -> int:
         """
@@ -170,6 +179,24 @@ class ExperimentQueryBuilder:
                 step_columns = self._build_funnel_step_columns()
                 metric_events_cte.expr.select.extend(step_columns)
 
+                # For unordered funnels, we need to filter out metric events that occur _before_ the exposure
+                # event. For ordered funnel metrics, the UDF does this for us.
+                # Here, we add the field we need, first_exposure_timestamp
+                if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+                    first_exposure_timestamp_expr = parse_expr(
+                        "minIf(timestamp, step_0 = 1) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
+                    )
+                    metric_events_cte.expr.select.extend([first_exposure_timestamp_expr])
+
+        if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+            # For unordered funnels, we need to filter out metric events that occur _before_ the exposure
+            # event. For ordered funnel metrics, the UDF does this for us.
+            # Here, we add the where condition to filter out those events
+            if query.ctes and "entity_metrics" in query.ctes:
+                entity_metrics_cte = query.ctes["entity_metrics"]
+                if isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery):
+                    entity_metrics_cte.expr.where = parse_expr("timestamp >= first_exposure_timestamp")
+
         # Inject the additional selects we do for getting the data we need to render the funnel chart
         # Add step counts - how many users reached each step
         step_count_exprs = []
@@ -202,29 +229,43 @@ class ExperimentQueryBuilder:
     def _get_mean_query_common_ctes(self) -> str:
         """
         Returns the common CTEs used by both regular and winsorized mean queries.
+        Supports both regular events and data warehouse sources.
         """
-        return """
+        assert isinstance(self.metric, ExperimentMeanMetric)
+        is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
+
+        if is_dw:
+            assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
+            table = self.metric.source.table_name
+            timestamp_field = f"{table}.{self.metric.source.timestamp_field}"
+            join_condition = "{join_condition}"
+        else:
+            table = "events"
+            timestamp_field = "timestamp"
+            join_condition = "exposures.entity_id = metric_events.entity_id"
+
+        return f"""
             exposures AS (
-                {exposure_select_query}
+                {{exposure_select_query}}
             ),
 
             metric_events AS (
                 SELECT
-                    {entity_key} AS entity_id,
-                    timestamp,
-                    {value_expr} AS value
-                FROM events
-                WHERE {metric_predicate}
+                    {{entity_key}} AS entity_id,
+                    {timestamp_field} AS timestamp,
+                    {{value_expr}} AS value
+                FROM {table}
+                WHERE {{metric_predicate}}
             ),
 
             entity_metrics AS (
                 SELECT
                     exposures.entity_id AS entity_id,
                     exposures.variant AS variant,
-                    {value_agg} AS value
+                    {{value_agg}} AS value
                 FROM exposures
-                LEFT JOIN metric_events ON exposures.entity_id = metric_events.entity_id
-                    AND {conversion_window_predicate}
+                LEFT JOIN metric_events ON {join_condition}
+                    AND {{conversion_window_predicate}}
                 GROUP BY exposures.entity_id, exposures.variant
             )
         """
@@ -232,15 +273,49 @@ class ExperimentQueryBuilder:
     def _get_mean_query_common_placeholders(self) -> dict:
         """
         Returns the common placeholders used by both regular and winsorized mean queries.
+        Supports both regular events and data warehouse sources.
         """
-        return {
-            "exposure_select_query": self._build_exposure_select_query(),
-            "entity_key": parse_expr(self.entity_key),
-            "metric_predicate": self._build_metric_predicate(),
+        assert isinstance(self.metric, ExperimentMeanMetric)
+        is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
+
+        # Build exposure query with exposure_identifier for data warehouse
+        exposure_query = self._build_exposure_select_query()
+        if is_dw:
+            assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
+            events_join_key_parts = cast(list[str | int], self.metric.source.events_join_key.split("."))
+            exposure_query.select.append(
+                ast.Alias(
+                    alias="exposure_identifier",
+                    expr=ast.Field(chain=events_join_key_parts),
+                )
+            )
+            if exposure_query.group_by:
+                exposure_query.group_by.append(ast.Field(chain=events_join_key_parts))
+
+        if is_dw:
+            assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
+            table = self.metric.source.table_name
+            entity_field = self.metric.source.data_warehouse_join_key
+        else:
+            table = "events"
+            entity_field = self.entity_key
+
+        placeholders: dict = {
+            "exposure_select_query": exposure_query,
+            "entity_key": parse_expr(entity_field),
+            "metric_predicate": self._build_metric_predicate(table_alias=table),
             "value_expr": self._build_value_expr(),
             "value_agg": self._build_value_aggregation_expr(),
             "conversion_window_predicate": self._build_conversion_window_predicate(),
         }
+
+        # Add join condition for data warehouse
+        if is_dw:
+            placeholders["join_condition"] = parse_expr(
+                "toString(exposures.exposure_identifier) = toString(metric_events.entity_id)"
+            )
+
+        return placeholders
 
     def _build_mean_query(self) -> ast.SelectQuery:
         """
@@ -349,45 +424,246 @@ class ExperimentQueryBuilder:
         assert isinstance(query, ast.SelectQuery)
         return query
 
+    def _build_ratio_query(self) -> ast.SelectQuery:
+        """
+        Builds query for ratio metrics.
+
+        Structure:
+        - exposures: all exposures with variant assignment (with exposure_identifier for data warehouse)
+        - numerator_events: events for numerator metric with value
+        - denominator_events: events for denominator metric with value
+        - numerator_aggregated: numerator aggregated per entity
+        - denominator_aggregated: denominator aggregated per entity
+        - entity_metrics: joined numerator + denominator per entity
+        - Final SELECT: aggregated statistics per variant
+        """
+        assert isinstance(self.metric, ExperimentRatioMetric)
+
+        # Check if we're dealing with data warehouse sources
+        num_is_dw = isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
+        denom_is_dw = isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
+
+        # Build numerator events CTE
+        if num_is_dw:
+            assert isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
+            num_table = self.metric.numerator.table_name
+            num_entity_field = f"{self.metric.numerator.data_warehouse_join_key}"
+            num_timestamp_field = f"{num_table}.{self.metric.numerator.timestamp_field}"
+        else:
+            num_table = "events"
+            num_entity_field = self.entity_key
+            num_timestamp_field = f"{num_table}.timestamp"
+
+        # Build denominator events CTE
+        if denom_is_dw:
+            assert isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
+            denom_table = self.metric.denominator.table_name
+            denom_entity_field = f"{self.metric.denominator.data_warehouse_join_key}"
+            denom_timestamp_field = f"{denom_table}.{self.metric.denominator.timestamp_field}"
+        else:
+            denom_table = "events"
+            denom_entity_field = self.entity_key
+            denom_timestamp_field = f"{denom_table}.timestamp"
+
+        # Build exposure query with conditional exposure_identifier(s)
+        exposure_query = self._build_exposure_select_query()
+        if num_is_dw or denom_is_dw:
+            # Add exposure_identifier fields for data warehouse joins
+            # Support different join keys for numerator and denominator
+            if num_is_dw:
+                num_source = cast(ExperimentDataWarehouseNode, self.metric.numerator)
+                num_join_key_parts = cast(list[str | int], num_source.events_join_key.split("."))
+                exposure_query.select.append(
+                    ast.Alias(
+                        alias="exposure_identifier_num",
+                        expr=ast.Field(chain=num_join_key_parts),
+                    )
+                )
+                if exposure_query.group_by:
+                    exposure_query.group_by.append(ast.Field(chain=num_join_key_parts))
+
+            if denom_is_dw:
+                denom_source = cast(ExperimentDataWarehouseNode, self.metric.denominator)
+                denom_join_key_parts = cast(list[str | int], denom_source.events_join_key.split("."))
+                exposure_query.select.append(
+                    ast.Alias(
+                        alias="exposure_identifier_denom",
+                        expr=ast.Field(chain=denom_join_key_parts),
+                    )
+                )
+                if exposure_query.group_by:
+                    exposure_query.group_by.append(ast.Field(chain=denom_join_key_parts))
+
+        # Build join conditions
+        num_join_cond = (
+            "toString(exposures.exposure_identifier_num) = toString(numerator_events.entity_id)"
+            if num_is_dw
+            else "exposures.entity_id = numerator_events.entity_id"
+        )
+        denom_join_cond = (
+            "toString(exposures.exposure_identifier_denom) = toString(denominator_events.entity_id)"
+            if denom_is_dw
+            else "exposures.entity_id = denominator_events.entity_id"
+        )
+
+        common_ctes = f"""
+            exposures AS (
+                {{exposure_select_query}}
+            ),
+
+            numerator_events AS (
+                SELECT
+                    {{num_entity_key}} AS entity_id,
+                    {num_timestamp_field} AS timestamp,
+                    {{numerator_value_expr}} AS value
+                FROM {num_table}
+                WHERE {{numerator_predicate}}
+            ),
+
+            denominator_events AS (
+                SELECT
+                    {{denom_entity_key}} AS entity_id,
+                    {denom_timestamp_field} AS timestamp,
+                    {{denominator_value_expr}} AS value
+                FROM {denom_table}
+                WHERE {{denominator_predicate}}
+            ),
+
+            numerator_aggregated AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    {{numerator_agg}} AS numerator_value
+                FROM exposures
+                LEFT JOIN numerator_events ON {num_join_cond}
+                    AND {{numerator_conversion_window_predicate}}
+                GROUP BY exposures.entity_id, exposures.variant
+            ),
+
+            denominator_aggregated AS (
+                SELECT
+                    exposures.entity_id AS entity_id,
+                    exposures.variant AS variant,
+                    {{denominator_agg}} AS denominator_value
+                FROM exposures
+                LEFT JOIN denominator_events ON {denom_join_cond}
+                    AND {{denominator_conversion_window_predicate}}
+                GROUP BY exposures.entity_id, exposures.variant
+            ),
+
+            entity_metrics AS (
+                SELECT
+                    numerator_aggregated.variant AS variant,
+                    numerator_aggregated.entity_id AS entity_id,
+                    numerator_aggregated.numerator_value AS numerator_value,
+                    COALESCE(denominator_aggregated.denominator_value, 0) AS denominator_value
+                FROM numerator_aggregated
+                LEFT JOIN denominator_aggregated
+                    ON numerator_aggregated.entity_id = denominator_aggregated.entity_id
+                    AND numerator_aggregated.variant = denominator_aggregated.variant
+            )
+        """
+
+        query = parse_select(
+            f"""
+            WITH {common_ctes}
+
+            SELECT
+                entity_metrics.variant AS variant,
+                count(entity_metrics.entity_id) AS num_users,
+                sum(entity_metrics.numerator_value) AS total_sum,
+                sum(power(entity_metrics.numerator_value, 2)) AS total_sum_of_squares,
+                sum(entity_metrics.denominator_value) AS denominator_sum,
+                sum(power(entity_metrics.denominator_value, 2)) AS denominator_sum_squares,
+                sum(entity_metrics.numerator_value * entity_metrics.denominator_value) AS numerator_denominator_sum_product
+            FROM entity_metrics
+            GROUP BY entity_metrics.variant
+            """,
+            placeholders={
+                "exposure_select_query": exposure_query,
+                "num_entity_key": parse_expr(num_entity_field),
+                "denom_entity_key": parse_expr(denom_entity_field),
+                "numerator_predicate": self._build_metric_predicate(
+                    source=self.metric.numerator, table_alias=num_table
+                ),
+                "numerator_value_expr": self._build_value_expr(source=self.metric.numerator),
+                "numerator_agg": self._build_value_aggregation_expr(
+                    source=self.metric.numerator, events_alias="numerator_events"
+                ),
+                "numerator_conversion_window_predicate": self._build_conversion_window_predicate_for_events(
+                    "numerator_events"
+                ),
+                "denominator_predicate": self._build_metric_predicate(
+                    source=self.metric.denominator, table_alias=denom_table
+                ),
+                "denominator_value_expr": self._build_value_expr(source=self.metric.denominator),
+                "denominator_agg": self._build_value_aggregation_expr(
+                    source=self.metric.denominator, events_alias="denominator_events"
+                ),
+                "denominator_conversion_window_predicate": self._build_conversion_window_predicate_for_events(
+                    "denominator_events"
+                ),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
     def _build_conversion_window_predicate(self) -> ast.Expr:
         """
         Build the predicate for limiting metric events to the conversion window for the user.
+        Uses "metric_events" as the events alias.
+        """
+        return self._build_conversion_window_predicate_for_events("metric_events")
+
+    def _build_conversion_window_predicate_for_events(self, events_alias: str) -> ast.Expr:
+        """
+        Build the predicate for limiting metric events to the conversion window for the user.
+        Parameterized to support different event table aliases (for ratio metrics).
         """
         conversion_window_seconds = self._get_conversion_window_seconds()
         if conversion_window_seconds > 0:
             return parse_expr(
-                """
-                metric_events.timestamp >= exposures.first_exposure_time
-                AND metric_events.timestamp < exposures.first_exposure_time + toIntervalSecond({conversion_window_seconds})
+                f"""
+                {events_alias}.timestamp >= exposures.first_exposure_time
+                AND {events_alias}.timestamp < exposures.first_exposure_time + toIntervalSecond({{conversion_window_seconds}})
                 """,
                 placeholders={
                     "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
                 },
             )
         else:
-            return parse_expr("metric_events.timestamp >= exposures.first_exposure_time")
+            return parse_expr(f"{events_alias}.timestamp >= exposures.first_exposure_time")
 
-    def _build_metric_predicate(self) -> ast.Expr:
+    def _build_metric_predicate(self, source=None, table_alias: str = "events") -> ast.Expr:
         """
         Builds the metric predicate as an AST expression.
+        For ratio metrics, pass the specific source (numerator or denominator) and table_alias.
+        For mean metrics, uses self.metric.source by default with "events" alias.
         """
+        if source is None:
+            assert isinstance(self.metric, ExperimentMeanMetric)
+            source = self.metric.source
 
-        assert isinstance(self.metric, ExperimentMeanMetric)
-
-        # TODO: Implement support for DatawarehouseNode
-        assert isinstance(self.metric.source, EventsNode | ActionsNode)
-
-        metric_event_filter = event_or_action_to_filter(self.team, self.metric.source)
+        # Data warehouse sources use different table and predicate logic
+        timestamp_field_chain: list[str | int]
+        if isinstance(source, ExperimentDataWarehouseNode):
+            timestamp_field_chain = [table_alias, source.timestamp_field]
+            metric_event_filter = data_warehouse_node_to_filter(self.team, source)
+        else:
+            timestamp_field_chain = [table_alias, "timestamp"]
+            metric_event_filter = event_or_action_to_filter(self.team, source)
 
         conversion_window_seconds = self._get_conversion_window_seconds()
 
         return parse_expr(
             """
-            timestamp >= {date_from}
-            AND timestamp < {date_to} + toIntervalSecond({conversion_window_seconds})
+            {timestamp_field} >= {date_from}
+            AND {timestamp_field} < {date_to} + toIntervalSecond({conversion_window_seconds})
             AND {metric_event_filter}
             """,
             placeholders={
+                "timestamp_field": ast.Field(chain=timestamp_field_chain),
                 "date_from": self.date_range_query.date_from_as_hogql(),
                 "date_to": self.date_range_query.date_to_as_hogql(),
                 "conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
@@ -395,21 +671,29 @@ class ExperimentQueryBuilder:
             },
         )
 
-    def _build_value_expr(self) -> ast.Expr:
+    def _build_value_expr(self, source=None) -> ast.Expr:
         """
         Extracts the value expression from the metric source configuration.
+        For ratio metrics, pass the specific source (numerator or denominator).
+        For mean metrics, uses self.metric.source by default.
         """
-        assert isinstance(self.metric, ExperimentMeanMetric)
-        return get_source_value_expr(self.metric.source)
+        if source is None:
+            assert isinstance(self.metric, ExperimentMeanMetric)
+            source = self.metric.source
+        return get_source_value_expr(source)
 
-    def _build_value_aggregation_expr(self) -> ast.Expr:
+    def _build_value_aggregation_expr(self, source=None, events_alias: str = "metric_events") -> ast.Expr:
         """
         Returns the value aggregation expression based on math type.
+        For ratio metrics, pass the specific source (numerator or denominator) and events_alias.
+        For mean metrics, uses self.metric.source by default with "metric_events" alias.
         """
-        assert isinstance(self.metric, ExperimentMeanMetric)
+        if source is None:
+            assert isinstance(self.metric, ExperimentMeanMetric)
+            source = self.metric.source
 
         # Get metric source details
-        math_type = getattr(self.metric.source, "math", ExperimentMetricMathType.TOTAL)
+        math_type = getattr(source, "math", ExperimentMetricMathType.TOTAL)
 
         if math_type in [
             ExperimentMetricMathType.UNIQUE_SESSION,
@@ -419,29 +703,29 @@ class ExperimentQueryBuilder:
             # Count distinct values, filtering out null UUIDs and empty strings
             # This matches the old implementation's behavior
             return parse_expr(
-                """toFloat(count(distinct
+                f"""toFloat(count(distinct
                     multiIf(
-                        toTypeName(metric_events.value) = 'UUID' AND reinterpretAsUInt128(metric_events.value) = 0, NULL,
-                        toString(metric_events.value) = '', NULL,
-                        metric_events.value
+                        toTypeName({events_alias}.value) = 'UUID' AND reinterpretAsUInt128({events_alias}.value) = 0, NULL,
+                        toString({events_alias}.value) = '', NULL,
+                        {events_alias}.value
                     )
                 ))"""
             )
         elif math_type == ExperimentMetricMathType.MIN:
-            return parse_expr("min(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"min(coalesce(toFloat({events_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.MAX:
-            return parse_expr("max(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"max(coalesce(toFloat({events_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.AVG:
-            return parse_expr("avg(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"avg(coalesce(toFloat({events_alias}.value), 0))")
         elif math_type == ExperimentMetricMathType.HOGQL:
-            math_hogql = getattr(self.metric.source, "math_hogql", None)
+            math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
                 aggregation_function, _ = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
-                    return parse_expr(f"{aggregation_function}(coalesce(toFloat(metric_events.value), 0))")
-            return parse_expr(f"sum(coalesce(toFloat(metric_events.value), 0))")
+                    return parse_expr(f"{aggregation_function}(coalesce(toFloat({events_alias}.value), 0))")
+            return parse_expr(f"sum(coalesce(toFloat({events_alias}.value), 0))")
         else:
-            return parse_expr("sum(coalesce(toFloat(metric_events.value), 0))")
+            return parse_expr(f"sum(coalesce(toFloat({events_alias}.value), 0))")
 
     def _build_test_accounts_filter(self) -> ast.Expr:
         if (

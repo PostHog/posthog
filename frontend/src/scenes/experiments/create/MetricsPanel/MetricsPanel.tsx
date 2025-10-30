@@ -1,5 +1,8 @@
 import { useActions } from 'kea'
 
+import { LemonDivider } from '@posthog/lemon-ui'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
@@ -24,6 +27,7 @@ export type MetricsPanelProps = {
     onSaveMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onDeleteMetric: (metric: ExperimentMetric, context: MetricContext) => void
     onSaveSharedMetrics: (metrics: ExperimentMetric[], context: MetricContext) => void
+    onPrevious: () => void
 }
 
 const sortMetrics = (metrics: ExperimentMetric[], orderedUuids: string[]): ExperimentMetric[] =>
@@ -43,6 +47,7 @@ export const MetricsPanel = ({
     onSaveMetric,
     onDeleteMetric,
     onSaveSharedMetrics,
+    onPrevious,
 }: MetricsPanelProps): JSX.Element => {
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
@@ -84,9 +89,17 @@ export const MetricsPanel = ({
                 <EmptyMetricsPanel className="mt-6" metricContext={METRIC_CONTEXTS.secondary} />
             )}
 
+            <LemonDivider className="mt-4" />
+            <div className="flex justify-end pt-4">
+                <LemonButton type="primary" size="small" onClick={onPrevious}>
+                    Previous
+                </LemonButton>
+            </div>
+
             <MetricSourceModal />
             <ExperimentMetricModal
                 experiment={experiment}
+                exposureCriteria={experiment.exposure_criteria}
                 onSave={(metric, context) => {
                     onSaveMetric(metric, context)
                     closeExperimentMetricModal()

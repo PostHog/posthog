@@ -19,6 +19,7 @@ class JobOwners(str, Enum):
     TEAM_GROWTH = "team-growth"
     TEAM_EXPERIMENTS = "team-experiments"
     TEAM_MAX_AI = "team-max-ai"
+    TEAM_DATA_WAREHOUSE = "team-data-warehouse"
 
 
 class ClickhouseClusterResource(dagster.ConfigurableResource):

@@ -33,6 +33,8 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
+import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
+import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
 import { SessionSummaryContent } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
@@ -113,12 +115,16 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
             sessionRecordingsListPropertiesLogic,
             ['recordingPropertiesById'],
+            sessionRecordingPinnedPropertiesLogic,
+            ['pinnedProperties'],
         ],
         actions: [
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingMetaSuccess', 'setTrackedWindow'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions', 'loadPropertiesForSessionsSuccess'],
+            sessionRecordingPinnedPropertiesLogic,
+            ['setPinnedProperties', 'togglePropertyPin'],
         ],
     })),
     actions({
@@ -126,8 +132,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
         summarizeSession: () => ({}),
         setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
-        setPinnedProperties: (properties: string[]) => ({ properties }),
-        togglePropertyPin: (propertyKey: string) => ({ propertyKey }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
         setPropertySearchQuery: (query: string) => ({ query }),
     }),
@@ -152,24 +156,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 setSessionSummaryLoading: (_, { isLoading }) => isLoading,
             },
         ],
-        pinnedProperties: [
-            [
-                'Start',
-                'Clicks',
-                'Duration',
-                'TTL',
-                'console_error_count',
-                'click_count',
-                'key_press_count',
-                '$referrer',
-                '$geoip_country_code',
-                '$geoip_city_name',
-            ] as string[],
-            { persist: true },
-            {
-                setPinnedProperties: (_, { properties }) => properties,
-            },
-        ],
         isPropertyPopoverOpen: [
             false,
             {
@@ -183,15 +169,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
-        togglePropertyPin: ({ propertyKey }) => {
-            const currentPinned = values.pinnedProperties
-            if (currentPinned.includes(propertyKey)) {
-                actions.setPinnedProperties(currentPinned.filter((k) => k !== propertyKey))
-            } else {
-                actions.setPinnedProperties([...currentPinned, propertyKey])
-            }
-        },
+    listeners(({ actions }) => ({
         setIsPropertyPopoverOpen: ({ isOpen }) => {
             // Clear search query when popover is closed
             if (!isOpen) {
@@ -269,8 +247,13 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         allOverviewItems: [
-            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
-            (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
+            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById, s.pinnedProperties],
+            (
+                sessionPlayerMetaData: SessionRecordingType | null,
+                startTime: string | null,
+                recordingPropertiesById: Record<string, Record<string, any>>,
+                pinnedProperties: string[]
+            ) => {
                 const items: OverviewItem[] = []
 
                 if (startTime) {
@@ -291,7 +274,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 if (sessionPlayerMetaData?.recording_duration) {
                     items.push({
                         label: 'Duration',
-                        icon: <IconHourglass />,
+                        icon: <IconClock />,
                         value: humanFriendlyDuration(sessionPlayerMetaData.recording_duration),
                         type: 'text',
                     })
@@ -307,7 +290,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
 
                 recordingPropertyKeys.forEach((property) => {
-                    if (sessionPlayerMetaData?.[property]) {
+                    if (sessionPlayerMetaData?.[property] !== undefined) {
                         items.push({
                             icon:
                                 property === 'click_count' ? (
@@ -336,13 +319,31 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     // we don't need both, prefer $os_name in case mobile sends better value in that field
                     delete allProperties['$os']
                 }
-                Object.entries(allProperties).forEach(([property, value]) => {
+
+                const allPropertyKeys = new Set(Object.keys(allProperties))
+
+                // There may be pinned properties that don't exist as keys on this specific user,
+                // we still want to show them, albeit with a value of '-'.
+                // However, we don't want to add duplicates for hardcoded processed properties like "Start", "Duration", "TTL"...
+                pinnedProperties.forEach((property: string) => {
+                    if (!allPropertyKeys.has(property) && !HARDCODED_DISPLAY_LABELS.includes(property as any)) {
+                        allPropertyKeys.add(property)
+                    }
+                })
+
+                Array.from(allPropertyKeys).forEach((property) => {
                     if (property === '$geoip_subdivision_1_name' || property === '$geoip_city_name') {
                         // they're just shown in the title for Country
                         return
                     }
 
+                    // Skip recording property keys that we've already processed
+                    if (recordingPropertyKeys.includes(property as any)) {
+                        return
+                    }
+
                     const propertyInfo = getPropertyDisplayInfo(property, recordingProperties)
+                    const value = allProperties[property]
 
                     const safeValue =
                         value == null
@@ -357,9 +358,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         icon: <PropertyFilterIcon type={propertyInfo.propertyFilterType} />,
                         label: propertyInfo.label,
                         value: safeValue,
-                        keyTooltip: propertyInfo.propertyFilterType
-                            ? `${capitalizeFirstLetter(propertyInfo.propertyFilterType)} property`
-                            : undefined,
+                        keyTooltip:
+                            propertyInfo.label !== propertyInfo.originalKey
+                                ? `Sent as: ${propertyInfo.originalKey}`
+                                : propertyInfo.propertyFilterType
+                                  ? `${capitalizeFirstLetter(propertyInfo.propertyFilterType)} property`
+                                  : undefined,
                         valueTooltip:
                             property === '$geoip_country_code' && safeValue in COUNTRY_CODE_TO_LONG_NAME
                                 ? countryTitleFrom(recordingProperties, personProperties)
@@ -386,26 +390,50 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
             },
         ],
         filteredPropertiesWithInfo: [
-            (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById, s.propertySearchQuery],
-            (sessionPlayerMetaData, recordingPropertiesById, propertySearchQuery) => {
-                const recordingProperties = sessionPlayerMetaData?.id
-                    ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
-                    : {}
-
-                const personProperties = getAllPersonProperties(sessionPlayerMetaData)
-                const personPropertyKeys = personProperties ? Object.keys(personProperties).sort() : []
-
-                // Get recording property keys from allOverviewItems
-                const recordingPropertyKeys = sessionPlayerMetaData?.id
-                    ? Object.keys(recordingPropertiesById[sessionPlayerMetaData?.id] || {})
-                    : []
-
-                const allPropertyKeys = Array.from(new Set([...recordingPropertyKeys, ...personPropertyKeys])).sort()
+            (s) => [s.allOverviewItems, s.propertySearchQuery],
+            (allOverviewItems: OverviewItem[], propertySearchQuery: string) => {
+                // Extract all property keys from allOverviewItems
+                const allPropertyKeys = allOverviewItems
+                    .map((item) => (item.type === 'property' ? item.property : item.label))
+                    .filter((key): key is string => key !== undefined)
+                    .sort()
 
                 return allPropertyKeys
                     .map((propertyKey) => {
-                        const propertyInfo = getPropertyDisplayInfo(propertyKey, recordingProperties)
-                        return { propertyKey, propertyInfo }
+                        // Find the corresponding overview item to get the label
+                        // so we can check both the key and human-readable label for search
+                        const overviewItem = allOverviewItems.find(
+                            (item) => (item.type === 'property' ? item.property : item.label) === propertyKey
+                        )
+
+                        if (overviewItem) {
+                            return {
+                                propertyKey,
+                                propertyInfo: {
+                                    label: overviewItem.label,
+                                    originalKey: propertyKey,
+                                    type:
+                                        overviewItem.type === 'property'
+                                            ? TaxonomicFilterGroupType.EventProperties
+                                            : TaxonomicFilterGroupType.Replay,
+                                    propertyFilterType:
+                                        overviewItem.type === 'property'
+                                            ? PropertyFilterType.Event
+                                            : PropertyFilterType.Recording,
+                                },
+                            }
+                        }
+
+                        // Fallback for any missing items
+                        return {
+                            propertyKey,
+                            propertyInfo: {
+                                label: propertyKey,
+                                originalKey: propertyKey,
+                                type: TaxonomicFilterGroupType.Replay,
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
+                        }
                     })
                     .filter(({ propertyInfo }) => {
                         if (!propertySearchQuery.trim()) {

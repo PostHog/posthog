@@ -1,17 +1,37 @@
 import { Message } from 'node-rdkafka'
+import { v4 } from 'uuid'
 
-import { BaseBatchPipeline, BatchProcessingStep } from './base-batch-pipeline'
-import { createBatch, createNewBatchPipeline, createNewPipeline, createUnwrapper } from './helpers'
-import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
+import { ProjectId, Team } from '../../types'
+import { BatchProcessingStep } from './base-batch-pipeline'
+import { newBatchPipelineBuilder } from './builders'
+import { createBatch, createNewPipeline, createUnwrapper } from './helpers'
+import { PipelineConfig } from './result-handling-pipeline'
 import { PipelineResult, dlq, drop, ok, redirect } from './results'
 import { ProcessingStep } from './steps'
 
-// Simple test types - only include fields needed for testing
-type TestTeam = {
-    id: number
-    name: string
-}
+const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
+    id: 1,
+    project_id: 1 as ProjectId,
+    organization_id: 'test-org-id',
+    uuid: v4(),
+    name: 'Test Team',
+    anonymize_ips: false,
+    api_token: 'test-api-token',
+    slack_incoming_webhook: null,
+    session_recording_opt_in: true,
+    person_processing_opt_out: null,
+    heatmaps_opt_in: null,
+    ingested_event: true,
+    person_display_name_properties: null,
+    test_account_filters: null,
+    cookieless_server_hash_mode: null,
+    timezone: 'UTC',
+    available_features: [],
+    drop_events_older_than_seconds: null,
+    ...overrides,
+})
 
+// Simple test types - only include fields needed for testing
 type TestEvent = {
     uuid: string
     event: string
@@ -26,7 +46,7 @@ type TestHeaders = {
 type TestEventWithTeam = {
     message: Message
     event: TestEvent
-    team: TestTeam
+    team: Team
     headers: TestHeaders
 }
 
@@ -176,7 +196,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[0],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event1', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -188,7 +208,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[1],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event2', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -207,7 +227,7 @@ describe('Pipeline Integration Tests', () => {
                             token: 'test-token',
                             batch_result: 'processed',
                         },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
                 [
@@ -221,7 +241,7 @@ describe('Pipeline Integration Tests', () => {
                             token: 'test-token',
                             batch_result: 'processed',
                         },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
             ])
@@ -243,13 +263,14 @@ describe('Pipeline Integration Tests', () => {
             // Create pipeline
             const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
-            const batchPipeline = createNewBatchPipeline()
-                .pipeConcurrently(preprocessingPipeline)
-                .gather()
-                .pipeBatch(batchStep4)
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) =>
+                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                )
+                .handleResults(pipelineConfig)
+                .build()
 
-            const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
-            const unwrapper = createUnwrapper(resultHandlingPipeline)
+            const unwrapper = createUnwrapper(pipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
             unwrapper.feed(batch)
@@ -308,7 +329,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[0],
                         headers: { token: 'test-token' },
                         event: { uuid: 'drop-event', event: 'test-event', token: 'test-token' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
             ])
@@ -321,13 +342,14 @@ describe('Pipeline Integration Tests', () => {
             // Create pipeline
             const preprocessingPipeline = createNewPipeline().pipe(step1)
 
-            const batchPipeline = createNewBatchPipeline()
-                .pipeConcurrently(preprocessingPipeline)
-                .gather()
-                .pipeBatch(batchStep2)
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) =>
+                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
+                )
+                .handleResults(pipelineConfig)
+                .build()
 
-            const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
-            const unwrapper = createUnwrapper(resultHandlingPipeline)
+            const unwrapper = createUnwrapper(pipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
             unwrapper.feed(batch)
@@ -370,7 +392,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[0],
                         headers: { token: 'test-token' },
                         event: { uuid: 'redirect-event', event: 'test-event', token: 'test-token' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
             ])
@@ -383,13 +405,14 @@ describe('Pipeline Integration Tests', () => {
             // Create pipeline
             const preprocessingPipeline = createNewPipeline().pipe(step1)
 
-            const batchPipeline = createNewBatchPipeline()
-                .pipeConcurrently(preprocessingPipeline)
-                .gather()
-                .pipeBatch(batchStep2)
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) =>
+                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
+                )
+                .handleResults(pipelineConfig)
+                .build()
 
-            const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
-            const unwrapper = createUnwrapper(resultHandlingPipeline)
+            const unwrapper = createUnwrapper(pipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
             unwrapper.feed(batch)
@@ -443,7 +466,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[0],
                         headers: { token: 'test-token' },
                         event: { uuid: 'dlq-event', event: 'test-event', token: 'test-token' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
             ])
@@ -457,13 +480,14 @@ describe('Pipeline Integration Tests', () => {
             // Create pipeline
             const preprocessingPipeline = createNewPipeline().pipe(step1)
 
-            const batchPipeline = createNewBatchPipeline()
-                .pipeConcurrently(preprocessingPipeline)
-                .gather()
-                .pipeBatch(batchStep2)
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) =>
+                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
+                )
+                .handleResults(pipelineConfig)
+                .build()
 
-            const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
-            const unwrapper = createUnwrapper(resultHandlingPipeline)
+            const unwrapper = createUnwrapper(pipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
             unwrapper.feed(batch)
@@ -563,7 +587,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[0],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event-1', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -575,7 +599,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[1],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event-2', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -587,7 +611,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[2],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event-3', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -601,7 +625,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[0],
                         headers: { token: 'test-token' },
                         event: { uuid: 'event-1', event: 'test-event', token: 'test-token', batch_result: 'processed' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
                 [
@@ -610,7 +634,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[1],
                         headers: { token: 'test-token' },
                         event: { uuid: 'event-2', event: 'test-event', token: 'test-token', batch_result: 'processed' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
                 [
@@ -619,7 +643,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[2],
                         headers: { token: 'test-token' },
                         event: { uuid: 'event-3', event: 'test-event', token: 'test-token', batch_result: 'processed' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
             ])
@@ -641,13 +665,14 @@ describe('Pipeline Integration Tests', () => {
             // Create pipeline
             const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
-            const batchPipeline = createNewBatchPipeline()
-                .pipeConcurrently(preprocessingPipeline)
-                .gather()
-                .pipeBatch(batchStep4)
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) =>
+                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                )
+                .handleResults(pipelineConfig)
+                .build()
 
-            const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
-            const unwrapper = createUnwrapper(resultHandlingPipeline)
+            const unwrapper = createUnwrapper(pipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
             unwrapper.feed(batch)
@@ -749,7 +774,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[0],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event1', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -761,7 +786,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[2],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event3', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -775,7 +800,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[0],
                         headers: { token: 'test-token' },
                         event: { uuid: 'event1', event: 'test-event', token: 'test-token', batch_result: 'processed' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
                 [
@@ -784,7 +809,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[2],
                         headers: { token: 'test-token' },
                         event: { uuid: 'event3', event: 'test-event', token: 'test-token', batch_result: 'processed' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
             ])
@@ -806,13 +831,14 @@ describe('Pipeline Integration Tests', () => {
             // Create pipeline
             const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
-            const batchPipeline = createNewBatchPipeline()
-                .pipeConcurrently(preprocessingPipeline)
-                .gather()
-                .pipeBatch(batchStep4)
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) =>
+                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                )
+                .handleResults(pipelineConfig)
+                .build()
 
-            const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
-            const unwrapper = createUnwrapper(resultHandlingPipeline)
+            const unwrapper = createUnwrapper(pipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
             unwrapper.feed(batch)
@@ -887,7 +913,7 @@ describe('Pipeline Integration Tests', () => {
                             token: 'test-token',
                             batch_result: 'processed',
                         },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
                 [
@@ -901,7 +927,7 @@ describe('Pipeline Integration Tests', () => {
                             token: 'test-token',
                             batch_result: 'processed',
                         },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
             ])
@@ -937,7 +963,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[1],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event2', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -952,17 +978,18 @@ describe('Pipeline Integration Tests', () => {
             // Create pipeline
             const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
-            const batchPipeline = createNewBatchPipeline()
-                .pipeConcurrently(preprocessingPipeline)
-                .gather()
-                .pipeBatch(batchStep4)
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) =>
+                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                )
+                .handleResults({
+                    kafkaProducer: mockKafkaProducer,
+                    dlqTopic: 'dlq-topic',
+                    promiseScheduler: mockPromiseScheduler,
+                })
+                .build()
 
-            const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, {
-                kafkaProducer: mockKafkaProducer,
-                dlqTopic: 'dlq-topic',
-                promiseScheduler: mockPromiseScheduler,
-            })
-            const unwrapper = createUnwrapper(resultHandlingPipeline)
+            const unwrapper = createUnwrapper(pipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
             unwrapper.feed(batch)
@@ -1011,7 +1038,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[0],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event1', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -1023,7 +1050,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[1],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event2', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -1042,7 +1069,7 @@ describe('Pipeline Integration Tests', () => {
                             token: 'test-token',
                             batch_result: 'processed',
                         },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
                 [
@@ -1056,7 +1083,7 @@ describe('Pipeline Integration Tests', () => {
                             token: 'test-token',
                             batch_result: 'processed',
                         },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
             ])
@@ -1073,7 +1100,7 @@ describe('Pipeline Integration Tests', () => {
                             token: 'test-token',
                             batch_result: 'processed',
                         },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
                 [
@@ -1087,7 +1114,7 @@ describe('Pipeline Integration Tests', () => {
                             token: 'test-token',
                             batch_result: 'processed',
                         },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
             ])
@@ -1110,18 +1137,23 @@ describe('Pipeline Integration Tests', () => {
             // Create pipeline
             const preprocessingPipeline = createNewPipeline().pipe(step1)
 
-            const gatheredPipeline = createNewBatchPipeline().pipeConcurrently(preprocessingPipeline).gather()
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) =>
+                    builder
+                        .pipeConcurrently(preprocessingPipeline)
+                        .gather()
+                        .pipeBatch(batchStep1)
+                        .pipeBatch(batchStep2)
+                        .pipeBatch(batchStep3)
+                )
+                .handleResults({
+                    kafkaProducer: mockKafkaProducer,
+                    dlqTopic: 'dlq-topic',
+                    promiseScheduler: mockPromiseScheduler,
+                })
+                .build()
 
-            const batchPipeline1 = gatheredPipeline.pipeBatch(batchStep1)
-            const batchPipeline2 = new BaseBatchPipeline(batchStep2, batchPipeline1)
-            const batchPipeline = new BaseBatchPipeline(batchStep3, batchPipeline2)
-
-            const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, {
-                kafkaProducer: mockKafkaProducer,
-                dlqTopic: 'dlq-topic',
-                promiseScheduler: mockPromiseScheduler,
-            })
-            const unwrapper = createUnwrapper(resultHandlingPipeline)
+            const unwrapper = createUnwrapper(pipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
             unwrapper.feed(batch)
@@ -1205,14 +1237,16 @@ describe('Pipeline Integration Tests', () => {
             // Create pipeline
             const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2)
 
-            const batchPipeline = createNewBatchPipeline().pipeConcurrently(preprocessingPipeline).gather()
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) => builder.pipeConcurrently(preprocessingPipeline).gather())
+                .handleResults({
+                    kafkaProducer: mockKafkaProducer,
+                    dlqTopic: 'dlq-topic',
+                    promiseScheduler: mockPromiseScheduler,
+                })
+                .build()
 
-            const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, {
-                kafkaProducer: mockKafkaProducer,
-                dlqTopic: 'dlq-topic',
-                promiseScheduler: mockPromiseScheduler,
-            })
-            const unwrapper = createUnwrapper(resultHandlingPipeline)
+            const unwrapper = createUnwrapper(pipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
             unwrapper.feed(batch)
@@ -1306,7 +1340,7 @@ describe('Pipeline Integration Tests', () => {
                         message: input.message,
                         headers: input.headers,
                         event: { uuid: eventId, event: 'test-event', token: 'test-token' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     })
                 }
             )
@@ -1317,14 +1351,16 @@ describe('Pipeline Integration Tests', () => {
             // Create pipeline
             const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2)
 
-            const batchPipeline = createNewBatchPipeline().pipeConcurrently(preprocessingPipeline).gather()
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) => builder.pipeConcurrently(preprocessingPipeline).gather())
+                .handleResults({
+                    kafkaProducer: mockKafkaProducer,
+                    dlqTopic: 'dlq-topic',
+                    promiseScheduler: mockPromiseScheduler,
+                })
+                .build()
 
-            const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, {
-                kafkaProducer: mockKafkaProducer,
-                dlqTopic: 'dlq-topic',
-                promiseScheduler: mockPromiseScheduler,
-            })
-            const unwrapper = createUnwrapper(resultHandlingPipeline)
+            const unwrapper = createUnwrapper(pipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
             unwrapper.feed(batch)
@@ -1461,7 +1497,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[0],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event-0', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -1473,7 +1509,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[1],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event-1', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -1485,7 +1521,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[2],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event-2', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -1497,7 +1533,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[3],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event-3', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -1509,7 +1545,7 @@ describe('Pipeline Integration Tests', () => {
                             message: messages[4],
                             headers: { token: 'test-token' },
                             event: { uuid: 'event-4', event: 'test-event', token: 'test-token' },
-                            team: { id: 1, name: 'Test Team' },
+                            team: createTestTeam(),
                         }),
                     },
                 ],
@@ -1523,7 +1559,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[0],
                         headers: { token: 'test-token' },
                         event: { uuid: 'event-0', event: 'test-event', token: 'test-token', batch_result: 'processed' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
                 [
@@ -1532,7 +1568,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[1],
                         headers: { token: 'test-token' },
                         event: { uuid: 'event-1', event: 'test-event', token: 'test-token', batch_result: 'processed' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
                 [
@@ -1541,7 +1577,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[2],
                         headers: { token: 'test-token' },
                         event: { uuid: 'event-2', event: 'test-event', token: 'test-token', batch_result: 'processed' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
                 [
@@ -1550,7 +1586,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[3],
                         headers: { token: 'test-token' },
                         event: { uuid: 'event-3', event: 'test-event', token: 'test-token', batch_result: 'processed' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
                 [
@@ -1559,7 +1595,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[4],
                         headers: { token: 'test-token' },
                         event: { uuid: 'event-4', event: 'test-event', token: 'test-token', batch_result: 'processed' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 ],
             ])
@@ -1581,13 +1617,14 @@ describe('Pipeline Integration Tests', () => {
             // Create pipeline
             const preprocessingPipeline = createNewPipeline().pipe(step1).pipe(step2).pipe(step3)
 
-            const batchPipeline = createNewBatchPipeline()
-                .pipeConcurrently(preprocessingPipeline)
-                .gather()
-                .pipeBatch(batchStep4)
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) =>
+                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep4)
+                )
+                .handleResults(pipelineConfig)
+                .build()
 
-            const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
-            const unwrapper = createUnwrapper(resultHandlingPipeline)
+            const unwrapper = createUnwrapper(pipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
             unwrapper.feed(batch)
@@ -1620,6 +1657,194 @@ describe('Pipeline Integration Tests', () => {
         })
     })
 
+    describe('Builder API with filterOk, map, and teamAware', () => {
+        it('should filter OK results, map context to include team, and process team-aware steps', async () => {
+            const messages: Message[] = [
+                {
+                    topic: 'test-topic',
+                    partition: 0,
+                    offset: 1,
+                    key: Buffer.from('key1'),
+                    value: Buffer.from('event1'),
+                    timestamp: Date.now(),
+                    size: 6,
+                },
+                {
+                    topic: 'test-topic',
+                    partition: 0,
+                    offset: 2,
+                    key: Buffer.from('key2'),
+                    value: Buffer.from('drop-event'),
+                    timestamp: Date.now() + 1,
+                    size: 10,
+                },
+                {
+                    topic: 'test-topic',
+                    partition: 0,
+                    offset: 3,
+                    key: Buffer.from('key3'),
+                    value: Buffer.from('event3'),
+                    timestamp: Date.now() + 2,
+                    size: 6,
+                },
+            ]
+
+            // Define result maps
+            const step1Map = new Map<string, AsyncStepConfig<{ message: Message; headers: TestHeaders }>>([
+                ['event1', { delay: 0, result: ok({ message: messages[0], headers: { token: 'test-token' } }) }],
+                ['drop-event', { delay: 0, result: drop('Mock drop') }],
+                ['event3', { delay: 0, result: ok({ message: messages[2], headers: { token: 'test-token' } }) }],
+            ])
+            const step2Map = new Map([
+                [
+                    'event1',
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[0],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event1', event: 'test-event', token: 'test-token' },
+                            team: createTestTeam({ id: 1, name: 'Test Team 1' }),
+                        }),
+                    },
+                ],
+                [
+                    'event3',
+                    {
+                        delay: 0,
+                        result: ok({
+                            message: messages[2],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event3', event: 'test-event', token: 'test-token' },
+                            team: createTestTeam({ id: 2, name: 'Test Team 2' }),
+                        }),
+                    },
+                ],
+            ])
+
+            const step3Map = new Map([
+                [
+                    'event1',
+                    {
+                        delay: 5,
+                        result: ok({
+                            message: messages[0],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event1', event: 'validated-event', token: 'test-token' },
+                            team: createTestTeam({ id: 1, name: 'Test Team 1' }),
+                        }),
+                    },
+                ],
+                [
+                    'event3',
+                    {
+                        delay: 3,
+                        result: ok({
+                            message: messages[2],
+                            headers: { token: 'test-token' },
+                            event: { uuid: 'event3', event: 'validated-event', token: 'test-token' },
+                            team: createTestTeam({ id: 2, name: 'Test Team 2' }),
+                        }),
+                    },
+                ],
+            ])
+
+            const batchStepMap = new Map([
+                [
+                    0,
+                    ok({
+                        message: messages[0],
+                        headers: { token: 'test-token' },
+                        event: {
+                            uuid: 'event1',
+                            event: 'validated-event',
+                            token: 'test-token',
+                            batch_result: 'processed',
+                        },
+                        team: createTestTeam({ id: 1, name: 'Test Team 1' }),
+                    }),
+                ],
+                [
+                    1,
+                    ok({
+                        message: messages[2],
+                        headers: { token: 'test-token' },
+                        event: {
+                            uuid: 'event3',
+                            event: 'validated-event',
+                            token: 'test-token',
+                            batch_result: 'processed',
+                        },
+                        team: createTestTeam({ id: 2, name: 'Test Team 2' }),
+                    }),
+                ],
+            ])
+
+            // Define steps
+            const step1 = createMockStep<{ message: Message }, { message: Message; headers: TestHeaders }>(step1Map)
+            const step2 = createMockStep<{ message: Message; headers: TestHeaders }, TestEventWithTeam>(step2Map)
+            const step3 = createMockStep<TestEventWithTeam, TestEventWithTeam>(step3Map)
+            const batchStep = createMockBatchStep<TestEventWithTeam, TestEventWithTeam>(batchStepMap)
+
+            // Create pipeline using builder API
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) => builder.concurrently((b) => b.pipe(step1).pipe(step2)))
+                .handleResults(pipelineConfig)
+                .handleSideEffects(mockPromiseScheduler, { await: false })
+                .filterOk()
+                .map((element) => ({
+                    result: element.result,
+                    context: {
+                        ...element.context,
+                        team: element.result.value.team,
+                    },
+                }))
+                .gather()
+                .messageAware((builder) =>
+                    builder.teamAware((b) =>
+                        b
+                            .concurrently((c) => c.pipe(step3))
+                            .gather()
+                            .pipeBatch(batchStep)
+                    )
+                )
+                .handleResults(pipelineConfig)
+                .handleSideEffects(mockPromiseScheduler, { await: false })
+                .build()
+
+            const unwrapper = createUnwrapper(pipeline)
+
+            const batch = createBatch(messages.map((message) => ({ message })))
+            unwrapper.feed(batch)
+
+            const allResults: any[] = []
+            let results = await unwrapper.next()
+            while (results !== null) {
+                allResults.push(...results)
+                results = await unwrapper.next()
+            }
+
+            // Verify steps were called correctly
+            expect(step1).toHaveBeenCalledTimes(3) // All 3 events
+            expect(step2).toHaveBeenCalledTimes(2) // Only non-dropped events
+            expect(step3).toHaveBeenCalledTimes(2) // Only team-aware events
+            expect(batchStep).toHaveBeenCalledTimes(1) // Batch processed once
+
+            // Should only return the OK events (drop-event filtered out)
+            expect(allResults).toHaveLength(2)
+            expect(allResults![0].event.uuid).toBe('event1')
+            expect(allResults![1].event.uuid).toBe('event3')
+
+            // Verify batch processing metadata
+            expect(allResults![0].event.batch_result).toBe('processed')
+            expect(allResults![1].event.batch_result).toBe('processed')
+
+            // Verify teams are correctly mapped
+            expect(allResults![0].team.id).toBe(1)
+            expect(allResults![1].team.id).toBe(2)
+        })
+    })
+
     describe('Performance and Concurrency', () => {
         it('should process 100 events with random delays efficiently', async () => {
             const messages: Message[] = Array.from(
@@ -1645,7 +1870,7 @@ describe('Pipeline Integration Tests', () => {
                         message: messages[i],
                         headers: { token: 'test-token' },
                         event: { uuid: `event-${i}`, event: 'test-event', token: 'test-token' },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     }),
                 })
             }
@@ -1664,7 +1889,7 @@ describe('Pipeline Integration Tests', () => {
                             token: 'test-token',
                             batch_result: 'processed',
                         },
-                        team: { id: 1, name: 'Test Team' },
+                        team: createTestTeam(),
                     })
                 )
             }
@@ -1678,13 +1903,14 @@ describe('Pipeline Integration Tests', () => {
             // Create pipeline with single async step
             const preprocessingPipeline = createNewPipeline().pipe(step1)
 
-            const batchPipeline = createNewBatchPipeline()
-                .pipeConcurrently(preprocessingPipeline)
-                .gather()
-                .pipeBatch(batchStep2)
+            const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
+                .messageAware((builder) =>
+                    builder.pipeConcurrently(preprocessingPipeline).gather().pipeBatch(batchStep2)
+                )
+                .handleResults(pipelineConfig)
+                .build()
 
-            const resultHandlingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
-            const unwrapper = createUnwrapper(resultHandlingPipeline)
+            const unwrapper = createUnwrapper(pipeline)
 
             const batch = createBatch(messages.map((message) => ({ message })))
             unwrapper.feed(batch)

@@ -62,7 +62,7 @@
   
   And lastly these are some HogQL specific functions:
   ```
-  ['matchesAction', 'sparkline', 'recording_button', 'explain_csp_report', 'sortablesemver', 'embed_text', 'hogql_lookupDomainType', 'hogql_lookupPaidSourceType', 'hogql_lookupPaidMediumType', 'hogql_lookupOrganicSourceType', 'hogql_lookupOrganicMediumType', 'convertCurrency', 'getSurveyResponse', 'uniqueSurveySubmissionsFilter']
+  ['matchesAction', 'sparkline', 'recordingButton', 'explainCSPReport', 'sortablesemver', 'embedText', 'lookupDomainType', 'lookupPaidSourceType', 'lookupPaidMediumType', 'lookupOrganicSourceType', 'lookupOrganicMediumType', 'convertCurrency', 'getSurveyResponse', 'uniqueSurveySubmissionsFilter']
   ```
   
   You fix HogQL errors that may come from either HogQL resolver errors or clickhouse execution errors. You don't help with other knowledge.

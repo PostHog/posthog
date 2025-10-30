@@ -62,26 +62,26 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             // Create batch results directly
-            const batchResults: BatchPipelineResultWithContext<any> = [
-                createContext(ok({ processed: 'test1' }), { message: messages[0] }),
-                createContext(ok({ processed: 'test2' }), { message: messages[1] }),
+            const batchResults = [
+                createContext(ok({ processed: 'test1', message: messages[0] }), { message: messages[0] }),
+                createContext(ok({ processed: 'test2', message: messages[1] }), { message: messages[1] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
             expect(results).not.toBeNull()
             expect(results).toEqual([
-                createContext(ok({ processed: 'test1' }), { message: messages[0] }),
-                createContext(ok({ processed: 'test2' }), { message: messages[1] }),
+                createContext(ok({ processed: 'test1', message: messages[0] }), { message: messages[0] }),
+                createContext(ok({ processed: 'test2', message: messages[1] }), { message: messages[1] }),
             ])
         })
 
         it('should handle empty batch', async () => {
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed([])
             const results = await resultPipeline.next()
 
@@ -98,14 +98,14 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             // Create batch results directly
-            const batchResults: BatchPipelineResultWithContext<any> = [
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
                 createContext(ok({ processed: 'test1' }), { message: messages[0] }),
                 createContext(drop('test drop reason'), { message: messages[1] }),
                 createContext(ok({ processed: 'test3' }), { message: messages[2] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -128,14 +128,14 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             // Create batch results directly
-            const batchResults: BatchPipelineResultWithContext<any> = [
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
                 createContext(ok({ processed: 'test1' }), { message: messages[0] }),
                 createContext(redirect('test redirect', 'overflow-topic', true, false), { message: messages[1] }),
                 createContext(ok({ processed: 'test3' }), { message: messages[2] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -183,14 +183,14 @@ describe('ResultHandlingPipeline', () => {
                 },
             ]
 
-            const batchResults: BatchPipelineResultWithContext<any> = [
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
                 createContext(redirect('test redirect', 'overflow-topic', false, true), {
                     message: messagesWithHeaders[0],
                 }),
             ]
 
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -236,14 +236,14 @@ describe('ResultHandlingPipeline', () => {
 
             const testError = new Error('test error')
             // Create batch results directly
-            const batchResults: BatchPipelineResultWithContext<any> = [
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
                 createContext(ok({ processed: 'test1' }), { message: messages[0] }),
                 createContext(dlq('test dlq reason', testError), { message: messages[1] }),
                 createContext(ok({ processed: 'test3' }), { message: messages[2] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -290,12 +290,12 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             const testError = new Error('test error')
-            const batchResults: BatchPipelineResultWithContext<any> = [
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
                 createContext(dlq('test dlq reason', testError), { message: messagesWithHeaders[0] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -336,12 +336,12 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             // Create batch results directly
-            const batchResults: BatchPipelineResultWithContext<any> = [
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
                 createContext(dlq('test dlq reason'), { message: messages[0] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -381,7 +381,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             // Create batch results directly
-            const batchResults: BatchPipelineResultWithContext<any> = [
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
                 createContext(ok({ processed: 'success1' }), { message: messages[0] }),
                 createContext(drop('dropped item'), { message: messages[1] }),
                 createContext(ok({ processed: 'success2' }), { message: messages[2] }),
@@ -389,8 +389,8 @@ describe('ResultHandlingPipeline', () => {
                 createContext(dlq('dlq item', new Error('processing error')), { message: messages[4] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -441,7 +441,7 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             // Create batch results with different lastStep values
-            const batchResults: BatchPipelineResultWithContext<any> = [
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
                 createContext(ok({ processed: 'success' }), { message: messages[0], lastStep: 'validationStep' }),
                 createContext(drop('dropped item'), { message: messages[1], lastStep: 'filterStep' }),
                 createContext(redirect('redirected item', 'overflow-topic'), {
@@ -454,8 +454,8 @@ describe('ResultHandlingPipeline', () => {
                 }),
             ]
 
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -479,12 +479,12 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             // Create batch results without lastStep
-            const batchResults: BatchPipelineResultWithContext<any> = [
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
                 createContext(ok({ processed: 'success' }), { message: messages[0] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -505,14 +505,14 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             // Create batch results directly
-            const batchResults: BatchPipelineResultWithContext<any> = [
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
                 createContext(ok({ count: 2 }), { message: messages[0] }),
                 createContext(ok({ count: 4 }), { message: messages[1] }),
                 createContext(ok({ count: 6 }), { message: messages[2] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -534,12 +534,12 @@ describe('ResultHandlingPipeline', () => {
             ]
 
             // Create batch results directly
-            const batchResults: BatchPipelineResultWithContext<any> = [
+            const batchResults: BatchPipelineResultWithContext<any, any> = [
                 createContext(redirect('test redirect', 'overflow-topic'), { message: messages[0] }),
             ]
 
-            const pipeline = createNewBatchPipeline()
-            const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+            const pipeline = createNewBatchPipeline().build()
+            const resultPipeline = new ResultHandlingPipeline(pipeline, config)
             resultPipeline.feed(batchResults)
             const results = await resultPipeline.next()
 
@@ -597,7 +597,7 @@ describe('Integration tests', () => {
         ]
 
         // Create batch results directly
-        const batchResults: BatchPipelineResultWithContext<any> = [
+        const batchResults: BatchPipelineResultWithContext<any, any> = [
             createContext(
                 ok({
                     eventType: 'pageview',
@@ -609,8 +609,8 @@ describe('Integration tests', () => {
             ),
         ]
 
-        const pipeline = createNewBatchPipeline()
-        const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+        const pipeline = createNewBatchPipeline().build()
+        const resultPipeline = new ResultHandlingPipeline(pipeline, config)
         resultPipeline.feed(batchResults)
         const results = await resultPipeline.next()
 
@@ -631,12 +631,12 @@ describe('Integration tests', () => {
         const messages: Message[] = [{ value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message]
 
         // Create batch results directly
-        const batchResults: BatchPipelineResultWithContext<any> = [
+        const batchResults: BatchPipelineResultWithContext<any, any> = [
             createContext(dlq('Validation failed', new Error('Invalid data')), { message: messages[0] }),
         ]
 
-        const pipeline = createNewBatchPipeline()
-        const resultPipeline = ResultHandlingPipeline.of(pipeline, config)
+        const pipeline = createNewBatchPipeline().build()
+        const resultPipeline = new ResultHandlingPipeline(pipeline, config)
         resultPipeline.feed(batchResults)
         const results = await resultPipeline.next()
 

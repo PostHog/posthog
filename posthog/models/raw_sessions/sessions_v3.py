@@ -36,6 +36,14 @@ def WRITABLE_RAW_SESSIONS_TABLE_V3():
     return f"writable_{TABLE_BASE_NAME_V3}"
 
 
+def RAW_SESSIONS_MV_V3():
+    return f"{DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}_mv"
+
+
+def RAW_SESSIONS_MV_RECORDINGS_V3():
+    return f"{DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}_recordings_mv"
+
+
 def TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3():
     return f"TRUNCATE TABLE IF EXISTS {SHARDED_RAW_SESSIONS_TABLE_V3()}"
 
@@ -54,7 +62,11 @@ def DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3():
 
 
 def DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3():
-    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME_V3}_mv"
+    return f"DROP TABLE IF EXISTS {RAW_SESSIONS_MV_V3()}"
+
+
+def DROP_RAW_SESSION_MATERIALIZED_VIEW_RECORDINGS_SQL_V3():
+    return f"DROP TABLE IF EXISTS {RAW_SESSIONS_MV_RECORDINGS_V3()}"
 
 
 def DROP_RAW_SESSION_VIEW_SQL_V3():
@@ -80,8 +92,8 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- ClickHouse will pick the latest value of distinct_id for the session
     -- this is fine since even if the distinct_id changes during a session
+    -- it will still (or should still) map to the same person
     distinct_id AggregateFunction(argMax, String, DateTime64(6, 'UTC')),
-    person_id AggregateFunction(argMax, UUID, DateTime64(6, 'UTC')),
     distinct_ids AggregateFunction(groupUniqArray, String),
 
     min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
@@ -147,7 +159,10 @@ CREATE TABLE IF NOT EXISTS {table_name}
     page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
 
     -- Flags - store every seen value for each flag
-    flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
+    flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
+
+    -- Replay
+    has_replay_events SimpleAggregateFunction(max, Boolean)
 ) ENGINE = {engine}
 """
 
@@ -254,7 +269,7 @@ PROPERTIES = f"""
         ]) AS Array(String)) as ad_ids_set"""
 
 
-def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where="TRUE"):
+def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE"):
     return """
 WITH
     {PROPERTIES},
@@ -265,9 +280,8 @@ SELECT
     team_id,
     `$session_id_uuid` AS session_id_v7,
 
-    initializeAggregation('argMaxState', sharded_events.distinct_id, timestamp) as distinct_id,
-    initializeAggregation('argMaxState', person_id, timestamp) as person_id,
-    initializeAggregation('groupUniqArrayState', sharded_events.distinct_id) as distinct_ids,
+    initializeAggregation('argMaxState', source_table.distinct_id, timestamp) as distinct_id,
+    initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
 
     timestamp AS min_timestamp,
     timestamp AS max_timestamp,
@@ -326,13 +340,15 @@ SELECT
     -- perf
     initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
 
-    --flags
-    initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values
-FROM {database}.sharded_events
+    -- flags
+    initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values,
+
+    false as has_replay_events
+FROM {source_table} AS source_table
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 AND {where}
     """.format(
-        database=settings.CLICKHOUSE_DATABASE,
+        source_table=source_table,
         where=where,
         PROPERTIES=PROPERTIES,
     )
@@ -345,23 +361,132 @@ TO {database}.{target_table}
 AS
 {select_sql}
 """.format(
-        table_name=f"{TABLE_BASE_NAME_V3}_mv",
+        table_name=RAW_SESSIONS_MV_V3(),
         target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         database=settings.CLICKHOUSE_DATABASE,
-        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
+            where=where,
+            # use sharded_events, this means that the mv MUST be created on every data node
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events",
+        ),
     )
 
 
-RAW_SESSION_TABLE_UPDATE_SQL_V3 = (
-    lambda: """
+def RAW_SESSION_TABLE_MV_UPDATE_SQL_V3(where="TRUE"):
+    return """
 ALTER TABLE {table_name}
 MODIFY QUERY
 {select_sql}
 """.format(
-        table_name=f"{TABLE_BASE_NAME_V3}_mv",
-        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(),
+        table_name=RAW_SESSIONS_MV_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
+            where=where, source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events"
+        ),
     )
-)
+
+
+def RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(source_table, where="TRUE"):
+    return """
+WITH
+    min_first_timestamp as timestamp,
+    CAST(fromUnixTimestamp64Milli(9223372036854775), 'DateTime64(6)') as max_ts_64, -- max positive Int64 / 1000
+    CAST(fromUnixTimestamp64Milli(-9223372036854775), 'DateTime64(6)') as min_ts_64, -- max negative Int64 / 1000
+    CAST(NULL, 'Nullable(String)') as null_s,
+    CAST(NULL, 'Nullable(Int64)') as null_i64,
+    CAST(NULL, 'Nullable(UUID)') as null_uuid
+SELECT
+    team_id,
+    toUInt128(accurateCast(session_id, 'UUID')) AS session_id_v7,
+
+    initializeAggregation('argMaxState', source_table.distinct_id, min_ts_64) as distinct_id,
+    initializeAggregation('groupUniqArrayState', source_table.distinct_id) as distinct_ids,
+
+    timestamp AS min_timestamp,
+    timestamp AS max_timestamp,
+    fromUnixTimestamp(0) AS max_inserted_at,
+
+    -- urls - only update if the event is a pageview or screen
+    CAST([], 'Array(String)') AS urls,
+    initializeAggregation('argMinState', null_s, max_ts_64) as entry_url,
+    initializeAggregation('argMaxState', null_s, min_ts_64) as end_url,
+    initializeAggregation('argMaxState', null_s, min_ts_64) as last_external_click_url,
+
+    -- device
+    initializeAggregation('argMinState', null_s, max_ts_64) as browser,
+    initializeAggregation('argMinState', null_s, max_ts_64) as browser_version,
+    initializeAggregation('argMinState', null_s, max_ts_64) as os,
+    initializeAggregation('argMinState', null_s, max_ts_64) as os_version,
+    initializeAggregation('argMinState', null_s, max_ts_64) as device_type,
+    initializeAggregation('argMinState', null_i64, max_ts_64) as viewport_width,
+    initializeAggregation('argMinState', null_i64, max_ts_64) as viewport_height,
+
+    -- geo ip
+    initializeAggregation('argMinState', null_s, max_ts_64) as geoip_country_code,
+    initializeAggregation('argMinState', null_s, max_ts_64) as geoip_subdivision_1_code,
+    initializeAggregation('argMinState', null_s, max_ts_64) as geoip_subdivision_1_name,
+    initializeAggregation('argMinState', null_s, max_ts_64) as geoip_subdivision_city_name,
+    initializeAggregation('argMinState', null_s, max_ts_64) as geoip_time_zone,
+
+    -- attribution
+    initializeAggregation('argMinState', null_s, max_ts_64) as entry_referring_domain,
+    initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_source,
+    initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_campaign,
+    initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_medium,
+    initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_term,
+    initializeAggregation('argMinState', null_s, max_ts_64) as entry_utm_content,
+    initializeAggregation('argMinState', null_s, max_ts_64) as entry_gclid,
+    initializeAggregation('argMinState', null_s, max_ts_64) as entry_gad_source,
+    initializeAggregation('argMinState', null_s, max_ts_64) as entry_fbclid,
+
+    -- has gclid/fbclid for reading fewer bytes when calculating channel type
+    initializeAggregation('argMinState', false, max_ts_64) as entry_has_gclid,
+    initializeAggregation('argMinState', false, max_ts_64) as entry_has_fbclid,
+
+    -- other ad ids
+    initializeAggregation('argMinState', CAST(map(), 'Map(String, String)'), max_ts_64) as entry_ad_ids_map,
+    initializeAggregation('argMinState', CAST([], 'Array(String)'), max_ts_64) as entry_ad_ids_set,
+
+    -- channel type
+    initializeAggregation('argMinState', tuple(null_s, null_s, null_s, null_s, false, false, null_s), max_ts_64) as entry_channel_type_properties,
+
+    -- counts
+    initializeAggregation('uniqExactState', null_uuid) as pageview_uniq,
+    initializeAggregation('uniqExactState', null_uuid) as autocapture_uniq,
+    initializeAggregation('uniqExactState', null_uuid) as screen_uniq,
+
+    -- perf
+    initializeAggregation('uniqUpToState(1)', null_uuid) as page_screen_autocapture_uniq_up_to,
+
+    -- flags
+    initializeAggregation('groupUniqArrayMapState', CAST(map(), 'Map(String, String)')) as flag_values,
+
+    -- replay
+    true as has_replay_events
+FROM {source_table} AS source_table
+WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
+AND {where}
+    """.format(
+        source_table=source_table,
+        where=where,
+    )
+
+
+def RAW_SESSIONS_TABLE_MV_RECORDINGS_SQL_V3(where="TRUE"):
+    return """
+CREATE MATERIALIZED VIEW IF NOT EXISTS {table_name}
+TO {database}.{target_table}
+AS
+{select_sql}
+""".format(
+        table_name=RAW_SESSIONS_MV_RECORDINGS_V3(),
+        target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        database=settings.CLICKHOUSE_DATABASE,
+        select_sql=RAW_SESSION_TABLE_MV_RECORDINGS_SELECT_SQL_V3(
+            where=where,
+            # use sharded_session_replay_events, this means that the mv MUST be created on every data node
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_session_replay_events",
+        ),
+    )
 
 
 def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE"):
@@ -371,7 +496,11 @@ INSERT INTO {database}.{writable_table}
 """.format(
         database=settings.CLICKHOUSE_DATABASE,
         writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
-        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where=where),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(
+            where=where,
+            # use sharded_events for the source table, this means that the backfill MUST run on every shard
+            source_table=f"{settings.CLICKHOUSE_DATABASE}.sharded_events",
+        ),
     )
 
 
@@ -416,7 +545,6 @@ SELECT
     team_id,
 
     argMaxMerge(distinct_id) as distinct_id,
-    argMaxMerge(person_id) as person_id,
     groupUniqArrayMerge(distinct_ids) AS distinct_ids,
 
     min(min_timestamp) as min_timestamp,
@@ -473,7 +601,10 @@ SELECT
     uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to,
 
     -- flags
-    groupUniqArrayMapMerge(flag_values) as flag_values
+    groupUniqArrayMapMerge(flag_values) as flag_values,
+
+    -- replay
+    max(has_replay_events) as has_replay_events
 FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}
 GROUP BY session_id_v7, session_timestamp, team_id
 """
