@@ -73,7 +73,10 @@ pub fn create_identify_event(
         now: Utc::now().to_rfc3339(),
         sent_at: None,
         token: token.to_string(),
+        event: "$identify".to_string(),
+        timestamp,
         is_cookieless_mode: false,
+        historical_migration: true,
     };
 
     Ok(InternallyCapturedEvent {
@@ -85,7 +88,7 @@ pub fn create_identify_event(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::Value;
+    use serde_json::{json, Value};
 
     #[test]
     fn test_create_identify_event() {
@@ -369,7 +372,6 @@ mod tests {
         let device_id = "device456";
         let event_uuid = Uuid::now_v7();
 
-        // Use a specific timestamp that's not "now"
         let specific_timestamp = chrono::DateTime::parse_from_rfc3339("2023-10-15T14:30:00Z")
             .unwrap()
             .with_timezone(&Utc);
@@ -384,13 +386,66 @@ mod tests {
         )
         .unwrap();
 
-        // Parse the data and verify timestamp is preserved
         let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
         assert_eq!(data.timestamp, Some(specific_timestamp.to_rfc3339()));
 
-        // Also verify the timestamp is not a "now" timestamp
         let now = Utc::now();
         assert_ne!(data.timestamp, Some(now.to_rfc3339()));
+    }
+
+    #[test]
+    fn test_identify_event_has_historical_migration_and_current_now_timestamp() {
+        let team_id = 123;
+        let token = "test_token";
+        let user_id = "user123";
+        let device_id = "device456";
+        let event_uuid = Uuid::now_v7();
+        let before_test = Utc::now();
+
+        let specific_timestamp = chrono::DateTime::parse_from_rfc3339("2023-10-15T14:30:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let result = create_identify_event(
+            team_id,
+            token,
+            user_id,
+            device_id,
+            event_uuid,
+            specific_timestamp,
+        )
+        .unwrap();
+
+        let after_test = Utc::now();
+
+        assert!(
+            result.inner.historical_migration,
+            "historical_migration field must be true for identify events"
+        );
+
+        assert!(
+            !result.inner.now.is_empty(),
+            "now field must be set for events"
+        );
+
+        let now_timestamp = chrono::DateTime::parse_from_rfc3339(&result.inner.now)
+            .expect("now should be valid RFC3339 timestamp")
+            .with_timezone(&Utc);
+        assert!(
+            now_timestamp >= before_test && now_timestamp <= after_test,
+            "now timestamp should be current (between test start and end)"
+        );
+
+        let serialized = serde_json::to_value(&result.inner).unwrap();
+        assert_eq!(
+            serialized["historical_migration"],
+            json!(true),
+            "historical_migration must be in serialized output"
+        );
+        assert!(
+            serialized["now"].is_string(),
+            "now must be a string in serialized output"
+        );
     }
 
     #[test]

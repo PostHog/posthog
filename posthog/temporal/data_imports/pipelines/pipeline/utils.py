@@ -336,7 +336,12 @@ def setup_partitioning(
     if partition_result is not None:
         pa_table, partition_mode, partition_format, updated_partition_keys = partition_result
 
-        if not schema.partitioning_enabled:
+        if (
+            not schema.partitioning_enabled
+            or schema.partition_mode != partition_mode
+            or schema.partition_format != partition_format
+            or schema.partitioning_keys != updated_partition_keys
+        ):
             logger.debug(
                 f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}. partition_mode={partition_mode}. partition_format={partition_format}"
             )
