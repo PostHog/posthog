@@ -9,7 +9,7 @@ import structlog
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
-from posthog.schema import AssistantEventType, FailureMessage
+from posthog.schema import FailureMessage
 
 from posthog.temporal.ai.conversation import (
     AssistantConversationRunnerWorkflow,
@@ -17,46 +17,100 @@ from posthog.temporal.ai.conversation import (
 )
 from posthog.temporal.common.client import async_connect
 
+from ee.hogai.graph.base import BaseAssistantNode
+from ee.hogai.graph.deep_research.types import DeepResearchNodeName
+from ee.hogai.graph.funnels.nodes import FunnelGeneratorNode
+from ee.hogai.graph.insights.nodes import InsightSearchNode
+from ee.hogai.graph.query_executor.nodes import QueryExecutorNode
+from ee.hogai.graph.retention.nodes import RetentionGeneratorNode
+from ee.hogai.graph.sql.nodes import SQLGeneratorNode
+from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
+from ee.hogai.graph.trends.nodes import TrendsGeneratorNode
 from ee.hogai.stream.redis_stream import (
-    ConversationEvent,
     ConversationRedisStream,
-    GenerationStatusEvent,
-    MessageEvent,
     StreamError,
-    StreamEvent,
-    UpdateEvent,
+    StreamStatusEvent,
     get_conversation_stream_key,
 )
-from ee.hogai.utils.types import AssistantOutput
+from ee.hogai.utils.stream_processor import AssistantStreamProcessor
+from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMode, AssistantNodeName, AssistantResultUnion
+from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 
 
-class ConversationStreamManager:
+class AssistantExecutor:
     """Manages conversation streaming from Redis streams."""
+
+    # Node configuration - hardcoded based on assistant type
+    STREAMING_NODES: dict[AssistantMode, set[MaxNodeName]] = {
+        AssistantMode.ASSISTANT: {
+            AssistantNodeName.ROOT,
+            AssistantNodeName.INKEEP_DOCS,
+            AssistantNodeName.MEMORY_ONBOARDING,
+            AssistantNodeName.MEMORY_INITIALIZER,
+            AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
+            AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
+            AssistantNodeName.DASHBOARD_CREATION,
+        },
+        AssistantMode.INSIGHTS_TOOL: {
+            TaxonomyNodeName.LOOP_NODE,
+        },
+        AssistantMode.DEEP_RESEARCH: {
+            DeepResearchNodeName.ONBOARDING,
+            DeepResearchNodeName.PLANNER,
+            DeepResearchNodeName.TASK_EXECUTOR,
+        },
+    }
+
+    VISUALIZATION_NODES: dict[AssistantMode, dict[MaxNodeName, type[BaseAssistantNode]]] = {
+        AssistantMode.ASSISTANT: {
+            AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
+            AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
+            AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
+            AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
+            AssistantNodeName.INSIGHTS_SEARCH: InsightSearchNode,
+        },
+        AssistantMode.INSIGHTS_TOOL: {
+            AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
+            AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
+            AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
+            AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
+            AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
+        },
+        AssistantMode.DEEP_RESEARCH: {},
+    }
 
     def __init__(self, conversation: Conversation) -> None:
         self._conversation = conversation
         self._redis_stream = ConversationRedisStream(get_conversation_stream_key(conversation.id))
         self._workflow_id = f"conversation-{conversation.id}"
 
+    def _get_node_config(
+        self, mode: AssistantMode
+    ) -> tuple[set[MaxNodeName], dict[MaxNodeName, type[BaseAssistantNode]]]:
+        """Get node configuration for the given assistant mode."""
+        streaming_nodes = self.STREAMING_NODES.get(mode, set[MaxNodeName]())
+        visualization_nodes = self.VISUALIZATION_NODES.get(mode, dict[MaxNodeName, type[BaseAssistantNode]]())
+        return streaming_nodes, visualization_nodes
+
     async def astream(
         self, workflow_inputs: AssistantConversationRunnerWorkflowInputs
-    ) -> AsyncGenerator[AssistantOutput, Any]:
+    ) -> AsyncGenerator[AssistantResultUnion | Conversation, Any]:
         """Stream conversation updates from Redis stream.
 
         Args:
             workflow_inputs: Temporal workflow inputs
 
         Returns:
-            AssistantOutput generator
+            Generator yielding AssistantResultUnion or Conversation objects
         """
         # If this is a reconnection attempt, we resume streaming
         if self._conversation.status != Conversation.Status.IDLE:
             if workflow_inputs.message is not None:
                 raise ValueError("Cannot resume streaming with a new message")
-            async for chunk in self.stream_conversation():
+            async for chunk in self.stream_conversation(workflow_inputs):
                 yield chunk
         else:
             # Otherwise, process the new message (new generation) or resume generation (no new message)
@@ -65,7 +119,7 @@ class ConversationStreamManager:
 
     async def start_workflow(
         self, workflow_inputs: AssistantConversationRunnerWorkflowInputs
-    ) -> AsyncGenerator[AssistantOutput, Any]:
+    ) -> AsyncGenerator[AssistantResultUnion | Conversation, Any]:
         try:
             # Delete the stream to ensure we start fresh
             # since there might be a stale stream from a previous conversation gone wrong
@@ -92,7 +146,7 @@ class ConversationStreamManager:
             yield self._failure_message()
             return
 
-        async for chunk in self.stream_conversation():
+        async for chunk in self.stream_conversation(workflow_inputs):
             yield chunk
 
     async def _wait_for_workflow_to_start(self, handle: WorkflowHandle) -> bool:
@@ -120,22 +174,48 @@ class ConversationStreamManager:
 
         return False
 
-    async def stream_conversation(self) -> AsyncGenerator[AssistantOutput, Any]:
-        """Stream conversation updates from Redis stream.
+    async def stream_conversation(
+        self, workflow_inputs: AssistantConversationRunnerWorkflowInputs
+    ) -> AsyncGenerator[AssistantResultUnion | Conversation, Any]:
+        """Stream conversation updates from Redis stream with processing.
+
+        Args:
+            workflow_inputs: Temporal workflow inputs
 
         Returns:
-            AssistantOutput generator
+            Generator yielding AssistantResultUnion or Conversation objects
         """
         try:
+            # Yield conversation event for new conversations
+            if workflow_inputs.is_new_conversation:
+                yield self._conversation
+
             # Wait for stream to be created
             is_stream_available = await self._redis_stream.wait_for_stream()
             if not is_stream_available:
                 raise StreamError("Stream for this conversation not available - Temporal workflow might have failed")
 
-            async for chunk in self._redis_stream.read_stream():
-                message = await self._redis_stream_to_assistant_output(chunk)
-                if message:
-                    yield message
+            # Get node configuration for this mode
+            streaming_nodes, visualization_nodes = self._get_node_config(workflow_inputs.mode)
+
+            # Initialize processor
+            processor = AssistantStreamProcessor(
+                streaming_nodes=streaming_nodes,
+                visualization_nodes=visualization_nodes,
+            )
+
+            # Read stream from beginning - processor will handle deduplication and state reconstruction
+            # Starting from "0" means we replay all events, which rebuilds processor state automatically
+            async for event in self._redis_stream.read_stream(start_id="0"):
+                # Skip status events
+                if isinstance(event, StreamStatusEvent):
+                    continue
+
+                # Process dispatcher events through processor
+                if isinstance(event, AssistantDispatcherEvent):
+                    result = processor.process(event)
+                    if result:
+                        yield result
 
         except Exception as e:
             logger.exception("Error streaming conversation", error=e)
@@ -144,34 +224,12 @@ class ConversationStreamManager:
         finally:
             await self._redis_stream.delete_stream()
 
-    async def _redis_stream_to_assistant_output(self, message: StreamEvent) -> AssistantOutput | None:
-        """Convert Redis stream event to Assistant output.
-
-        Args:
-            message: event from Redis stream
-
-        Returns:
-            AssistantOutput or None
-        """
-        if isinstance(message.event, MessageEvent):
-            return (AssistantEventType.MESSAGE, message.event.payload)
-        elif isinstance(message.event, ConversationEvent):
-            conversation = await Conversation.objects.aget(id=message.event.payload)
-            return (AssistantEventType.CONVERSATION, conversation)
-        elif isinstance(message.event, UpdateEvent):
-            return (AssistantEventType.UPDATE, message.event.payload)
-        elif isinstance(message.event, GenerationStatusEvent):
-            return (AssistantEventType.STATUS, message.event.payload)
-        else:
-            return None
-
-    def _failure_message(self) -> AssistantOutput:
-        """Returns a failure message as an Assistant output."""
-        failure_message = FailureMessage(
+    def _failure_message(self) -> FailureMessage:
+        """Returns a failure message."""
+        return FailureMessage(
             content="Oops! Something went wrong. Please try again.",
             id=str(uuid4()),
         )
-        return (AssistantEventType.MESSAGE, failure_message)
 
     async def cancel_conversation(self) -> None:
         """Cancel the current conversation and clean up resources.

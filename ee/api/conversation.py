@@ -25,8 +25,8 @@ from posthog.temporal.ai.conversation import AssistantConversationRunnerWorkflow
 from posthog.utils import get_instance_region
 
 from ee.hogai.api.serializers import ConversationSerializer
-from ee.hogai.stream.conversation_stream import ConversationStreamManager
 from ee.hogai.utils.aio import async_to_sync
+from ee.hogai.utils.assistant_executor import AssistantExecutor
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types.base import AssistantMode
 from ee.models.assistant import Conversation
@@ -181,7 +181,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             workflow_inputs: AssistantConversationRunnerWorkflowInputs,
         ) -> AsyncGenerator[bytes, None]:
             serializer = AssistantSSESerializer()
-            stream_manager = ConversationStreamManager(conversation)
+            stream_manager = AssistantExecutor(conversation)
             async for chunk in stream_manager.astream(workflow_inputs):
                 yield serializer.dumps(chunk).encode("utf-8")
 
@@ -200,7 +200,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         async def cancel_workflow():
-            conversation_manager = ConversationStreamManager(conversation)
+            conversation_manager = AssistantExecutor(conversation)
             await conversation_manager.cancel_conversation()
 
         try:
