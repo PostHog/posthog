@@ -65,6 +65,14 @@ const costsByModel: Record<string, MockModelRow> = {
     'openai/gpt-4.1': { model: 'openai/gpt-4.1', cost: { prompt_token: 0.9, completion_token: 0.9 } },
     'backup-model': { model: 'backup-model', cost: { prompt_token: 0.5, completion_token: 0.5 } },
     'fallback-model': { model: 'fallback-model', cost: { prompt_token: 0.6, completion_token: 0.6 } },
+    'perplexity/sonar-pro': {
+        model: 'perplexity/sonar-pro',
+        cost: { prompt_token: 0.000001, completion_token: 0.000001, request: 0.005, web_search: 0.005 },
+    },
+    'model-with-request-only': {
+        model: 'model-with-request-only',
+        cost: { prompt_token: 0.0000015, completion_token: 0.000006, request: 0.002 },
+    },
 }
 
 jest.mock('./providers', () => {
@@ -84,6 +92,8 @@ jest.mock('./providers', () => {
         'google/gemini-2.0-flash-001': 'google-ai-studio',
         'openai/o1-mini': 'openai',
         'mistralai/mistral-7b-instruct-v0.1': 'mistralai',
+        'perplexity/sonar-pro': 'perplexity',
+        'model-with-request-only': 'custom',
     }
 
     let cachedMocks:
@@ -1253,6 +1263,290 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.00021, 6)
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.000375, 6)
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.000585, 6)
+        })
+    })
+
+    describe('request cost handling', () => {
+        it('calculates request cost with model-based pricing and default count', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // Token costs: (100 * 0.000001) + (50 * 0.000001) = 0.0001 + 0.00005 = 0.00015
+            // Request cost: 1 * 0.005 = 0.005 (defaults to 1 when model has request cost)
+            // Total: 0.00015 + 0.005 = 0.00515
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.0001, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00005, 6)
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.005, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00515, 6)
+        })
+
+        it('calculates request cost with explicit request count', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_count = 3
+
+            const result = processAiEvent(event)
+
+            // Token costs: 0.00015
+            // Request cost: 3 * 0.005 = 0.015
+            // Total: 0.00015 + 0.015 = 0.01515
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.015, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.01515, 6)
+        })
+
+        it('calculates request cost with zero count', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_count = 0
+
+            const result = processAiEvent(event)
+
+            // Request cost: 0 * 0.005 = 0
+            expect(result.properties!.$ai_request_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00015, 6)
+        })
+
+        it('does not calculate request cost for models without request pricing', () => {
+            event.properties!.$ai_model = 'gpt-4'
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_count = 5
+
+            const result = processAiEvent(event)
+
+            // gpt-4 does not have request pricing
+            expect(result.properties!.$ai_request_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBe(30) // Only token costs
+        })
+
+        it('uses custom request pricing when provided', () => {
+            event.properties!.$ai_input_token_price = 0.000001
+            event.properties!.$ai_output_token_price = 0.000001
+            event.properties!.$ai_request_price = 0.01
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_count = 2
+
+            const result = processAiEvent(event)
+
+            // Token costs: (100 * 0.000001) + (50 * 0.000001) = 0.00015
+            // Request cost: 2 * 0.01 = 0.02
+            // Total: 0.00015 + 0.02 = 0.02015
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.0001, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.00005, 6)
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.02, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.02015, 6)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+        })
+
+        it('handles pre-calculated request cost', () => {
+            event.properties!.$ai_input_cost_usd = 0.01
+            event.properties!.$ai_output_cost_usd = 0.02
+            event.properties!.$ai_request_cost_usd = 0.005
+
+            const result = processAiEvent(event)
+
+            // Should use pre-calculated costs
+            expect(result.properties!.$ai_input_cost_usd).toBe(0.01)
+            expect(result.properties!.$ai_output_cost_usd).toBe(0.02)
+            expect(result.properties!.$ai_request_cost_usd).toBe(0.005)
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.035)
+        })
+
+        it('includes request cost in total when using custom pricing without count', () => {
+            event.properties!.$ai_input_token_price = 0.000001
+            event.properties!.$ai_output_token_price = 0.000001
+            event.properties!.$ai_request_price = 0.003
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // Custom pricing defaults request count to 1 if request price is provided
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.003, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00315, 6)
+        })
+    })
+
+    describe('web search cost handling', () => {
+        it('calculates web search cost with model-based pricing and explicit count', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_web_search_count = 2
+
+            const result = processAiEvent(event)
+
+            // Token costs: 0.00015
+            // Request cost: 1 * 0.005 = 0.005 (defaults to 1)
+            // Web search cost: 2 * 0.005 = 0.01
+            // Total: 0.00015 + 0.005 + 0.01 = 0.01515
+            expect(result.properties!.$ai_web_search_cost_usd).toBeCloseTo(0.01, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.01515, 6)
+        })
+
+        it('does not calculate web search cost without explicit count', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // No web search count provided, should be 0
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0)
+        })
+
+        it('calculates web search cost with zero count', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_web_search_count = 0
+
+            const result = processAiEvent(event)
+
+            // Web search cost: 0 * 0.005 = 0
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0)
+        })
+
+        it('does not calculate web search cost for models without web search pricing', () => {
+            event.properties!.$ai_model = 'gpt-4'
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_web_search_count = 3
+
+            const result = processAiEvent(event)
+
+            // gpt-4 does not have web search pricing
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0)
+        })
+
+        it('uses custom web search pricing when provided', () => {
+            event.properties!.$ai_input_token_price = 0.000001
+            event.properties!.$ai_output_token_price = 0.000001
+            event.properties!.$ai_web_search_price = 0.008
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_web_search_count = 3
+
+            const result = processAiEvent(event)
+
+            // Token costs: 0.00015
+            // Web search cost: 3 * 0.008 = 0.024
+            // Total: 0.00015 + 0.024 = 0.02415
+            expect(result.properties!.$ai_web_search_cost_usd).toBeCloseTo(0.024, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.02415, 6)
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+        })
+
+        it('does not calculate custom web search cost without count', () => {
+            event.properties!.$ai_input_token_price = 0.000001
+            event.properties!.$ai_output_token_price = 0.000001
+            event.properties!.$ai_web_search_price = 0.008
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            // No web search count, should not calculate
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00015, 6)
+        })
+
+        it('handles pre-calculated web search cost', () => {
+            event.properties!.$ai_input_cost_usd = 0.01
+            event.properties!.$ai_output_cost_usd = 0.02
+            event.properties!.$ai_web_search_cost_usd = 0.015
+
+            const result = processAiEvent(event)
+
+            // Should use pre-calculated costs
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0.015)
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.045)
+        })
+    })
+
+    describe('combined request and web search costs', () => {
+        it('calculates all cost components together', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 1000
+            event.properties!.$ai_output_tokens = 500
+            event.properties!.$ai_request_count = 2
+            event.properties!.$ai_web_search_count = 3
+
+            const result = processAiEvent(event)
+
+            // Token costs: (1000 * 0.000001) + (500 * 0.000001) = 0.0015
+            // Request cost: 2 * 0.005 = 0.01
+            // Web search cost: 3 * 0.005 = 0.015
+            // Total: 0.0015 + 0.01 + 0.015 = 0.0265
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.001, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0005, 6)
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.01, 6)
+            expect(result.properties!.$ai_web_search_cost_usd).toBeCloseTo(0.015, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0265, 6)
+        })
+
+        it('calculates all cost components with custom pricing', () => {
+            event.properties!.$ai_input_token_price = 0.000002
+            event.properties!.$ai_output_token_price = 0.000003
+            event.properties!.$ai_request_price = 0.007
+            event.properties!.$ai_web_search_price = 0.01
+            event.properties!.$ai_input_tokens = 500
+            event.properties!.$ai_output_tokens = 200
+            event.properties!.$ai_request_count = 1
+            event.properties!.$ai_web_search_count = 2
+
+            const result = processAiEvent(event)
+
+            // Token costs: (500 * 0.000002) + (200 * 0.000003) = 0.001 + 0.0006 = 0.0016
+            // Request cost: 1 * 0.007 = 0.007
+            // Web search cost: 2 * 0.01 = 0.02
+            // Total: 0.0016 + 0.007 + 0.02 = 0.0286
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.001, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0006, 6)
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.007, 6)
+            expect(result.properties!.$ai_web_search_cost_usd).toBeCloseTo(0.02, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.0286, 6)
+        })
+
+        it('handles all pre-calculated costs together', () => {
+            event.properties!.$ai_input_cost_usd = 0.1
+            event.properties!.$ai_output_cost_usd = 0.2
+            event.properties!.$ai_request_cost_usd = 0.05
+            event.properties!.$ai_web_search_cost_usd = 0.03
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.38)
+        })
+
+        it('includes request cost but not web search when only request count provided', () => {
+            event.properties!.$ai_provider = 'perplexity'
+            event.properties!.$ai_model = 'sonar-pro'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_count = 1
+
+            const result = processAiEvent(event)
+
+            // Token + request, no web search
+            expect(result.properties!.$ai_request_cost_usd).toBeCloseTo(0.005, 6)
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.00515, 6)
         })
     })
 })

@@ -22,10 +22,7 @@ plugin-server/src/ @PostHog/team-ingestion @PostHog/team-workflows
 plugin-server/tests/ @PostHog/team-ingestion
 plugin-server/src/ingestion/ @PostHog/team-ingestion
 plugin-server/src/cdp/ @PostHog/team-workflows
-
-# ClickHouse team owns Clickhouse migrations
-
-posthog/clickhouse/migrations/** @PostHog/clickhouse
+plugin-server/src/ingestion/ai-costs/ @PostHog/team-llm-analytics
 
 # Web Analytics team owns web analytics code
 
@@ -84,14 +81,14 @@ frontend/src/scenes/feature-flags/ @PostHog/team-feature-flags
 
 # Team data warehouse
 
-posthog/temporal/data_imports/** @PostHog/team-data-warehouse
-posthog/temporal/data_modeling/** @PostHog/team-data-warehouse
-posthog/warehouse/** @PostHog/team-data-warehouse
-products/data_warehouse/** @PostHog/team-data-warehouse
-frontend/src/scenes/data-warehouse/** @PostHog/team-data-warehouse
-posthog/management/commands/generate_source_configs.py @PostHog/team-data-warehouse
-posthog/settings/data_warehouse.py @PostHog/team-data-warehouse
-posthog/hogql/** @PostHog/team-data-warehouse
+posthog/temporal/data_imports/** @PostHog/team-data-stack
+posthog/temporal/data_modeling/** @PostHog/team-data-stack
+posthog/warehouse/** @PostHog/team-data-stack
+products/data_warehouse/** @PostHog/team-data-stack
+frontend/src/scenes/data-warehouse/** @PostHog/team-data-stack
+posthog/management/commands/generate_source_configs.py @PostHog/team-data-stack
+posthog/settings/data_warehouse.py @PostHog/team-data-stack
+posthog/hogql/** @PostHog/team-data-stack
 
 # Team error tracking
 
@@ -115,5 +112,11 @@ ee/session_recordings/**/*.py @PostHog/team-replay
 ee/frontend/mobile-replay @PostHog/team-replay
 
 # DevEx
-
-posthog/management/migration_analysis/ @PostHog/DevEx
+Dockerfile @PostHog/team-devex
+docker-compose*.yml @PostHog/team-devex
+pyproject.toml @PostHog/team-devex
+.prettierrc @PostHog/team-devex
+mypy.ini @PostHog/team-devex
+posthog/management/migration_analysis/ @PostHog/team-devex
+common/hogli/ @PostHog/team-devex
+bin/ @PostHog/team-devex

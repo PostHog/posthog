@@ -15,6 +15,7 @@ import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFi
 import { TracesQuery } from '~/queries/schema/schema-general'
 import { isTracesQuery } from '~/queries/utils'
 
+import { LLMAnalyticsSetupPrompt } from 'products/llm_analytics/frontend/LLMAnalyticsSetupPrompt'
 import { useTracesQueryContext } from 'products/llm_analytics/frontend/LLMAnalyticsTracesScene'
 import { llmAnalyticsLogic } from 'products/llm_analytics/frontend/llmAnalyticsLogic'
 
@@ -37,28 +38,30 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
 
     return (
         <BindLogic logic={dataNodeLogic} props={{ key: personId }}>
-            <Query
-                query={{
-                    ...tracesQuery,
-                    embedded: true,
-                    showTestAccountFilters: false,
-                    showReload: false,
-                    showExport: false,
-                    showDateRange: false,
-                    showPropertyFilter: false,
-                    showTimings: false,
-                }}
-                context={context}
-                setQuery={(query) => {
-                    if (!isTracesQuery(query.source)) {
-                        throw new Error('Invalid query')
-                    }
-                    setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
-                    setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-                    setPropertyFilters(query.source.properties || [])
-                    setTracesQuery(query)
-                }}
-            />
+            <LLMAnalyticsSetupPrompt className="border-none">
+                <Query
+                    query={{
+                        ...tracesQuery,
+                        embedded: true,
+                        showTestAccountFilters: false,
+                        showReload: false,
+                        showExport: false,
+                        showDateRange: false,
+                        showPropertyFilter: false,
+                        showTimings: false,
+                    }}
+                    context={context}
+                    setQuery={(query) => {
+                        if (!isTracesQuery(query.source)) {
+                            throw new Error('Invalid query')
+                        }
+                        setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
+                        setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
+                        setPropertyFilters(query.source.properties || [])
+                        setTracesQuery(query)
+                    }}
+                />
+            </LLMAnalyticsSetupPrompt>
         </BindLogic>
     )
 }

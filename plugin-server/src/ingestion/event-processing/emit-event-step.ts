@@ -34,6 +34,7 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
                 topic: clickhouseJsonEventsTopic,
                 key: eventToEmit.uuid,
                 value: Buffer.from(JSON.stringify(eventToEmit)),
+                headers: { productTrack: productTrackHeader(eventToEmit) },
             })
             .then((result) => {
                 // Increment the metric when event is successfully emitted
@@ -57,4 +58,8 @@ export function createEmitEventStep<T extends EmitEventStepInput>(
 
         return Promise.resolve(ok(undefined, [emitPromise]))
     }
+}
+
+export function productTrackHeader(event: RawKafkaEvent): string {
+    return event.event.startsWith('$ai_') ? 'llma' : 'general'
 }

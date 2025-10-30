@@ -351,10 +351,15 @@ function FrequencySection(): JSX.Element {
                         options={FREQUENCY_OPTIONS}
                         value={workflow.trigger_masking?.hash ?? null}
                         onChange={(val) =>
-                            setWorkflowValue('trigger_masking', {
-                                hash: val,
-                                ttl: workflow.trigger_masking?.ttl ?? 60 * 30,
-                            })
+                            setWorkflowValue(
+                                'trigger_masking',
+                                val
+                                    ? {
+                                          hash: val,
+                                          ttl: workflow.trigger_masking?.ttl ?? 60 * 30,
+                                      }
+                                    : null
+                            )
                         }
                     />
                     {workflow.trigger_masking?.hash ? (

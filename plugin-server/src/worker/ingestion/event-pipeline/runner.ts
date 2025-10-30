@@ -25,6 +25,7 @@ import {
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
 import { prepareEventStep } from './prepareEventStep'
+import { processPersonlessStep } from './processPersonlessStep'
 import { processPersonsStep } from './processPersonsStep'
 import { transformEventStep } from './transformEventStep'
 
@@ -237,32 +238,22 @@ export class EventPipelineRunner {
         }
         const [normalizedEvent, timestamp] = normalizeResult.value
 
-        const personStepResult = await this.runPipelineStep<
-            [PluginEvent, Person, Promise<void>],
-            typeof processPersonsStep
-        >(
-            processPersonsStep,
-            [
-                this,
-                normalizedEvent,
-                team,
-                timestamp,
-                processPerson,
-                this.personsStoreForBatch,
-                forceDisablePersonProcessing,
-            ],
+        const personProcessingResult = await this.processPersonForEvent(
+            normalizedEvent,
+            team,
+            timestamp,
+            processPerson,
+            forceDisablePersonProcessing,
             team.id,
-            true,
             kafkaAcks,
             warnings
         )
 
-        if (!isOkResult(personStepResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return personStepResult
+        if (!isOkResult(personProcessingResult)) {
+            return personProcessingResult
         }
 
-        const [postPersonEvent, person, personKafkaAck] = personStepResult.value
+        const { event: postPersonEvent, person, kafkaAck: personKafkaAck } = personProcessingResult.value
         kafkaAcks.push(personKafkaAck)
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
@@ -286,6 +277,74 @@ export class EventPipelineRunner {
         })
 
         return ok(result, kafkaAcks, warnings)
+    }
+
+    private async processPersonForEvent(
+        event: PluginEvent,
+        team: Team,
+        timestamp: DateTime,
+        processPerson: boolean,
+        forceDisablePersonProcessing: boolean,
+        teamId: number,
+        kafkaAcks: Promise<unknown>[],
+        warnings: PipelineWarning[]
+    ): Promise<PipelineResult<{ event: PluginEvent; person: Person; kafkaAck: Promise<void> }>> {
+        let postPersonEvent = event
+        let person: Person
+        let personKafkaAck: Promise<void> = Promise.resolve()
+        let shouldProcessPerson = processPerson
+        let forceUpgrade = false
+
+        // If personless mode, check if we need to force upgrade
+        if (!processPerson) {
+            const personlessResult = await this.runPipelineStep<Person, typeof processPersonlessStep>(
+                processPersonlessStep,
+                [event, team, timestamp, this.personsStoreForBatch, forceDisablePersonProcessing],
+                teamId,
+                true,
+                kafkaAcks,
+                warnings
+            )
+
+            if (!isOkResult(personlessResult)) {
+                return personlessResult
+            }
+
+            person = personlessResult.value
+            forceUpgrade = !!person.force_upgrade
+            shouldProcessPerson = forceUpgrade
+        }
+
+        // Run full person processing if needed (either processPerson=true or force_upgrade)
+        if (shouldProcessPerson) {
+            const personStepResult = await this.runPipelineStep<
+                [PluginEvent, Person, Promise<void>],
+                typeof processPersonsStep
+            >(
+                processPersonsStep,
+                [this, event, team, timestamp, true, this.personsStoreForBatch],
+                teamId,
+                true,
+                kafkaAcks,
+                warnings
+            )
+
+            if (!isOkResult(personStepResult)) {
+                return personStepResult
+            }
+
+            const [processedEvent, processedPerson, ack] = personStepResult.value
+            postPersonEvent = processedEvent
+            person = processedPerson
+            personKafkaAck = ack
+
+            // Preserve force_upgrade flag if it was set by personless step
+            if (forceUpgrade) {
+                person.force_upgrade = true
+            }
+        }
+
+        return ok({ event: postPersonEvent, person: person!, kafkaAck: personKafkaAck })
     }
 
     registerLastStep<T extends object>(stepName: string, result: T): RunnerResult<T> {

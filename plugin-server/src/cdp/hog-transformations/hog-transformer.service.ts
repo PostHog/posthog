@@ -1,4 +1,4 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
@@ -46,6 +46,11 @@ export const hogWatcherLatency = new Histogram({
     labelNames: ['operation'],
 })
 
+export const hogTransformationPendingInvocationResults = new Gauge({
+    name: 'hog_transformation_pending_invocation_results',
+    help: 'Number of invocation results accumulated and waiting to be processed. High values indicate memory accumulation.',
+})
+
 export interface TransformationResult {
     event: PluginEvent | null
     invocationResults: CyclotronJobInvocationResult[]
@@ -84,6 +89,7 @@ export class HogTransformerService {
     public async processInvocationResults(): Promise<void> {
         const results = [...this.invocationResults]
         this.invocationResults = []
+        hogTransformationPendingInvocationResults.set(0)
 
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
 
@@ -137,6 +143,7 @@ export class HogTransformerService {
             for (const result of transformationResult.invocationResults) {
                 this.invocationResults.push(result)
             }
+            hogTransformationPendingInvocationResults.set(this.invocationResults.length)
 
             hogTransformationCompleted.inc({ type: 'with_messages' })
             return {

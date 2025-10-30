@@ -95,43 +95,34 @@ function getSourceStatus(
 
     const externalTable = validExternalTables.find((t) => t.source_map_id === source.id)
     if (externalTable) {
-        if (externalTable.schema_status === ExternalDataSchemaStatus.Completed) {
-            return { status: ExternalDataSchemaStatus.Completed, message: 'Table sync completed' }
-        }
-        if (externalTable.schema_status === ExternalDataSchemaStatus.Failed) {
-            return { status: ExternalDataSchemaStatus.Failed, message: 'Table sync failed' }
-        }
-        if (externalTable.schema_status === ExternalDataSchemaStatus.Running) {
-            return { status: ExternalDataSchemaStatus.Running, message: 'Table is syncing' }
-        }
-        if (externalTable.schema_status === ExternalDataSchemaStatus.Paused) {
-            return { status: ExternalDataSchemaStatus.Paused, message: 'Table sync is paused' }
-        }
-        if (externalTable.schema_status === ExternalDataSchemaStatus.Cancelled) {
-            return { status: ExternalDataSchemaStatus.Cancelled, message: 'Table sync is cancelled' }
+        // Prioritize mapping status over sync status
+        const hasMapping = externalTable.source_map && Object.keys(externalTable.source_map).length > 0
+
+        if (!hasMapping) {
+            return { status: MarketingSourceStatus.Warning, message: 'Needs column mapping' }
         }
 
-        // Check if table has required source mapping configuration
-        if (externalTable.source_map) {
-            const currentSourceMap = externalTable.source_map ?? {}
-            const requiredColumns = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
-                (column_name: MarketingAnalyticsColumnsSchemaNames) => MARKETING_ANALYTICS_SCHEMA[column_name].required
-            )
-
-            // Check if all required columns have valid mappings
-            const hasAllRequiredMappings = requiredColumns.every(
-                (column_name: MarketingAnalyticsColumnsSchemaNames) => {
-                    const mapping = currentSourceMap?.[column_name]
-                    return mapping && typeof mapping === 'string' && mapping.trim() !== ''
-                }
-            )
-
-            if (hasAllRequiredMappings) {
-                return { status: MarketingSourceStatus.Success, message: 'Table is configured and ready to use' }
+        // For sources with schema_status (managed sources like BigQuery)
+        if (externalTable.schema_status) {
+            if (externalTable.schema_status === ExternalDataSchemaStatus.Completed) {
+                return { status: ExternalDataSchemaStatus.Completed, message: 'Ready to use' }
+            }
+            if (externalTable.schema_status === ExternalDataSchemaStatus.Failed) {
+                return { status: ExternalDataSchemaStatus.Failed, message: 'Table sync failed' }
+            }
+            if (externalTable.schema_status === ExternalDataSchemaStatus.Running) {
+                return { status: ExternalDataSchemaStatus.Running, message: 'Table is syncing' }
+            }
+            if (externalTable.schema_status === ExternalDataSchemaStatus.Paused) {
+                return { status: ExternalDataSchemaStatus.Paused, message: 'Table sync is paused' }
+            }
+            if (externalTable.schema_status === ExternalDataSchemaStatus.Cancelled) {
+                return { status: ExternalDataSchemaStatus.Cancelled, message: 'Table sync is cancelled' }
             }
         }
 
-        return { status: MarketingSourceStatus.Warning, message: 'Table needs configuration' }
+        // For self-managed sources having a mapping means it's ready
+        return { status: ExternalDataSchemaStatus.Completed, message: 'Ready to use' }
     }
 
     return { status: MarketingSourceStatus.Error, message: 'Unknown source status' }
@@ -455,13 +446,15 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         allAvailableSources: [
             (s) => [s.validExternalTables, s.validNativeSources],
             (validExternalTables: ExternalTable[], validNativeSources: NativeSource[]) => {
-                const sources: Array<{ id: string; name: string; type: string; prefix?: string }> = []
+                const sources: Array<{ id: string; name: string; type: string; source_type: string; prefix?: string }> =
+                    []
 
                 validNativeSources.forEach((nativeSource) => {
                     sources.push({
                         id: nativeSource.source.id,
                         name: nativeSource.source.source_type,
                         type: 'native',
+                        source_type: nativeSource.source.source_type,
                         prefix: nativeSource.source.prefix,
                     })
                 })
@@ -471,6 +464,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         id: table.source_map_id,
                         name: table.schema_name,
                         type: table.external_type,
+                        source_type: table.source_type,
                         prefix: table.source_prefix,
                     })
                 })
@@ -491,27 +485,18 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 })
             },
         ],
-        nativeSourcesWithStatus: [
-            (s) => [s.nativeSources],
-            (nativeSources) => {
-                return nativeSources.map((source) => {
-                    const status = getSourceStatus(
-                        { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix },
-                        nativeSources,
-                        []
-                    )
-                    return {
-                        ...source,
-                        status: status.status,
-                        statusMessage: status.message,
-                    }
-                })
-            },
-        ],
-        externalTablesWithStatus: [
-            (s) => [s.externalTables],
-            (externalTables) => {
-                return externalTables.map((table) => {
+        allExternalTablesWithStatus: [
+            (s) => [s.externalTables, s.nativeSources],
+            (externalTables, nativeSources) => {
+                // Filter out tables that belong to native sources (to avoid duplicates)
+                // Only include BigQuery, self-managed, and other non-native sources
+                // For example a native source could have multiple external tables.
+                const nonNativeTables = externalTables.filter(
+                    (table) => !VALID_NATIVE_MARKETING_SOURCES.includes(table.source_type as NativeMarketingSource)
+                )
+
+                // Get all non-native external tables with status
+                const externalTablesWithStatus = nonNativeTables.map((table) => {
                     const status = getSourceStatus(
                         {
                             id: table.source_map_id,
@@ -520,7 +505,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                             prefix: table.source_prefix,
                         },
                         [],
-                        externalTables
+                        nonNativeTables
                     )
                     return {
                         ...table,
@@ -528,6 +513,38 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         statusMessage: status.message,
                     }
                 })
+
+                // Get all native sources with status and convert to ExternalTable format
+                const nativeSourcesAsExternalTables = nativeSources.map((source) => {
+                    const status = getSourceStatus(
+                        { id: source.id, name: source.source_type, type: 'native', prefix: source.prefix },
+                        nativeSources,
+                        []
+                    )
+
+                    // Convert native source to ExternalTable format for unified handling
+                    return {
+                        ...source,
+                        name: source.prefix || source.source_type,
+                        source_type: source.source_type,
+                        id: source.id,
+                        source_map_id: source.id,
+                        source_prefix: source.prefix || '',
+                        columns: [],
+                        url_pattern: '',
+                        sourceUrl: '',
+                        external_type: 'native' as any,
+                        source_map: null,
+                        schema_name: source.source_type,
+                        dw_source_type: source.source_type,
+                        status: status.status,
+                        statusMessage: status.message,
+                        isNativeSource: true,
+                    } as ExternalTable & { status: SourceStatus; statusMessage: string; isNativeSource?: boolean }
+                })
+
+                const result = [...nativeSourcesAsExternalTables, ...externalTablesWithStatus]
+                return result
             },
         ],
         createMarketingDataWarehouseNodes: [
@@ -561,7 +578,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     .filter(Boolean) as DataWarehouseNode[]
 
                 const nativeNodeList: DataWarehouseNode[] = filteredNativeSources
-                    .map((source) => MarketingDashboardMapper(source, tileColumnSelection))
+                    .map((source) => MarketingDashboardMapper(source, tileColumnSelection, baseCurrency))
                     .filter(Boolean) as DataWarehouseNode[]
 
                 return [...nativeNodeList, ...nonNativeNodeList]
