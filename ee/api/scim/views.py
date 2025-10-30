@@ -1,3 +1,7 @@
+from typing import cast
+
+from django.db.models import QuerySet
+
 from django_scim import constants
 from django_scim.filters import GroupFilterQuery, UserFilterQuery
 from rest_framework import status
@@ -33,36 +37,42 @@ class PostHogUserFilterQuery(UserFilterQuery):
     attr_map = SCIM_USER_ATTR_MAP
 
     @classmethod
-    def search(cls, filter_query, request, organization):
+    def search(cls, filter_query: str, request: Request) -> QuerySet[User]:
         raw_queryset = super().search(filter_query, request)
         # Filter results to only include users from the specified organization
-        user_ids = [u.id for u in list(raw_queryset)]
-        queryset = User.objects.filter(id__in=user_ids, organization_membership__organization=organization)
-        return queryset
+        org_domain = cast(OrganizationDomain, request.auth)
+        user_ids = [user.id for user in raw_queryset]
+        return User.objects.filter(
+            id__in=user_ids,
+            organization_membership__organization=org_domain.organization,
+        )
 
 
 class PostHogGroupFilterQuery(GroupFilterQuery):
     attr_map = SCIM_GROUP_ATTR_MAP
 
     @classmethod
-    def search(cls, filter_query, request, organization):
+    def search(cls, filter_query: str, request: Request) -> QuerySet[Role]:
         raw_queryset = super().search(filter_query, request)
         # Filter results to only include roles from the specified organization
-        role_ids = [r.id for r in list(raw_queryset)]
-        queryset = Role.objects.filter(id__in=role_ids, organization=organization)
-        return queryset
+        org_domain = cast(OrganizationDomain, request.auth)
+        role_ids = [role.id for role in raw_queryset]
+        return Role.objects.filter(
+            id__in=role_ids,
+            organization=org_domain.organization,
+        )
 
 
 class SCIMUsersView(APIView):
     authentication_classes = [SCIMBearerTokenAuthentication]
 
     def get(self, request: Request, domain_id: str) -> Response:
-        organization_domain: OrganizationDomain = request.auth
+        organization_domain = cast(OrganizationDomain, request.auth)
         filter_param = request.query_params.get("filter")
 
         if filter_param:
             try:
-                queryset = PostHogUserFilterQuery.search(filter_param, request, organization_domain.organization)
+                queryset = PostHogUserFilterQuery.search(filter_param, request)
                 users = [PostHogSCIMUser(u, organization_domain) for u in queryset]
             except Exception as e:
                 capture_exception(
@@ -89,7 +99,7 @@ class SCIMUsersView(APIView):
         )
 
     def post(self, request: Request, domain_id: str) -> Response:
-        organization_domain: OrganizationDomain = request.auth
+        organization_domain = cast(OrganizationDomain, request.auth)
         try:
             scim_user = PostHogSCIMUser.from_dict(request.data, organization_domain)
             return Response(scim_user.to_dict(), status=status.HTTP_201_CREATED)
@@ -110,7 +120,7 @@ class SCIMUserDetailView(APIView):
     authentication_classes = [SCIMBearerTokenAuthentication]
 
     def get_object(self, user_id: int) -> PostHogSCIMUser:
-        organization_domain: OrganizationDomain = self.request.auth
+        organization_domain = cast(OrganizationDomain, self.request.auth)
         user = User.objects.filter(id=user_id).first()
         if not user:
             raise User.DoesNotExist()
@@ -137,7 +147,7 @@ class SCIMUserDetailView(APIView):
                     "scim_operation": "replace_user",
                     "user_id": user_id,
                     "domain_id": domain_id,
-                    "organization_id": request.auth.organization.id,
+                    "organization_id": cast(OrganizationDomain, request.auth).organization.id,
                     "request_data": request.data,
                 },
             )
@@ -156,7 +166,7 @@ class SCIMUserDetailView(APIView):
                     "scim_operation": "update_user",
                     "user_id": user_id,
                     "domain_id": domain_id,
-                    "organization_id": request.auth.organization.id,
+                    "organization_id": cast(OrganizationDomain, request.auth).organization.id,
                     "request_data": request.data,
                 },
             )
@@ -172,12 +182,12 @@ class SCIMGroupsView(APIView):
     authentication_classes = [SCIMBearerTokenAuthentication]
 
     def get(self, request: Request, domain_id: str) -> Response:
-        organization_domain: OrganizationDomain = request.auth
+        organization_domain = cast(OrganizationDomain, request.auth)
         filter_param = request.query_params.get("filter")
 
         if filter_param:
             try:
-                queryset = PostHogGroupFilterQuery.search(filter_param, request, organization_domain.organization)
+                queryset = PostHogGroupFilterQuery.search(filter_param, request)
                 groups = [PostHogSCIMGroup(role, organization_domain) for role in queryset]
             except Exception as e:
                 capture_exception(
@@ -204,7 +214,7 @@ class SCIMGroupsView(APIView):
         )
 
     def post(self, request: Request, domain_id: str) -> Response:
-        organization_domain: OrganizationDomain = request.auth
+        organization_domain = cast(OrganizationDomain, request.auth)
         try:
             scim_group = PostHogSCIMGroup.from_dict(request.data, organization_domain)
             return Response(scim_group.to_dict(), status=status.HTTP_201_CREATED)
@@ -225,7 +235,7 @@ class SCIMGroupDetailView(APIView):
     authentication_classes = [SCIMBearerTokenAuthentication]
 
     def get_object(self, group_id: str) -> PostHogSCIMGroup:
-        organization_domain: OrganizationDomain = self.request.auth
+        organization_domain = cast(OrganizationDomain, self.request.auth)
         role = Role.objects.filter(id=group_id, organization=organization_domain.organization).first()
         if not role:
             raise Role.DoesNotExist()
@@ -252,7 +262,7 @@ class SCIMGroupDetailView(APIView):
                     "scim_operation": "replace_group",
                     "group_id": group_id,
                     "domain_id": domain_id,
-                    "organization_id": request.auth.organization.id,
+                    "organization_id": cast(OrganizationDomain, request.auth).organization.id,
                     "request_data": request.data,
                 },
             )
@@ -271,7 +281,7 @@ class SCIMGroupDetailView(APIView):
                     "scim_operation": "update_group",
                     "group_id": group_id,
                     "domain_id": domain_id,
-                    "organization_id": request.auth.organization.id,
+                    "organization_id": cast(OrganizationDomain, request.auth).organization.id,
                     "request_data": request.data,
                 },
             )

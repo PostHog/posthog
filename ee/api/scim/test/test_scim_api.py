@@ -35,8 +35,8 @@ class TestSCIMAPI(APILicensedTest):
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
 
     def test_invalid_token(self):
-        invalid_headers = {"HTTP_AUTHORIZATION": "Bearer invalid_token"}
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", **invalid_headers)
+        self.client.credentials(HTTP_AUTHORIZATION="Bearer invalid_token")
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_no_token(self):
@@ -44,7 +44,8 @@ class TestSCIMAPI(APILicensedTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_service_provider_config(self):
-        response = self.client.get(f"/scim/v2/{self.domain.id}/ServiceProviderConfig", **self.scim_headers)
+        self.client.credentials(**self.scim_headers)
+        response = self.client.get(f"/scim/v2/{self.domain.id}/ServiceProviderConfig")
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -57,18 +58,21 @@ class TestSCIMAPI(APILicensedTest):
         self.organization.available_product_features = [{"key": AvailableFeature.SAML, "name": AvailableFeature.SAML}]
         self.organization.save()
 
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", **self.scim_headers)
+        self.client.credentials(**self.scim_headers)
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "license" in response.json()["detail"].lower()
 
     def test_scim_users_endpoint(self):
         """Test that SCIM Users endpoint works with valid license"""
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Users", **self.scim_headers)
+        self.client.credentials(**self.scim_headers)
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
         assert response.status_code == status.HTTP_200_OK
         assert "Resources" in response.json()
 
     def test_scim_groups_endpoint(self):
         """Test that SCIM Groups endpoint works with valid license"""
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", **self.scim_headers)
+        self.client.credentials(**self.scim_headers)
+        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups")
         assert response.status_code == status.HTTP_200_OK
         assert "Resources" in response.json()

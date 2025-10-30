@@ -218,9 +218,9 @@ class PostHogSCIMUser(SCIMUser):
                     self.delete()
 
             elif attr_name == "name":
-                if sub_attr == "givenName":
+                if sub_attr == "givenName" and isinstance(value, str):
                     self.obj.first_name = value
-                elif sub_attr == "familyName":
+                elif sub_attr == "familyName" and isinstance(value, str):
                     self.obj.last_name = value
                 elif isinstance(value, dict):
                     if "givenName" in value:
@@ -232,7 +232,7 @@ class PostHogSCIMUser(SCIMUser):
                 email = None
                 if path.is_complex and isinstance(value, str):
                     email = value
-                else:
+                elif isinstance(value, list):
                     email = self._extract_email_from_value(value)
 
                 if email:
@@ -257,9 +257,9 @@ class PostHogSCIMUser(SCIMUser):
                 )
 
             elif attr_name == "name":
-                if sub_attr == "givenName":
+                if sub_attr == "givenName" and isinstance(value, str):
                     self.obj.first_name = value
-                elif sub_attr == "familyName":
+                elif sub_attr == "familyName" and isinstance(value, str):
                     self.obj.last_name = value
                 elif isinstance(value, dict):
                     if "givenName" in value:
@@ -272,7 +272,7 @@ class PostHogSCIMUser(SCIMUser):
                 email = None
                 if path.is_complex and isinstance(value, str):
                     email = value
-                else:
+                elif isinstance(value, list):
                     email = self._extract_email_from_value(value)
 
                 if email:

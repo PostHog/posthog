@@ -99,6 +99,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(OrganizationDomain, self.instance)
+        organization: Organization = self.context["view"].organization
 
         if instance and not instance.verified_at:
             for protected_attr in self.UPDATE_ONLY_WHEN_VERIFIED:
@@ -108,7 +109,6 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
                         code="verification_required",
                     )
         if instance and attrs.get("jit_provisioning_enabled", None):
-            organization: Organization = self.context["view"].organization
             if not organization.is_feature_available(AvailableFeature.AUTOMATIC_PROVISIONING):
                 raise serializers.ValidationError(
                     {"jit_provisioning_enabled": "Automatic provisioning is not enabled for this organization."},
@@ -116,7 +116,6 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
                 )
 
         if instance and attrs.get("scim_enabled") is not None:
-            organization: Organization = self.context["view"].organization
             if not organization.is_feature_available(AvailableFeature.SCIM):
                 raise serializers.ValidationError(
                     {"scim_enabled": "SCIM provisioning is not available for this organization."},
