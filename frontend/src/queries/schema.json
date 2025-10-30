@@ -1502,7 +1502,7 @@
                     "type": "string"
                 },
                 "server_tool_calls": {
-                    "description": "Tools like web_search, fully handled by the LLM provider API.",
+                    "description": "Tools fully handled within the LLM provider API, like web search.",
                     "items": {
                         "$ref": "#/definitions/AssistantToolCall"
                     },
@@ -1529,6 +1529,13 @@
                     "$ref": "#/definitions/AssistantForm"
                 },
                 "thinking": {
+                    "items": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "web_search_results": {
                     "items": {
                         "additionalProperties": {},
                         "type": "object"

@@ -45,6 +45,16 @@ def convert_assistant_message_to_anthropic_message(
     if message.content:
         content.append({"type": "text", "text": message.content})
 
+    # Add web search calls and results if present
+    # This is critica for interleaved thinking, where throws an error if we drop any intermediate block
+    if message.server_tool_calls:
+        content.extend(
+            {"type": "server_tool_use", "name": tool.name, "id": tool.id, "input": tool.args}
+            for tool in message.server_tool_calls
+        )
+    if message.meta and message.meta.web_search_results:
+        content.extend(message.meta.web_search_results)
+
     # Filter out tool calls without a tool response, so the completion doesn't fail.
     tool_calls = [tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_map]
 

@@ -77,6 +77,7 @@ export interface AssistantForm {
 export interface AssistantMessageMetadata {
     form?: AssistantForm
     thinking?: Record<string, unknown>[]
+    web_search_results?: Record<string, unknown>[]
 }
 
 export interface AssistantToolCall {

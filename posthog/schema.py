@@ -3504,6 +3504,7 @@ class AssistantMessageMetadata(BaseModel):
     )
     form: Optional[AssistantForm] = None
     thinking: Optional[list[dict[str, Any]]] = None
+    web_search_results: Optional[list[dict[str, Any]]] = None
 
 
 class AssistantNumericValuePropertyFilter(BaseModel):
@@ -5926,7 +5927,7 @@ class AssistantMessage(BaseModel):
     meta: Optional[AssistantMessageMetadata] = None
     parent_tool_call_id: Optional[str] = None
     server_tool_calls: Optional[list[AssistantToolCall]] = Field(
-        default=None, description="Tools like web_search, fully handled by the LLM provider API."
+        default=None, description="Tools fully handled within the LLM provider API, like web search."
     )
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai"] = "ai"

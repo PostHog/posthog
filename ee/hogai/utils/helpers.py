@@ -272,7 +272,7 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
         id=None if isinstance(message, AIMessageChunk) else str(uuid4()),
         tool_calls=[],
         server_tool_calls=[],
-        meta=AssistantMessageMetadata(thinking=[]),
+        meta=AssistantMessageMetadata(thinking=[], web_search_results=[]),
     )
     if isinstance(message.content, list):
         messages: list[AssistantMessage] = [_create_blank_assistant_message()]
@@ -303,6 +303,8 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
                             args=args_parsed,
                         )
                     )
+                if content_item["type"] == "web_search_tool_result":
+                    messages[-1].meta.web_search_results.append(content_item)
             elif isinstance(content_item, str):
                 messages[-1].content += content_item
     else:
@@ -333,6 +335,11 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
             for tool_call in message.tool_calls
         ]
     messages[-1].tool_calls = tool_calls
+
+    # Clean up meta field: set to None if all lists are empty
+    for msg in messages:
+        if msg.meta and not msg.meta.thinking and not msg.meta.web_search_results and not msg.meta.form:
+            msg.meta = None
 
     return messages
 
