@@ -158,7 +158,7 @@ mod tests {
         assert_eq!(headers.uuid, Some(event.uuid.to_string()));
         assert_eq!(headers.now, Some("2023-10-15T14:30:00+00:00".to_string()));
         assert_eq!(headers.historical_migration, Some(true));
-        assert_eq!(headers.force_disable_person_processing, Some(false));
+        assert_eq!(headers.force_disable_person_processing, None);
         assert_eq!(
             headers.timestamp,
             Some(event.timestamp.timestamp_millis().to_string())
@@ -198,7 +198,7 @@ mod tests {
             Some("2023-10-15T15:00:00+00:00".to_string())
         );
         assert_eq!(parsed_headers.historical_migration, Some(false));
-        assert_eq!(parsed_headers.force_disable_person_processing, Some(false));
+        assert_eq!(parsed_headers.force_disable_person_processing, None);
         assert_eq!(parsed_headers.event, Some("another_event".to_string()));
     }
 }

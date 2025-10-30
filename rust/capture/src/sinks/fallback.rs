@@ -184,6 +184,9 @@ mod tests {
                 sent_at: None,
                 token: "test_token".to_string(),
                 event: "test_event".to_string(),
+                timestamp: chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&chrono::Utc),
                 is_cookieless_mode: false,
                 historical_migration: false,
             },
@@ -225,6 +228,9 @@ mod tests {
                 sent_at: None,
                 token: "test_token".to_string(),
                 event: "test_event".to_string(),
+                timestamp: chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&chrono::Utc),
                 is_cookieless_mode: false,
                 historical_migration: false,
             },

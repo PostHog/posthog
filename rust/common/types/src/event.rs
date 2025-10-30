@@ -197,7 +197,7 @@ impl CapturedEvent {
             event: Some(self.event.clone()),
             uuid: Some(self.uuid.to_string()),
             now: Some(self.now.clone()),
-            force_disable_person_processing: Some(false), // Batch import events don't need person processing disabled
+            force_disable_person_processing: None, // Only set when explicitly needed (e.g., overflow)
             historical_migration: Some(self.historical_migration),
         }
     }

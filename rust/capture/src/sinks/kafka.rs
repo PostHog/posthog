@@ -4,7 +4,6 @@ use crate::prometheus::report_dropped_events;
 use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
-use common_types::CapturedEventHeaders;
 use health::HealthHandle;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use limiters::redis::RedisLimiter;
@@ -238,21 +237,11 @@ impl KafkaSink {
         })?;
 
         let data_type = metadata.data_type;
-        let event_now = event.now.clone();
-        let mut headers = CapturedEventHeaders {
-            token: Some(event.token.clone()),
-            distinct_id: Some(event.distinct_id.clone()),
-            timestamp: metadata
-                .computed_timestamp
-                .map(|ts| ts.timestamp_millis().to_string()),
-            event: Some(metadata.event_name.clone()),
-            uuid: Some(event.uuid.to_string()),
-            now: Some(event_now),
-            force_disable_person_processing: None,
-            historical_migration: Some(data_type == DataType::AnalyticsHistorical),
-        };
         let event_key = event.key();
         let session_id = metadata.session_id.clone();
+
+        // Use the event's to_headers() method for consistent header serialization
+        let mut headers = event.to_headers();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
@@ -497,6 +486,7 @@ mod tests {
             sent_at: None,
             token: "token1".to_string(),
             event: "test_event".to_string(),
+            timestamp: chrono::Utc::now(),
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -543,6 +533,7 @@ mod tests {
             sent_at: None,
             token: "token1".to_string(),
             event: "test_event".to_string(),
+            timestamp: chrono::Utc::now(),
             is_cookieless_mode: false,
             historical_migration: false,
         };
@@ -573,6 +564,7 @@ mod tests {
                 sent_at: None,
                 token: "token1".to_string(),
                 event: "test_event".to_string(),
+                timestamp: chrono::Utc::now(),
                 is_cookieless_mode: false,
                 historical_migration: false,
             },
