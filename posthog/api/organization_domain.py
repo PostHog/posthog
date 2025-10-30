@@ -39,7 +39,7 @@ def _capture_domain_event(request, domain: OrganizationDomain, event_type: str, 
 
 
 class OrganizationDomainSerializer(serializers.ModelSerializer):
-    UPDATE_ONLY_WHEN_VERIFIED = ["jit_provisioning_enabled", "sso_enforcement"]
+    UPDATE_ONLY_WHEN_VERIFIED = ["jit_provisioning_enabled", "sso_enforcement", "scim_enabled"]
 
     scim_base_url = serializers.SerializerMethodField()
     scim_bearer_token = serializers.SerializerMethodField()
