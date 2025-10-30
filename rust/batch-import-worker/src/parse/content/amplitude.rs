@@ -215,6 +215,7 @@ fn create_group_identify_event(
         sent_at: None,
         token: context.token.clone(),
         is_cookieless_mode: false,
+        historical_migration: true,
     };
 
     Ok(InternallyCapturedEvent {
@@ -589,6 +590,7 @@ impl AmplitudeEvent {
                     sent_at: None,
                     token,
                     is_cookieless_mode: false,
+                    historical_migration: true,
                 };
 
                 events.push(InternallyCapturedEvent { team_id, inner });
@@ -1982,6 +1984,54 @@ mod tests {
         assert_eq!(
             original_data["properties"]["$import_job_id"],
             json!(test_job_id.to_string())
+        );
+    }
+
+    #[test]
+    fn test_captured_event_has_historical_migration_and_now_fields() {
+        let before_test = Utc::now();
+
+        let amp_event = AmplitudeEvent {
+            insert_id: Some("test_insert_id".to_string()),
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            ..Default::default()
+        };
+
+        let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
+        let result = parser(amp_event).unwrap();
+        let captured_event = result.into_iter().next().unwrap();
+
+        let after_test = Utc::now();
+
+        assert_eq!(
+            captured_event.inner.historical_migration, true,
+            "historical_migration field must be true for batch import events"
+        );
+
+        assert!(
+            !captured_event.inner.now.is_empty(),
+            "now field must be set for events"
+        );
+
+        let now_timestamp = chrono::DateTime::parse_from_rfc3339(&captured_event.inner.now)
+            .expect("now should be valid RFC3339 timestamp")
+            .with_timezone(&Utc);
+        assert!(
+            now_timestamp >= before_test && now_timestamp <= after_test,
+            "now timestamp should be current (between test start and end)"
+        );
+
+        let serialized = serde_json::to_value(&captured_event.inner).unwrap();
+        assert_eq!(
+            serialized["historical_migration"],
+            json!(true),
+            "historical_migration must be in serialized output"
+        );
+        assert!(
+            serialized["now"].is_string(),
+            "now must be a string in serialized output"
         );
     }
 }

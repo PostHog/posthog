@@ -44,6 +44,7 @@ pub fn captured_parse_fn(
                 sent_at: None, // We don't know when it was sent at, since it's a historical import
                 token: context.token.clone(),
                 is_cookieless_mode: false,
+                historical_migration: true,
             };
 
             Ok(Some(InternallyCapturedEvent {
@@ -134,5 +135,66 @@ mod tests {
             Some(&json!(test_job_id.to_string()))
         );
         assert_eq!(data.properties.get("test_prop"), Some(&json!("test_value")));
+    }
+
+    #[test]
+    fn test_captured_event_has_historical_migration_and_now_fields() {
+        let test_job_id = Uuid::now_v7();
+
+        let mut properties = HashMap::new();
+        properties.insert("test_prop".to_string(), json!("test_value"));
+
+        let event_timestamp = "2023-10-15T14:30:00+00:00".to_string();
+        let raw_event = RawEvent {
+            token: Some("test_token".to_string()),
+            distinct_id: Some(Value::String("user123".to_string())),
+            uuid: Some(Uuid::now_v7()),
+            event: "test_event".to_string(),
+            properties,
+            timestamp: Some(event_timestamp.clone()),
+            set: None,
+            set_once: None,
+            offset: None,
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: std::sync::Arc::new(crate::cache::MockIdentifyCache::new()),
+            group_cache: std::sync::Arc::new(crate::cache::MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: false,
+        };
+
+        let parser = captured_parse_fn(context, identity_transform);
+        let result = parser(raw_event).unwrap().unwrap();
+
+        assert_eq!(
+            result.inner.historical_migration, true,
+            "historical_migration field must be true for batch import events"
+        );
+
+        assert!(
+            !result.inner.now.is_empty(),
+            "now field must be set for events"
+        );
+
+        assert_eq!(
+            result.inner.now, event_timestamp,
+            "now field should equal the event timestamp for captured events"
+        );
+
+        let serialized = serde_json::to_value(&result.inner).unwrap();
+        assert_eq!(
+            serialized["historical_migration"],
+            json!(true),
+            "historical_migration must be in serialized output"
+        );
+        assert!(
+            serialized["now"].is_string(),
+            "now must be a string in serialized output"
+        );
     }
 }
