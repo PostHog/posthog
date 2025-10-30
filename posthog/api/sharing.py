@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Any, Optional, cast
+from typing import Any, cast
 from urllib.parse import urlparse, urlunparse
 
 from django.core.serializers.json import DjangoJSONEncoder
@@ -56,7 +56,7 @@ def shared_url_as_png(url: str = "") -> str:
 
 
 def _log_share_password_attempt(
-    resource: SharingConfiguration, request: Request, success: bool, validated_password: Optional[SharePassword] = None
+    resource: SharingConfiguration, request: Request, success: bool, validated_password: SharePassword | None = None
 ) -> None:
     """Log password validation attempts for sharing configurations"""
     client_ip = get_ip_address(request) or "unknown"
@@ -235,7 +235,7 @@ class SharingConfigurationSerializer(serializers.ModelSerializer):
         fields = ["created_at", "enabled", "access_token", "settings", "password_required", "share_passwords"]
         read_only_fields = ["created_at", "access_token", "share_passwords"]
 
-    def validate_settings(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    def validate_settings(self, value: dict[str, Any] | None) -> dict[str, Any] | None:
         if value is None:
             return None
         try:
@@ -530,7 +530,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if not request.user:
             request.user = AnonymousUser()
 
-    def get_object(self) -> Optional[SharingConfiguration | ExportedAsset]:
+    def get_object(self) -> SharingConfiguration | ExportedAsset | None:
         # JWT based access (ExportedAsset)
         token = self.request.query_params.get("token")
         if token:
@@ -567,7 +567,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
     def _validate_share_password(
         self, sharing_configuration: SharingConfiguration, raw_password: str
-    ) -> Optional[SharePassword]:
+    ) -> SharePassword | None:
         """
         Validate password against SharePassword entries.
         Returns the matching SharePassword if found, None otherwise.
@@ -599,6 +599,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         ):
             return custom_404_response(self.request)
 
+        from posthog.hogql.database.database import Database
+
         embedded = "embedded" in request.GET or "/embedded/" in request.path
         context = {
             "view": self,
@@ -607,6 +609,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "is_shared": True,
             "get_team": lambda: resource.team,
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
+            # Create database once and pass in context to avoid N+1 queries when checking
+            # data warehouse sync status across multiple insights
+            "database": Database.create_for(team=resource.team),
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 

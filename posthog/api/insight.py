@@ -1015,6 +1015,8 @@ class InsightViewSet(
         return super().get_serializer_class()
 
     def get_serializer_context(self) -> dict[str, Any]:
+        from posthog.hogql.database.database import Database
+
         context = super().get_serializer_context()
 
         context["is_shared"] = isinstance(
@@ -1022,6 +1024,10 @@ class InsightViewSet(
             SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
         )
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+
+        # Create database once and pass in context to avoid N+1 queries when checking
+        # data warehouse sync status across multiple insights
+        context["database"] = Database.create_for(team=self.team)
 
         return context
 

@@ -1,7 +1,7 @@
 import json
 from collections.abc import AsyncGenerator
 from contextlib import nullcontext
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from django.conf import settings
 from django.db.models import CharField, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
@@ -528,7 +528,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         Insight.objects.bulk_update(insights_to_undelete, ["deleted"])
 
     @tracer.start_as_current_span("DashboardSerializer.get_tiles")
-    def get_tiles(self, dashboard: Dashboard) -> Optional[list[ReturnDict]]:
+    def get_tiles(self, dashboard: Dashboard) -> list[ReturnDict] | None:
         if self.context["view"].action == "list":
             return None
 
@@ -610,8 +610,14 @@ class DashboardsViewSet(
 
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
+        from posthog.hogql.database.database import Database
+
         context = super().get_serializer_context()
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
+
+        # Create database once and pass in context to avoid N+1 queries when checking
+        # data warehouse sync status across multiple insights in a dashboard
+        context["database"] = Database.create_for(team=self.team)
 
         return context
 
