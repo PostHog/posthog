@@ -351,7 +351,6 @@ class InsightSerializer(InsightBasicSerializer):
     types = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
-    data_warehouse_sync_status = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Insight
@@ -393,7 +392,6 @@ class InsightSerializer(InsightBasicSerializer):
             "_create_in_folder",
             "alerts",
             "last_viewed_at",
-            "data_warehouse_sync_status",
         ]
         read_only_fields = (
             "created_at",
@@ -651,95 +649,6 @@ class InsightSerializer(InsightBasicSerializer):
         from posthog.api.alert import AlertSerializer
 
         return AlertSerializer(alerts, many=True, context=self.context).data
-
-    def get_data_warehouse_sync_status(self, insight: Insight):
-        """
-        Check if the insight uses data warehouse tables with sync issues.
-        Returns information about failed or disabled syncs.
-        """
-        from posthog.warehouse.models import DataWarehouseTable, ExternalDataSchema
-
-        query = insight.query
-        if not query or not isinstance(query, dict):
-            return None
-
-        # Extract data warehouse table names from the query
-        table_names = self._extract_data_warehouse_tables(query)
-        if not table_names:
-            return None
-
-        # Get tables with sync issues
-        tables_with_issues = []
-        for table_name in table_names:
-            try:
-                table = DataWarehouseTable.objects.filter(
-                    team_id=insight.team_id, name=table_name, deleted=False
-                ).first()
-
-                if not table or not table.external_data_source:
-                    continue
-
-                # Check all schemas for this table
-                schemas = ExternalDataSchema.objects.filter(table=table, deleted=False).select_related("source")
-
-                for schema in schemas:
-                    # Check if sync is disabled or failed
-                    if not schema.should_sync:
-                        tables_with_issues.append(
-                            {
-                                "table_name": table_name,
-                                "status": "disabled",
-                                "message": f"Sync for table '{table_name}' is disabled",
-                                "schema_id": str(schema.id),
-                            }
-                        )
-                    elif schema.status == ExternalDataSchema.Status.FAILED:
-                        tables_with_issues.append(
-                            {
-                                "table_name": table_name,
-                                "status": "failed",
-                                "message": f"Sync for table '{table_name}' has failed",
-                                "error": schema.latest_error,
-                                "schema_id": str(schema.id),
-                            }
-                        )
-                    elif schema.status == ExternalDataSchema.Status.PAUSED:
-                        tables_with_issues.append(
-                            {
-                                "table_name": table_name,
-                                "status": "paused",
-                                "message": f"Sync for table '{table_name}' is paused",
-                                "schema_id": str(schema.id),
-                            }
-                        )
-
-            except Exception:
-                # Silently ignore errors to avoid breaking insight rendering
-                continue
-
-        return tables_with_issues if tables_with_issues else None
-
-    def _extract_data_warehouse_tables(self, query: dict) -> set[str]:
-        """
-        Recursively extract DataWarehouseNode table names from a query.
-        """
-        table_names = set()
-
-        # Handle InsightVizNode
-        if query.get("kind") == "InsightVizNode":
-            source = query.get("source")
-            if source:
-                table_names.update(self._extract_data_warehouse_tables(source))
-
-        # Handle queries with series (TrendsQuery, FunnelsQuery, etc.)
-        series = query.get("series", [])
-        for node in series:
-            if isinstance(node, dict) and node.get("kind") == "DataWarehouseNode":
-                table_name = node.get("table_name")
-                if table_name:
-                    table_names.add(table_name)
-
-        return table_names
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):

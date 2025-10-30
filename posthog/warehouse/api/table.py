@@ -275,6 +275,64 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response(status=status.HTTP_200_OK)
 
+    @action(methods=["POST"], detail=False)
+    def sync_status(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        """Check sync status for multiple data warehouse tables."""
+        from posthog.warehouse.models import ExternalDataSchema
+
+        table_names = request.data.get("table_names", [])
+        if not isinstance(table_names, list):
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "table_names must be a list"})
+
+        tables_with_issues = []
+        for table_name in table_names:
+            try:
+                table = (
+                    DataWarehouseTable.objects.filter(team_id=self.team_id, name=table_name, deleted=False)
+                    .select_related("external_data_source")
+                    .first()
+                )
+
+                if not table or not table.external_data_source:
+                    continue
+
+                schemas = ExternalDataSchema.objects.filter(table=table, deleted=False).select_related("source")
+
+                for schema in schemas:
+                    if not schema.should_sync:
+                        tables_with_issues.append(
+                            {
+                                "table_name": table_name,
+                                "status": "disabled",
+                                "message": f"Sync for table '{table_name}' is disabled",
+                                "schema_id": str(schema.id),
+                            }
+                        )
+                    elif schema.status == ExternalDataSchema.Status.FAILED:
+                        tables_with_issues.append(
+                            {
+                                "table_name": table_name,
+                                "status": "failed",
+                                "message": f"Sync for table '{table_name}' has failed",
+                                "error": schema.latest_error,
+                                "schema_id": str(schema.id),
+                            }
+                        )
+                    elif schema.status == ExternalDataSchema.Status.PAUSED:
+                        tables_with_issues.append(
+                            {
+                                "table_name": table_name,
+                                "status": "paused",
+                                "message": f"Sync for table '{table_name}' is paused",
+                                "schema_id": str(schema.id),
+                            }
+                        )
+
+            except Exception:
+                continue
+
+        return response.Response(status=status.HTTP_200_OK, data=tables_with_issues)
+
     @action(
         methods=["POST"],
         detail=False,
