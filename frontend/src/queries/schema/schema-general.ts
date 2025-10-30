@@ -3106,6 +3106,7 @@ export interface DatabaseSchemaSource {
     source_type: string
     prefix: string
     last_synced_at?: string
+    latest_error?: string
 }
 
 export interface DatabaseSchemaField {

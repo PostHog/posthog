@@ -395,7 +395,6 @@ class Database(BaseModel):
                     incremental=db_schema.is_incremental,
                     status=db_schema.status,
                     last_synced_at=str(db_schema.last_synced_at),
-                    latest_error=db_schema.latest_error,
                 )
 
             # Get source from prefetched data

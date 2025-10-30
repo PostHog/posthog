@@ -740,7 +740,7 @@ class InsightSerializer(InsightBasicSerializer):
         table_names = set()
 
         # Handle InsightVizNode
-        if query.get("kind") == "InsightVizNode":
+        if query.get("kind") == "DataVisualizationNode":
             source = query.get("source")
             if source:
                 table_names.update(self._extract_data_warehouse_tables(source))
