@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import cached_property
-from typing import Generic, Optional, TypeVar
+from typing import Generic, Optional, TypeVar, cast
 
 import structlog
 
@@ -150,7 +150,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         valid_goals = []
         for goal in conversion_goals:
             # Skip "All Events" goals
-            if goal.kind == NodeKind.EVENTS_NODE:
+            if goal.kind == cast(str, NodeKind.EVENTS_NODE):
                 event_name = getattr(goal, "event", None)
                 if event_name is None or event_name == "":
                     logger.info(
