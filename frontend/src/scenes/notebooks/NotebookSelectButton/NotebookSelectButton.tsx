@@ -50,7 +50,7 @@ export type NotebookSelectButtonProps = NotebookSelectProps &
 export const SESSION_SUMMARY_PREFIX = 'Session summaries report'
 export const SESSION_PREFIX_REGEX = /^Session summaries report\s*[-–—:]*\s*/i
 export const LEADING_SEPARATORS_REGEX = /^[\s]*[-–—:•·]+\s*/
-export const TRAILING_DATE_REGEX = /\s*\(\d{4}-\d{2}-\d{2}\)\s*$/
+export const TRAILING_DATE_REGEX = /\s*\((\d{4}-\d{2}-\d{2})\)\s*$/
 
 export function isSessionSummaryTitle(title?: string): boolean {
     if (!title) {
@@ -69,9 +69,15 @@ export function stripSessionSummaryPrefix(title?: string): string | null {
     let cleaned = title.replace(SESSION_PREFIX_REGEX, '')
     // Extra safety: if there are still leading separators, drop them
     cleaned = cleaned.replace(LEADING_SEPARATORS_REGEX, '')
-    // Drop trailing date in parentheses e.g. (2025-10-28)
+    // Extract trailing date (if present) and drop it from the string
     cleaned = cleaned.replace(TRAILING_DATE_REGEX, '')
-    return cleaned.trim()
+    cleaned = cleaned.trim()
+    // If no content remains after stripping, leave the original title as-is
+    // so cases like "Session summaries report (YYYY-MM-DD)" remain unchanged.
+    if (!cleaned.length) {
+        return title
+    }
+    return cleaned
 }
 
 function NotebooksChoiceList(props: {
@@ -172,22 +178,14 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
     return (
         <div className="flex flex-col flex-1 h-full overflow-hidden">
             <div className="deprecated-space-y-2 flex-0">
-                <div className="flex gap-2 items-center">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search notebooks..."
-                        value={searchQuery}
-                        onChange={(s) => setSearchQuery(s)}
-                        fullWidth
-                    />
-                    <div className="min-w-48">
-                        <MemberSelect
-                            value={createdBy}
-                            onChange={(user) => setCreatedBy(user?.uuid ?? null)}
-                            size="small"
-                        />
-                    </div>
-                </div>
+                <LemonInput
+                    type="search"
+                    placeholder="Search notebooks..."
+                    value={searchQuery}
+                    onChange={(s) => setSearchQuery(s)}
+                    fullWidth
+                />
+                <MemberSelect value={createdBy} onChange={(user) => setCreatedBy(user?.uuid ?? null)} />
                 <AccessControlAction
                     resourceType={AccessControlResourceType.Notebook}
                     minAccessLevel={AccessControlLevel.Editor}

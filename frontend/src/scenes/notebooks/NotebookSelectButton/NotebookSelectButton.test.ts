@@ -22,7 +22,11 @@ describe('NotebookSelectButton helpers', () => {
         expect(stripSessionSummaryPrefix('Session summaries report - Title')).toEqual('Title')
         expect(stripSessionSummaryPrefix('Session summaries report – Title')).toEqual('Title')
         expect(stripSessionSummaryPrefix('Session summaries report: Title')).toEqual('Title')
+        expect(stripSessionSummaryPrefix('Session summaries report (2025-10-28)')).toEqual(
+            'Session summaries report (2025-10-28)'
+        )
         expect(stripSessionSummaryPrefix('Session summaries report - Title (2025-10-28)')).toEqual('Title')
+        expect(stripSessionSummaryPrefix('Session summaries report')).toEqual('Session summaries report')
         expect(stripSessionSummaryPrefix('Not a session summary - Title')).toEqual('Not a session summary - Title')
     })
 })
