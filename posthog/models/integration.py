@@ -670,11 +670,11 @@ class OauthIntegration:
         config: dict = res.json()
 
         if res.status_code != 200 or not config.get("access_token"):
-            logger.warning(f"Failed to refresh token for {self}", response=res.text)
+            logger.warning(f"Failed to refresh token for Oauth integration id {self.integration.id}", response=res.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
             oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
         else:
-            logger.info(f"Refreshed access token for {self}")
+            logger.info(f"Refreshed access token for Oauth integration id {self.integration.id}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
 
             # Handle case where Salesforce doesn't provide expires_in in refresh response
@@ -1405,11 +1405,13 @@ class GitHubIntegration:
         config = response.json()
 
         if response.status_code != status.HTTP_201_CREATED or not config.get("token"):
-            logger.warning(f"Failed to refresh token for {self}", response=response.text)
+            logger.warning(
+                f"Failed to refresh token for GitHub integration id {self.integration.id}", response=response.text
+            )
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
             oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
             self.integration.save()
-            raise Exception(f"Failed to refresh token for {self}: {response.text}")
+            raise Exception(f"Failed to refresh token for GitHub integration id {self.integration.id}: {response.text}")
         else:
             logger.info(f"Refreshed access token for {self}")
             expires_in = datetime.fromisoformat(config["expires_at"]).timestamp() - int(time.time())
