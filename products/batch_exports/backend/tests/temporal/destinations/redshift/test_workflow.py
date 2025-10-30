@@ -497,7 +497,12 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
             )
 
             await cursor.execute(
-                sql.SQL("ALTER TABLE {} ALTER COLUMN timestamp TYPE SUPER;").format(
+                sql.SQL("ALTER TABLE {} DROP COLUMN timestamp;").format(
+                    sql.Identifier(redshift_config["schema"], table_name)
+                )
+            )
+            await cursor.execute(
+                sql.SQL("ALTER TABLE {} ADD COLUMN timestamp SUPER DEFAULT NULL;").format(
                     sql.Identifier(redshift_config["schema"], table_name)
                 )
             )
