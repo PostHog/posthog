@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
 from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
@@ -7,15 +7,9 @@ from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, Vi
 from posthog.models import Team, User
 
 from ee.hogai.assistant.base import BaseAssistant
-from ee.hogai.graph import (
-    AssistantGraph,
-    FunnelGeneratorNode,
-    RetentionGeneratorNode,
-    SQLGeneratorNode,
-    TrendsGeneratorNode,
-)
-from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.graph.insights.nodes import InsightSearchNode
+from ee.hogai.graph.graph import AssistantGraph
+from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
+from ee.hogai.utils.stream_processor import AssistantStreamProcessor
 from ee.hogai.utils.types import (
     AssistantMode,
     AssistantNodeName,
@@ -23,8 +17,36 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
-from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
+
+if TYPE_CHECKING:
+    from ee.hogai.utils.types.composed import MaxNodeName
+
+
+STREAMING_NODES: set["MaxNodeName"] = {
+    AssistantNodeName.ROOT,
+    AssistantNodeName.INKEEP_DOCS,
+    AssistantNodeName.MEMORY_ONBOARDING,
+    AssistantNodeName.MEMORY_INITIALIZER,
+    AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
+    AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
+    AssistantNodeName.DASHBOARD_CREATION,
+}
+
+VERBOSE_NODES: set["MaxNodeName"] = STREAMING_NODES | {
+    AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
+    AssistantNodeName.ROOT_TOOLS,
+    TaxonomyNodeName.TOOLS_NODE,
+    TaxonomyNodeName.TASK_EXECUTOR,
+}
+
+VISUALIZATION_NODES: set["MaxNodeName"] = {
+    AssistantNodeName.TRENDS_GENERATOR,
+    AssistantNodeName.FUNNEL_GENERATOR,
+    AssistantNodeName.RETENTION_GENERATOR,
+    AssistantNodeName.SQL_GENERATOR,
+    AssistantNodeName.INSIGHTS_SEARCH,
+}
 
 
 class MainAssistant(BaseAssistant):
@@ -60,29 +82,12 @@ class MainAssistant(BaseAssistant):
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
+            stream_processor=AssistantStreamProcessor(
+                verbose_nodes=VERBOSE_NODES,
+                streaming_nodes=STREAMING_NODES,
+                visualization_nodes=VISUALIZATION_NODES,
+            ),
         )
-
-    @property
-    def VISUALIZATION_NODES(self) -> dict[MaxNodeName, type[BaseAssistantNode]]:
-        return {
-            AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
-            AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
-            AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
-            AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
-            AssistantNodeName.INSIGHTS_SEARCH: InsightSearchNode,
-        }
-
-    @property
-    def STREAMING_NODES(self) -> set[MaxNodeName]:
-        return {
-            AssistantNodeName.ROOT,
-            AssistantNodeName.INKEEP_DOCS,
-            AssistantNodeName.MEMORY_ONBOARDING,
-            AssistantNodeName.MEMORY_INITIALIZER,
-            AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
-            AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
-            AssistantNodeName.DASHBOARD_CREATION,
-        }
 
     def get_initial_state(self) -> AssistantState:
         if self._latest_message:

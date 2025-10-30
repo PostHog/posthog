@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
 from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
@@ -7,11 +7,9 @@ from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, Vi
 from posthog.models import Team, User
 
 from ee.hogai.assistant.base import BaseAssistant
-from ee.hogai.graph import FunnelGeneratorNode, RetentionGeneratorNode, SQLGeneratorNode, TrendsGeneratorNode
-from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.graph import InsightsAssistantGraph
-from ee.hogai.graph.query_executor.nodes import QueryExecutorNode
 from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
+from ee.hogai.utils.stream_processor import AssistantStreamProcessor
 from ee.hogai.utils.types import (
     AssistantMode,
     AssistantNodeName,
@@ -19,8 +17,22 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
-from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
+
+if TYPE_CHECKING:
+    from ee.hogai.utils.types.composed import MaxNodeName
+
+VISUALIZATION_NODES: set["MaxNodeName"] = {
+    AssistantNodeName.TRENDS_GENERATOR,
+    AssistantNodeName.FUNNEL_GENERATOR,
+    AssistantNodeName.RETENTION_GENERATOR,
+    AssistantNodeName.SQL_GENERATOR,
+    AssistantNodeName.INSIGHTS_SEARCH,
+}
+
+STREAMING_NODES: set["MaxNodeName"] = {
+    TaxonomyNodeName.LOOP_NODE,
+}
 
 
 class InsightsAssistant(BaseAssistant):
@@ -56,23 +68,12 @@ class InsightsAssistant(BaseAssistant):
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
+            stream_processor=AssistantStreamProcessor(
+                verbose_nodes=STREAMING_NODES,
+                streaming_nodes=STREAMING_NODES,
+                visualization_nodes=VISUALIZATION_NODES,
+            ),
         )
-
-    @property
-    def VISUALIZATION_NODES(self) -> dict[MaxNodeName, type[BaseAssistantNode]]:
-        return {
-            AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
-            AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
-            AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
-            AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
-            AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
-        }
-
-    @property
-    def STREAMING_NODES(self) -> set[MaxNodeName]:
-        return {
-            TaxonomyNodeName.LOOP_NODE,
-        }
 
     def get_initial_state(self) -> AssistantState:
         return AssistantState(messages=[])

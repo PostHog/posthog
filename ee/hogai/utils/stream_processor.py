@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Protocol, cast
 
 import structlog
 from langchain_core.messages import AIMessageChunk
@@ -32,7 +32,26 @@ from ee.hogai.utils.types.composed import AssistantMaxPartialGraphState, MaxNode
 logger = structlog.get_logger(__name__)
 
 
-class AssistantStreamProcessor:
+class AssistantStreamProcessorProtocol(Protocol):
+    """Protocol defining the interface for assistant stream processors."""
+
+    _streamed_update_ids: set[str]
+    """Tracks the IDs of messages that have been streamed."""
+
+    def process(self, event: AssistantDispatcherEvent) -> AssistantResultUnion | None:
+        """Process a dispatcher event and return a result or None."""
+        ...
+
+    def process_langgraph_update(self, event: LangGraphUpdateEvent) -> list[AssistantResultUnion] | None:
+        """Process a LangGraph update event and return a list of results or None."""
+        ...
+
+    def mark_id_as_streamed(self, message_id: str) -> None:
+        """Mark a message ID as streamed."""
+        self._streamed_update_ids.add(message_id)
+
+
+class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
     """
     Reduces streamed actions to client-facing messages.
 
@@ -40,21 +59,23 @@ class AssistantStreamProcessor:
     handlers based on action type and message characteristics.
     """
 
+    _verbose_nodes: set[MaxNodeName]
+    """Nodes that emit messages."""
     _streaming_nodes: set[MaxNodeName]
     """Nodes that produce streaming messages."""
-    _visualization_nodes: dict[MaxNodeName, type]
+    _visualization_nodes: set[MaxNodeName]
     """Nodes that produce visualization messages."""
     _tool_call_id_to_message: dict[str, AssistantMessage]
     """Maps tool call IDs to their parent messages for message chain tracking."""
-    _streamed_update_ids: set[str]
-    """Tracks the IDs of messages that have been streamed."""
+
     _chunks: AIMessageChunk
     """Tracks the current message chunk."""
 
     def __init__(
         self,
+        verbose_nodes: set[MaxNodeName],
         streaming_nodes: set[MaxNodeName],
-        visualization_nodes: dict[MaxNodeName, type],
+        visualization_nodes: set[MaxNodeName],
     ):
         """
         Initialize the stream processor with node configuration.
@@ -63,6 +84,7 @@ class AssistantStreamProcessor:
             streaming_nodes: Nodes that produce streaming messages
             visualization_nodes: Nodes that produce visualization messages
         """
+        self._verbose_nodes = verbose_nodes
         self._streaming_nodes = streaming_nodes
         self._visualization_nodes = visualization_nodes
         self._tool_call_id_to_message = {}
@@ -90,10 +112,7 @@ class AssistantStreamProcessor:
 
             # Register any tool calls for later parent chain lookups
             self._register_tool_calls(message)
-            result = self._handle_message(message, cast(MaxNodeName, node_name))
-            return (
-                result if result is not None else AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
-            )
+            return self._handle_message(message, cast(MaxNodeName, node_name))
 
     def process_langgraph_update(self, event: LangGraphUpdateEvent) -> list[AssistantResultUnion] | None:
         """
@@ -103,8 +122,10 @@ class AssistantStreamProcessor:
             state_update = validate_value_update(event.update[1])
             message_updates: list[AssistantResultUnion] = []
             for node_name, node_val in state_update.items():
-                if not isinstance(node_val, BaseModel):
+                # If a node can't emit a message, skip it
+                if not isinstance(node_val, BaseModel) or node_name not in self._verbose_nodes:
                     continue
+
                 for message in cast(AssistantMaxPartialGraphState, node_val).messages:
                     if new_message := self.process(
                         AssistantDispatcherEvent(action=MessageAction(message=message), node_name=node_name)

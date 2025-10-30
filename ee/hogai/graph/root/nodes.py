@@ -496,7 +496,6 @@ class RootNodeTools(AssistantNode):
                 id=str(uuid4()),
                 tool_call_id=tool_call.id,
             )
-            self.dispatcher.message(navigate_message)
             # Raising a `NodeInterrupt` ensures the assistant graph stops here and
             # surfaces the navigation confirmation to the client. The next user
             # interaction will resume the graph with potentially different

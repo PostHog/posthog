@@ -79,7 +79,7 @@ from ee.hogai.utils.types.base import ReplaceMessages
 from ee.models.assistant import Conversation, CoreMemory
 
 from ..assistant import Assistant
-from ..graph import AssistantGraph, InsightsAssistantGraph
+from ..graph.graph import AssistantGraph, InsightsAssistantGraph
 
 title_generator_mock = patch(
     "ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model",
@@ -1657,11 +1657,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             (
                 "message",
-                {
-                    "tool_call_id": "xyz",
-                    "type": "tool",
-                    "ui_payload": {"edit_current_insight": query.model_dump(exclude_none=True)},
-                },  # Don't check content as it's implementation detail
+                AssistantToolCallMessage(
+                    content="The results indicate a great future for you.",
+                    tool_call_id="xyz",
+                    ui_payload={"edit_current_insight": query.model_dump(exclude_none=True)},
+                ),
             ),
             ("message", AssistantMessage(content="Everything is fine")),
         ]
