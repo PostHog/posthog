@@ -288,6 +288,10 @@ class Property:
                 if getattr(self, attr, None) is None:
                     raise ValueError(f"Missing required attr {attr} for property type {self.type}::{self.value}")
 
+            # Rationale: For cohort realtime bytecode we only need a minimal non-temporal matcher for
+            # supported behavioral values (e.g. performed_event). When bytecode_generation=True we bypass
+            # the stricter conditional validation below so we can compile event-name matchers without
+            # requiring temporal/sequence parameters that are irrelevant for bytecode.
             if (
                 not self.bytecode_generation
                 and cast(BehavioralPropertyType, self.value) in VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES
