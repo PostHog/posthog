@@ -16,7 +16,8 @@ describe('TemporalService', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        hub.TEMPORAL_HOST = 'localhost:7233'
+        hub.TEMPORAL_HOST = 'localhost'
+        hub.TEMPORAL_PORT = '7233'
         hub.TEMPORAL_NAMESPACE = 'test-namespace'
 
         mockWorkflowHandle = {

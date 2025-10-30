@@ -36,7 +36,7 @@ pub async fn handle_distinct_id(
         team_id: team.id,
         timezone: team.timezone.clone(),
         cookieless_server_hash_mode: CookielessServerHashMode::from(
-            team.cookieless_server_hash_mode,
+            team.cookieless_server_hash_mode.unwrap_or(0),
         ),
     };
 
