@@ -6,7 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType } from '~/types'
 
@@ -135,11 +135,12 @@ describe('llmAnalyticsSessionLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const query = logic.values.query
+            const source = query.source as TracesQuery
 
             expect(query.kind).toBe(NodeKind.DataTableNode)
-            expect(query.source.kind).toBe(NodeKind.TracesQuery)
-            expect(query.source.properties).toHaveLength(1)
-            expect(query.source.properties[0]).toEqual({
+            expect(source.kind).toBe(NodeKind.TracesQuery)
+            expect(source.properties).toHaveLength(1)
+            expect(source.properties![0]).toEqual({
                 type: PropertyFilterType.Event,
                 key: '$ai_session_id',
                 operator: 'exact',
@@ -153,8 +154,9 @@ describe('llmAnalyticsSessionLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const query = logic.values.query
+            const source = query.source as TracesQuery
 
-            expect(query.source.dateRange).toEqual({
+            expect(source.dateRange).toEqual({
                 date_from: '2024-01-01T00:00:00Z',
                 date_to: '2024-01-31T23:59:59Z',
             })
@@ -166,11 +168,12 @@ describe('llmAnalyticsSessionLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const query = logic.values.query
+            const source = query.source as TracesQuery
 
-            expect(query.source.dateRange?.date_from).toBe('2024-01-01T00:00:00Z')
-            expect(query.source.dateRange?.date_to).toBeTruthy()
+            expect(source.dateRange?.date_from).toBe('2024-01-01T00:00:00Z')
+            expect(source.dateRange?.date_to).toBeTruthy()
             // date_to should be 30 days after date_from
-            expect(new Date(query.source.dateRange?.date_to).getTime()).toBeGreaterThan(
+            expect(new Date(source.dateRange!.date_to!).getTime()).toBeGreaterThan(
                 new Date('2024-01-01T00:00:00Z').getTime()
             )
         })
@@ -180,8 +183,9 @@ describe('llmAnalyticsSessionLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const query = logic.values.query
+            const source = query.source as TracesQuery
 
-            expect(query.source.dateRange?.date_from).toBeTruthy()
+            expect(source.dateRange?.date_from).toBeTruthy()
             // Should have a default starting date
         })
 
@@ -190,13 +194,15 @@ describe('llmAnalyticsSessionLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             let query = logic.values.query
-            expect(query.source.properties[0].value).toBe('session-1')
+            let source = query.source as TracesQuery
+            expect(source.properties![0].value).toBe('session-1')
 
             logic.actions.setSessionId('session-2')
             await expectLogic(logic).toFinishAllListeners()
 
             query = logic.values.query
-            expect(query.source.properties[0].value).toBe('session-2')
+            source = query.source as TracesQuery
+            expect(source.properties![0].value).toBe('session-2')
         })
     })
 
@@ -271,8 +277,9 @@ describe('llmAnalyticsSessionLogic', () => {
 
             // Query should reflect both values
             const query = logic.values.query
-            expect(query.source.properties[0].value).toBe(sessionId)
-            expect(query.source.dateRange?.date_from).toBe(timestamp)
+            const source = query.source as TracesQuery
+            expect(source.properties![0].value).toBe(sessionId)
+            expect(source.dateRange?.date_from).toBe(timestamp)
         })
 
         it('handles URL navigation without timestamp', async () => {
