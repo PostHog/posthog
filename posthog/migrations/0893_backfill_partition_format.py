@@ -9,13 +9,39 @@ from posthog.warehouse.models import ExternalDataSchema as ExternalDataSchemaMod
 
 def forwards(apps, _):
     ExternalDataSchema: ExternalDataSchemaModel = apps.get_model("posthog", "ExternalDataSchema")
+    # temporal io backfill partition format to day
+    affected_temporalio_schemata = ExternalDataSchema.objects.filter(
+        Q(source__source_type="TemporalIO")
+        & Q(deleted=False)
+        & Q(sync_type_config__partitioning_enabled=True)
+        & Q(sync_type_config__partition_mode="datetime")
+        & Q(sync_type_config__partition_format__isnull=True)
+    )
+    for schema in affected_temporalio_schemata:
+        schema.sync_type_config["partition_format"] = "day"
+        schema.sync_type_config["backfilled_partition_format"] = True
+        schema.save()
+
+    # google ads backfill partition format to day
+    affected_google_ads_schemata = ExternalDataSchema.objects.filter(
+        Q(source__source_type="GoogleAds")
+        & Q(deleted=False)
+        & Q(sync_type_config__partitioning_enabled=True)
+        & Q(sync_type_config__partition_mode="datetime")
+        & Q(sync_type_config__partition_format__isnull=True)
+    )
+    for schema in affected_google_ads_schemata:
+        schema.sync_type_config["partition_format"] = "day"
+        schema.sync_type_config["backfilled_partition_format"] = True
+        schema.save()
+
+    # backfill partition format to month for remaining tables
     affected_schemata = ExternalDataSchema.objects.filter(
-        Q(
-            deleted=False,
-            sync_type_config__partitioning_enabled=True,
-            sync_type_config__partition_mode="datetime",
-            sync_type_config__partition_format__isnull=True,
-        )
+        ~Q(source__source_type__in=["GoogleAds", "TemporalIO"])
+        & Q(deleted=False)
+        & Q(sync_type_config__partitioning_enabled=True)
+        & Q(sync_type_config__partition_mode="datetime")
+        & Q(sync_type_config__partition_format__isnull=True)
     )
     for schema in affected_schemata:
         schema.sync_type_config["partition_format"] = "month"
@@ -27,7 +53,7 @@ def backwards(apps, _):
     ExternalDataSchema: ExternalDataSchemaModel = apps.get_model("posthog", "ExternalDataSchema")
     affected_schemata = ExternalDataSchema.objects.filter(Q(sync_type_config__backfilled=True))
     for schema in affected_schemata:
-        schema.sync_type_config["partition_format"] = None
+        schema.sync_type_config.pop("partition_format", None)
         schema.sync_type_config.pop("backfilled_partition_format", None)
         schema.save()
 

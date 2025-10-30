@@ -9,35 +9,56 @@ from posthog.warehouse.models import (
     ExternalDataSource as ExternalDataSourceModel,
 )
 
-SYNC_TYPE_PARTITIONING_DISABLED = {
-    "partitioning_enabled": False,
-    "partition_mode": None,
-    "partition_format": None,
-}
-SYNC_TYPE_PARTITIONING_MD5 = {
-    "partitioning_enabled": True,
-    "partition_mode": "md5",
-    "partition_format": None,
-}
-SYNC_TYPE_PARTITIONING_NUMERICAL = {
-    "partitioning_enabled": True,
-    "partition_mode": "numerical",
-    "partition_format": None,
-}
-SYNC_TYPE_PARTITIONING_DAY = {
-    "partitioning_enabled": True,
-    "partition_mode": "datetime",
-    "partition_format": "day",
-}
-SYNC_TYPE_PARTITIONING_MONTH = {
-    "partitioning_enabled": True,
-    "partition_mode": "datetime",
-    "partition_format": "month",
-}
-SYNC_TYPE_AFFECTED_SET = {
-    "partitioning_enabled": True,
-    "partition_mode": "datetime",
-    "partition_format": None,
+# maps case name to a tuple (sync_type_config, deleted)
+TEST_CASES = {
+    "deleted": ({}, True),
+    "disabled_partitioning": (
+        {
+            "partitioning_enabled": False,
+            "partition_mode": None,
+            "partition_format": None,
+        },
+        False,
+    ),
+    "md5_partitioning": (
+        {
+            "partitioning_enabled": True,
+            "partition_mode": "md5",
+            "partition_format": None,
+        },
+        False,
+    ),
+    "numerical_partitioning": (
+        {
+            "partitioning_enabled": True,
+            "partition_mode": "numerical",
+            "partition_format": None,
+        },
+        False,
+    ),
+    "month_partitioning": (
+        {
+            "partitioning_enabled": True,
+            "partition_mode": "datetime",
+            "partition_format": "month",
+        },
+        False,
+    ),
+    "day_partitioning": (
+        {
+            "partitioning_enabled": True,
+            "partition_mode": "datetime",
+            "partition_format": "day",
+        },
+        False,
+    ),
+    "affected_set": (
+        {
+            "partitioning_enabled": True,
+            "partition_mode": "datetime",
+        },
+        False,
+    ),
 }
 
 
@@ -59,81 +80,42 @@ class BackfillWeekPartitions(NonAtomicTestMigrations):
         self.project = Project.objects.create(organization=self.organization, name="p1", id=1000001)
         self.team = Team.objects.create(organization=self.organization, name="t1", project=self.project)
 
+        # mapping from test case name to schemata
+        self.cases = {
+            "Stripe": [],
+            "TemporalIO": [],
+            "GoogleAds": [],
+        }
         with freeze_time("2025-01-01T12:00:00.000Z"):
-            source_1 = ExternalDataSource.objects.create(team=self.team, source_type="Stripe")
-
-            self.table_1 = DataWarehouseTable.objects.create(
-                team=self.team, name="table_a", external_data_source_id=source_1.id
-            )
-
-            # tests that deleted tables are ignored
-            self.schema_1 = ExternalDataSchema.objects.create(
-                team=self.team,
-                table=self.table_1,
-                source_id=source_1.id,
-                deleted=True,
-            )
-            # tests that sync configs with partitioning disabled are ignored
-            self.schema_2 = ExternalDataSchema.objects.create(
-                team=self.team,
-                table=self.table_1,
-                source_id=source_1.id,
-                sync_type_config=SYNC_TYPE_PARTITIONING_DISABLED,
-            )
-            # tests that sync configs with md5 partitions are ignored
-            self.schema_3 = ExternalDataSchema.objects.create(
-                team=self.team,
-                table=self.table_1,
-                source_id=source_1.id,
-                sync_type_config=SYNC_TYPE_PARTITIONING_MD5,
-            )
-            # tests that sync configs with numerical partitions are ignored
-            self.schema_4 = ExternalDataSchema.objects.create(
-                team=self.team,
-                table=self.table_1,
-                source_id=source_1.id,
-                sync_type_config=SYNC_TYPE_PARTITIONING_NUMERICAL,
-            )
-            # tests that sync configs with partition format = "day" are ignored
-            self.schema_5 = ExternalDataSchema.objects.create(
-                team=self.team,
-                table=self.table_1,
-                source_id=source_1.id,
-                sync_type_config=SYNC_TYPE_PARTITIONING_DAY,
-            )
-            # tests that sync configs with partition format = "month" are ignored
-            self.schema_6 = ExternalDataSchema.objects.create(
-                team=self.team,
-                table=self.table_1,
-                source_id=source_1.id,
-                sync_type_config=SYNC_TYPE_PARTITIONING_MONTH,
-            )
-            # tests that sync configs which match our target set have partition format set to "week"
-            self.schema_7 = ExternalDataSchema.objects.create(
-                team=self.team,
-                table=self.table_1,
-                source_id=source_1.id,
-                sync_type_config=SYNC_TYPE_PARTITIONING_MONTH,
-            )
+            for source_type in self.cases:
+                source = ExternalDataSource.objects.create(team=self.team, source_type=source_type)
+                table = DataWarehouseTable.objects.create(
+                    team=self.team, name="table", external_data_source_id=source.id
+                )
+                for name, (config, deleted) in TEST_CASES.items():
+                    schema = ExternalDataSchema.objects.create(
+                        team=self.team, table=table, source_id=source.id, deleted=deleted, sync_type_config=config
+                    )
+                    self.cases[source_type].append((name, schema))
 
     def test_migration(self):
-        # schema 1: deleted sync
-        assert self.schema_1.sync_type_config.get("partition_format") is None
+        ExternalDataSchema = self.apps.get_model("posthog", "ExternalDataSchema")
 
-        # schema 2: disabled partitioning
-        assert self.schema_2.sync_type_config.get("partition_format") is None
-
-        # schema 3: md5 partitioning
-        assert self.schema_3.sync_type_config.get("partition_format") is None
-
-        # schema 4: numerical partitioning
-        assert self.schema_4.sync_type_config.get("partition_format") is None
-
-        # schema 5: day partitioning
-        assert self.schema_5.sync_type_config.get("partition_format") == "day"
-
-        # schema 6: month partitioning
-        assert self.schema_6.sync_type_config.get("partition_format") == "month"
-
-        # schema 7: affected set backfilled to "month"
-        assert self.schema_7.sync_type_config.get("partition_format") == "month"
+        for source_type in self.cases:
+            for name, old_schema in self.cases[source_type]:
+                schema = ExternalDataSchema.objects.get(id=old_schema.id)
+                # partition format should remain null for all of these case regardless of source type
+                if name in ("deleted", "disabled_partitioning", "md5_partitioning", "numerical_partitioning"):
+                    assert schema.sync_type_config.get("partition_format") is None, f"{source_type} {name}"
+                # month partitioning should remain month partitioning regardless of source type
+                if name == "month_partitioning":
+                    assert schema.sync_type_config.get("partition_format") == "month", f"{source_type} {name}"
+                # day partitioning should remain day partitioning regardless of source type
+                if name == "day_partitioning":
+                    assert schema.sync_type_config.get("partition_format") == "day", f"{source_type} {name}"
+                # GoogleAds and TemporalIO should be backfilled to day, all others should be backfilled to month
+                if name == "affected_set":
+                    if source_type in ("TemporalIO", "GoogleAds"):
+                        assert schema.sync_type_config.get("partition_format") == "day", f"{source_type} {name}"
+                    else:
+                        assert schema.sync_type_config.get("partition_format") == "month", f"{source_type} {name}"
