@@ -408,9 +408,6 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
         pytest.skip("MERGE of events only happens in internal stage activity")
 
     if mode == "COPY":
-        if use_internal_stage is False:
-            pytest.skip("Testing COPY mode requires internal stage")
-
         if not aws_credentials or not bucket_name or not bucket_region:
             pytest.skip("Testing COPY mode requires S3 variables to be configured")
 
@@ -543,5 +540,5 @@ async def test_redshift_export_workflow_handles_undefined_function_error(
 
     run = runs[0]
     assert run.status == "Failed"
-    assert run.latest_error.startswith("UndefinedFunction")
+    assert run.latest_error is not None and run.latest_error.startswith("UndefinedFunction")
     assert run.records_completed is None
