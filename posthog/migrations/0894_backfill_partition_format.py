@@ -60,7 +60,7 @@ def backwards(apps, _):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0892_alter_integration_kind"),
+        ("posthog", "0893_add_ingestion_lane_fields_to_event_ingestion_restriction"),
     ]
 
     operations = [migrations.RunPython(forwards, backwards)]
