@@ -5,6 +5,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { isInsightQueryNode } from '~/queries/utils'
 
 import { CodeExampleTab, endpointLogic } from './endpointLogic'
 
@@ -19,10 +20,10 @@ function generateVariablesJson(variables: Record<string, any>): string {
     }
 
     return entries
-        .map(([key, value], index) => {
+        .map(([_, value], index) => {
             const isLast = index === entries.length - 1
             const comma = isLast ? '' : ','
-            return `      "${key}": ${JSON.stringify(value.value)}${comma}`
+            return `      "${value.code_name}": ${JSON.stringify(value.value)}${comma}`
         })
         .join('\n')
 }
@@ -93,11 +94,11 @@ export function EndpointCodeExamples({ tabId }: EndpointCodeExamplesProps): JSX.
     const { setActiveCodeExampleTab } = useActions(endpointLogic({ tabId }))
     const { activeCodeExampleTab, endpoint } = useValues(endpointLogic({ tabId }))
 
-    if (!endpoint) {
+    if (!endpoint || isInsightQueryNode(endpoint.query)) {
         return <></>
     }
 
-    const variables = endpoint.parameters || {}
+    const variables = endpoint.query.variables || {}
 
     const getCodeExample = (tab: CodeExampleTab): string => {
         switch (tab) {
