@@ -62,10 +62,11 @@ export class TemporalService {
             namespace: this.hub.TEMPORAL_NAMESPACE || 'default',
         })
 
+        const tlsEnabled: boolean = credentials !== undefined
         logger.info('✅ Connected to Temporal', {
             address,
             namespace: this.hub.TEMPORAL_NAMESPACE,
-            tlsEnabled: credentials !== undefined,
+            tlsEnabled,
         })
 
         return client
