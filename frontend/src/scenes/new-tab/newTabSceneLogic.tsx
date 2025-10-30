@@ -2,7 +2,18 @@ import { actions, afterMount, connect, isBreakpoint, kea, key, listeners, path, 
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { IconApps, IconArrowRight, IconDatabase, IconHogQL, IconPeople, IconPerson, IconSparkles } from '@posthog/icons'
+import {
+    IconActivity,
+    IconApps,
+    IconArrowRight,
+    IconDatabase,
+    IconGear,
+    IconHogQL,
+    IconPeople,
+    IconPerson,
+    IconSparkles,
+    IconToolbar,
+} from '@posthog/icons'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -31,7 +42,7 @@ import {
     FileSystemImport,
     FileSystemViewLogEntry,
 } from '~/queries/schema/schema-general'
-import { EventDefinition, Group, GroupTypeIndex, PersonType, PropertyDefinition } from '~/types'
+import { ActivityTab, EventDefinition, Group, GroupTypeIndex, PersonType, PropertyDefinition } from '~/types'
 
 import { SearchInputCommand } from './components/SearchInput'
 import type { newTabSceneLogicType } from './newTabSceneLogicType'
@@ -995,7 +1006,23 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
                     .toSorted((a, b) => a.name.localeCompare(b.name))
 
-                const sortedProducts = sortByLastViewedAt(products)
+                const manualProductItems: NewTabTreeDataItem[] = [
+                    {
+                        id: 'product-activity',
+                        name: 'Activity',
+                        category: 'apps',
+                        href: urls.activity(ActivityTab.ExploreEvents),
+                        icon: <IconActivity />,
+                        record: {
+                            type: 'link',
+                            path: 'Activity',
+                            href: urls.activity(ActivityTab.ExploreEvents),
+                        },
+                        lastViewedAt: getLastViewedAtForHref(urls.activity(ActivityTab.ExploreEvents)),
+                    },
+                ]
+
+                const sortedProducts = sortByLastViewedAt([...products, ...manualProductItems])
 
                 const data = defaultData
                     .map((fs, index) => ({
@@ -1011,7 +1038,36 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     }))
                     .filter(({ flag }) => !flag || featureFlags[flag as keyof typeof featureFlags])
 
-                const sortedData = sortByLastViewedAt(data)
+                const manualDataItems: NewTabTreeDataItem[] = [
+                    {
+                        id: 'data-settings',
+                        name: 'Project settings',
+                        category: 'data-management',
+                        href: urls.settings(),
+                        icon: <IconGear />,
+                        record: {
+                            type: 'link',
+                            path: 'Project settings',
+                            href: urls.settings(),
+                        },
+                        lastViewedAt: getLastViewedAtForHref(urls.settings()),
+                    },
+                    {
+                        id: 'data-toolbar',
+                        name: 'Toolbar',
+                        category: 'data-management',
+                        href: urls.toolbarLaunch(),
+                        icon: <IconToolbar />,
+                        record: {
+                            type: 'link',
+                            path: 'Toolbar',
+                            href: urls.toolbarLaunch(),
+                        },
+                        lastViewedAt: getLastViewedAtForHref(urls.toolbarLaunch()),
+                    },
+                ]
+
+                const sortedData = sortByLastViewedAt([...data, ...manualDataItems])
 
                 const sortedNewInsightItems = sortByLastViewedAt(newInsightItems)
                 const sortedNewDataItems = sortByLastViewedAt(newDataItems)
