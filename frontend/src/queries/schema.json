@@ -9871,6 +9871,38 @@
             "required": ["fields", "format", "id", "name", "type", "url_pattern"],
             "type": "object"
         },
+        "DatabaseSchemaEndpointTable": {
+            "additionalProperties": false,
+            "properties": {
+                "fields": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/DatabaseSchemaField"
+                    },
+                    "type": "object"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                "row_count": {
+                    "type": "number"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "endpoint",
+                    "type": "string"
+                }
+            },
+            "required": ["fields", "id", "name", "query", "type"],
+            "type": "object"
+        },
         "DatabaseSchemaField": {
             "additionalProperties": false,
             "properties": {
@@ -10160,6 +10192,9 @@
                 },
                 {
                     "$ref": "#/definitions/DatabaseSchemaMaterializedViewTable"
+                },
+                {
+                    "$ref": "#/definitions/DatabaseSchemaEndpointTable"
                 }
             ]
         },
@@ -10196,7 +10231,8 @@
                 "view",
                 "batch_export",
                 "materialized_view",
-                "managed_view"
+                "managed_view",
+                "endpoint"
             ],
             "type": "string"
         },
