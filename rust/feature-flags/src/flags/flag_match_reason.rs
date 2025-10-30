@@ -15,6 +15,8 @@ pub enum FeatureFlagMatchReason {
     NoGroupType,
     #[strum(serialize = "holdout_condition_value")]
     HoldoutConditionValue,
+    #[strum(serialize = "flag_disabled")]
+    FlagDisabled,
 }
 
 impl FeatureFlagMatchReason {
@@ -26,6 +28,7 @@ impl FeatureFlagMatchReason {
             FeatureFlagMatchReason::NoGroupType => 2,
             FeatureFlagMatchReason::OutOfRolloutBound => 1,
             FeatureFlagMatchReason::NoConditionMatch => 0,
+            FeatureFlagMatchReason::FlagDisabled => 0,
         }
     }
 }
@@ -54,6 +57,7 @@ impl std::fmt::Display for FeatureFlagMatchReason {
                 FeatureFlagMatchReason::OutOfRolloutBound => "out_of_rollout_bound",
                 FeatureFlagMatchReason::NoGroupType => "no_group_type",
                 FeatureFlagMatchReason::HoldoutConditionValue => "holdout_condition_value",
+                FeatureFlagMatchReason::FlagDisabled => "flag_disabled",
             }
         )
     }
@@ -71,6 +75,7 @@ mod tests {
             FeatureFlagMatchReason::NoGroupType,
             FeatureFlagMatchReason::ConditionMatch,
             FeatureFlagMatchReason::SuperConditionValue,
+            FeatureFlagMatchReason::FlagDisabled,
         ];
 
         let mut sorted_reasons = reasons.clone();
@@ -100,6 +105,10 @@ mod tests {
         assert_eq!(
             FeatureFlagMatchReason::NoGroupType.to_string(),
             "no_group_type"
+        );
+        assert_eq!(
+            FeatureFlagMatchReason::FlagDisabled.to_string(),
+            "flag_disabled"
         );
     }
 }

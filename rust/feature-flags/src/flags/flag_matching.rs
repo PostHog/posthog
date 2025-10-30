@@ -649,7 +649,7 @@ impl FeatureFlagMatcher {
         let flags_to_evaluate = flags
             .iter()
             .filter(|flag| {
-                !flag.deleted && !evaluated_flags_map.contains_key(&flag.key) && flag.active
+                !flag.deleted && !evaluated_flags_map.contains_key(&flag.key)
             })
             .copied()
             .collect::<Vec<&FeatureFlag>>();
@@ -807,6 +807,15 @@ impl FeatureFlagMatcher {
         property_overrides: Option<HashMap<String, Value>>,
         hash_key_overrides: Option<HashMap<String, String>>,
     ) -> Result<FeatureFlagMatch, FlagError> {
+        if !flag.active {
+            return Ok(FeatureFlagMatch {
+                matches: false,
+                variant: None,
+                reason: FeatureFlagMatchReason::FlagDisabled,
+                condition_index: None,
+                payload: None,
+            })
+        }
         // Check if this is a group-based flag with missing group
         let hashed_id = self.hashed_identifier(flag, hash_key_overrides.clone())?;
         if flag.get_group_type_index().is_some() && hashed_id.is_empty() {
