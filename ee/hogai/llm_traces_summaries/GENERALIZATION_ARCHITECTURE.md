@@ -2405,7 +2405,536 @@ ENGINE = ReplacingMergeTree(created_at)
 ORDER BY (team_id, trace_id, summary_type)
 ```
 
+## Theme Configuration and Management
+
+### Built-in Theme Initialization
+
+**Approach: Django Migration + Feature Flag**
+
+When the generalization feature launches, all teams automatically receive the 5 built-in themes via a Django migration. Access is controlled by a feature flag for gradual rollout.
+
+**Migration: Create Built-in Themes**
+
+```python
+# ee/migrations/XXXX_create_builtin_analysis_themes.py
+
+from django.db import migrations
+from ee.models.llm_traces_analysis_themes import AnalysisThemeConfig
+
+BUILTIN_THEMES = [
+    {
+        "theme_id": "unhappy_users",
+        "name": "Unhappy Users",
+        "description": "Identify frustration, pain points, and user dissatisfaction",
+        "config": {
+            "base_filters": [],
+            "theme_filters": [],
+            "date_range": {"date_from": "-7d"},
+            "sample_rate": 1.0,
+            "max_traces": 5000,
+            "filter_by_relevance": True,
+            "prompt": """Analyze this trace for any signs of user frustration...
+Return ONLY valid JSON:
+{"theme_relevant": true/false, "summary": "..."}"""
+        },
+        "schedule": "0 3 * * *",  # Daily at 3 AM UTC
+    },
+    {
+        "theme_id": "errors_and_failures",
+        "name": "Errors and Failures",
+        "description": "Surface technical issues, exceptions, and failure modes",
+        "config": {
+            "base_filters": [],
+            "theme_filters": [{"key": "$ai_error", "operator": "is_set"}],
+            "date_range": {"date_from": "-7d"},
+            "sample_rate": 1.0,
+            "max_traces": 500,
+            "filter_by_relevance": True,
+            "prompt": """Analyze this trace for errors and failures...
+Return ONLY valid JSON:
+{"theme_relevant": true/false, "summary": "..."}"""
+        },
+        "schedule": "0 3 * * *",
+    },
+    {
+        "theme_id": "feature_gaps",
+        "name": "Feature Gaps",
+        "description": "Identify unmet user needs and product roadmap opportunities",
+        "config": {
+            "base_filters": [],
+            "theme_filters": [],  # Will use prompt patterns
+            "date_range": {"date_from": "-7d"},
+            "sample_rate": 1.0,
+            "max_traces": 1500,
+            "filter_by_relevance": True,
+            "prompt": """Analyze this trace for feature requests...
+Return ONLY valid JSON:
+{"theme_relevant": true/false, "summary": "..."}"""
+        },
+        "schedule": "0 3 * * *",
+    },
+    {
+        "theme_id": "performance_cost_hotspots",
+        "name": "Performance/Cost Hotspots",
+        "description": "Find optimization opportunities for latency and token usage",
+        "config": {
+            "base_filters": [],
+            "theme_filters": [
+                {"key": "$ai_latency_ms", "operator": "gt", "value": 2000},
+                {"key": "$ai_total_tokens", "operator": "gt", "value": 10000},
+            ],
+            "date_range": {"date_from": "-7d"},
+            "sample_rate": 1.0,
+            "max_traces": 500,
+            "filter_by_relevance": True,
+            "prompt": """Analyze this trace for performance or cost issues...
+Return ONLY valid JSON:
+{"theme_relevant": true/false, "summary": "..."}"""
+        },
+        "schedule": "0 3 * * *",
+    },
+    {
+        "theme_id": "happy_users",
+        "name": "Happy Users",
+        "description": "Validate success patterns and positive user experiences",
+        "config": {
+            "base_filters": [],
+            "theme_filters": [{"key": "$ai_error", "operator": "is_not_set"}],
+            "date_range": {"date_from": "-7d"},
+            "sample_rate": 1.0,
+            "max_traces": 2000,
+            "filter_by_relevance": True,
+            "prompt": """Analyze this trace for positive signals...
+Return ONLY valid JSON:
+{"theme_relevant": true/false, "summary": "..."}"""
+        },
+        "schedule": "0 3 * * *",
+    },
+]
+
+def create_builtin_themes(apps, schema_editor):
+    """Create built-in analysis themes for all teams"""
+    Team = apps.get_model("posthog", "Team")
+    AnalysisThemeConfig = apps.get_model("ee", "AnalysisThemeConfig")
+
+    for team in Team.objects.all():
+        for theme_data in BUILTIN_THEMES:
+            AnalysisThemeConfig.objects.get_or_create(
+                team=team,
+                theme_id=theme_data["theme_id"],
+                defaults={
+                    "name": theme_data["name"],
+                    "description": theme_data["description"],
+                    "config": theme_data["config"],
+                    "schedule": theme_data["schedule"],
+                    "enabled": True,  # ← Enabled by default
+                    "is_builtin": True,
+                    "created_by": None,  # System-created
+                }
+            )
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ("ee", "XXXX_previous_migration"),
+    ]
+
+    operations = [
+        migrations.RunPython(create_builtin_themes),
+    ]
+```
+
+**Feature Flag Gating**
+
+```python
+# ee/api/llm_traces_analysis_themes.py
+
+from posthog.models import FeatureFlag
+
+def check_llm_traces_analysis_access(team: Team) -> bool:
+    """Check if team has access to LLM traces analysis themes"""
+    return posthoganalytics.feature_enabled(
+        "llm-traces-analysis-themes",
+        team.uuid,
+        groups={"organization": str(team.organization.id)},
+        group_properties={
+            "organization": {
+                "id": str(team.organization.id),
+                "created_at": team.organization.created_at,
+            }
+        },
+    )
+
+# Usage in API endpoints
+@router.get("/api/projects/{team_id}/llm_traces/analysis_themes")
+def list_themes(request, team_id: int):
+    team = request.user.team
+
+    if not check_llm_traces_analysis_access(team):
+        return Response(
+            {"error": "LLM traces analysis not available for this team"},
+            status=403
+        )
+
+    # Continue with endpoint logic...
+```
+
+**Rollout Strategy**
+
+```text
+Phase 1: Internal dogfooding (PostHog org only)
+  - Feature flag: llm-traces-analysis-themes = True for org=posthog
+  - Validate built-in themes, gather feedback
+
+Phase 2: Beta customers (opt-in)
+  - Feature flag: llm-traces-analysis-themes = True for beta_orgs list
+  - Monitor costs, performance, cluster quality
+
+Phase 3: Gradual rollout (all cloud customers)
+  - Feature flag: llm-traces-analysis-themes = 10% → 50% → 100%
+  - Ramp up based on success metrics
+
+Phase 4: Self-hosted
+  - Include in next major release after cloud validation
+```
+
+### Built-in vs Custom Themes
+
+**Rules**
+
+| Capability         | Built-in Themes        | Custom Themes          |
+| ------------------ | ---------------------- | ---------------------- |
+| **View**           | ✅ All users           | ✅ All users           |
+| **Enable/Disable** | ✅ Toggle on/off       | ✅ Toggle on/off       |
+| **Edit**           | ❌ Read-only           | ✅ Full edit           |
+| **Delete**         | ❌ Cannot delete       | ✅ Can delete          |
+| **Clone**          | ✅ Clone to custom     | ✅ Clone to new custom |
+| **Schedule**       | ✅ Can change schedule | ✅ Can change schedule |
+
+**Rationale**
+
+- Built-in themes are **curated and maintained** by PostHog - users benefit from improvements over time
+- Users who want customization can **clone built-in themes** to create custom variants
+- Custom themes are **fully owned** by the team - edit/delete as needed
+
+**Clone Flow**
+
+```python
+# When user clicks "Clone" on a built-in theme
+@router.post("/api/projects/{team_id}/llm_traces/analysis_themes/{theme_id}/clone")
+def clone_theme(request, team_id: int, theme_id: str):
+    """Clone a theme (built-in or custom) to create a new custom theme"""
+
+    source_theme = AnalysisThemeConfig.objects.get(
+        team_id=team_id,
+        theme_id=theme_id
+    )
+
+    # Create new custom theme with copied config
+    new_theme = AnalysisThemeConfig.objects.create(
+        team_id=team_id,
+        theme_id=f"custom_{uuid.uuid4().hex[:8]}",  # Generate unique ID
+        name=f"{source_theme.name} (Custom)",
+        description=source_theme.description,
+        config=source_theme.config,  # Deep copy the config
+        schedule=source_theme.schedule,
+        enabled=True,
+        is_builtin=False,  # ← Custom theme
+        created_by=request.user,
+    )
+
+    return Response(serialize_theme(new_theme), status=201)
+```
+
+**Example UX**
+
+```text
+User: "I want Unhappy Users but with my own prompt focused on checkout"
+
+1. Navigate to Analysis Themes settings
+2. Find "Unhappy Users" built-in theme
+3. Click "Clone" button
+4. System creates "Unhappy Users (Custom)" with same config
+5. User edits prompt to focus on checkout
+6. User saves → now has custom variant running alongside built-in
+```
+
+### Storage Model
+
+Themes are stored in the `AnalysisThemeConfig` model:
+
+```python
+# ee/models/llm_traces_analysis_themes.py
+
+class AnalysisThemeConfig(UUIDTModel):
+    """Stored configuration for analysis themes (built-in and custom)"""
+
+    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    theme_id = models.CharField(max_length=100, db_index=True)
+    name = models.CharField(max_length=255)
+    description = models.TextField(null=True, blank=True)
+
+    # Config as JSON (serialized AnalysisTheme dataclass)
+    config = models.JSONField()
+
+    # Execution
+    enabled = models.BooleanField(default=True)
+    schedule = models.CharField(max_length=100, null=True)  # Cron expression
+    last_run_at = models.DateTimeField(null=True)
+    last_run_status = models.CharField(max_length=50, null=True)  # success, error, running
+
+    # Built-in vs. custom
+    is_builtin = models.BooleanField(default=False)
+
+    # Metadata
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, null=True)  # Null for built-in
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["team", "enabled"]),
+            models.Index(fields=["team", "theme_id"]),
+        ]
+        unique_together = [("team", "theme_id")]
+```
+
+**Key Fields**
+
+- `theme_id`: Unique identifier (e.g., `"unhappy_users"`, `"custom_abc123"`)
+- `config`: Full theme configuration as JSON (filters, prompt, sampling, etc.)
+- `enabled`: Whether theme is active for this team
+- `is_builtin`: True for PostHog-managed themes, False for user-created
+- `schedule`: Cron expression for clustering frequency (default: `"0 3 * * *"` = daily at 3 AM)
+
 ## API Endpoints (Phase 2)
+
+### Theme Management
+
+```python
+# ee/api/llm_traces_analysis_themes.py
+
+from rest_framework import routers, serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+
+class AnalysisThemeConfigSerializer(serializers.ModelSerializer):
+    """Serializer for analysis theme configurations"""
+
+    can_edit = serializers.SerializerMethodField()
+    can_delete = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AnalysisThemeConfig
+        fields = [
+            "id",
+            "theme_id",
+            "name",
+            "description",
+            "config",
+            "enabled",
+            "schedule",
+            "is_builtin",
+            "last_run_at",
+            "last_run_status",
+            "can_edit",
+            "can_delete",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "theme_id", "is_builtin", "created_at", "updated_at"]
+
+    def get_can_edit(self, obj):
+        return not obj.is_builtin
+
+    def get_can_delete(self, obj):
+        return not obj.is_builtin
+
+class AnalysisThemeConfigViewSet(viewsets.ModelViewSet):
+    serializer_class = AnalysisThemeConfigSerializer
+
+    def get_queryset(self):
+        return AnalysisThemeConfig.objects.filter(
+            team=self.request.user.team
+        ).order_by("is_builtin", "name")
+
+    def create(self, request):
+        """Create a new custom analysis theme"""
+        # Only allow creating custom themes
+        data = request.data.copy()
+        data["is_builtin"] = False
+        data["theme_id"] = f"custom_{uuid.uuid4().hex[:8]}"
+
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(
+            team=request.user.team,
+            created_by=request.user,
+        )
+        return Response(serializer.data, status=201)
+
+    def update(self, request, pk=None):
+        """Update a theme (custom themes only)"""
+        theme = self.get_object()
+
+        if theme.is_builtin:
+            # Can only update enabled/schedule for built-in themes
+            allowed_fields = {"enabled", "schedule"}
+            if not set(request.data.keys()).issubset(allowed_fields):
+                return Response(
+                    {"error": "Built-in themes can only toggle enabled/schedule"},
+                    status=400
+                )
+
+        serializer = self.get_serializer(theme, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def destroy(self, request, pk=None):
+        """Delete a theme (custom themes only)"""
+        theme = self.get_object()
+
+        if theme.is_builtin:
+            return Response(
+                {"error": "Cannot delete built-in themes"},
+                status=400
+            )
+
+        theme.delete()
+        return Response(status=204)
+
+    @action(detail=True, methods=["post"])
+    def clone(self, request, pk=None):
+        """Clone a theme to create a new custom variant"""
+        source_theme = self.get_object()
+
+        new_theme = AnalysisThemeConfig.objects.create(
+            team=request.user.team,
+            theme_id=f"custom_{uuid.uuid4().hex[:8]}",
+            name=f"{source_theme.name} (Custom)",
+            description=source_theme.description,
+            config=copy.deepcopy(source_theme.config),
+            schedule=source_theme.schedule,
+            enabled=True,
+            is_builtin=False,
+            created_by=request.user,
+        )
+
+        serializer = self.get_serializer(new_theme)
+        return Response(serializer.data, status=201)
+
+    @action(detail=True, methods=["post"])
+    def run(self, request, pk=None):
+        """Manually trigger a theme analysis run"""
+        theme = self.get_object()
+
+        # Enqueue Temporal workflow
+        from ee.hogai.llm_traces_summaries.workflows.theme_analysis import run_theme_analysis
+
+        run_id = f"{theme.theme_id}_{int(time.time())}"
+        workflow_handle = temporal_client.start_workflow(
+            run_theme_analysis,
+            args=[team_id, theme.theme_id, run_id],
+            id=f"theme_analysis_{theme.theme_id}_{run_id}",
+            task_queue="llm-traces-analysis",
+        )
+
+        return Response({
+            "run_id": run_id,
+            "status": "running",
+            "workflow_id": workflow_handle.id
+        })
+
+# URL configuration
+router = routers.DefaultRouter()
+router.register(
+    r"api/projects/(?P<team_id>\d+)/llm_traces/analysis_themes",
+    AnalysisThemeConfigViewSet,
+    basename="analysis_themes"
+)
+```
+
+### Theme Results
+
+```python
+@router.get("/api/projects/{team_id}/llm_traces/analysis_themes/{theme_id}/results")
+def get_theme_results(request, team_id: int, theme_id: str):
+    """Get latest clustering results for a theme"""
+
+    # Query latest clustering run from ClickHouse
+    query = """
+        SELECT
+            cluster_id,
+            cluster_name,
+            cluster_description,
+            trace_ids,
+            coverage_percent,
+            avg_similarity,
+            created_at
+        FROM events
+        WHERE
+            team_id = %(team_id)s
+            AND event = '$ai_trace_cluster'
+            AND properties['theme_id'] = %(theme_id)s
+            AND properties['clustering_run_id'] = (
+                SELECT properties['clustering_run_id']
+                FROM events
+                WHERE team_id = %(team_id)s
+                  AND event = '$ai_trace_cluster'
+                  AND properties['theme_id'] = %(theme_id)s
+                ORDER BY timestamp DESC
+                LIMIT 1
+            )
+        ORDER BY toFloat64(properties['avg_similarity']) DESC
+    """
+
+    clusters = execute_clickhouse_query(query, {
+        "team_id": team_id,
+        "theme_id": theme_id
+    })
+
+    return Response({
+        "theme_id": theme_id,
+        "clusters": clusters,
+        "total_traces": sum(len(c["trace_ids"]) for c in clusters),
+        "total_clusters": len(clusters),
+    })
+
+@router.get("/api/projects/{team_id}/llm_traces/analysis_themes/{theme_id}/traces")
+def get_theme_traces(request, team_id: int, theme_id: str, cluster_id: Optional[str] = None):
+    """Get traces for a theme, optionally filtered by cluster"""
+
+    # If cluster_id provided, get traces from that cluster
+    if cluster_id:
+        cluster_event = get_cluster_event(team_id, cluster_id)
+        trace_ids = cluster_event["properties"]["trace_ids"]
+    else:
+        # Get all traces with summaries for this theme
+        query = """
+            SELECT DISTINCT properties['trace_id'] as trace_id
+            FROM events
+            WHERE team_id = %(team_id)s
+              AND event = '$ai_trace_summary'
+              AND properties['theme_id'] = %(theme_id)s
+              AND properties['theme_relevant'] = true
+            ORDER BY timestamp DESC
+            LIMIT 1000
+        """
+        trace_ids = execute_clickhouse_query(query, {
+            "team_id": team_id,
+            "theme_id": theme_id
+        })
+
+    # Fetch full trace details
+    traces = fetch_traces(team_id, trace_ids)
+
+    return Response({
+        "traces": traces,
+        "count": len(traces),
+    })
+```
+
+## API Endpoints (Legacy/Deprecated)
 
 ```python
 # ee/api/llm_traces_summarization.py
@@ -2444,25 +2973,38 @@ def get_results(team_id: int, run_id: str):
 │                                                                   │
 │ Built-in Themes                                                   │
 │ ┌───────────────────────────────────────────────────────────┐   │
-│ │ [✓] Error Analysis                            Last: 2h ago │   │
-│ │     Find and categorize errors, exceptions, and failures   │   │
-│ │     500 traces analyzed • 12 clusters • View Results →     │   │
+│ │ [✓] Unhappy Users                             Last: 2h ago │   │
+│ │     Identify frustration, pain points, and dissatisfaction │   │
+│ │     1,250 traces analyzed • 18 clusters • View Results →   │   │
+│ │     Clone                                                  │   │
 │ ├───────────────────────────────────────────────────────────┤   │
-│ │ [✓] UX Issues                                 Last: 2h ago │   │
-│ │     Identify friction points and frustrations              │   │
-│ │     3,000 traces analyzed • 24 clusters • View Results →   │   │
+│ │ [✓] Errors and Failures                       Last: 2h ago │   │
+│ │     Surface technical issues, exceptions, and failures     │   │
+│ │     400 traces analyzed • 8 clusters • View Results →      │   │
+│ │     Clone                                                  │   │
 │ ├───────────────────────────────────────────────────────────┤   │
-│ │ [ ] Feature Requests                         Last: 3d ago  │   │
-│ │     Extract feature requests and suggestions               │   │
-│ │     Disabled • Configure →                                 │   │
+│ │ [✓] Feature Gaps                              Last: 2h ago │   │
+│ │     Identify unmet user needs and roadmap opportunities    │   │
+│ │     900 traces analyzed • 15 clusters • View Results →     │   │
+│ │     Clone                                                  │   │
+│ ├───────────────────────────────────────────────────────────┤   │
+│ │ [✓] Performance/Cost Hotspots                 Last: 2h ago │   │
+│ │     Find optimization opportunities for latency and cost   │   │
+│ │     350 traces analyzed • 6 clusters • View Results →      │   │
+│ │     Clone                                                  │   │
+│ ├───────────────────────────────────────────────────────────┤   │
+│ │ [ ] Happy Users                              Last: 3d ago  │   │
+│ │     Validate success patterns and positive experiences     │   │
+│ │     Disabled • Enable →                                    │   │
+│ │     Clone                                                  │   │
 │ └───────────────────────────────────────────────────────────┘   │
 │                                                                   │
 │ Custom Themes                                                     │
 │ ┌───────────────────────────────────────────────────────────┐   │
-│ │ [✓] Payment Errors                           Last: 30m ago │   │
-│ │     Payment-specific error analysis                        │   │
-│ │     127 traces analyzed • 5 clusters • View Results →      │   │
-│ │     Edit • Duplicate • Delete                              │   │
+│ │ [✓] Checkout Flow Issues                     Last: 30m ago │   │
+│ │     Unhappy Users focused on checkout experience           │   │
+│ │     187 traces analyzed • 7 clusters • View Results →      │   │
+│ │     Edit • Clone • Delete                                  │   │
 │ └───────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -2524,15 +3066,23 @@ def get_results(team_id: int, run_id: str):
 │                                                                   │
 │ Analysis Prompt                                                   │
 │ ┌─────────────────────────────────────────────────────────────┐ │
-│ │ ▼ Use template: Error Analysis                             │ │
+│ │ ▼ Use template: Errors and Failures                        │ │
 │ │                                                             │ │
-│ │ Analyze this trace for payment errors.                     │ │
-│ │ Identify:                                                   │ │
+│ │ Analyze this trace for payment errors in checkout flow.    │ │
+│ │                                                             │ │
+│ │ Look for:                                                   │ │
 │ │ - Error type (timeout, decline, validation, etc.)          │ │
-│ │ - Root cause                                                │ │
+│ │ - Root cause and context                                    │ │
 │ │ - Impact on checkout conversion                            │ │
 │ │                                                             │ │
-│ │ If no errors - return only "No errors found".              │ │
+│ │ Return ONLY valid JSON with no additional text:            │ │
+│ │ {                                                           │ │
+│ │   "theme_relevant": true/false,                            │ │
+│ │   "summary": "detailed explanation OR 'Not relevant'"      │ │
+│ │ }                                                           │ │
+│ │                                                             │ │
+│ │ Set theme_relevant=true ONLY if payment errors exist.      │ │
+│ │ If theme_relevant=false, summary: "Not relevant to theme"  │ │
 │ └─────────────────────────────────────────────────────────────┘ │
 │                                                                   │
 │ Schedule                                                          │
