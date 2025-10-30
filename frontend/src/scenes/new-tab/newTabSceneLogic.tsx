@@ -93,6 +93,9 @@ export interface CategoryWithItems {
     isLoading: boolean
 }
 
+const INITIAL_SECTION_LIMIT = 5
+const SINGLE_CATEGORY_SECTION_LIMIT = 15
+const INITIAL_RECENTS_LIMIT = 5
 const PAGINATION_LIMIT = 10
 const GROUP_SEARCH_LIMIT = 5
 
@@ -156,7 +159,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         selectPrevious: true,
         onSubmit: true,
         setSelectedCategory: (category: NEW_TAB_CATEGORY_ITEMS) => ({ category }),
-        loadRecents: true,
+        loadRecents: (options?: { offset?: number }) => ({ offset: options?.offset ?? 0 }),
+        loadMoreRecents: true,
         debouncedPersonSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedEventDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
         debouncedPropertyDefinitionSearch: (searchTerm: string) => ({ searchTerm }),
@@ -166,6 +170,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         triggerSearchForIncludedItems: true,
         refreshDataAfterToggle: true,
         showMoreInSection: (section: string) => ({ section }),
+        setSectionItemLimit: (section: string, limit: number) => ({ section, limit }),
         resetSectionLimits: true,
         askAI: (searchTerm: string) => ({ searchTerm }),
         logCreateNewItem: (href: string | null | undefined) => ({ href }),
@@ -208,14 +213,22 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 return { results: [], hasMore: false, startTime: null, endTime: null }
             }) as any as SearchResults,
             {
-                loadRecents: async (_, breakpoint) => {
+                loadRecents: async ({ offset }, breakpoint) => {
                     if (values.recentsLoading) {
                         await breakpoint(250)
                     }
                     const searchTerm = values.search.trim()
                     const noResultsPrefix = values.firstNoResultsSearchPrefixes.recents
 
+                    const requestedOffset = offset ?? 0
+                    const isAppending =
+                        requestedOffset > 0 &&
+                        values.recents.searchTerm === searchTerm &&
+                        values.recents.results.length > 0
+                    const effectiveOffset = isAppending ? requestedOffset : 0
+
                     if (
+                        effectiveOffset === 0 &&
                         searchTerm &&
                         noResultsPrefix &&
                         searchTerm.length > noResultsPrefix.length &&
@@ -229,11 +242,14 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         }
                     }
 
+                    const pageLimit = effectiveOffset === 0 ? INITIAL_RECENTS_LIMIT : PAGINATION_LIMIT
+
                     const response = await api.fileSystem.list({
                         search: searchTerm,
-                        limit: PAGINATION_LIMIT + 1,
+                        limit: pageLimit + 1,
                         orderBy: '-last_viewed_at',
                         notType: 'folder',
+                        offset: effectiveOffset,
                     })
                     breakpoint()
                     const searchChunks = searchTerm
@@ -243,18 +259,25 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     const filteredCount = searchTerm
                         ? response.results.filter((item) => matchesRecentsSearch(item, searchChunks)).length
                         : response.results.length
+                    const newResults = response.results.slice(0, pageLimit)
+                    const combinedResults =
+                        isAppending && values.recents.searchTerm === searchTerm
+                            ? [...values.recents.results, ...newResults]
+                            : newResults
                     const recents = {
                         searchTerm,
-                        results: response.results.slice(0, PAGINATION_LIMIT),
-                        hasMore: response.results.length > PAGINATION_LIMIT,
-                        lastCount: Math.min(response.results.length, PAGINATION_LIMIT),
+                        results: combinedResults,
+                        hasMore: response.results.length > pageLimit,
+                        lastCount: newResults.length,
                     }
-                    if (searchTerm) {
-                        actions.setFirstNoResultsSearchPrefix('recents', filteredCount === 0 ? searchTerm : null)
-                    } else {
-                        actions.setFirstNoResultsSearchPrefix('recents', null)
+                    if (effectiveOffset === 0) {
+                        if (searchTerm) {
+                            actions.setFirstNoResultsSearchPrefix('recents', filteredCount === 0 ? searchTerm : null)
+                        } else {
+                            actions.setFirstNoResultsSearchPrefix('recents', null)
+                        }
                     }
-                    if ('sessionStorage' in window && searchTerm === '') {
+                    if ('sessionStorage' in window && searchTerm === '' && effectiveOffset === 0) {
                         try {
                             window.sessionStorage.setItem(
                                 `newTab-recentItems-${getCurrentTeamId()}`,
@@ -523,7 +546,11 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             {
                 showMoreInSection: (state, { section }) => ({
                     ...state,
-                    [section]: Infinity,
+                    [section]: section === 'recents' ? (state[section] ?? INITIAL_SECTION_LIMIT) : Infinity,
+                }),
+                setSectionItemLimit: (state, { section, limit }) => ({
+                    ...state,
+                    [section]: limit,
                 }),
                 resetSectionLimits: () => ({}),
                 setSearch: () => ({}),
@@ -876,8 +903,31 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             },
         ],
         getSectionItemLimit: [
-            (s) => [s.sectionItemLimits],
-            (sectionItemLimits: Record<string, number>) => (section: string) => sectionItemLimits[section] || 5,
+            (s) => [s.sectionItemLimits, s.newTabSceneDataInclude, s.featureFlags],
+            (
+                sectionItemLimits: Record<string, number>,
+                newTabSceneDataInclude: NEW_TAB_COMMANDS[],
+                featureFlags: any
+            ) => {
+                const newTabSceneData = featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
+                const singleSelectedCategory: NEW_TAB_COMMANDS | null =
+                    newTabSceneData && newTabSceneDataInclude.length === 1 && newTabSceneDataInclude[0] !== 'all'
+                        ? newTabSceneDataInclude[0]
+                        : null
+
+                return (section: string): number => {
+                    const manualLimit = sectionItemLimits[section]
+                    if (manualLimit !== undefined) {
+                        return manualLimit
+                    }
+
+                    if (singleSelectedCategory && section === singleSelectedCategory) {
+                        return SINGLE_CATEGORY_SECTION_LIMIT
+                    }
+
+                    return INITIAL_SECTION_LIMIT
+                }
+            },
         ],
         itemsGrid: [
             (s) => [
@@ -1482,6 +1532,20 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        loadMoreRecents: () => {
+            if (values.recentsLoading) {
+                return
+            }
+
+            const currentLimit = values.getSectionItemLimit('recents')
+            if (Number.isFinite(currentLimit)) {
+                actions.setSectionItemLimit('recents', currentLimit + PAGINATION_LIMIT)
+            }
+
+            if (values.recents.hasMore) {
+                actions.loadRecents({ offset: values.recents.results.length })
+            }
+        },
         logCreateNewItem: async ({ href }) => {
             if (!href) {
                 return
@@ -1700,64 +1764,31 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             actions.loadGroupSearchResults({ searchTerm })
         },
     })),
-    tabAwareActionToUrl(({ values }) => ({
-        setSearch: () => [
-            router.values.location.pathname,
-            {
+    tabAwareActionToUrl(({ values }) => {
+        const buildParams = (): Record<string, any> => {
+            const includeItems = values.newTabSceneDataInclude.filter((item) => item !== 'all')
+            const includeParam =
+                values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && includeItems.length > 0
+                    ? includeItems.join(',')
+                    : undefined
+
+            return {
                 search: values.search || undefined,
                 category:
                     !values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.selectedCategory !== 'all'
                         ? values.selectedCategory
                         : undefined,
-                include:
-                    values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.newTabSceneDataInclude.length > 0
-                        ? values.newTabSceneDataInclude.join(',')
-                        : undefined,
-            },
-        ],
-        setSelectedCategory: () => [
-            router.values.location.pathname,
-            {
-                search: values.search || undefined,
-                category:
-                    !values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.selectedCategory !== 'all'
-                        ? values.selectedCategory
-                        : undefined,
-                include:
-                    values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.newTabSceneDataInclude.length > 0
-                        ? values.newTabSceneDataInclude.join(',')
-                        : undefined,
-            },
-        ],
-        setNewTabSceneDataInclude: () => [
-            router.values.location.pathname,
-            {
-                search: values.search || undefined,
-                category:
-                    !values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.selectedCategory !== 'all'
-                        ? values.selectedCategory
-                        : undefined,
-                include:
-                    values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.newTabSceneDataInclude.length > 0
-                        ? values.newTabSceneDataInclude.join(',')
-                        : undefined,
-            },
-        ],
-        toggleNewTabSceneDataInclude: () => [
-            router.values.location.pathname,
-            {
-                search: values.search || undefined,
-                category:
-                    !values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.selectedCategory !== 'all'
-                        ? values.selectedCategory
-                        : undefined,
-                include:
-                    values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE] && values.newTabSceneDataInclude.length > 0
-                        ? values.newTabSceneDataInclude.join(',')
-                        : undefined,
-            },
-        ],
-    })),
+                include: includeParam,
+            }
+        }
+
+        return {
+            setSearch: () => [router.values.location.pathname, buildParams()],
+            setSelectedCategory: () => [router.values.location.pathname, buildParams()],
+            setNewTabSceneDataInclude: () => [router.values.location.pathname, buildParams()],
+            toggleNewTabSceneDataInclude: () => [router.values.location.pathname, buildParams()],
+        }
+    }),
     tabAwareUrlToAction(({ actions, values }) => ({
         [urls.newTab()]: (_, searchParams) => {
             const newTabSceneData = values.featureFlags[FEATURE_FLAGS.DATA_IN_NEW_TAB_SCENE]
@@ -1796,7 +1827,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             }
 
             // Update include array if URL param differs from current state
-            const includeFromUrl: NEW_TAB_COMMANDS[] = searchParams.include
+            const includeFromUrlRaw = searchParams.include
                 ? (searchParams.include as string)
                       .split(',')
                       .filter((item): item is NEW_TAB_COMMANDS =>
@@ -1813,48 +1844,50 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                               'askAI',
                           ].includes(item)
                       )
-                : []
+                : null
 
-            const currentIncludeString = values.newTabSceneDataInclude.slice().sort().join(',')
-            const urlIncludeString = includeFromUrl.slice().sort().join(',')
+            if (includeFromUrlRaw !== null) {
+                const currentIncludeString = values.newTabSceneDataInclude.slice().sort().join(',')
+                const urlIncludeString = includeFromUrlRaw.slice().sort().join(',')
 
-            if (newTabSceneData && currentIncludeString !== urlIncludeString) {
-                actions.setNewTabSceneDataInclude(includeFromUrl)
+                if (newTabSceneData && currentIncludeString !== urlIncludeString) {
+                    actions.setNewTabSceneDataInclude(includeFromUrlRaw)
 
-                // Load data for included items
-                const searchTerm = searchParams.search ? String(searchParams.search).trim() : ''
+                    // Load data for included items
+                    const searchTerm = searchParams.search ? String(searchParams.search).trim() : ''
 
-                // Expand 'all' to include all data types
-                const itemsToProcess = includeFromUrl.includes('all')
-                    ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
-                    : includeFromUrl
+                    // Expand 'all' to include all data types
+                    const itemsToProcess = includeFromUrlRaw.includes('all')
+                        ? ['persons', 'groups', 'eventDefinitions', 'propertyDefinitions', 'askAI']
+                        : includeFromUrlRaw
 
-                itemsToProcess.forEach((item) => {
-                    if (searchTerm !== '') {
-                        // If there's a search term, trigger search for data items only
-                        if (item === 'persons') {
-                            actions.debouncedPersonSearch(searchTerm)
-                        } else if (item === 'groups') {
-                            actions.debouncedGroupSearch(searchTerm)
-                        } else if (item === 'eventDefinitions') {
-                            actions.debouncedEventDefinitionSearch(searchTerm)
-                        } else if (item === 'propertyDefinitions') {
-                            actions.debouncedPropertyDefinitionSearch(searchTerm)
+                    itemsToProcess.forEach((item) => {
+                        if (searchTerm !== '') {
+                            // If there's a search term, trigger search for data items only
+                            if (item === 'persons') {
+                                actions.debouncedPersonSearch(searchTerm)
+                            } else if (item === 'groups') {
+                                actions.debouncedGroupSearch(searchTerm)
+                            } else if (item === 'eventDefinitions') {
+                                actions.debouncedEventDefinitionSearch(searchTerm)
+                            } else if (item === 'propertyDefinitions') {
+                                actions.debouncedPropertyDefinitionSearch(searchTerm)
+                            }
+                            // For non-data items (create-new, apps, etc.), no special search needed as they're handled by itemsGrid
+                        } else {
+                            // Load initial data when no search term for data items only
+                            if (item === 'persons') {
+                                actions.loadInitialPersons({})
+                            } else if (item === 'groups') {
+                                actions.loadInitialGroups()
+                            } else if (item === 'eventDefinitions') {
+                                actions.loadInitialEventDefinitions({})
+                            } else if (item === 'propertyDefinitions') {
+                                actions.loadInitialPropertyDefinitions({})
+                            }
                         }
-                        // For non-data items (create-new, apps, etc.), no special search needed as they're handled by itemsGrid
-                    } else {
-                        // Load initial data when no search term for data items only
-                        if (item === 'persons') {
-                            actions.loadInitialPersons({})
-                        } else if (item === 'groups') {
-                            actions.loadInitialGroups()
-                        } else if (item === 'eventDefinitions') {
-                            actions.loadInitialEventDefinitions({})
-                        } else if (item === 'propertyDefinitions') {
-                            actions.loadInitialPropertyDefinitions({})
-                        }
-                    }
-                })
+                    })
+                }
             }
 
             // Reset search, category, and include array to defaults if no URL params
