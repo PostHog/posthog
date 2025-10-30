@@ -247,7 +247,7 @@ async def test_s3_export_workflow_with_request_timeouts(
 
     class FakeSession(aioboto3.Session):
         @contextlib.asynccontextmanager
-        async def client(self, *args, **kwargs):
+        async def client(self, *args, **kwargs):  # type: ignore
             async with self._session.create_client(*args, **kwargs) as client:
                 client = t.cast(S3Client, client)
                 original_upload_part = client.upload_part
@@ -267,7 +267,7 @@ async def test_s3_export_workflow_with_request_timeouts(
                     else:
                         return await original_upload_part(*args, **kwargs)
 
-                client.upload_part = faulty_upload_part
+                client.upload_part = faulty_upload_part  # type: ignore
 
                 yield client
 
