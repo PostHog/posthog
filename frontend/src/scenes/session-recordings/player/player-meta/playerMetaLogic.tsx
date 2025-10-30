@@ -39,7 +39,7 @@ import { SessionSummaryContent } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
-// Common person properties that should always be available to pin
+// Common properties that should always be available to pin (person, event, and session properties)
 const COMMON_PERSON_PROPERTIES = [
     'email',
     '$user_id',
@@ -50,6 +50,10 @@ const COMMON_PERSON_PROPERTIES = [
     '$initial_utm_source',
     '$initial_utm_campaign',
     '$initial_utm_medium',
+    '$entry_referring_domain',
+    '$entry_current_url',
+    '$geoip_country_code',
+    '$geoip_city_name',
 ]
 
 function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
@@ -409,6 +413,7 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 })
 
                 // Sort by the order in pinnedProperties array
+                // without this pins jump around as they load in
                 return pinnedItems.sort((a, b) => {
                     const aKey = a.type === 'property' ? a.property : a.label
                     const bKey = b.type === 'property' ? b.property : b.label
