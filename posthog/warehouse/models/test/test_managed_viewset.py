@@ -162,7 +162,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         self.assertIsNotNone(managed_viewset.created_at)
 
     def test_managed_viewset_unique_constraint(self):
-        """Test that managed viewset has unique constraint on team and kind"""
+        """Test that managed viewset has unique constraint on team and kind for Revenue Analytics"""
         # Create first managed viewset
         DataWarehouseManagedViewSet.objects.create(
             team=self.team,
@@ -174,4 +174,40 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             DataWarehouseManagedViewSet.objects.create(
                 team=self.team,
                 kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            )
+
+    def test_managed_viewset_unique_constraint_for_endpoints(self):
+        """Test that managed viewset has unique constraint on team and endpoint"""
+        from products.endpoints.backend.models import Endpoint
+
+        endpoint1 = Endpoint.objects.create(
+            team=self.team,
+            name="test_endpoint_1",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+        )
+        endpoint2 = Endpoint.objects.create(
+            team=self.team,
+            name="test_endpoint_2",
+            query={"kind": "HogQLQuery", "query": "SELECT 2"},
+            created_by=self.user,
+        )
+
+        DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSet.Kind.ENDPOINTS,
+            endpoint=endpoint1,
+        )
+
+        DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSet.Kind.ENDPOINTS,
+            endpoint=endpoint2,
+        )
+
+        with self.assertRaises(IntegrityError):
+            DataWarehouseManagedViewSet.objects.create(
+                team=self.team,
+                kind=DataWarehouseManagedViewSet.Kind.ENDPOINTS,
+                endpoint=endpoint1,
             )

@@ -9753,6 +9753,10 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "DataWarehouseSyncInterval": {
+            "enum": ["5min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
+            "type": "string"
+        },
         "DataWarehouseViewLink": {
             "additionalProperties": false,
             "properties": {
@@ -10656,6 +10660,10 @@
                 "is_active": {
                     "type": "boolean"
                 },
+                "is_materialized": {
+                    "description": "Whether this endpoint's query results are materialized to S3",
+                    "type": "boolean"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -10668,6 +10676,10 @@
                             "$ref": "#/definitions/InsightQueryNode"
                         }
                     ]
+                },
+                "sync_frequency": {
+                    "$ref": "#/definitions/DataWarehouseSyncInterval",
+                    "description": "How frequently should the underlying materialized view be updated"
                 }
             },
             "type": "object"

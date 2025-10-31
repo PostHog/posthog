@@ -23,6 +23,8 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTMode
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
 
+from products.endpoints.backend.models import Endpoint
+
 logger = structlog.get_logger(__name__)
 
 
@@ -36,16 +38,24 @@ class ExpectedView:
 class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     class Kind(models.TextChoices):
         REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
+        ENDPOINTS = "endpoints", "Endpoints"
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     kind = models.CharField(max_length=64, choices=Kind.choices)
+    endpoint = models.ForeignKey(Endpoint, null=True, blank=True, on_delete=models.SET_NULL)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["team", "kind"],
+                condition=models.Q(endpoint__isnull=True),
                 name="datawarehouse_unique_managed_viewset_team_kind",
-            )
+            ),
+            models.UniqueConstraint(
+                fields=["team", "endpoint"],
+                condition=models.Q(endpoint__isnull=False),
+                name="datawarehouse_unique_managed_viewset_team_endpoint",
+            ),
         ]
 
     def __str__(self) -> str:
@@ -53,19 +63,28 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
     __repr__ = sane_repr("team", "kind")
 
-    def sync_views(self) -> None:
+    def sync_views(self, sync_frequency_interval: timedelta | None = None) -> None:
         """
         Syncs the views for the managed viewset.
 
         Updates managed_viewset_id on all created/updated views.
         Deletes views that are no longer referenced.
         Materializes views by default.
+
+        Args:
+            sync_frequency_interval: Optional custom sync frequency for materialized views.
+                If None, defaults to 12 hours.
         """
         from posthog.warehouse.data_load.saved_query_service import sync_saved_query_workflow
 
         expected_views: list[ExpectedView] = []
         if self.kind == self.Kind.REVENUE_ANALYTICS:
             expected_views = self._get_expected_views_for_revenue_analytics()
+            saved_query_source = DataWarehouseSavedQuery.Source.REVENUE_ANALYTICS
+        elif self.kind == self.Kind.ENDPOINTS:
+            expected_views = self._get_expected_view_for_endpoints()
+            saved_query_source = DataWarehouseSavedQuery.Source.ENDPOINT
+
         else:
             raise ValueError(f"Unsupported viewset kind: {self.kind}")
 
@@ -85,15 +104,18 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 if saved_query:
                     created = False
                 else:
-                    saved_query = DataWarehouseSavedQuery(name=view.name, team=self.team, managed_viewset=self)
+                    saved_query = DataWarehouseSavedQuery(
+                        name=view.name, team=self.team, managed_viewset=self, source=saved_query_source
+                    )
                     created = True
 
-                # Do NOT use get_columns because it runs the query, and these are possibly heavy
+                # Revenue Analytics queries are possibly heavy, so we do NOT run get_columns() as it runs the query
+                # but Endpoints do not have the query columns ahead of time (for now)
                 saved_query.query = view.query
-                saved_query.columns = view.columns
+                saved_query.columns = view.columns if view.columns else saved_query.get_columns()
                 saved_query.external_tables = saved_query.s3_tables
                 saved_query.is_materialized = True
-                saved_query.sync_frequency_interval = timedelta(hours=12)
+                saved_query.sync_frequency_interval = sync_frequency_interval or timedelta(hours=12)
                 saved_query.save()
 
                 # Make sure paths properly exist both on creation and update
@@ -204,6 +226,13 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             )
             for view in expected_views
         ]
+
+    def _get_expected_view_for_endpoints(self) -> list[ExpectedView]:
+        # TODO: fix the columns
+        if not self.endpoint:
+            return []
+
+        return [ExpectedView(name=self.endpoint.name, query=self.endpoint.query, columns={})]
 
     @staticmethod
     def _get_columns_from_fields(fields: dict[str, FieldOrTable]) -> dict[str, dict[str, Any]]:
