@@ -226,6 +226,7 @@ RUN apt-get update && \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl-dev=3.0.17-1~deb12u2" \
     "libssl3=3.0.17-1~deb12u2" \
+    "libjemalloc2" \
     && \
     rm -rf /var/lib/apt/lists/*
 
