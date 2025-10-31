@@ -51,14 +51,14 @@ impl ErrorTrackingStackFrame {
         };
         sqlx::query!(
             r#"
-            INSERT INTO posthog_errortrackingstackframe (raw_id, team_id, created_at, symbol_set_id, contents, resolved, id, context, part)
+            INSERT INTO posthog_errortrackingstackframe (raw_id, team_id, part, created_at, symbol_set_id, contents, resolved, id, context)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (raw_id, team_id, part) DO UPDATE SET
-                created_at = $3,
-                symbol_set_id = $4,
-                contents = $5,
-                resolved = $6,
-                context = $8
+                created_at = $4,
+                symbol_set_id = $5,
+                contents = $6,
+                resolved = $7,
+                context = $9
             "#,
             self.id.hash_id,
             self.id.part,
@@ -69,7 +69,6 @@ impl ErrorTrackingStackFrame {
             self.resolved,
             Uuid::now_v7(),
             context,
-            0
         ).execute(e).await?;
         Ok(())
     }
