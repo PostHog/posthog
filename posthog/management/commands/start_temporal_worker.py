@@ -223,6 +223,12 @@ class Command(BaseCommand):
             default=settings.MAX_CONCURRENT_ACTIVITIES,
             help="Maximum number of concurrent activity tasks for this worker",
         )
+        parser.add_argument(
+            "--use-pydantic-converter",
+            action="store_true",
+            default=settings.TEMPORAL_USE_PYDANTIC_CONVERTER,
+            help="Use Pydantic data converter for this worker",
+        )
 
     def handle(self, *args, **options):
         temporal_host = options["temporal_host"]
@@ -235,6 +241,7 @@ class Command(BaseCommand):
         graceful_shutdown_timeout_seconds = options.get("graceful_shutdown_timeout_seconds", None)
         max_concurrent_workflow_tasks = options.get("max_concurrent_workflow_tasks", None)
         max_concurrent_activities = options.get("max_concurrent_activities", None)
+        use_pydantic_converter = options["use_pydantic_converter"]
 
         try:
             workflows = WORKFLOWS_DICT[task_queue]
@@ -304,6 +311,7 @@ class Command(BaseCommand):
                     max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                     max_concurrent_activities=max_concurrent_activities,
                     metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
+                    use_pydantic_converter=use_pydantic_converter,
                 )
             )
 

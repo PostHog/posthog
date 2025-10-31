@@ -63,7 +63,7 @@ default_cookie_options = {
     "samesite": "Strict",
 }
 
-cookie_api_paths_to_ignore = {"decide", "api", "flags"}
+cookie_api_paths_to_ignore = {"decide", "api", "flags", "scim"}
 
 
 class AllowIPMiddleware:
@@ -732,6 +732,7 @@ class CSPMiddleware:
                 "worker-src 'self'",
                 "child-src 'none'",
                 "object-src 'none'",
+                "media-src https://res.cloudinary.com",
                 f"img-src 'self' data: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com",
                 "frame-ancestors https://posthog.com https://preview.posthog.com",
                 f"connect-src 'self' https://status.posthog.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",

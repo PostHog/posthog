@@ -29,7 +29,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
+import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
     SessionRecordingDataCoordinatorLogicProps,
@@ -41,6 +41,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
+import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { getTestWorkerManager, terminateTestWorker } from './TestWorkerManager'
@@ -1448,6 +1449,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.player?.replayer?.pause()
                     actions.startBuffer()
                     actions.clearPlayerError()
+                    // the target buffer timestamp won't have been updated yet, so we calculate it directly
+                    actions.loadUntilTimestamp(timestamp + DEFAULT_LOADING_BUFFER)
                 }
             }
 
@@ -1518,6 +1521,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 }
             }
 
+            // Tell the data logic what timestamp we want buffered to
+            // It will decide if it needs to load more data
+            actions.loadUntilTimestamp(values.targetBufferTimestamp)
+
             // If we're beyond buffered position, set to buffering
             if (values.currentSegment?.kind === 'buffer') {
                 // Pause only the animation, not our player, so it will restart
@@ -1557,10 +1564,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             } else {
                 actions.setMaskWindow(false)
             }
-
-            // Tell the data logic what timestamp we want buffered to
-            // It will decide if it needs to load more data
-            actions.loadUntilTimestamp(values.targetBufferTimestamp)
 
             // The normal loop. Progress the player position and continue the loop
             actions.setCurrentTimestamp(newTimestamp)
@@ -1607,7 +1610,35 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
+            const encodeRecording = (recording: ExportedSessionRecordingFileV2): string[] => {
+                let output = [
+                    `{"version":"${recording.version}",`,
+                    `"data":{"id":"${recording.data.id}",`,
+                    `"person":${JSON.stringify(recording.data.person)},`,
+                    `"snapshots":[`,
+                ]
+
+                // Stringify the snapshots one-by-one to allow exports to work for very large recordings
+                for (const snapshot of recording.data.snapshots) {
+                    output.push(JSON.stringify(snapshot))
+                    output.push(',')
+                }
+                if (recording.data.snapshots.length > 0) {
+                    output.pop()
+                }
+                output.push(']}}')
+
+                return output
+            }
+
             const doExport = async (): Promise<void> => {
+                actions.setPause()
+
+                const endTime = values.sessionPlayerData.end?.valueOf()
+                if (endTime) {
+                    actions.loadUntilTimestamp(endTime)
+                }
+
                 const delayTime = 1000
                 let maxWaitTime = 30000
                 while (!values.sessionPlayerData.fullyLoaded) {
@@ -1618,9 +1649,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(delayTime)
                 }
 
-                const payload = values.createExportJSON()
+                const exportedRecording = values.createExportJSON()
+
                 const recordingFile = new File(
-                    [JSON.stringify(payload, null, 2)],
+                    encodeRecording(exportedRecording),
                     `export-${props.sessionRecordingId}-ph-recording.json`,
                     { type: 'application/json' }
                 )
@@ -1723,7 +1755,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 url: values.currentURL,
             }
             localStorage.setItem(key, JSON.stringify(data))
-            router.actions.push(urls.heatmaps(`iframeStorage=${key}`))
+            router.actions.push(urls.heatmapRecording(`iframeStorage=${key}`))
         },
 
         setIsFullScreen: async ({ isFullScreen }) => {

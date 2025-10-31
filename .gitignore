@@ -122,3 +122,5 @@ bin/mprocs*.local.yaml
 # Claude Code review outputs
 CODE_REVIEW.md
 CODE_DEBUGGING_SESSION.md
+
+data/seaweedfs

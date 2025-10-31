@@ -322,6 +322,7 @@
     --color-product-heatmaps-light: rgb(220 152 16);
     --color-product-heatmaps-dark: rgb(247 165 1);
     --color-product-logs-light: rgb(214 37 123);
+    --color-product-live-debugger-light: rgb(76 14 200);
     --color-product-feature-flags-light: rgb(48 171 198);
     --color-product-experiments-light: rgb(182 42 217);
     --color-product-error-tracking-light: rgb(211 148 24);
@@ -1810,6 +1811,55 @@
                 // Only 4% so that this repeats every now and then nicely
                 transform: translateY(0);
             }
+        }
+    }
+
+    /* stylelint-disable-next-line order/order */
+    .animate-fade-in {
+        animation: fade-in 0.4s ease-out forwards;
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes shimmer {
+        0% {
+            background-position: 200% 0;
+        }
+
+        100% {
+            background-position: -200% 0;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes shimmer-opacity {
+        0%,
+        100% {
+            opacity: 0.4;
+        }
+
+        25% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.4;
+        }
+
+        75% {
+            opacity: 1;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes fade-in {
+        0% {
+            opacity: 0;
+            transform: translateY(2px);
+        }
+
+        100% {
+            opacity: 1;
+            transform: translateY(0);
         }
     }
 }
