@@ -69,7 +69,7 @@ pub enum ExpCommand {
         cmd: HermesSubcommand,
     },
 
-    /// Download event definitions and generate TypeScript types
+    /// Download event definitions and generate typed SDK
     Schema {
         #[command(subcommand)]
         cmd: SchemaCommand,
@@ -78,9 +78,9 @@ pub enum ExpCommand {
 
 #[derive(Subcommand)]
 pub enum SchemaCommand {
-    /// Download event definitions and generate TypeScript types
+    /// Download event definitions and generate typed SDK
     Pull {
-        /// Output path for TypeScript definitions (stored in posthog.json for future runs)
+        /// Output path for generated definitions (stored in posthog.json for future runs)
         #[arg(short, long)]
         output: Option<String>,
     },

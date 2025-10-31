@@ -309,7 +309,7 @@ class EventDefinitionViewSet(
             prop_data = [(p.name, p.property_type, p.is_required) for p in properties]
             schema_data.append((event_def.name, sorted(prop_data)))
 
-        schema_hash = hashlib.sha256(json.dumps(schema_data, sort_keys=True).encode()).hexdigest()[:16]
+        schema_hash = hashlib.sha256(json.dumps(schema_data, sort_keys=True).encode()).hexdigest()[:32]
 
         # Generate TypeScript definitions
         ts_content = self._generate_typescript(event_definitions, schema_map)
