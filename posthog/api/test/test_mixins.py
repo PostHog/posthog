@@ -146,7 +146,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
                 mock_logger.warning.assert_called_once()
                 call_args = mock_logger.warning.call_args
                 assert (
-                    "Response status code not declared in responses parameter of the @validated_request decorator"
+                    "Response status code not declared in responses parameter of the @validated_request decorator. Please update the provided API schema to ensure API docs remain up to date"
                     in call_args[0][0]
                 )
                 assert call_args[1]["view_func"] == "mock_endpoint"
@@ -184,7 +184,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
                 mock_logger.warning.assert_called_once()
                 call_args = mock_logger.warning.call_args
                 assert (
-                    "Response data does not match declared serializer for status code {status_code} declared in responses parameter of the @validated_request decorator"
+                    "Response data does not match declared serializer for status code 200 declared in responses parameter of the @validated_request decorator. Please update the provided API schema to ensure API docs remain up to date"
                     in call_args[0][0]
                 )
                 assert call_args[1]["view_func"] == "mock_endpoint"
@@ -242,7 +242,7 @@ class TestValidatedRequestDecorator(APIBaseTest):
                 mock_logger.warning.assert_called_once()
                 call_args = mock_logger.warning.call_args
                 assert (
-                    "View must return a Response object when using @validated_request with response serializers"
+                    "View must return a Response object when using @validated_request with response serializers. Please update the provided API schema to ensure API docs remain up to date"
                     in call_args[0][0]
                 )
                 assert call_args[1]["view_func"] == "mock_endpoint"
@@ -290,3 +290,282 @@ class TestValidatedRequestDecorator(APIBaseTest):
                 mock_logger.warning.assert_called_once()
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+
+    def test_strict_response_validation_undeclared_status_code_raises(self):
+        """Strict response validation: undeclared status code should raise exception"""
+
+        @validated_request(
+            request_serializer=EventCaptureRequestSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+            strict_response_validation=True,
+        )
+        def mock_endpoint(view_self, request):
+            return Response(
+                {"type": "server_error", "code": "internal", "detail": "Server error"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
+
+        # Should raise ValidationError regardless of DEBUG setting
+        with pytest.raises(serializers.ValidationError) as exc_info:
+            mock_endpoint(view_instance, mock_request)
+
+        assert "Response status code 500 not declared" in str(exc_info.value)
+        assert "Declared status codes" in str(exc_info.value)
+
+    def test_strict_response_validation_invalid_data_raises(self):
+        """Strict response validation: invalid response data should raise exception"""
+
+        @validated_request(
+            request_serializer=EventCaptureRequestSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+            strict_response_validation=True,
+        )
+        def mock_endpoint(view_self, request):
+            # Missing required fields in response
+            return Response({"wrong_field": "value"}, status=status.HTTP_200_OK)
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
+
+        # Should raise ValidationError with serializer errors
+        with pytest.raises(serializers.ValidationError) as exc_info:
+            mock_endpoint(view_instance, mock_request)
+
+        # The error should contain field validation errors
+        error_detail = exc_info.value.detail
+        assert "status" in str(error_detail) or "event_id" in str(error_detail) or "distinct_id" in str(error_detail)
+
+    def test_strict_response_validation_valid_data_succeeds(self):
+        """Strict response validation: valid response data should succeed"""
+
+        @validated_request(
+            request_serializer=EventCaptureRequestSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+            strict_response_validation=True,
+        )
+        def mock_endpoint(view_self, request):
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": request.validated_data["distinct_id"],
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request.data = {"event": "$pageview", "distinct_id": "user_123"}
+
+        # Should work normally with valid data
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["status"] == "ok"
+        assert response.data["distinct_id"] == "user_123"
+
+    def test_non_strict_request_validation_logs_warning(self):
+        """Non-strict request validation: invalid data should log warning and continue"""
+
+        @validated_request(
+            request_serializer=EventCaptureRequestSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+            strict_request_validation=False,
+        )
+        def mock_endpoint(view_self, request):
+            # Access validated_data even though validation failed
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": request.validated_data.get("distinct_id", "unknown"),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request.data = {"event": "$pageview"}  # Missing required 'distinct_id'
+
+        # Should log a warning but not raise
+        with patch("posthog.api.mixins.settings") as mock_settings:
+            mock_settings.DEBUG = True
+            with patch("posthog.api.mixins.logger") as mock_logger:
+                response = mock_endpoint(view_instance, mock_request)
+
+                # Verify the warning was logged
+                mock_logger.warning.assert_called_once()
+                call_args = mock_logger.warning.call_args
+                assert (
+                    "Request data does not match declared serializer in @validated_request decorator. Please update the provided API schema to ensure API docs remain up to date"
+                    in call_args[0][0]
+                )
+                assert call_args[1]["view_func"] == "mock_endpoint"
+                assert call_args[1]["serializer_class"] == "EventCaptureRequestSerializer"
+                assert "validation_errors" in call_args[1]
+
+        # Should not raise and should continue processing
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_non_strict_request_validation_no_warning_when_debug_false(self):
+        """Non-strict request validation: should not log warning when DEBUG=False"""
+
+        @validated_request(
+            request_serializer=EventCaptureRequestSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+            strict_request_validation=False,
+        )
+        def mock_endpoint(view_self, request):
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": request.validated_data.get("distinct_id", "unknown"),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request.data = {"event": "$pageview"}  # Missing required 'distinct_id'
+
+        # Should not log warning when DEBUG=False
+        with patch("posthog.api.mixins.settings") as mock_settings:
+            mock_settings.DEBUG = False
+            with patch("posthog.api.mixins.logger") as mock_logger:
+                response = mock_endpoint(view_instance, mock_request)
+
+                # Should not log any warnings in production
+                mock_logger.warning.assert_not_called()
+
+        # Should still proceed without raising
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_non_strict_request_validation_valid_data_succeeds(self):
+        """Non-strict request validation: valid data should work normally"""
+
+        @validated_request(
+            request_serializer=EventCaptureRequestSerializer,
+            responses={
+                200: OpenApiResponse(response=EventCaptureResponseSerializer),
+            },
+            strict_request_validation=False,
+        )
+        def mock_endpoint(view_self, request):
+            distinct_id = request.validated_data["distinct_id"]
+            return Response(
+                {
+                    "status": "ok",
+                    "event_id": str(uuid.uuid4()),
+                    "distinct_id": distinct_id,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        view_instance = Mock()
+        view_instance.get_serializer_context = Mock(return_value={})
+        mock_request = Mock()
+        mock_request.data = {
+            "event": "$pageview",
+            "distinct_id": "user_123",
+            "properties": {"$current_url": "https://posthog.com"},
+        }
+
+        # Should work normally with valid data
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["status"] == "ok"
+        assert response.data["distinct_id"] == "user_123"
+        assert mock_request.validated_data["event"] == "$pageview"
+
+    def test_no_body_response_declared_as_none_succeeds(self):
+        """When status code is declared as None (no body), response with no body should succeed"""
+
+        @validated_request(
+            responses={
+                204: None,
+            },
+        )
+        def mock_endpoint(view_self, request):
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        view_instance = Mock()
+        mock_request = Mock()
+        mock_request.data = {}
+
+        response = mock_endpoint(view_instance, mock_request)
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.data is None
+
+    def test_no_body_response_with_body_warns(self):
+        """When status code is declared as None but response has body, should warn"""
+
+        @validated_request(
+            responses={
+                204: None,
+            },
+        )
+        def mock_endpoint(view_self, request):
+            return Response({"error": "should not have body"}, status=status.HTTP_204_NO_CONTENT)
+
+        view_instance = Mock()
+        mock_request = Mock()
+        mock_request.data = {}
+
+        with patch("posthog.api.mixins.settings") as mock_settings:
+            mock_settings.DEBUG = True
+            with patch("posthog.api.mixins.logger") as mock_logger:
+                response = mock_endpoint(view_instance, mock_request)
+
+                mock_logger.warning.assert_called_once()
+                call_args = mock_logger.warning.call_args
+                assert (
+                    "Response status code 204 is declared with no body, but response contains data. Please update the provided API schema to ensure API docs remain up to date"
+                    in call_args[0][0]
+                )
+                assert call_args[1]["status_code"] == 204
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+
+    def test_no_body_response_with_body_strict_raises(self):
+        """When status code is declared as None but response has body with strict validation, should raise"""
+
+        @validated_request(
+            responses={
+                204: None,
+            },
+            strict_response_validation=True,
+        )
+        def mock_endpoint(view_self, request):
+            return Response({"error": "should not have body"}, status=status.HTTP_204_NO_CONTENT)
+
+        view_instance = Mock()
+        mock_request = Mock()
+        mock_request.data = {}
+
+        with pytest.raises(serializers.ValidationError) as exc_info:
+            mock_endpoint(view_instance, mock_request)
+
+        assert "Response status code 204 is declared with no body, but response contains data" in str(exc_info.value)
