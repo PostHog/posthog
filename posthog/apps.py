@@ -65,6 +65,17 @@ class PostHogConfig(AppConfig):
                     event="development server launched",
                     properties={"git_rev": get_git_commit_short(), "git_branch": get_git_branch()},
                 )
+
+        from libdebugger import LiveDebuggerManager
+
+        self._libdebugger_manager = LiveDebuggerManager(
+            Client(
+                posthoganalytics.api_key, personal_api_key=posthoganalytics.personal_api_key, host=posthoganalytics.host
+            )
+        )
+        self._libdebugger_manager.start()
+        logger.info("Setup LibDebugger")
+
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
             posthoganalytics.load_feature_flags()
