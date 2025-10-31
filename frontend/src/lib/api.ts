@@ -3646,8 +3646,8 @@ const api = {
         async refreshSchema(tableId: DataWarehouseTable['id']): Promise<void> {
             await new ApiRequest().dataWarehouseTable(tableId).withAction('refresh_schema').create()
         },
-        async syncStatus(tableNames: string[]): Promise<DataWarehouseSyncStatus[]> {
-            return await new ApiRequest().dataWarehouseTables().withAction('sync_status').create({ data: { table_names: tableNames } })
+        async syncStatus(query: Record<string, any>): Promise<DataWarehouseSyncStatus[]> {
+            return await new ApiRequest().dataWarehouseTables().withAction('sync_status').create({ data: { query } })
         },
     },
 

@@ -11,49 +11,20 @@ interface DataWarehouseSyncNoticeProps {
     query: Node | null | undefined
 }
 
-function extractDataWarehouseTables(query: any): string[] {
-    if (!query || typeof query !== 'object') {
-        return []
-    }
-
-    const tableNames: string[] = []
-
-    // Handle DataVisualizationNode
-    if (query.kind === 'DataVisualizationNode' && query.source) {
-        tableNames.push(...extractDataWarehouseTables(query.source))
-    }
-
-    // Handle HogQLQuery - table names would need to be parsed from the query string
-    // For now, we don't extract from HogQLQuery on the frontend
-    // The backend will handle this when checking sync status
-
-    // Handle queries with series (TrendsQuery, FunnelsQuery, etc.)
-    if (query.series && Array.isArray(query.series)) {
-        for (const node of query.series) {
-            if (node && typeof node === 'object' && node.kind === 'DataWarehouseNode' && node.table_name) {
-                tableNames.push(node.table_name)
-            }
-        }
-    }
-
-    return tableNames
-}
-
 export function DataWarehouseSyncNotice({ query }: DataWarehouseSyncNoticeProps): JSX.Element | null {
     const { currentTeamId } = useValues(teamLogic)
     const [syncStatus, setSyncStatus] = useState<DataWarehouseSyncStatus[] | null>(null)
     const [loading, setLoading] = useState(false)
 
     useEffect(() => {
-        const tableNames = extractDataWarehouseTables(query)
-        if (tableNames.length === 0) {
+        if (!query) {
             setSyncStatus(null)
             return
         }
 
         setLoading(true)
         api.dataWarehouseTables
-            .syncStatus(tableNames)
+            .syncStatus(query)
             .then((status) => {
                 setSyncStatus(status)
             })

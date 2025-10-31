@@ -275,16 +275,68 @@ class TableViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response(status=status.HTTP_200_OK)
 
+    def _extract_data_warehouse_tables(self, query: dict) -> set[str]:
+        """
+        Recursively extract DataWarehouseNode table names from a query.
+        """
+        from posthog.hogql.database.database import Database
+        from posthog.hogql.metadata import get_table_names
+        from posthog.hogql.parser import parse_select
+
+        table_names = set()
+
+        # Handle DataVisualizationNode
+        if query.get("kind") == "DataVisualizationNode":
+            source = query.get("source")
+            if source:
+                table_names.update(self._extract_data_warehouse_tables(source))
+
+        # Handle HogQLQuery - parse the query string to find table references
+        elif query.get("kind") == "HogQLQuery":
+            query_str = query.get("query")
+            if query_str:
+                try:
+                    # Parse the HogQL query
+                    parsed = parse_select(query_str)
+
+                    # Get all table names from the query (handles dot notation like stripe.charge)
+                    all_table_names = get_table_names(parsed)
+
+                    # Get database to check which tables are data warehouse tables
+                    database = Database.create_for(team_id=self.team_id)
+
+                    warehouse_table_names = set(database.get_warehouse_table_names())
+
+                    # Filter to only data warehouse tables
+                    for table_name in all_table_names:
+                        if table_name in warehouse_table_names:
+                            table_names.add(table_name)
+
+                except Exception:
+                    # If parsing fails, silently ignore
+                    pass
+
+        # Handle queries with series (TrendsQuery, FunnelsQuery, etc.)
+        series = query.get("series", [])
+        for node in series:
+            if isinstance(node, dict) and node.get("kind") == "DataWarehouseNode":
+                table_name = node.get("table_name")
+                if table_name:
+                    table_names.add(table_name)
+
+        return table_names
+
     @action(methods=["POST"], detail=False)
     def sync_status(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        """Check sync status for multiple data warehouse tables."""
+        """Check sync status for data warehouse tables used in a query."""
         from posthog.warehouse.models import ExternalDataSchema
 
-        table_names = request.data.get("table_names", [])
-        if not isinstance(table_names, list):
-            return response.Response(
-                status=status.HTTP_400_BAD_REQUEST, data={"message": "table_names must be a list"}
-            )
+        query = request.data.get("query")
+        if not query or not isinstance(query, dict):
+            return response.Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "query must be a dict"})
+
+        # Extract table names from the query
+        table_names = self._extract_data_warehouse_tables(query)
 
         tables_with_issues = []
         for table_name in table_names:
