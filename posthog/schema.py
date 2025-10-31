@@ -1450,6 +1450,7 @@ class FileSystemIconType(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     TASK = "task"
     LINK = "link"
+    LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
