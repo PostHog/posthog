@@ -10742,6 +10742,9 @@
                         }
                     ]
                 },
+                "cohort": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCohort"
+                },
                 "description": {
                     "type": ["string", "null"]
                 },
@@ -10860,6 +10863,9 @@
                             "type": "null"
                         }
                     ]
+                },
+                "cohort": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCohort"
                 },
                 "description": {
                     "type": ["string", "null"]
@@ -10991,6 +10997,19 @@
         "ErrorTrackingIssueAssigneeType": {
             "enum": ["user", "role"],
             "type": "string"
+        },
+        "ErrorTrackingIssueCohort": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
         },
         "ErrorTrackingIssueCorrelationQuery": {
             "additionalProperties": false,
@@ -11176,6 +11195,12 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "groupKey": {
+                    "type": "string"
+                },
+                "groupTypeIndex": {
+                    "$ref": "#/definitions/integer"
+                },
                 "issueId": {
                     "type": "string"
                 },
@@ -11312,6 +11337,9 @@
                             "type": "null"
                         }
                     ]
+                },
+                "cohort": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCohort"
                 },
                 "description": {
                     "type": ["string", "null"]
@@ -13291,6 +13319,7 @@
         },
         "ExternalDataSourceType": {
             "enum": [
+                "Github",
                 "Stripe",
                 "Hubspot",
                 "Postgres",
@@ -13530,6 +13559,7 @@
                 "data_warehouse",
                 "task",
                 "link",
+                "live_debugger",
                 "logs",
                 "workflows",
                 "notebook",
@@ -26603,6 +26633,12 @@
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
+                },
+                "groupKey": {
+                    "type": "string"
+                },
+                "groupTypeIndex": {
+                    "$ref": "#/definitions/integer"
                 },
                 "kind": {
                     "const": "TracesQuery",

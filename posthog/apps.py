@@ -50,6 +50,7 @@ class PostHogConfig(AppConfig):
             )
             if settings.SERVER_GATEWAY_INTERFACE == "WSGI":
                 async_to_sync(initialize_self_capture_api_token)()
+
             # log development server launch to posthog
             if os.getenv("RUN_MAIN") == "true":
                 # Sync all organization.available_product_features once on launch, in case plans changed
