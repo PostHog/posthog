@@ -8,6 +8,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models.team.team import Team
+from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_logger
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
@@ -50,7 +51,11 @@ def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> b
         )
         return False
 
-    if datetime.now(UTC) >= dwh_pricing_free_period_start and datetime.now(UTC) <= dwh_pricing_free_period_end:
+    if (
+        not TEST
+        and datetime.now(UTC) >= dwh_pricing_free_period_start
+        and datetime.now(UTC) <= dwh_pricing_free_period_end
+    ):
         logger.info(
             f"Skipping billing limits check for data synced during free period from {dwh_pricing_free_period_start} to {dwh_pricing_free_period_end}."
         )

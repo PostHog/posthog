@@ -14,6 +14,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team
 from posthog.redis import get_client
 from posthog.settings import EE_AVAILABLE
+from posthog.settings.base_variables import TEST
 from posthog.warehouse.models import ExternalDataJob
 
 if TYPE_CHECKING:
@@ -130,7 +131,11 @@ def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", logger: F
             return False
 
         # Handle free period for data synced during free period (to be removed after 2025-11-06)
-        if datetime.now(UTC) >= dwh_pricing_free_period_start and datetime.now(UTC) <= dwh_pricing_free_period_end:
+        if (
+            not TEST
+            and datetime.now(UTC) >= dwh_pricing_free_period_start
+            and datetime.now(UTC) <= dwh_pricing_free_period_end
+        ):
             logger.info(
                 f"Skipping billing limits check for data synced during free period from {dwh_pricing_free_period_start} to {dwh_pricing_free_period_end}."
             )
