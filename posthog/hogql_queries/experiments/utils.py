@@ -82,7 +82,7 @@ def split_baseline_and_test_variants(
     return control_variant, test_variants
 
 
-def get_variant_results(
+def get_variant_result(
     result: tuple,
     metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
 ) -> tuple[tuple[str, ...] | None, ExperimentStatsBase]:
