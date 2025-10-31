@@ -3,7 +3,6 @@ from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
 from django.db.models import Manager
-from django.http import HttpResponse
 
 from loginas.utils import is_impersonated_session
 from rest_framework import mixins, request, response, serializers, status, viewsets
@@ -305,9 +304,11 @@ class EventDefinitionViewSet(
         # Generate TypeScript definitions
         ts_content = self._generate_typescript(event_definitions, schema_map)
 
-        return HttpResponse(
-            ts_content,
-            content_type="text/plain; charset=utf-8",
+        return response.Response(
+            {
+                "content": ts_content,
+                "event_count": len(event_definitions),
+            }
         )
 
     def _generate_typescript(self, event_definitions, schema_map):

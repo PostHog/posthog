@@ -16,6 +16,12 @@ struct SchemaConfig {
     output_paths: HashMap<String, String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct TypescriptResponse {
+    content: String,
+    event_count: usize,
+}
+
 pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()> {
     // Select language
     let language = select_language()?;
@@ -30,10 +36,7 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     let output_path = determine_output_path(&language, output_override)?;
 
     // Fetch TypeScript definitions from the server
-    let ts_content = fetch_typescript_definitions(&host, &token.env_id, &token.token)?;
-
-    // Count the number of events in the TypeScript file
-    let event_count = ts_content.lines().filter(|line| line.trim().starts_with("'") && line.contains(":")).count();
+    let (ts_content, event_count) = fetch_typescript_definitions(&host, &token.env_id, &token.token)?;
 
     info!("✓ Fetched {} definitions for {} events", language_display_name(&language), event_count);
 
@@ -200,7 +203,7 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-fn fetch_typescript_definitions(host: &str, env_id: &str, token: &str) -> Result<String> {
+fn fetch_typescript_definitions(host: &str, env_id: &str, token: &str) -> Result<(String, usize)> {
     let url = format!("{}/api/projects/{}/event_definitions/typescript/", host, env_id);
 
     let client = &context().client;
@@ -217,11 +220,11 @@ fn fetch_typescript_definitions(host: &str, env_id: &str, token: &str) -> Result
         ));
     }
 
-    let ts_content = response
-        .text()
-        .context("Failed to read TypeScript definitions response")?;
+    let json: TypescriptResponse = response
+        .json()
+        .context("Failed to parse TypeScript definitions response")?;
 
-    Ok(ts_content)
+    Ok((json.content, json.event_count))
 }
 
 fn create_schema_config(event_count: usize, language: &str, output_path: String) -> Result<SchemaConfig> {
