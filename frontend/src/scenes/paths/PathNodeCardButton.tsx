@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconEllipsis } from '@posthog/icons'
+import { IconEllipsis, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonMenu, PopoverReferenceContext, Tooltip } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -65,8 +65,8 @@ export function PathNodeCardButton({
                 <span className="text-xxs text-secondary mr-1">{`0${name[0]}`}</span>
                 <Tooltip title={tooltipContent} placement="right">
                     <span className="text-xs break-words">{displayName}</span>
+                    {isTruncated && <IconInfo className="ml-1 text-muted align-text-bottom" />}
                 </Tooltip>
-                {isTruncated && <span className="text-xxs text-muted ml-1 italic">(hover for full URL)</span>}
             </div>
             {/* TRICKY: We don't want the popover to affect the buttons */}
             <PopoverReferenceContext.Provider value={null}>
