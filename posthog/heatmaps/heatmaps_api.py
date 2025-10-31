@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from typing import Any, List, Literal, cast  # noqa: UP035
 
+from django.core.exceptions import FieldError
 from django.db.models import Q
 from django.http import HttpResponse
 
@@ -342,7 +343,8 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
                     "has_content": bool(snap.content or snap.content_location),
                 }
             )
-        return sorted(snaps, key=lambda s: s["width"]) if snaps else []
+        snaps.sort(key=lambda s: s["width"])
+        return snaps
 
 
 class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -364,8 +366,10 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Pick requested width or default
         try:
             requested_width = int(request.query_params.get("width", 1024))
-        except Exception:
-            requested_width = 1024
+        except (ValueError, TypeError):
+            return response.Response(
+                {"error": "Invalid width parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         # Try exact match snapshot
         snapshot = screenshot.snapshots.filter(width=requested_width).first()
@@ -455,13 +459,15 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         if created_by_param:
             try:
                 qs = qs.filter(created_by_id=int(created_by_param))
-            except Exception:
-                pass
+            except (ValueError, TypeError):
+                return response.Response(
+                    {"error": "Invalid created_by parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+                )
         if order:
             try:
                 qs = qs.order_by(order)
-            except Exception:
-                pass
+            except FieldError:
+                return response.Response({"error": f"Invalid order field: {order}"}, status=status.HTTP_400_BAD_REQUEST)
 
         limit = int(request.query_params.get("limit", 100))
         offset = int(request.query_params.get("offset", 0))
@@ -522,19 +528,16 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
 
-        try:
-            log_activity(
-                organization_id=cast(User, request.user).current_organization_id
-                if hasattr(request.user, "current_organization_id")
-                else None,
-                team_id=self.team.id,
-                user=cast(User, request.user),
-                item_id=updated.short_id or str(updated.id),
-                scope="Heatmap",
-                activity="updated",
-                detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
-                was_impersonated=getattr(request, "was_impersonated", False),
-            )
-        except Exception:
-            pass
+        log_activity(
+            organization_id=cast(User, request.user).current_organization_id
+            if hasattr(request.user, "current_organization_id")
+            else None,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            item_id=updated.short_id or str(updated.id),
+            scope="Heatmap",
+            activity="updated",
+            detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
+            was_impersonated=getattr(request, "was_impersonated", False),
+        )
         return response.Response(HeatmapScreenshotResponseSerializer(updated).data, status=status.HTTP_200_OK)

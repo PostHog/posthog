@@ -175,56 +175,53 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
 
     # Collect screenshots in-memory first to avoid Django ORM calls inside Playwright's async context
     snapshot_bytes: list[tuple[int, bytes]] = []
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    "--force-device-scale-factor=1",
-                    "--disable-dev-shm-usage",
-                    "--no-sandbox",
-                    "--disable-gpu",
-                ],
-            )
-            try:
-                for w in widths:
-                    ctx = browser.new_context(
-                        viewport={"width": int(w), "height": 800},
-                        device_scale_factor=1,  # keep 1:1 CSS px -> bitmap px
-                        is_mobile=(w < 500),  # trigger mobile layout on small widths
-                        has_touch=(w < 500),  # some sites key on touch capability
-                        user_agent=(
-                            "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) "
-                            "AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/115.0.0.0 "
-                            "Mobile/15E148 Safari/604.1"
-                            if w < 500
-                            else None
-                        ),
-                    )
-                    page = ctx.new_page()
-                    _block_internal_requests(page)
-                    page.goto(screenshot.url, wait_until="load", timeout=120_000)
-                    _dismiss_cookie_banners(page)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--force-device-scale-factor=1",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-gpu",
+            ],
+        )
+        try:
+            for w in widths:
+                ctx = browser.new_context(
+                    viewport={"width": int(w), "height": 800},
+                    device_scale_factor=1,  # keep 1:1 CSS px -> bitmap px
+                    is_mobile=(w < 500),  # trigger mobile layout on small widths
+                    has_touch=(w < 500),  # some sites key on touch capability
+                    user_agent=(
+                        "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) "
+                        "AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/115.0.0.0 "
+                        "Mobile/15E148 Safari/604.1"
+                        if w < 500
+                        else None
+                    ),
+                )
+                page = ctx.new_page()
+                _block_internal_requests(page)
+                page.goto(screenshot.url, wait_until="load", timeout=120_000)
+                _dismiss_cookie_banners(page)
 
-                    total_height = page.evaluate("""() => Math.max(
-                        document.body.scrollHeight,
-                        document.body.offsetHeight,
-                        document.documentElement.clientHeight,
-                        document.documentElement.scrollHeight,
-                        document.documentElement.offsetHeight
-                    )""")
+                total_height = page.evaluate("""() => Math.max(
+                    document.body.scrollHeight,
+                    document.body.offsetHeight,
+                    document.documentElement.clientHeight,
+                    document.documentElement.scrollHeight,
+                    document.documentElement.offsetHeight
+                )""")
 
-                    page.set_viewport_size({"width": int(w), "height": int(total_height + HEIGHT_OFFSET)})
-                    page.wait_for_timeout(1000)
+                page.set_viewport_size({"width": int(w), "height": int(total_height + HEIGHT_OFFSET)})
+                page.wait_for_timeout(1000)
 
-                    image_data: bytes = page.screenshot(full_page=True, type="jpeg", quality=70)
-                    snapshot_bytes.append((w, image_data))
+                image_data: bytes = page.screenshot(full_page=True, type="jpeg", quality=70)
+                snapshot_bytes.append((w, image_data))
 
-                    ctx.close()
-            finally:
-                browser.close()
-    except Exception:
-        raise
+                ctx.close()
+        finally:
+            browser.close()
 
     # Persist captured images with ORM after Playwright context (back in pure sync context)
     for w, image_data in snapshot_bytes:
