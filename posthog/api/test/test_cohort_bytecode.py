@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 
@@ -64,48 +64,37 @@ class TestCohortBytecodeScenarios(APIBaseTest):
             }
         }
 
-        expected = [
-            {
-                "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
-                "filter_path": "properties.values[0].values[0]",
-                "conditionHash": "f9c616030a87e68f",
-                "filter_type": "behavioral",
-            },
-            {
-                "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
-                "filter_path": "properties.values[0].values[1]",
-                "conditionHash": "f9c616030a87e68f",
-                "filter_type": "behavioral",
-            },
-            {
-                "bytecode": [
-                    "_H",
-                    HOGQL_BYTECODE_VERSION,
-                    31,
-                    32,
-                    "$browser",
-                    32,
-                    "properties",
-                    32,
-                    "person",
-                    1,
-                    3,
-                    12,
-                ],
-                "filter_path": "properties.values[0].values[2]",
-                "conditionHash": "623236814d537b73",
-                "filter_type": "person",
-            },
-        ]
-
         cohort = self._create_and_fetch("AND realtime", filters)
         self.assertEqual(cohort.cohort_type, "realtime")
-        self.assertEqual(cast(list[dict[str, Any]], cohort.compiled_bytecode), expected)
+        and_group = cohort.filters["properties"]["values"][0]["values"]
+        # behavioral[0]
+        self.assertEqual(and_group[0]["type"], "behavioral")
+        self.assertEqual(
+            and_group[0]["bytecode"], ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11]
+        )
+        self.assertEqual(and_group[0]["conditionHash"], "f9c616030a87e68f")
+        # behavioral[1]
+        self.assertEqual(and_group[1]["type"], "behavioral")
+        self.assertEqual(
+            and_group[1]["bytecode"], ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11]
+        )
+        self.assertEqual(and_group[1]["conditionHash"], "f9c616030a87e68f")
+        # person
+        self.assertEqual(and_group[2]["type"], "person")
+        self.assertEqual(
+            and_group[2]["bytecode"],
+            ["_H", HOGQL_BYTECODE_VERSION, 31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12],
+        )
+        self.assertEqual(and_group[2]["conditionHash"], "623236814d537b73")
 
-        # Update should keep the same compiled_bytecode
+        # Update should keep the same inline bytecode
         cohort2 = self._patch_and_fetch(cohort.id, filters)
         self.assertEqual(cohort2.cohort_type, "realtime")
-        self.assertEqual(cast(list[dict[str, Any]], cohort2.compiled_bytecode), expected)
+        and_group2 = cohort2.filters["properties"]["values"][0]["values"]
+        self.assertEqual(
+            and_group2[0]["bytecode"], ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11]
+        )
+        self.assertEqual(and_group2[0]["conditionHash"], "f9c616030a87e68f")
 
     def test_or_realtime(self):
         # 2. OR that should be realtime
@@ -141,47 +130,29 @@ class TestCohortBytecodeScenarios(APIBaseTest):
             }
         }
 
-        expected = [
-            {
-                "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
-                "filter_path": "properties.values[0].values[0]",
-                "conditionHash": "f9c616030a87e68f",
-                "filter_type": "behavioral",
-            },
-            {
-                "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
-                "filter_path": "properties.values[0].values[1]",
-                "conditionHash": "f9c616030a87e68f",
-                "filter_type": "behavioral",
-            },
-            {
-                "bytecode": [
-                    "_H",
-                    HOGQL_BYTECODE_VERSION,
-                    31,
-                    32,
-                    "$browser",
-                    32,
-                    "properties",
-                    32,
-                    "person",
-                    1,
-                    3,
-                    12,
-                ],
-                "filter_path": "properties.values[0].values[2]",
-                "conditionHash": "623236814d537b73",
-                "filter_type": "person",
-            },
-        ]
-
         cohort = self._create_and_fetch("OR realtime", filters)
         self.assertEqual(cohort.cohort_type, "realtime")
-        self.assertEqual(cast(list[dict[str, Any]], cohort.compiled_bytecode), expected)
+        or_group = cohort.filters["properties"]["values"][0]["values"]
+        self.assertEqual(
+            or_group[0]["bytecode"], ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11]
+        )
+        self.assertEqual(or_group[0]["conditionHash"], "f9c616030a87e68f")
+        self.assertEqual(
+            or_group[1]["bytecode"], ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11]
+        )
+        self.assertEqual(or_group[1]["conditionHash"], "f9c616030a87e68f")
+        self.assertEqual(
+            or_group[2]["bytecode"],
+            ["_H", HOGQL_BYTECODE_VERSION, 31, 32, "$browser", 32, "properties", 32, "person", 1, 3, 12],
+        )
+        self.assertEqual(or_group[2]["conditionHash"], "623236814d537b73")
 
         cohort2 = self._patch_and_fetch(cohort.id, filters)
         self.assertEqual(cohort2.cohort_type, "realtime")
-        self.assertEqual(cast(list[dict[str, Any]], cohort2.compiled_bytecode), expected)
+        or_group2 = cohort2.filters["properties"]["values"][0]["values"]
+        self.assertEqual(
+            or_group2[0]["bytecode"], ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11]
+        )
 
     def test_or_not_realtime(self):
         # 3. OR that should not be realtime
@@ -238,42 +209,39 @@ class TestCohortBytecodeScenarios(APIBaseTest):
             }
         }
 
-        expected = [
-            {
-                "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11],
-                "filter_path": "properties.values[0].values[0]",
-                "conditionHash": "f9c616030a87e68f",
-                "filter_type": "behavioral",
-            },
-            {
-                "bytecode": [
-                    "_H",
-                    HOGQL_BYTECODE_VERSION,
-                    32,
-                    "Chrome",
-                    32,
-                    "$browser",
-                    32,
-                    "properties",
-                    32,
-                    "person",
-                    1,
-                    3,
-                    11,
-                ],
-                "filter_path": "properties.values[2].values[0]",
-                "conditionHash": "42b1ae431d9f4a64",
-                "filter_type": "person",
-            },
-        ]
-
         cohort = self._create_and_fetch("OR not realtime", filters)
         self.assertIsNone(cohort.cohort_type)
-        self.assertEqual(cast(list[dict[str, Any]], cohort.compiled_bytecode), expected)
+        values = cohort.filters["properties"]["values"]
+        # first OR group's first behavioral bytecode
+        self.assertEqual(
+            values[0]["values"][0]["bytecode"], ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11]
+        )
+        # person property bytecode
+        self.assertEqual(
+            values[2]["values"][0]["bytecode"],
+            [
+                "_H",
+                HOGQL_BYTECODE_VERSION,
+                32,
+                "Chrome",
+                32,
+                "$browser",
+                32,
+                "properties",
+                32,
+                "person",
+                1,
+                3,
+                11,
+            ],
+        )
 
         cohort2 = self._patch_and_fetch(cohort.id, filters)
         self.assertIsNone(cohort2.cohort_type)
-        self.assertEqual(cast(list[dict[str, Any]], cohort2.compiled_bytecode), expected)
+        values2 = cohort2.filters["properties"]["values"]
+        self.assertEqual(
+            values2[0]["values"][0]["bytecode"], ["_H", HOGQL_BYTECODE_VERSION, 32, "$pageview", 32, "event", 1, 1, 11]
+        )
 
     def test_event_properties_realtime(self):
         # 4. with event properties should be realtime
@@ -315,68 +283,66 @@ class TestCohortBytecodeScenarios(APIBaseTest):
             }
         }
 
-        expected = [
-            {
-                "bytecode": [
-                    "_H",
-                    HOGQL_BYTECODE_VERSION,
-                    32,
-                    "$pageview",
-                    32,
-                    "event",
-                    1,
-                    1,
-                    11,
-                    31,
-                    32,
-                    "$active_feature_flags",
-                    32,
-                    "properties",
-                    1,
-                    2,
-                    12,
-                    31,
-                    32,
-                    "$feature/active-hours-heatmap",
-                    32,
-                    "properties",
-                    1,
-                    2,
-                    12,
-                    52,
-                    "lambda",
-                    1,
-                    0,
-                    5,
-                    31,
-                    36,
-                    0,
-                    12,
-                    38,
-                    53,
-                    0,
-                    32,
-                    "elements_chain_texts",
-                    1,
-                    1,
-                    2,
-                    "arrayExists",
-                    2,
-                    3,
-                    3,
-                    3,
-                    2,
-                ],
-                "filter_path": "properties.values[0].values[0]",
-                "conditionHash": "827d18e80726ed84",
-                "filter_type": "behavioral",
-            }
-        ]
-
         cohort = self._create_and_fetch("Event props realtime", filters)
         self.assertEqual(cohort.cohort_type, "realtime")
-        self.assertEqual(cast(list[dict[str, Any]], cohort.compiled_bytecode), expected)
+        node = cohort.filters["properties"]["values"][0]["values"][0]
+        self.assertEqual(node["type"], "behavioral")
+        self.assertEqual(
+            node["bytecode"],
+            [
+                "_H",
+                HOGQL_BYTECODE_VERSION,
+                32,
+                "$pageview",
+                32,
+                "event",
+                1,
+                1,
+                11,
+                31,
+                32,
+                "$active_feature_flags",
+                32,
+                "properties",
+                1,
+                2,
+                12,
+                31,
+                32,
+                "$feature/active-hours-heatmap",
+                32,
+                "properties",
+                1,
+                2,
+                12,
+                52,
+                "lambda",
+                1,
+                0,
+                5,
+                31,
+                36,
+                0,
+                12,
+                38,
+                53,
+                0,
+                32,
+                "elements_chain_texts",
+                1,
+                1,
+                2,
+                "arrayExists",
+                2,
+                3,
+                3,
+                3,
+                2,
+            ],
+        )
+        self.assertEqual(node["conditionHash"], "827d18e80726ed84")
 
         cohort2 = self._patch_and_fetch(cohort.id, filters)
         self.assertEqual(cohort2.cohort_type, "realtime")
-        self.assertEqual(cast(list[dict[str, Any]], cohort2.compiled_bytecode), expected)
+        node2 = cohort2.filters["properties"]["values"][0]["values"][0]
+        self.assertEqual(node2["conditionHash"], "827d18e80726ed84")
