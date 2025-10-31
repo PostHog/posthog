@@ -18,14 +18,14 @@ pytestmark = [
 @pytest.mark.parametrize(
     "input_data, expected_data",
     [
-        (b"Hello \uD83D\uDE00 World", b"Hello \uD83D\uDE00 World"),  # Valid emoji pair (😀)
-        (b"Bad \uD800 unpaired high", b"Bad  unpaired high"),  # Unpaired high surrogate
-        (b"Bad \uDC00 unpaired low", b"Bad  unpaired low"),  # Unpaired low surrogate
+        (rb"Hello \uD83D\uDE00 World", rb"Hello \uD83D\uDE00 World"),  # Valid emoji pair (😀)
+        (rb"Bad \uD800 unpaired high", b"Bad  unpaired high"),  # Unpaired high surrogate
+        (rb"Bad \uDC00 unpaired low", b"Bad  unpaired low"),  # Unpaired low surrogate
         (
-            b"\uD83C\uDF89 Party \uD800 \uD83D\uDE0A mixed",
-            b"\uD83C\uDF89 Party  \uD83D\uDE0A mixed",
+            rb"\uD83C\uDF89 Party \uD800 \uD83D\uDE0A mixed",
+            rb"\uD83C\uDF89 Party  \uD83D\uDE0A mixed",
         ),  # Mix of valid pairs and unpaired
-        (b"Hello \u0000 World", b"Hello  World"),  # \u0000 is not a valid JSON character in PostgreSQL
+        (rb"Hello \u0000 World", b"Hello  World"),  # \u0000 is not a valid JSON character in PostgreSQL
         (b"Hello \\u0000 World", b"Hello  World"),  # this is the same as the above
         (b"Hello \\\\u0000 World", b"Hello \\\\u0000 World"),  # \\u0000 is escaped
     ],
