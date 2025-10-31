@@ -75,6 +75,8 @@ import { getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+import { MessageTemplate } from './messages/MessageTemplate'
+import { UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS } from './slash-commands'
 import {
     castAssistantQuery,
@@ -301,6 +303,9 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 {actionsElement}
                             </div>
                         )
+                    } else if (isAssistantToolCallMessage(message) && message.ui_payload) {
+                        const [toolName, toolPayload] = Object.entries(message.ui_payload)[0]
+                        return <UIPayloadAnswer key={key} toolName={toolName} toolPayload={toolPayload} />
                     } else if (isAssistantToolCallMessage(message) || isFailureMessage(message)) {
                         return (
                             <TextAnswer
@@ -358,48 +363,6 @@ function MessageGroupSkeleton({
         </MessageContainer>
     )
 }
-
-interface MessageTemplateProps {
-    type: 'human' | 'ai'
-    action?: React.ReactNode
-    className?: string
-    boxClassName?: string
-    wrapperClassName?: string
-    children?: React.ReactNode
-    header?: React.ReactNode
-}
-
-const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, wrapperClassName, action, header },
-    ref
-) {
-    return (
-        <div
-            className={twMerge(
-                'flex flex-col gap-px w-full break-words scroll-mt-12',
-                type === 'human' ? 'items-end' : 'items-start',
-                className
-            )}
-            ref={ref}
-        >
-            <div className={twMerge('max-w-full', wrapperClassName)}>
-                {header}
-                {children && (
-                    <div
-                        className={twMerge(
-                            'border py-2 px-3 rounded-lg bg-surface-primary',
-                            type === 'human' && 'font-medium',
-                            boxClassName
-                        )}
-                    >
-                        {children}
-                    </div>
-                )}
-            </div>
-            {action}
-        </div>
-    )
-})
 
 interface TextAnswerProps {
     message: (AssistantMessage | FailureMessage | AssistantToolCallMessage) & ThreadMessage
