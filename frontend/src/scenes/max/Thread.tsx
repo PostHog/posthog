@@ -627,7 +627,10 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     return (
         <div className="flex flex-col">
             <div
-                className={clsx('flex items-center', !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer')}
+                className={clsx(
+                    'flex items-center select-none',
+                    !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer'
+                )}
                 onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
                 aria-label={!hasMultipleSteps ? undefined : isExpanded ? 'Collapse plan' : 'Expand plan'}
             >
@@ -712,6 +715,10 @@ function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Ele
 }
 
 function handleThreeDots(content: string, isInProgress: boolean): string {
+    if (content.at(0) === '[' && content.at(-1) === ')') {
+        // Skip ... for web search `updates`, where each is a Markdown-formatted link to a search results, _not_ an action
+        return content
+    }
     if (!content.endsWith('...') && !content.endsWith('…') && !content.endsWith('.') && isInProgress) {
         return content + '...'
     } else if ((content.endsWith('...') || content.endsWith('…')) && !isInProgress) {
@@ -741,7 +748,7 @@ function AssistantActionComponent({
     const isCompleted = state === 'completed'
     const isInProgress = state === 'in_progress'
     const isFailed = state === 'failed'
-    const showChevron = substeps.length > 0 ? (showCompletionIcon ? isPending || isInProgress : true) : false
+    const showChevron = !!substeps.length
     // Initialize with the same logic as the effect to prevent flickering
     const [isExpanded, setIsExpanded] = useState(showChevron && !(isCompleted || isFailed))
 
@@ -752,10 +759,10 @@ function AssistantActionComponent({
     let markdownContent = <MarkdownMessage id={id} content={content} />
 
     return (
-        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 cursor-default">
+        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1">
             <div
                 className={clsx(
-                    'transition-all duration-500 flex',
+                    'transition-all duration-500 flex select-none',
                     (isPending || isFailed) && 'text-muted',
                     !isInProgress && !isPending && !isFailed && 'text-default',
                     !showChevron ? 'cursor-default' : 'cursor-pointer'
@@ -780,8 +787,6 @@ function AssistantActionComponent({
                             markdownContent
                         )}
                     </div>
-                    {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
-                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
                     {showChevron && (
                         <div className="relative flex-shrink-0 flex items-start justify-center h-full pt-px">
                             <button className="inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0 cursor-pointer">
@@ -791,6 +796,8 @@ function AssistantActionComponent({
                             </button>
                         </div>
                     )}
+                    {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
+                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
                 </div>
             </div>
             {isExpanded && substeps && substeps.length > 0 && (
@@ -805,13 +812,7 @@ function AssistantActionComponent({
                         const isCompletedSubstep = substepIndex < substeps.length - 1 || isCompleted
 
                         return (
-                            <div
-                                key={substepIndex}
-                                className="animate-fade-in"
-                                style={{
-                                    animationDelay: `${substepIndex * 50}ms`,
-                                }}
-                            >
+                            <div key={substepIndex} className="animate-fade-in">
                                 <MarkdownMessage
                                     id={id}
                                     className={clsx(
