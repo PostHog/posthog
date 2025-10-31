@@ -83,6 +83,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateDescription: (description: string) => ({ description }),
         setCategory: (category: ErrorTrackingIssueSceneCategory) => ({ category }),
         setExceptionsCategory: (category: ErrorTrackingIssueSceneExceptionsCategory) => ({ category }),
+        setSimilarIssuesMaxDistance: (distance: number) => ({ distance }),
     }),
 
     defaults({
@@ -96,6 +97,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         initialEventLoading: true as boolean,
         category: 'exceptions' as ErrorTrackingIssueSceneCategory,
         exceptionsCategory: 'exception' as ErrorTrackingIssueSceneExceptionsCategory,
+        similarIssuesMaxDistance: 0.2 as number,
     }),
 
     reducers(({ values }) => ({
@@ -245,7 +247,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     const query = errorTrackingSimilarIssuesQuery({
                         issueId: props.id,
                         limit: 10,
-                        maxDistance: 0.2,
+                        maxDistance: values.similarIssuesMaxDistance,
                     })
                     const response = await api.query(query, {
                         refresh: refresh ? 'force_blocking' : 'blocking',
@@ -369,6 +371,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 if (mutationName === 'createIssueCohort') {
                     actions.loadIssue()
                 }
+            },
+            increaseSimilarIssuesMaxDistance: () => {
+                actions.loadSimilarIssues(true)
             },
         }
     }),
