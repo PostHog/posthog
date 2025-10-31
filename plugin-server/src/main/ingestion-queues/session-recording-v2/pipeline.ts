@@ -6,9 +6,12 @@ import { PipelineConfig } from '../../../ingestion/pipelines/result-handling-pip
 import { EventHeaders } from '../../../types'
 import { EventIngestionRestrictionManager } from '../../../utils/event-ingestion-restriction-manager'
 import { ParsedMessageData } from './kafka/types'
+import { SessionBatchManager } from './sessions/session-batch-manager'
+import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { createApplyDropRestrictionsStep } from './steps/apply-drop-restrictions'
 import { createApplyOverflowRestrictionsStep } from './steps/apply-overflow-restrictions'
 import { createCollectBatchMetricsStep } from './steps/collect-batch-metrics'
+import { createObtainBatchStep } from './steps/obtain-batch'
 import { createParseHeadersStep } from './steps/parse-headers'
 import { createParseKafkaMessageStep } from './steps/parse-kafka-message'
 import { createResolveTeamStep } from './steps/resolve-team'
@@ -20,13 +23,18 @@ export interface SessionRecordingPipelineConfig extends PipelineConfig {
     overflowTopic: string
     consumeOverflow: boolean
     teamService: TeamService
+    sessionBatchManager: SessionBatchManager
 }
 
-export function createSessionRecordingPipeline(
-    config: SessionRecordingPipelineConfig
-): BatchPipeline<
+export function createSessionRecordingPipeline(config: SessionRecordingPipelineConfig): BatchPipeline<
     { message: Message },
-    { message: Message; headers: EventHeaders; parsedMessage: ParsedMessageData; team: TeamForReplay },
+    {
+        message: Message
+        headers: EventHeaders
+        parsedMessage: ParsedMessageData
+        team: TeamForReplay
+        batchRecorder: SessionBatchRecorder
+    },
     { message: Message }
 > {
     return (
@@ -58,6 +66,26 @@ export function createSessionRecordingPipeline(
                         // Step 4: Resolve team
                         .pipe(createResolveTeamStep(config.teamService))
                 )
+            )
+            .handleResults(config)
+            .handleSideEffects(config.promiseScheduler, { await: false })
+            .gather()
+            .filterOk()
+
+            // Add team to context for team-aware pipeline
+            .map((element) => ({
+                result: element.result,
+                context: {
+                    ...element.context,
+                    team: {
+                        id: element.result.value.team.teamId,
+                    },
+                },
+            }))
+
+            // Step 5: Obtain batch recorder (batch-level within team context)
+            .messageAware((builder) =>
+                builder.teamAware((b) => b.gather().pipeBatch(createObtainBatchStep(config.sessionBatchManager)))
             )
             .handleResults(config)
             .handleSideEffects(config.promiseScheduler, { await: false })

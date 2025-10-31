@@ -62,7 +62,13 @@ export class SessionRecordingIngester {
     private readonly overflowTopic: string
     private pipeline!: BatchPipelineUnwrapper<
         { message: Message },
-        { message: Message; headers: EventHeaders; parsedMessage: ParsedMessageData; team: TeamForReplay },
+        {
+            message: Message
+            headers: EventHeaders
+            parsedMessage: ParsedMessageData
+            team: TeamForReplay
+            batchRecorder: SessionBatchRecorder
+        },
         { message: Message }
     >
     private readonly teamService: TeamService
@@ -206,19 +212,20 @@ export class SessionRecordingIngester {
             headers: EventHeaders
             parsedMessage: ParsedMessageData
             team: TeamForReplay
+            batchRecorder: SessionBatchRecorder
         }>
     ): Promise<void> {
-        // Convert pipeline results to MessageWithTeam format for legacy processing
-        const messagesWithTeam: MessageWithTeam[] = pipelineResults.map((result) => ({
-            team: result.team,
-            message: result.parsedMessage,
-        }))
-
         this.kafkaConsumer.heartbeat()
 
-        await instrumentFn(`recordingingesterv2.handleEachBatch.processMessages`, async () =>
-            this.processMessages(messagesWithTeam)
-        )
+        await instrumentFn(`recordingingesterv2.handleEachBatch.processMessages`, async () => {
+            for (const result of pipelineResults) {
+                const message: MessageWithTeam = {
+                    team: result.team,
+                    message: result.parsedMessage,
+                }
+                await this.consume(message, result.batchRecorder)
+            }
+        })
 
         this.kafkaConsumer.heartbeat()
 
@@ -226,13 +233,6 @@ export class SessionRecordingIngester {
             await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
                 this.sessionBatchManager.flush()
             )
-        }
-    }
-
-    private async processMessages(parsedMessages: MessageWithTeam[]) {
-        const batch = this.sessionBatchManager.getCurrentBatch()
-        for (const message of parsedMessages) {
-            await this.consume(message, batch)
         }
     }
 
@@ -276,6 +276,7 @@ export class SessionRecordingIngester {
             overflowTopic: this.overflowTopic,
             consumeOverflow: this.consumeOverflow,
             teamService: this.teamService,
+            sessionBatchManager: this.sessionBatchManager,
         }
 
         const pipeline = createSessionRecordingPipeline(pipelineConfig)
