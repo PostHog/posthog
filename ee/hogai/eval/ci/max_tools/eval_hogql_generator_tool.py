@@ -44,7 +44,7 @@ def call_generate_hogql_query(demo_org_team_user):
 
         # Invoke the graph. The state will be updated through planner and then generator.
         result = await tool.ainvoke(
-            HogQLGeneratorArgs(instructions=inputs.instructions).model_dump(),
+            HogQLGeneratorArgs(instructions=inputs.instructions, tool_call_id="").model_dump(),
             {
                 "configurable": {
                     "thread_id": conversation.id,

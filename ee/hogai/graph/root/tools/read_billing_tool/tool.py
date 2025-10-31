@@ -1,18 +1,18 @@
-from typing import Any, cast
-from uuid import uuid4
+from typing import Any
 
 from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantToolCallMessage, MaxBillingContext, SpendHistoryItem, UsageHistoryItem
+from posthog.schema import MaxBillingContext, SpendHistoryItem, UsageHistoryItem
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models import Team, User
+from posthog.sync import database_sync_to_async
 
-from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.billing.prompts import BILLING_CONTEXT_PROMPT
+from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.tool import MaxSubtool
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import AssistantNodeName, PartialAssistantState
-from ee.hogai.utils.types.composed import MaxNodeName
+
+from .prompts import BILLING_CONTEXT_PROMPT
 
 # sync with frontend/src/scenes/billing/constants.ts
 USAGE_TYPES = [
@@ -32,33 +32,19 @@ USAGE_TYPES = [
 ]
 
 
-class BillingNode(AssistantNode):
-    _teams_map: dict[int, str] = {}
+class ReadBillingTool(MaxSubtool):
+    def __init__(self, team: Team, user: User, state: AssistantState, context_manager: AssistantContextManager):
+        super().__init__(team, user, state, context_manager)
+        self._teams_map: dict[int, str] = {}
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        return AssistantNodeName.BILLING
-
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        tool_call_id = cast(str, state.root_tool_call_id)
-        billing_context = self.context_manager.get_billing_context()
+    async def execute(self) -> str:
+        billing_context = self._context_manager.get_billing_context()
         if not billing_context:
-            return PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content="No billing information available", id=str(uuid4()), tool_call_id=tool_call_id
-                    )
-                ],
-                root_tool_call_id=None,
-            )
-        formatted_billing_context = self._format_billing_context(billing_context)
-        return PartialAssistantState(
-            messages=[
-                AssistantToolCallMessage(content=formatted_billing_context, tool_call_id=tool_call_id, id=str(uuid4())),
-            ],
-            root_tool_call_id=None,
-        )
+            return "No billing information available"
+        formatted_billing_context = await self._format_billing_context(billing_context)
+        return formatted_billing_context
 
+    @database_sync_to_async(thread_sensitive=False)
     def _format_billing_context(self, billing_context: MaxBillingContext) -> str:
         """Format billing context into a readable prompt section."""
         # Convert billing context to a format suitable for the mustache template

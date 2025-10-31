@@ -84,16 +84,7 @@ def call_insight_search(demo_org_team_user):
     graph = (
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-        .add_root(
-            {
-                "insights": AssistantNodeName.END,
-                "search_documentation": AssistantNodeName.END,
-                "root": AssistantNodeName.END,
-                "end": AssistantNodeName.END,
-                "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
-            }
-        )
-        .add_insights_search()
+        .add_root()
         .compile(checkpointer=DjangoCheckpointer())
     )
 

@@ -1,13 +1,15 @@
 import json
 import pkgutil
 import importlib
+from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, InjectedToolCallId
 from pydantic import BaseModel
+from pydantic.json_schema import SkipJsonSchema
 
 from posthog.schema import AssistantTool
 
@@ -17,8 +19,7 @@ import products
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import AssistantMessageUnion
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState
 
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
 
@@ -49,6 +50,12 @@ class ToolMessagesArtifact(BaseModel):
     """Return messages directly. Use with `artifact`."""
 
     messages: Sequence[AssistantMessageUnion]
+
+
+class MaxToolArgs(BaseModel):
+    """Base arguments schema for all MaxTools that provides an injected tool call id."""
+
+    tool_call_id: Annotated[str, InjectedToolCallId, SkipJsonSchema]
 
 
 class MaxTool(AssistantContextMixin, BaseTool):
@@ -82,7 +89,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
         *,
         team: Team,
         user: User,
-        tool_call_id: str,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         name: str | None = None,
@@ -102,7 +108,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
         super().__init__(**tool_kwargs, **kwargs)
         self._team = team
         self._user = user
-        self._tool_call_id = tool_call_id
         self._state = state if state else AssistantState(messages=[])
         self._config = config if config else RunnableConfig(configurable={})
         self._context_manager = context_manager or AssistantContextManager(team, user, self._config)
@@ -149,7 +154,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
         *,
         team: Team,
         user: User,
-        tool_call_id: str,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
@@ -159,6 +163,16 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
         Override this factory to dynamically modify the tool name, description, args schema, etc.
         """
-        return cls(
-            team=team, user=user, tool_call_id=tool_call_id, state=state, config=config, context_manager=context_manager
-        )
+        return cls(team=team, user=user, state=state, config=config, context_manager=context_manager)
+
+
+class MaxSubtool(ABC):
+    def __init__(self, team: Team, user: User, state: AssistantState, context_manager: AssistantContextManager):
+        self._team = team
+        self._user = user
+        self._state = state
+        self._context_manager = context_manager
+
+    @abstractmethod
+    async def execute(self, *args, **kwargs) -> Any:
+        pass

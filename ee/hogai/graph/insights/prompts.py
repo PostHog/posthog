@@ -36,7 +36,3 @@ Instructions:
 NO_INSIGHTS_FOUND_MESSAGE = (
     "No existing insights found matching your query. Creating a new insight based on your request."
 )
-
-SEARCH_ERROR_INSTRUCTIONS = "INSTRUCTIONS: Tell the user that you encountered an issue while searching for insights and suggest they try again with a different search term."
-
-EMPTY_DATABASE_ERROR_MESSAGE = "No insights found in the database."

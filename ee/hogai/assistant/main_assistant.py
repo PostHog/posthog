@@ -85,6 +85,7 @@ class MainAssistant(BaseAssistant):
     def STREAMING_NODES(self) -> set[MaxNodeName]:
         return {
             AssistantNodeName.ROOT,
+            AssistantNodeName.ROOT_TOOLS,
             AssistantNodeName.INKEEP_DOCS,
             AssistantNodeName.MEMORY_ONBOARDING,
             AssistantNodeName.MEMORY_INITIALIZER,

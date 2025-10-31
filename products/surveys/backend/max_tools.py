@@ -23,12 +23,12 @@ from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
 from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.tool import MaxTool
+from ee.hogai.tool import MaxTool, MaxToolArgs
 
 from .prompts import SURVEY_ANALYSIS_SYSTEM_PROMPT, SURVEY_CREATION_SYSTEM_PROMPT
 
 
-class SurveyCreatorArgs(BaseModel):
+class SurveyCreatorArgs(MaxToolArgs):
     instructions: str = Field(description="Natural language description of the survey to create")
 
 
@@ -47,12 +47,12 @@ class CreateSurveyTool(MaxTool):
 
     args_schema: type[BaseModel] = SurveyCreatorArgs
 
-    async def _create_survey_from_instructions(self, instructions: str) -> SurveyCreationSchema:
+    async def _create_survey_from_instructions(self, instructions: str, tool_call_id: str) -> SurveyCreationSchema:
         """
         Create a survey from natural language instructions.
         """
 
-        graph = FeatureFlagLookupGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
+        graph = FeatureFlagLookupGraph(team=self._team, user=self._user, tool_call_id=tool_call_id)
 
         graph_context = {
             "change": f"Create a survey based on these instructions: {instructions}",
@@ -75,7 +75,7 @@ class CreateSurveyTool(MaxTool):
             )
             return survey_creation_schema
 
-    async def _arun_impl(self, instructions: str) -> tuple[str, dict[str, Any]]:
+    async def _arun_impl(self, instructions: str, tool_call_id: str) -> tuple[str, dict[str, Any]]:
         """
         Generate survey configuration from natural language instructions.
         """
@@ -83,7 +83,7 @@ class CreateSurveyTool(MaxTool):
             user = self._user
             team = self._team
 
-            result = await self._create_survey_from_instructions(instructions)
+            result = await self._create_survey_from_instructions(instructions, tool_call_id)
 
             try:
                 if not result.questions:

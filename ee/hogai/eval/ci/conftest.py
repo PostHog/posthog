@@ -19,7 +19,7 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 # We want the PostHog set_up_evals fixture here
 from ee.hogai.eval.conftest import set_up_evals  # noqa: F401
 from ee.hogai.eval.scorers import PlanAndQueryOutput
-from ee.hogai.graph.graph import AssistantGraph, InsightsAssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation, CoreMemory
 
@@ -34,28 +34,10 @@ EVAL_USER_FULL_NAME = "Karen Smith"
 @pytest.fixture
 def call_root_for_insight_generation(demo_org_team_user):
     # This graph structure will first get a plan, then generate the SQL query.
-
-    insights_subgraph = (
-        # Insights subgraph without query execution, so we only create the queries
-        InsightsAssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
-        .add_query_creation_flow(next_node=AssistantNodeName.END)
-        .compile()
-    )
     graph = (
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-        .add_root(
-            path_map={
-                "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
-                "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
-                "root": AssistantNodeName.ROOT,
-                "search_documentation": AssistantNodeName.END,
-                "end": AssistantNodeName.END,
-            }
-        )
-        .add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, insights_subgraph)
-        .add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, AssistantNodeName.END)
-        .add_insights_search()
+        .add_root()
         # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
         .compile(checkpointer=DjangoCheckpointer())
     )
@@ -85,15 +67,21 @@ def call_root_for_insight_generation(demo_org_team_user):
             final_state_raw = await graph.ainvoke(final_state, {"configurable": {"thread_id": conversation.id}})
             final_state = AssistantState.model_validate(final_state_raw)
 
-        if not final_state.messages or not isinstance(final_state.messages[-1], VisualizationMessage):
+        # The order is a viz message, tool call message, and assistant message.
+        if (
+            not final_state.messages
+            or not len(final_state.messages) >= 3
+            or not isinstance(final_state.messages[-3], VisualizationMessage)
+        ):
             return {
                 "plan": None,
                 "query": None,
                 "query_generation_retry_count": final_state.query_generation_retry_count,
             }
+
         return {
-            "plan": final_state.messages[-1].plan,
-            "query": final_state.messages[-1].answer,
+            "plan": final_state.messages[-3].plan,
+            "query": final_state.messages[-3].answer,
             "query_generation_retry_count": final_state.query_generation_retry_count,
         }
 

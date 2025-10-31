@@ -7,9 +7,15 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import DeepResearchNotebook
 
-from ee.hogai.graph.root.tools.todo_write import TodoItem
-from ee.hogai.utils.types import AssistantMessageUnion, add_and_merge_messages
-from ee.hogai.utils.types.base import BaseStateWithMessages, BaseStateWithTasks, append, replace
+from ee.hogai.utils.types.base import (
+    AssistantMessageUnion,
+    BaseStateWithMessages,
+    BaseStateWithTasks,
+    TodoItem,
+    add_and_merge_messages,
+    append,
+    replace,
+)
 
 NotebookInfo = DeepResearchNotebook
 
@@ -69,3 +75,4 @@ class DeepResearchNodeName(StrEnum):
     PLANNER_TOOLS = "planner_tools"
     TASK_EXECUTOR = "task_executor"
     REPORT = "report"
+    TITLE_GENERATOR = "title_generator"
