@@ -100,43 +100,41 @@ class LLMTraceSummary(Model):
 
 ### Core Principles
 
-1. **Pluggable Stringifiers**: Abstract trace-to-text conversion
-2. **Configurable Pipelines**: Users define what to analyze
-3. **Extensible Summary Types**: Beyond just "issues"
-4. **Backward Compatible**: Existing code continues to work
+1. **Universal Stringifier (v1)**: All traces use generic LLMA stringifier - domain expertise via custom prompts
+2. **Configurable Analysis**: Users define filters and prompts per theme
+3. **Multi-Perspective Insights**: 5 built-in themes + custom themes
+4. **Flexible Architecture**: Design allows future stringifier plugins without UI complexity in v1
 
 ### New Data Flow
 
 ```mermaid
 flowchart TD
-    A[Temporal Workflow:<br/>SummarizeLLMTracesWorkflow<br/>+ TraceSummarizationConfig] --> B[LLMTracesSummarizer<br/>+ config: TraceSummarizationConfig<br/>+ Stringifier factory pattern]
+    A[Temporal Workflow:<br/>Theme Analysis] --> B[LLMTracesSummarizer<br/>+ AnalysisTheme config]
 
-    B --> C[1. Collector<br/>User-defined filters ✅]
+    B --> C[1. Collector<br/>User-defined HogQL filters ✅]
 
-    C --> D{2. Stringifier<br/>PLUGGABLE ✅}
+    C --> D[2. Stringifier<br/>Generic LLMA<br/>PR #40502 endpoint]
 
-    D -->|Generic LLMA| D1[GenericLLMAStringifier<br/>Standard LLMA properties]
-    D -->|PostHog AI| D2[PostHogAIStringifier<br/>PostHog AI format]
-    D -->|Custom| D3[CustomStringifier<br/>User-provided]
+    D --> E[3. Generator<br/>Custom prompt per theme ✅<br/>Returns theme_relevant + summary]
 
-    D1 --> E[3. Generator<br/>Custom prompt per config ✅]
-    D2 --> E
-    D3 --> E
+    E --> E1{Filter by<br/>theme_relevant}
 
-    E --> F[4. Embedder<br/>unchanged]
+    E1 -->|true| F[4. Embedder<br/>3072-dim vectors]
+    E1 -->|false| Z[Skip embedding]
 
-    E --> G1[5a. Storage: PSQL<br/>UI display, readability]
-    E --> G2[5b. Storage: ClickHouse<br/>FTS, scale Phase 4]
+    E --> G[$ai_trace_summary events<br/>ClickHouse]
 
-    F --> H[Search / Clustering<br/>On Demand]
-    G1 --> H
+    F --> H[posthog_document_embeddings<br/>ClickHouse]
 
-    style D fill:#ccffcc
-    style D1 fill:#e6ffe6
-    style D2 fill:#e6ffe6
-    style D3 fill:#e6ffe6
+    H --> I[Daily Clustering<br/>3 AM UTC]
+
+    I --> J[$ai_trace_cluster events<br/>ClickHouse]
+
+    J --> K[Reports UI<br/>Per-theme dashboards]
+
     style C fill:#ccffcc
     style E fill:#ccffcc
+    style E1 fill:#ffffcc
 ```
 
 ## Analysis Themes: Multi-Dimensional Architecture
@@ -292,14 +290,7 @@ Result:          Embed 1250 traces instead of 5000 (75% cost savings)
 # ee/hogai/llm_traces_summaries/config.py
 
 from dataclasses import dataclass
-from enum import Enum
 from posthog.schema import HogQLPropertyFilter, DateRange
-
-class StringifierType(str, Enum):
-    """Available trace stringifiers"""
-    GENERIC_LLMA = "generic_llma"      # Standard LLMA properties
-    POSTHOG_AI = "posthog_ai"          # PostHog AI chat format
-    CUSTOM = "custom"                  # User-provided stringifier
 
 @dataclass
 class ClusteringConfig:
@@ -338,10 +329,6 @@ class AnalysisTheme:
     # Sampling: Cost control via random sampling
     sample_rate: float = 1.0           # 0.0 to 1.0 (0% to 100% of traces)
     sample_seed: int = 42              # For reproducible sampling
-
-    # Stringification
-    stringifier_type: StringifierType = StringifierType.GENERIC_LLMA
-    stringifier_params: dict | None = None
 
     # Analysis
     prompt: str                        # Theme-specific LLM prompt (must output JSON with theme_relevant)
@@ -537,242 +524,43 @@ If theme_relevant=true, explain what made the experience successful in maximum 1
 }
 ```
 
-#### 2. Stringifier Interface
+#### 2. Trace Stringification (v1: Generic LLMA Only)
+
+**Design Decision**: v1 uses only the **Generic LLMA Stringifier** for all themes and all traces. Domain expertise comes from custom prompts, not custom stringifiers. This ensures:
+
+- **Consistency**: All PostHog users dogfood the same system
+- **Simplicity**: No UI complexity for stringifier selection
+- **Validation**: Easier to validate and improve one universal stringifier
+- **Future flexibility**: Architecture allows pluggable stringifiers later if needed
+
+**Implementation**: Leverages the general-purpose stringification endpoint from PR #40502.
 
 ```python
-# ee/hogai/llm_traces_summaries/tools/base_stringify.py
+# ee/hogai/llm_traces_summaries/tools/stringify_trace.py
 
-from abc import ABC, abstractmethod
-from posthog.schema import LLMTrace
-
-class BaseStringifier(ABC):
-    """Base class for trace stringifiers"""
-
-    @abstractmethod
-    def stringify_trace(self, trace: LLMTrace) -> str | None:
-        """
-        Convert a trace to text representation.
-
-        Returns:
-            str: Text representation suitable for LLM summarization
-            None: If trace should be skipped (e.g., no content)
-        """
-        pass
-
-    @abstractmethod
-    def validate_trace(self, trace: LLMTrace) -> bool:
-        """Check if this stringifier can handle this trace"""
-        pass
-```
-
-#### 3. Generic LLMA Stringifier
-
-```python
-# ee/hogai/llm_traces_summaries/tools/generic_stringify_trace.py
-
-class GenericLLMAStringifier(BaseStringifier):
+def stringify_trace(trace: LLMTrace) -> str | None:
     """
     Generic stringifier for standard LLMA traces.
-    Based on formatters from PR #40502.
+    Uses the general-purpose stringification endpoint from PR #40502.
+
+    Converts trace events ($ai_generation, $ai_span) into readable text:
+    - Formats input/output messages (supports OpenAI, Anthropic, LangChain)
+    - Includes tools, errors, latency
+    - Handles nested spans and state transitions
     """
+    # Call the general-purpose stringification endpoint
+    response = requests.post(
+        f"/api/projects/{team_id}/llm_traces/{trace_id}/stringify",
+        json={"rendering": "generic_llma"}
+    )
+    return response.text
 
-    def stringify_trace(self, trace: LLMTrace) -> str | None:
-        lines = []
-
-        # Trace metadata
-        lines.append(self._format_trace_header(trace))
-
-        # Process each event in the trace
-        for event in trace.events:
-            if event.event == "$ai_generation":
-                lines.extend(self._format_generation(event))
-            elif event.event == "$ai_span":
-                lines.extend(self._format_span(event))
-
-        return "\n".join(lines) if lines else None
-
-    def _format_generation(self, event: LLMTraceEvent) -> list[str]:
-        """Format a generation event"""
-        lines = []
-        props = event.properties
-
-        # Input messages
-        if props.get("$ai_input"):
-            lines.append("\n" + "="*80)
-            lines.append("INPUT:")
-            lines.append(self._format_messages(props["$ai_input"]))
-
-        # Output messages
-        if props.get("$ai_output") or props.get("$ai_output_choices"):
-            lines.append("\n" + "="*80)
-            lines.append("OUTPUT:")
-            output = props.get("$ai_output_choices") or props.get("$ai_output")
-            lines.append(self._format_messages(output))
-
-        # Tools
-        if props.get("$ai_tools"):
-            lines.append("\nTools available:")
-            for tool in props["$ai_tools"]:
-                name = tool.get("name", "unknown")
-                lines.append(f"  - {name}")
-
-        # Errors
-        if props.get("$ai_error"):
-            lines.append("\nERROR:")
-            lines.append(str(props["$ai_error"]))
-
-        return lines
-
-    def _format_messages(self, messages: any) -> str:
-        """Format input/output messages (OpenAI, Anthropic, LangChain formats)"""
-        if isinstance(messages, str):
-            return messages
-
-        if isinstance(messages, list):
-            formatted = []
-            for msg in messages:
-                # Handle OpenAI format: {role: "user", content: "..."}
-                if isinstance(msg, dict):
-                    role = msg.get("role", msg.get("type", "unknown")).upper()
-                    content = msg.get("content", "")
-
-                    # Extract text from content (handle Anthropic format)
-                    if isinstance(content, list):
-                        text_parts = []
-                        for block in content:
-                            if isinstance(block, dict):
-                                if block.get("type") == "text":
-                                    text_parts.append(block.get("text", ""))
-                                elif block.get("type") == "tool_use":
-                                    text_parts.append(f"[Tool: {block.get('name')}]")
-                        content = "\n".join(text_parts)
-
-                    formatted.append(f"[{role}] {content}")
-
-                    # Tool calls
-                    if msg.get("tool_calls"):
-                        for tc in msg["tool_calls"]:
-                            name = tc.get("function", {}).get("name") or tc.get("name")
-                            formatted.append(f"  Tool call: {name}")
-
-            return "\n".join(formatted)
-
-        # Fallback for unknown format
-        return str(messages)
-
-    def _format_span(self, event: LLMTraceEvent) -> list[str]:
-        """Format a span event"""
-        lines = []
-        props = event.properties
-
-        span_name = props.get("$ai_span_name", "span")
-        lines.append(f"\n[{span_name.upper()}]")
-
-        if props.get("$ai_input_state"):
-            lines.append("Input state:")
-            lines.append(str(props["$ai_input_state"])[:500])
-
-        if props.get("$ai_output_state"):
-            lines.append("Output state:")
-            lines.append(str(props["$ai_output_state"])[:500])
-
-        if props.get("$ai_error"):
-            lines.append(f"ERROR: {props['$ai_error']}")
-
-        return lines
-
-    def validate_trace(self, trace: LLMTrace) -> bool:
-        """Check if trace has standard LLMA events"""
-        if not trace.events:
-            return False
-
-        # Must have at least one generation or span event
-        for event in trace.events:
-            if event.event in ("$ai_generation", "$ai_span"):
-                return True
-
-        return False
+# See PR #40502 for full implementation details
 ```
 
-#### 4. PostHog AI Stringifier (Existing, Renamed)
+**Future Work** (not v1): Pluggable stringifier architecture exists in the codebase design for potential future use cases (custom trace formats, domain-specific stringification), but is intentionally not exposed in v1.
 
-```python
-# ee/hogai/llm_traces_summaries/tools/posthog_ai_stringify_trace.py
-
-class PostHogAIStringifier(BaseStringifier):
-    """
-    Stringifier for PostHog AI chat traces.
-    This is the existing LLMTracesSummarizerStringifier, renamed.
-    """
-
-    def stringify_trace(self, trace: LLMTrace) -> str | None:
-        # Existing implementation from stringify_trace.py
-        messages = trace.outputState.get("messages")
-        if not messages:
-            return None
-
-        # ... existing logic ...
-
-    def validate_trace(self, trace: LLMTrace) -> bool:
-        """Check if trace has PostHog AI structure"""
-        return (
-            trace.outputState is not None
-            and isinstance(trace.outputState.get("messages"), list)
-        )
-```
-
-#### 5. Stringifier Factory
-
-```python
-# ee/hogai/llm_traces_summaries/tools/stringify_factory.py
-
-class StringifierFactory:
-    """Factory for creating trace stringifiers"""
-
-    @staticmethod
-    def create(
-        stringifier_type: StringifierType,
-        team: Team,
-        params: dict | None = None
-    ) -> BaseStringifier:
-        """Create a stringifier based on type"""
-
-        if stringifier_type == StringifierType.GENERIC_LLMA:
-            return GenericLLMAStringifier(team=team)
-
-        elif stringifier_type == StringifierType.POSTHOG_AI:
-            return PostHogAIStringifier(team=team)
-
-        elif stringifier_type == StringifierType.CUSTOM:
-            # Load custom stringifier from params
-            if not params or "stringifier_class" not in params:
-                raise ValueError("Custom stringifier requires stringifier_class in params")
-
-            stringifier_class = params["stringifier_class"]
-            return stringifier_class(team=team, **params.get("kwargs", {}))
-
-        else:
-            raise ValueError(f"Unknown stringifier type: {stringifier_type}")
-
-    @staticmethod
-    def auto_detect(trace: LLMTrace, team: Team) -> BaseStringifier:
-        """Auto-detect best stringifier for a trace"""
-
-        # Try PostHog AI first (most specific)
-        posthog_ai = PostHogAIStringifier(team=team)
-        if posthog_ai.validate_trace(trace):
-            return posthog_ai
-
-        # Fall back to generic LLMA
-        generic = GenericLLMAStringifier(team=team)
-        if generic.validate_trace(trace):
-            return generic
-
-        # No suitable stringifier found
-        raise ValueError("No stringifier can handle this trace format")
-```
-
-#### 6. Theme-Based Collection with Caching
+#### 3. Theme-Based Collection with Caching
 
 ```python
 # ee/hogai/llm_traces_summaries/tools/theme_collector.py
@@ -795,19 +583,17 @@ class ThemeBasedCollector:
         self,
         team: Team,
         theme: AnalysisTheme,
-        stringifier: BaseStringifier,
         cache: redis.Redis
     ):
         self._team = team
         self._theme = theme
-        self._stringifier = stringifier
         self._cache = cache
         self._cache_ttl = 86400  # 24 hours
 
     def _get_cache_key(self, trace_id: str) -> str:
         """Generate cache key for stringified trace"""
-        # Include stringifier type in key (different stringifiers = different output)
-        return f"trace_text:{self._team.id}:{self._theme.stringifier_type}:{trace_id}"
+        # Generic LLMA stringifier for all traces in v1
+        return f"trace_text:{self._team.id}:generic_llma:{trace_id}"
 
     def collect_and_stringify(self) -> Dict[str, str]:
         """
@@ -853,7 +639,7 @@ class ThemeBasedCollector:
                 else:
                     # Cache miss - stringify and store
                     try:
-                        stringified = self._stringifier.stringify_trace(trace)
+                        stringified = stringify_trace(trace)  # Uses generic LLMA stringifier
                         if stringified:
                             stringified_traces[trace.id] = stringified
                             # Store in cache with TTL
@@ -3087,11 +2873,6 @@ def get_results(team_id: int, run_id: str):
 │                                                                   │
 │ Schedule                                                          │
 │ ○ Manual   ● Daily at 2:00 AM   ○ Weekly   ○ Custom             │
-│                                                                   │
-│ Advanced                                                          │
-│ ▼ Stringifier: Generic LLMA                                      │
-│ ▼ LLM Model: Gemini 2.5 Flash Lite                               │
-│ ▼ Clustering: Enabled (25-100 traces per cluster)                │
 │                                                                   │
 │                                  [Cancel] [Test Theme] [Create] │
 └─────────────────────────────────────────────────────────────────┘

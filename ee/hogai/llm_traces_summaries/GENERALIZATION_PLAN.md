@@ -120,30 +120,31 @@ Per-theme collection dramatically reduces costs:
 
 ### Generalization Strategy
 
-**Core Principle**: Replace domain-specific stringifier with generic LLMA text formatters + analysis themes.
+**Core Principle**: Universal stringification (generic LLMA formatter for all traces) + flexible analysis themes with custom prompts.
 
 ## Implementation Phases
 
-### Phase 1: Generic Text Representation (2-3 weeks)
+### Phase 1: Universal Text Representation (1-2 weeks)
 
-**Goal**: Make trace stringification work for any LLMA trace
+**Goal**: Adopt generic LLMA stringifier for all traces (via PR #40502 endpoint)
 
-#### 1.1 Port Text Formatters to Python
+**v1 Approach**: Use **only** the generic LLMA stringifier - no UI for stringifier selection. Domain expertise comes from custom analysis prompts, not custom stringifiers.
 
-- [ ] Create `ee/hogai/llm_traces_summaries/tools/generic_stringify_trace.py`
-- [ ] Port TS formatters from PR #40502 to Python
+**Rationale**:
+
+- **Dogfooding**: Everyone uses the same stringifier → easier to validate
+- **Simplicity**: No UI/API complexity for stringifier selection in v1
+- **Flexibility**: Domain-specific analysis via theme prompts
+- **Future-ready**: Architecture allows pluggable stringifiers later
+
+#### 1.1 Integrate Generic LLMA Stringifier
+
+- [ ] Use general-purpose stringify endpoint from PR #40502
 - [ ] Support standard LLMA properties: `$ai_input`, `$ai_output`, `$ai_tools`, `$ai_error`
 - [ ] Handle multiple message formats (OpenAI, Anthropic, LangChain)
 - [ ] Preserve trace hierarchy (spans within traces)
 
-#### 1.2 Stringifier Selection
-
-- [ ] Create `StringifierType` enum: `GENERIC_LLMA`, `POSTHOG_AI`, `CUSTOM`
-- [ ] Add stringifier selection to `LLMTracesSummarizer.__init__()`
-- [ ] Keep existing PostHog AI stringifier for backward compatibility
-- [ ] Add factory pattern for stringifier creation
-
-#### 1.3 Testing
+#### 1.2 Testing
 
 - [ ] Test with OpenAI API traces
 - [ ] Test with Anthropic API traces
@@ -171,10 +172,10 @@ Per-theme collection dramatically reduces costs:
   - `theme_filters: list[HogQLPropertyFilter]` - Theme-specific filters
   - `sample_rate: float` - Random sampling (0.0-1.0) for cost control
   - `sample_seed: int` - Deterministic sampling seed
-  - `prompt: str` - LLM analysis prompt
+  - `prompt: str` - LLM analysis prompt (returns JSON with theme_relevant + summary)
   - `date_range: DateRange` - Time window
-  - `stringifier_type: StringifierType` - How to convert to text
   - `clustering_config: ClusteringConfig` - Clustering parameters
+  - Note: v1 uses generic LLMA stringifier for all (no stringifier_type field)
 
 #### 2.2 Per-Theme Trace Collection
 
@@ -339,16 +340,23 @@ Per-theme collection dramatically reduces costs:
 
 ### Backward Compatibility
 
-1. **Keep existing PostHog AI stringifier** as `PostHogAIStringifier`
-2. **Default to `POSTHOG_AI` stringifier** for existing workflows
-3. **Add `stringifier_type` parameter** to Temporal workflow inputs
-4. **Gradual migration**: New pipelines use generic, old ones unchanged
+**v1 Approach**: Migrate existing PostHog AI workflow to use generic LLMA stringifier
+
+1. **Existing workflow becomes first theme**: "Unhappy Users" (Max AI) theme
+    - Filters: `generation_name = 'MaxAIAgent.generate'`
+    - Same prompt as current implementation
+    - Uses generic LLMA stringifier (not PostHog AI specific)
+2. **Benefits of universal stringifier**:
+    - Simpler codebase (one stringifier to maintain)
+    - Better dogfooding (everyone uses same system)
+    - Existing summaries can be regenerated if needed
+3. **Migration risk**: Low - generic stringifier handles all LLMA traces including PostHog AI format
 
 ### Data Migration
 
-1. **No schema changes required** in Phase 1-2
-2. **Add `stringifier_type` field** to configs in Phase 2
-3. **Existing summaries remain valid** (just re-generate with new stringifier)
+1. **Phase 1**: No schema changes - leverage existing tables
+2. **Phase 2**: Add `AnalysisThemeConfig` Django model
+3. **Phase 3**: Migrate existing summaries to new theme-based events (optional)
 
 ### Deployment
 
