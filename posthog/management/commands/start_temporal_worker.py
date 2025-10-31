@@ -94,65 +94,109 @@ from products.tasks.backend.temporal import (
     WORKFLOWS as TASKS_WORKFLOWS,
 )
 
+_task_queue_specs = [
+    (
+        settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
+        BATCH_EXPORTS_WORKFLOWS,
+        BATCH_EXPORTS_ACTIVITIES,
+    ),
+    (
+        settings.BATCH_EXPORTS_TASK_QUEUE,
+        BATCH_EXPORTS_WORKFLOWS,
+        BATCH_EXPORTS_ACTIVITIES,
+    ),
+    (
+        settings.DATA_WAREHOUSE_TASK_QUEUE,
+        DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
+        DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
+    ),
+    (
+        settings.DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
+        DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS,
+        DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES,
+    ),
+    (
+        settings.DATA_MODELING_TASK_QUEUE,
+        DATA_MODELING_WORKFLOWS,
+        DATA_MODELING_ACTIVITIES,
+    ),
+    (
+        settings.GENERAL_PURPOSE_TASK_QUEUE,
+        PROXY_SERVICE_WORKFLOWS
+        + DELETE_PERSONS_WORKFLOWS
+        + USAGE_REPORTS_WORKFLOWS
+        + SALESFORCE_ENRICHMENT_WORKFLOWS
+        + PRODUCT_ANALYTICS_WORKFLOWS
+        + LLM_ANALYTICS_WORKFLOWS,
+        PROXY_SERVICE_ACTIVITIES
+        + DELETE_PERSONS_ACTIVITIES
+        + USAGE_REPORTS_ACTIVITIES
+        + QUOTA_LIMITING_ACTIVITIES
+        + SALESFORCE_ENRICHMENT_ACTIVITIES
+        + PRODUCT_ANALYTICS_ACTIVITIES
+        + LLM_ANALYTICS_ACTIVITIES,
+    ),
+    (
+        settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+        SUBSCRIPTION_WORKFLOWS,
+        SUBSCRIPTION_ACTIVITIES,
+    ),
+    (
+        settings.TASKS_TASK_QUEUE,
+        TASKS_WORKFLOWS,
+        TASKS_ACTIVITIES,
+    ),
+    (
+        settings.MAX_AI_TASK_QUEUE,
+        AI_WORKFLOWS,
+        AI_ACTIVITIES,
+    ),
+    (
+        settings.TEST_TASK_QUEUE,
+        TEST_WORKFLOWS,
+        TEST_ACTIVITIES,
+    ),
+    (
+        settings.BILLING_TASK_QUEUE,
+        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS,
+        QUOTA_LIMITING_ACTIVITIES + SALESFORCE_ENRICHMENT_ACTIVITIES,
+    ),
+    (
+        settings.VIDEO_EXPORT_TASK_QUEUE,
+        VIDEO_EXPORT_WORKFLOWS,
+        VIDEO_EXPORT_ACTIVITIES,
+    ),
+    (
+        settings.SESSION_REPLAY_TASK_QUEUE,
+        DELETE_RECORDING_WORKFLOWS + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
+        DELETE_RECORDING_ACTIVITIES + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
+    ),
+    (
+        settings.MESSAGING_TASK_QUEUE,
+        MESSAGING_WORKFLOWS,
+        MESSAGING_ACTIVITIES,
+    ),
+    (
+        settings.WEEKLY_DIGEST_TASK_QUEUE,
+        WEEKLY_DIGEST_WORKFLOWS,
+        WEEKLY_DIGEST_ACTIVITIES,
+    ),
+]
+
 # Note: When running locally, many task queues resolve to the same queue name.
 # If we used plain dict literals, later entries would overwrite earlier ones for
 # the same queue. We aggregate with defaultdict(set) so all workflows/activities
 # registered for a shared queue name are combined, ensuring the worker registers
 # everything it should.
 _workflows = defaultdict(set)
-_workflows[settings.SYNC_BATCH_EXPORTS_TASK_QUEUE].update(BATCH_EXPORTS_WORKFLOWS)
-_workflows[settings.BATCH_EXPORTS_TASK_QUEUE].update(BATCH_EXPORTS_WORKFLOWS)
-_workflows[settings.DATA_WAREHOUSE_TASK_QUEUE].update(DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS)
-_workflows[settings.DATA_WAREHOUSE_COMPACTION_TASK_QUEUE].update(DATA_SYNC_WORKFLOWS + DATA_MODELING_WORKFLOWS)
-_workflows[settings.DATA_MODELING_TASK_QUEUE].update(DATA_MODELING_WORKFLOWS)
-_workflows[settings.GENERAL_PURPOSE_TASK_QUEUE].update(
-    PROXY_SERVICE_WORKFLOWS
-    + DELETE_PERSONS_WORKFLOWS
-    + USAGE_REPORTS_WORKFLOWS
-    + SALESFORCE_ENRICHMENT_WORKFLOWS
-    + PRODUCT_ANALYTICS_WORKFLOWS
-    + LLM_ANALYTICS_WORKFLOWS
-)
-_workflows[settings.ANALYTICS_PLATFORM_TASK_QUEUE].update(SUBSCRIPTION_WORKFLOWS)
-_workflows[settings.TASKS_TASK_QUEUE].update(TASKS_WORKFLOWS)
-_workflows[settings.MAX_AI_TASK_QUEUE].update(AI_WORKFLOWS)
-_workflows[settings.TEST_TASK_QUEUE].update(TEST_WORKFLOWS)
-_workflows[settings.BILLING_TASK_QUEUE].update(QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS)
-_workflows[settings.VIDEO_EXPORT_TASK_QUEUE].update(VIDEO_EXPORT_WORKFLOWS)
-_workflows[settings.SESSION_REPLAY_TASK_QUEUE].update(
-    DELETE_RECORDING_WORKFLOWS + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
-)
-_workflows[settings.MESSAGING_TASK_QUEUE].update(MESSAGING_WORKFLOWS)
-_workflows[settings.WEEKLY_DIGEST_TASK_QUEUE].update(WEEKLY_DIGEST_WORKFLOWS)
-WORKFLOWS_DICT = dict(_workflows)
-
 _activities = defaultdict(set)
-_activities[settings.SYNC_BATCH_EXPORTS_TASK_QUEUE].update(BATCH_EXPORTS_ACTIVITIES)
-_activities[settings.BATCH_EXPORTS_TASK_QUEUE].update(BATCH_EXPORTS_ACTIVITIES)
-_activities[settings.DATA_WAREHOUSE_TASK_QUEUE].update(DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES)
-_activities[settings.DATA_WAREHOUSE_COMPACTION_TASK_QUEUE].update(DATA_SYNC_ACTIVITIES + DATA_MODELING_ACTIVITIES)
-_activities[settings.DATA_MODELING_TASK_QUEUE].update(DATA_MODELING_ACTIVITIES)
-_activities[settings.GENERAL_PURPOSE_TASK_QUEUE].update(
-    PROXY_SERVICE_ACTIVITIES
-    + DELETE_PERSONS_ACTIVITIES
-    + USAGE_REPORTS_ACTIVITIES
-    + QUOTA_LIMITING_ACTIVITIES
-    + SALESFORCE_ENRICHMENT_ACTIVITIES
-    + PRODUCT_ANALYTICS_ACTIVITIES
-    + LLM_ANALYTICS_ACTIVITIES
-)
-_activities[settings.ANALYTICS_PLATFORM_TASK_QUEUE].update(SUBSCRIPTION_ACTIVITIES)
-_activities[settings.TASKS_TASK_QUEUE].update(TASKS_ACTIVITIES)
-_activities[settings.MAX_AI_TASK_QUEUE].update(AI_ACTIVITIES)
-_activities[settings.TEST_TASK_QUEUE].update(TEST_ACTIVITIES)
-_activities[settings.BILLING_TASK_QUEUE].update(QUOTA_LIMITING_ACTIVITIES + SALESFORCE_ENRICHMENT_ACTIVITIES)
-_activities[settings.VIDEO_EXPORT_TASK_QUEUE].update(VIDEO_EXPORT_ACTIVITIES)
-_activities[settings.SESSION_REPLAY_TASK_QUEUE].update(
-    DELETE_RECORDING_ACTIVITIES + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
-)
-_activities[settings.MESSAGING_TASK_QUEUE].update(MESSAGING_ACTIVITIES)
-_activities[settings.WEEKLY_DIGEST_TASK_QUEUE].update(WEEKLY_DIGEST_ACTIVITIES)
-ACTIVITIES_DICT = dict(_activities)
+for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_specs:
+    _workflows[task_queue_name].update(workflows_for_queue)
+    _activities[task_queue_name].update(activities_for_queue)
+
+WORKFLOWS_DICT = _workflows
+ACTIVITIES_DICT = _activities
+
 
 if settings.DEBUG:
     TASK_QUEUE_METRIC_PREFIXES = {}
