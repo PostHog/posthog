@@ -35,6 +35,7 @@ test.describe('SQL Editor', () => {
         await page.getByText('Submit').click()
 
         await expect(page.getByText('test_view successfully created')).toBeVisible()
+        await expect(page.getByText('Editing view "test_view"')).toBeVisible()
     })
 
     test('Materialize view pane', async ({ page }) => {
