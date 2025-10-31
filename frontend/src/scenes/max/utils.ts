@@ -136,29 +136,6 @@ export function isDeepResearchReportCompletion(message: NotebookUpdateMessage): 
     )
 }
 
-export function generateBurstPoints(spikeCount: number, spikiness: number): string {
-    if (spikiness < 0 || spikiness > 1) {
-        throw new Error('Spikiness must be between 0 and 1')
-    }
-    if (spikeCount < 1) {
-        throw new Error('Spikes must be at least 1')
-    }
-
-    let points = ''
-    const outerRadius = 50
-    const innerRadius = 50 * (1 - spikiness)
-
-    for (let i = 0; i < spikeCount * 2; i++) {
-        const radius = i % 2 === 0 ? outerRadius : innerRadius
-        const angle = (Math.PI * i) / spikeCount
-        const x = 50 + radius * Math.cos(angle)
-        const y = 50 + radius * Math.sin(angle)
-        points += `${x},${y} `
-    }
-
-    return points.trim()
-}
-
 // Utility functions for transforming data to max context
 export const insightToMaxContext = (
     insight: Partial<QueryBasedInsightModel>,
