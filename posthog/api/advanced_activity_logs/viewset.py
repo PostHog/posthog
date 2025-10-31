@@ -107,6 +107,8 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         return self.request.query_params.get("include_organization_scoped") == "1"
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        from posthog.models.activity_logging.activity_log import apply_activity_visibility_restrictions
+
         params = self.request.GET.dict()
 
         queryset = apply_organization_scoped_filter(
@@ -129,6 +131,8 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         lookback_date = get_activity_log_lookback_restriction(self.organization)
         if lookback_date:
             queryset = queryset.filter(created_at__gte=lookback_date)
+
+        queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
 
         return queryset
 

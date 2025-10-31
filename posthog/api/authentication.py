@@ -49,6 +49,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.models import OrganizationDomain, User
+from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, UserPasswordResetThrottle
 from posthog.tasks.email import (
     login_from_new_device_notification,

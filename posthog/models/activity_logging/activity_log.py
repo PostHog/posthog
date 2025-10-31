@@ -8,6 +8,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import Paginator
 from django.db import models, transaction
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
@@ -71,7 +72,9 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
 ]
-ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported", "revoked"]
+ChangeAction = Literal[
+    "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out"
+]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -260,6 +263,16 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     "PersonalAPIKey": [
         "last_used_at",
     ],
+}
+
+# Activity visibility restrictions - controls which users can see certain activity logs
+# Used to hide sensitive activities (e.g., impersonated logins) from non-staff users
+activity_visibility_restrictions: dict[ActivityScope, dict[str, Any]] = {
+    "User": {
+        "activities": ["logged_in", "logged_out"],
+        "exclude_when": {"was_impersonated": True},
+        "requires_staff": True,
+    },
 }
 
 field_exclusions: dict[ActivityScope, list[str]] = {
@@ -837,6 +850,33 @@ def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: in
         has_next=activity_page.has_next(),
         has_previous=activity_page.has_previous(),
     )
+
+
+def apply_activity_visibility_restrictions(queryset: QuerySet, user: "User") -> QuerySet:
+    """
+    Apply visibility restrictions to activity log queryset based on user permissions.
+    """
+    exclusion_queries = []
+    for scope, restrictions in activity_visibility_restrictions.items():
+        if restrictions.get("requires_staff"):
+            activities = restrictions.get("activities", [])
+            exclude_conditions = restrictions.get("exclude_when", {})
+
+            # Build the query: scope AND activity IN [...] AND exclude_conditions
+            query = Q(scope=scope) & Q(activity__in=activities)
+            for field, value in exclude_conditions.items():
+                query &= Q(**{field: value})
+
+            exclusion_queries.append(query)
+
+    # Apply all exclusions with OR logic
+    if exclusion_queries:
+        combined_exclusion = exclusion_queries[0]
+        for q in exclusion_queries[1:]:
+            combined_exclusion |= q
+        queryset = queryset.exclude(combined_exclusion)
+
+    return queryset
 
 
 def load_activity(
