@@ -100,18 +100,25 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
             # Generate TypeScript
             ts_content = self._generate_typescript()
 
-            # Symlink to the project's node_modules (assumes posthog-js is already installed)
-            project_node_modules = Path(__file__).parent.parent.parent.parent / "frontend" / "node_modules"
-            if not project_node_modules.exists():
+            # Create minimal package.json to install only required dependencies
+            package_json = tmpdir_path / "package.json"
+            package_json.write_text('{"dependencies": {"typescript": "^5.0.0", "posthog-js": "^1.0.0"}}')
+            install_result = subprocess.run(
+                ["pnpm", "install", "--no-frozen-lockfile"],
+                cwd=str(tmpdir_path),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+
+            if install_result.returncode != 0:
                 self.fail(
-                    f"Frontend node_modules not found at {project_node_modules}. "
-                    f"Run 'pnpm install' in the frontend directory first."
+                    f"Failed to install dependencies:\n"
+                    f"STDOUT: {install_result.stdout}\n"
+                    f"STDERR: {install_result.stderr}"
                 )
 
-            # Create symlink to node_modules
-            (tmpdir_path / "node_modules").symlink_to(project_node_modules)
-
-            # Write generated types (using real posthog-js from project)
+            # Write generated types (using real posthog-js)
             types_file = tmpdir_path / "posthog-typed.ts"
             types_file.write_text(ts_content)
 
@@ -248,9 +255,9 @@ posthog.captureRaw(stringVar, { any: 'data' })
 """
             )
 
-            # Run TypeScript compiler (uses symlinked node_modules)
+            # Run TypeScript compiler using pnpm
             result = subprocess.run(
-                ["npx", "tsc", "--noEmit", "--project", str(tsconfig_file)],
+                ["pnpm", "exec", "tsc", "--noEmit", "--project", str(tsconfig_file)],
                 cwd=str(tmpdir_path),
                 capture_output=True,
                 text=True,
