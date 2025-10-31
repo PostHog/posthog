@@ -38,7 +38,7 @@ import {
     AssistantTrendsQuery,
 } from '~/queries/schema/schema-assistant-queries'
 import { DataVisualizationNode, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
+import { isHogQLQuery, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import {
     AvailableFeature,
     ChartDisplayType,
@@ -96,6 +96,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
     }, [previousQuery])
 
     if (!querySource) {
+        return null
+    }
+
+    // Web Analytics insights use their own filter UI integrated into the visualization
+    if (isWebAnalyticsInsightQuery(query)) {
         return null
     }
 

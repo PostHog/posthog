@@ -2516,6 +2516,7 @@ export enum InsightType {
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
+    WEB_ANALYTICS = 'WEB_ANALYTICS',
 }
 
 export enum PathType {

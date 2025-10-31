@@ -74,6 +74,9 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
+    isWebAnalyticsInsightQuery,
+    isWebOverviewQuery,
+    isWebStatsTableQuery,
     nodeKindToFilterProperty,
     supportsPercentStackView,
 } from '~/queries/utils'
@@ -165,6 +168,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isPaths: [(s) => [s.querySource], (q) => isPathsQuery(q)],
         isStickiness: [(s) => [s.querySource], (q) => isStickinessQuery(q)],
         isLifecycle: [(s) => [s.querySource], (q) => isLifecycleQuery(q)],
+        isWebStatsTable: [(s) => [s.querySource], (q) => isWebStatsTableQuery(q)],
+        isWebOverview: [(s) => [s.querySource], (q) => isWebOverviewQuery(q)],
+        isWebAnalytics: [(s) => [s.querySource], (q) => isWebAnalyticsInsightQuery(q)],
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)], // this is for filtering out world map
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsCompare: [
@@ -220,7 +226,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         series: [(s) => [s.querySource], (q) => (q ? getSeries(q) : null)],
         interval: [(s) => [s.querySource], (q) => (q ? getInterval(q) : null)],
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
-        samplingFactor: [(s) => [s.querySource], (q) => (q ? q.samplingFactor : null)],
+        samplingFactor: [(s) => [s.querySource], (q) => (q && 'samplingFactor' in q ? q.samplingFactor : null)],
         showAlertThresholdLines: [(s) => [s.querySource], (q) => (q ? getShowAlertThresholdLines(q) : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
         showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
@@ -464,7 +470,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (querySource, actions) => (querySource ? getAllEventNames(querySource, actions) : []),
         ],
 
-        theme: [(s) => [s.getTheme, s.querySource], (getTheme, querySource) => getTheme(querySource?.dataColorTheme)],
+        theme: [
+            (s) => [s.getTheme, s.querySource],
+            (getTheme, querySource) =>
+                getTheme(querySource && 'dataColorTheme' in querySource ? querySource.dataColorTheme : undefined),
+        ],
 
         isAllEventsQuery: [
             (s) => [s.querySource],

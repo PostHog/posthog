@@ -30,9 +30,10 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, QuerySchema } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { shouldQueryBeAsync } from '~/queries/utils'
+import { isWebOverviewQuery, isWebStatsTableQuery, shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
@@ -84,6 +85,7 @@ export function InsightVizDisplay({
         timedOutQueryId,
         vizSpecificOptions,
         query,
+        querySource,
         display,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
@@ -181,6 +183,11 @@ export function InsightVizDisplay({
                 )
             case InsightType.PATHS:
                 return isUsingPathsV2 ? <PathsV2 /> : <Paths />
+            case InsightType.WEB_ANALYTICS:
+                if (isWebStatsTableQuery(querySource) || isWebOverviewQuery(querySource)) {
+                    return <Query query={querySource} context={context} readOnly={!editMode} />
+                }
+                return null
             default:
                 return null
         }

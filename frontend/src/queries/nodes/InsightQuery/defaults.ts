@@ -1,6 +1,5 @@
 import {
     FunnelsQuery,
-    InsightNodeKind,
     InsightQueryNode,
     LifecycleQuery,
     NodeKind,
@@ -107,7 +106,10 @@ const lifecycleQueryDefault: LifecycleQuery = {
     ],
 }
 
-export const nodeKindToDefaultQuery: Record<InsightNodeKind, InsightQueryNode> = {
+type TraditionalInsightNodeKind = Exclude<NodeKind, NodeKind.WebStatsTableQuery | NodeKind.WebOverviewQuery> &
+    InsightQueryNode['kind']
+
+export const nodeKindToDefaultQuery: Record<TraditionalInsightNodeKind, InsightQueryNode> = {
     [NodeKind.TrendsQuery]: trendsQueryDefault,
     [NodeKind.FunnelsQuery]: funnelsQueryDefault,
     [NodeKind.RetentionQuery]: retentionQueryDefault,
