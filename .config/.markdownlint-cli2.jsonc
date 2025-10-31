@@ -15,6 +15,7 @@
     "MD029": false
   },
   "ignores": [
-    "**/fixtures/**"
+    "**/fixtures/**",
+    "plugin-server/**"
   ]
 }
