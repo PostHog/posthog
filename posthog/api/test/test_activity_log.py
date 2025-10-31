@@ -182,7 +182,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         res = self.client.get(f"/api/projects/{self.team.id}/activity_log")
 
         assert res.status_code == status.HTTP_200_OK
-        assert len(res.json()["results"]) == 35
+        assert len(res.json()["results"]) == 39
 
     def test_can_list_all_activity_filtered_by_scope(self) -> None:
         res = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=FeatureFlag")
