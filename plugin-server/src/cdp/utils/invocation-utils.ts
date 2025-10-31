@@ -66,7 +66,7 @@ export function createInvocationResult<T extends CyclotronJobInvocation>(
     > = {},
     resultParams: Pick<
         Partial<CyclotronJobInvocationResult>,
-        'finished' | 'capturedPostHogEvents' | 'logs' | 'metrics' | 'error'
+        'finished' | 'capturedPostHogEvents' | 'logs' | 'metrics' | 'error' | 'execResult'
     > = {}
 ): CyclotronJobInvocationResult<T> {
     return {
