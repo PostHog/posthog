@@ -8,19 +8,26 @@ use tracing::info;
 
 use crate::invocation_context::context;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 struct SchemaConfig {
-    schema_version: i64,
+    languages: HashMap<String, LanguageConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct LanguageConfig {
+    output_path: String,
+    schema_hash: String,
     updated_at: String,
     event_count: usize,
-    output_paths: HashMap<String, String>,
 }
 
 impl SchemaConfig {
-    /// Load config from posthog.json, returns None if file doesn't exist or is invalid
-    fn load() -> Option<Self> {
-        let content = fs::read_to_string("posthog.json").ok()?;
-        serde_json::from_str(&content).ok()
+    /// Load config from posthog.json, returns empty config if file doesn't exist or is invalid
+    fn load() -> Self {
+        let content = fs::read_to_string("posthog.json").ok();
+        content
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_default()
     }
 
     /// Save config to posthog.json
@@ -32,29 +39,29 @@ impl SchemaConfig {
         Ok(())
     }
 
-    /// Get output path for a language
-    fn get_output_path(&self, language: &str) -> Option<String> {
-        self.output_paths.get(language).cloned()
+    /// Get language config for a specific language
+    fn get_language(&self, language: &str) -> Option<&LanguageConfig> {
+        self.languages.get(language)
     }
 
-    /// Create a new config with the given parameters, preserving existing output paths
-    fn new(event_count: usize, language: &str, output_path: String) -> Self {
+    /// Get output path for a language
+    fn get_output_path(&self, language: &str) -> Option<String> {
+        self.languages.get(language).map(|l| l.output_path.clone())
+    }
+
+    /// Update language config, preserving other languages
+    fn update_language(&mut self, language: &str, output_path: String, schema_hash: String, event_count: usize) {
         use chrono::Utc;
 
-        // Load existing config to preserve other languages
-        let mut output_paths = Self::load()
-            .map(|config| config.output_paths)
-            .unwrap_or_default();
-
-        // Update the path for the current language
-        output_paths.insert(language.to_string(), output_path);
-
-        Self {
-            schema_version: Utc::now().timestamp_millis(),
-            updated_at: Utc::now().to_rfc3339(),
-            event_count,
-            output_paths,
-        }
+        self.languages.insert(
+            language.to_string(),
+            LanguageConfig {
+                output_path,
+                schema_hash,
+                updated_at: Utc::now().to_rfc3339(),
+                event_count,
+            },
+        );
     }
 }
 
@@ -62,6 +69,7 @@ impl SchemaConfig {
 struct TypescriptResponse {
     content: String,
     event_count: usize,
+    schema_hash: String,
 }
 
 pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()> {
@@ -78,9 +86,20 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     let output_path = determine_output_path(&language, output_override)?;
 
     // Fetch TypeScript definitions from the server
-    let (ts_content, event_count) = fetch_typescript_definitions(&host, &token.env_id, &token.token)?;
+    let response = fetch_typescript_definitions(&host, &token.env_id, &token.token)?;
 
-    info!("✓ Fetched {} definitions for {} events", language_display_name(&language), event_count);
+    info!("✓ Fetched {} definitions for {} events", language_display_name(&language), response.event_count);
+
+    // Check if schema has changed for this language
+    let config = SchemaConfig::load();
+    if let Some(lang_config) = config.get_language(&language) {
+        if lang_config.schema_hash == response.schema_hash {
+            info!("Schema unchanged for {} (hash: {})", language, response.schema_hash);
+            println!("\n✓ {} schema is already up to date!", language_display_name(&language));
+            println!("  No changes detected - skipping file write.");
+            return Ok(());
+        }
+    }
 
     // Write TypeScript definitions to file
     info!("Writing {}...", output_path);
@@ -93,14 +112,15 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
         }
     }
 
-    fs::write(&output_path, &ts_content)
+    fs::write(&output_path, &response.content)
         .context(format!("Failed to write {}", output_path))?;
     info!("✓ Generated {}", output_path);
 
-    // Update schema configuration
+    // Update schema configuration for this language
     info!("Updating posthog.json...");
-    let schema_config = SchemaConfig::new(event_count, &language, output_path.clone());
-    schema_config.save()?;
+    let mut config = SchemaConfig::load();
+    config.update_language(&language, output_path.clone(), response.schema_hash, response.event_count);
+    config.save()?;
     info!("✓ Updated posthog.json");
 
     println!("\n✓ Schema sync complete!");
@@ -123,10 +143,9 @@ fn determine_output_path(language: &str, output_override: Option<String>) -> Res
     }
 
     // Check if posthog.json exists and has an output_path for this language
-    if let Some(config) = SchemaConfig::load() {
-        if let Some(path) = config.get_output_path(language) {
-            return Ok(path);
-        }
+    let config = SchemaConfig::load();
+    if let Some(path) = config.get_output_path(language) {
+        return Ok(path);
     }
 
     // Get current directory for help message
@@ -191,30 +210,26 @@ pub fn status() -> Result<()> {
 
     // Check schema status
     println!("Schema:");
-    match SchemaConfig::load() {
-        Some(config) => {
-            println!("  ✓ Schema synced");
-            println!("  Version: {}", config.schema_version);
-            println!("  Updated: {}", config.updated_at);
-            println!("  Events: {}", config.event_count);
+    let config = SchemaConfig::load();
 
-            println!("\n  Type definitions:");
-            for (language, path) in &config.output_paths {
-                if Path::new(path).exists() {
-                    println!("    ✓ {}: {}", language_display_name(language), path);
-                } else {
-                    println!("    ! {}: {} (missing)", language_display_name(language), path);
-                }
-            }
+    if config.languages.is_empty() {
+        println!("  ✗ No schemas synced");
+        println!("  Run: posthog-cli exp schema pull");
+    } else {
+        println!("  ✓ Schemas synced\n");
 
-            if config.output_paths.is_empty() {
-                println!("    ! No type definitions configured");
-                println!("    Run: posthog-cli schema pull");
+        for (language, lang_config) in &config.languages {
+            println!("  {}:", language_display_name(language));
+            println!("    Hash: {}", lang_config.schema_hash);
+            println!("    Updated: {}", lang_config.updated_at);
+            println!("    Events: {}", lang_config.event_count);
+
+            if Path::new(&lang_config.output_path).exists() {
+                println!("    File: ✓ {}", lang_config.output_path);
+            } else {
+                println!("    File: ! {} (missing)", lang_config.output_path);
             }
-        }
-        None => {
-            println!("  ✗ Schema not synced");
-            println!("  Run: posthog-cli schema pull");
+            println!();
         }
     }
 
@@ -223,7 +238,7 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-fn fetch_typescript_definitions(host: &str, env_id: &str, token: &str) -> Result<(String, usize)> {
+fn fetch_typescript_definitions(host: &str, env_id: &str, token: &str) -> Result<TypescriptResponse> {
     let url = format!("{}/api/projects/{}/event_definitions/typescript/", host, env_id);
 
     let client = &context().client;
@@ -244,7 +259,7 @@ fn fetch_typescript_definitions(host: &str, env_id: &str, token: &str) -> Result
         .json()
         .context("Failed to parse TypeScript definitions response")?;
 
-    Ok((json.content, json.event_count))
+    Ok(json)
 }
 
 fn select_language() -> Result<String> {

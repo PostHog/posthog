@@ -1,4 +1,5 @@
 import json
+import hashlib
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
@@ -301,6 +302,15 @@ class EventDefinitionViewSet(
                 schema_map[event_id] = []
             schema_map[event_id].extend(event_schema.property_group.properties.all())
 
+        # Calculate deterministic hash based on actual schema data (not generated output)
+        schema_data = []
+        for event_def in event_definitions:
+            properties = schema_map.get(str(event_def.id), [])
+            prop_data = [(p.name, p.property_type, p.is_required) for p in properties]
+            schema_data.append((event_def.name, sorted(prop_data)))
+
+        schema_hash = hashlib.sha256(json.dumps(schema_data, sort_keys=True).encode()).hexdigest()[:16]
+
         # Generate TypeScript definitions
         ts_content = self._generate_typescript(event_definitions, schema_map)
 
@@ -308,6 +318,7 @@ class EventDefinitionViewSet(
             {
                 "content": ts_content,
                 "event_count": len(event_definitions),
+                "schema_hash": schema_hash,
             }
         )
 
