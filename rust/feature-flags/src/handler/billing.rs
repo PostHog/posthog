@@ -68,21 +68,21 @@ pub async fn record_usage(
 
 /// Checks if the flag list contains any billable flags.
 ///
-/// Returns true if there are any flags that are NOT survey targeting flags.
-/// Survey targeting flags (those starting with "survey-targeting-") are free
+/// Returns true if there are any flags that are both active and NOT survey targeting flags.
+/// Survey targeting flags (those starting with "survey-targeting-") and disabled flags are free
 /// and don't count toward billing.
 fn contains_billable_flags(filtered_flags: &FeatureFlagList) -> bool {
     filtered_flags
         .flags
         .iter()
-        .any(|flag| is_billable_flag(&flag.key))
+        .any(|flag| is_billable_flag(flag))
 }
 
-/// Determines if a flag is billable based on its key.
+/// Determines if a flag is billable based on its key and active status.
 ///
-/// Returns true for regular feature flags, false for survey targeting flags.
-fn is_billable_flag(flag_key: &str) -> bool {
-    !flag_key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
+/// Returns true for active regular feature flags, false for survey targeting flags or disabled flags.
+fn is_billable_flag(flag: &crate::flags::flag_models::FeatureFlag) -> bool {
+    flag.active && !flag.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
 }
 
 /// Helper function to determine if usage should be recorded
@@ -186,5 +186,60 @@ mod tests {
         // Should record usage: first flag doesn't START with prefix, second does start with prefix
         // Since we use any(), and the first flag should return true for "!starts_with()", overall result should be true
         assert!(should_record_usage(&flag_list));
+    }
+
+    #[test]
+    fn test_should_record_usage_disabled_flags_not_billable() {
+        let mut disabled_flag = create_test_flag("regular_flag");
+        disabled_flag.active = false;
+
+        let flag_list = FeatureFlagList {
+            flags: vec![disabled_flag],
+        };
+
+        // Should NOT record usage when only disabled flags are present
+        assert!(!should_record_usage(&flag_list));
+    }
+
+    #[test]
+    fn test_should_record_usage_mixed_active_and_disabled() {
+        let mut disabled_flag = create_test_flag("disabled_flag");
+        disabled_flag.active = false;
+        let active_flag = create_test_flag("active_flag");
+
+        let flag_list = FeatureFlagList {
+            flags: vec![disabled_flag, active_flag],
+        };
+
+        // Should record usage when at least one active, non-survey flag is present
+        assert!(should_record_usage(&flag_list));
+    }
+
+    #[test]
+    fn test_should_record_usage_disabled_survey_flag() {
+        let mut disabled_survey_flag =
+            create_test_flag(&format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"));
+        disabled_survey_flag.active = false;
+
+        let flag_list = FeatureFlagList {
+            flags: vec![disabled_survey_flag],
+        };
+
+        // Should NOT record usage for disabled survey flags
+        assert!(!should_record_usage(&flag_list));
+    }
+
+    #[test]
+    fn test_should_record_usage_only_disabled_and_survey_flags() {
+        let mut disabled_flag = create_test_flag("disabled_flag");
+        disabled_flag.active = false;
+        let survey_flag = create_test_flag(&format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"));
+
+        let flag_list = FeatureFlagList {
+            flags: vec![disabled_flag, survey_flag],
+        };
+
+        // Should NOT record usage when only disabled and survey flags are present
+        assert!(!should_record_usage(&flag_list));
     }
 }
