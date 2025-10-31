@@ -62,17 +62,25 @@ EXCEPTIONS_TO_RETRY = (CHQueryErrorTooManySimultaneousQueries,)
     max_retries=3,
 )
 @transaction.atomic
-def export_asset(exported_asset_id: int, limit: Optional[int] = None) -> None:
+def export_asset(
+    exported_asset_id: int,
+    limit: Optional[int] = None,  # For CSV/XLSX: max row count
+    max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
+) -> None:
     # if Celery is lagging then you can end up with an exported asset that has had a TTL added
     # and that TTL has passed, in the exporter we don't care about that.
     # the TTL is for later cleanup.
     exported_asset: ExportedAsset = ExportedAsset.objects_including_ttl_deleted.select_related(
         "created_by", "team", "team__organization"
     ).get(pk=exported_asset_id)
-    export_asset_direct(exported_asset, limit)
+    export_asset_direct(exported_asset, limit=limit, max_height_pixels=max_height_pixels)
 
 
-def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = None) -> None:
+def export_asset_direct(
+    exported_asset: ExportedAsset,
+    limit: Optional[int] = None,  # For CSV/XLSX: max row count
+    max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
+) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
 
     start_time = perf_counter()
@@ -107,7 +115,7 @@ def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = No
             csv_exporter.export_tabular(exported_asset, limit=limit)
             EXPORT_QUEUED_COUNTER.labels(type="csv").inc()
         else:
-            image_exporter.export_image(exported_asset, max_height_pixels=limit)
+            image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels)
             EXPORT_QUEUED_COUNTER.labels(type="image").inc()
 
         logger.info(

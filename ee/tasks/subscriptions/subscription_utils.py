@@ -191,7 +191,7 @@ async def generate_assets_async(
                     team_id=resource.team_id,
                 )
                 await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
-                    asset, limit=MAX_SCREENSHOT_HEIGHT_PIXELS
+                    asset, max_height_pixels=MAX_SCREENSHOT_HEIGHT_PIXELS
                 )
                 logger.info(
                     "generate_assets_async.asset_exported",
