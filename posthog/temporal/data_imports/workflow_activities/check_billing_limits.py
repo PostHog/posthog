@@ -43,13 +43,13 @@ def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> b
     job = ExternalDataJob.objects.get(id=inputs.job_id)
     source: ExternalDataSource = job.pipeline
 
-    if source.created_at >= datetime.now() - timedelta(days=7):
+    if source.created_at >= datetime.now(UTC) - timedelta(days=7):
         logger.info(
             f"Skipping billing limits check for newly created data source for 7-days free rows. source.created_at = {source.created_at}"
         )
         return False
 
-    if datetime.now() >= dwh_pricing_free_period_start and datetime.now() <= dwh_pricing_free_period_end:
+    if datetime.now(UTC) >= dwh_pricing_free_period_start and datetime.now(UTC) <= dwh_pricing_free_period_end:
         logger.info(
             f"Skipping billing limits check for data synced during free period from {dwh_pricing_free_period_start} to {dwh_pricing_free_period_end}."
         )

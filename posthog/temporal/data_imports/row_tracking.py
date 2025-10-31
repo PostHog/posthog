@@ -120,14 +120,14 @@ def will_hit_billing_limit(team_id: int, source: ExternalDataSource, logger: Fil
         logger.debug("Running will_hit_billing_limit")
 
         # Handle free period for newly created data sources
-        if source.created_at >= datetime.now() - timedelta(days=7):
+        if source.created_at >= datetime.now(UTC) - timedelta(days=7):
             logger.info(
                 f"Skipping billing limits check for newly created data source for 7-days free rows. source.created_at = {source.created_at}"
             )
             return False
 
         # Handle free period for data synced during free period (to be removed after 2025-11-06)
-        if datetime.now() >= dwh_pricing_free_period_start and datetime.now() <= dwh_pricing_free_period_end:
+        if datetime.now(UTC) >= dwh_pricing_free_period_start and datetime.now(UTC) <= dwh_pricing_free_period_end:
             logger.info(
                 f"Skipping billing limits check for data synced during free period from {dwh_pricing_free_period_start} to {dwh_pricing_free_period_end}."
             )
