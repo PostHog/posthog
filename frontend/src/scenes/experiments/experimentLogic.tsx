@@ -1506,7 +1506,7 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
         ],
-        formMode: [() => [(_, props) => props.formMode], (action: FormModes) => action],
+        formMode: [() => [(_, props) => props.formMode ?? FORM_MODES.update], (formMode): FormModes => formMode],
         getInsightType: [
             () => [],
             () =>
@@ -2053,7 +2053,7 @@ export const experimentLogic = kea<experimentLogicType>([
             submit: () => {
                 if (
                     values.experimentId &&
-                    ([FORM_MODES.create, FORM_MODES.duplicate] as FormModes[]).includes(values.formMode!)
+                    ([FORM_MODES.create, FORM_MODES.duplicate] as FormModes[]).includes(values.formMode)
                 ) {
                     actions.createExperiment(true)
                 } else {
