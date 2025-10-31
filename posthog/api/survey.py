@@ -46,7 +46,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, changes
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.remote_config import RemoteConfig
-from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, ensure_question_ids
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, ensure_question_ids, surveys_hypercache
 from posthog.models.surveys.util import (
     SurveyEventName,
     SurveyEventProperties,
@@ -1643,20 +1643,19 @@ def surveys(request: Request):
     hypercache_response = None
     response = None
 
-    if settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS and (
-        "*" in settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS or token in settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS
+    if settings.SURVEYS_API_USE_HYPERCACHE_TOKENS and (
+        "*" in settings.SURVEYS_API_USE_HYPERCACHE_TOKENS or token in settings.SURVEYS_API_USE_HYPERCACHE_TOKENS
     ):
         try:
-            config = RemoteConfig.get_config_via_token(token, request=request)
+            hypercache_response = surveys_hypercache.get_from_cache(token)
+            if not hypercache_response:
+                raise Exception("No hypercache response found")
+
             COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
-            surveys = config.get("surveys")
-            hypercache_response = {
-                "surveys": [] if surveys is False else surveys,
-                "survey_config": config.get("survey_config", None),
-            }
             response = hypercache_response
 
-        except RemoteConfig.DoesNotExist:
+        except Exception as e:
+            capture_exception(e)
             COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
             pass  # For now fallback
 

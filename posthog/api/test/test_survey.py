@@ -3080,7 +3080,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
 
             assert len(surveys) == 2
 
-    def test_list_surveys_uses_remote_config(self):
+    def test_list_surveys_uses_hypercache(self):
         # TODO: Currently RemoteConfig uses this to decide whether to return surveys or not
         # We should check this matches the api endpoint logic
         self.team.surveys_opt_in = True
@@ -3094,7 +3094,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         )
         self.client.logout()
 
-        with self.settings(SURVEYS_API_USE_REMOTE_CONFIG_TOKENS=[self.team.api_token]):
+        with self.settings(SURVEYS_API_USE_HYPERCACHE_TOKENS=[self.team.api_token]):
             # First time builds the remote config which uses a bunch of queries
             with self.assertNumQueries(7):
                 response = self._get_surveys(token=self.team.api_token)
@@ -3109,7 +3109,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                 assert response.status_code == status.HTTP_200_OK
                 assert len(response.json()["surveys"]) == 1
 
-    def test_remote_config_surveys_match_api_endpoint(self):
+    def test_hypercache_surveys_match_api_endpoint(self):
         # TODO: Currently RemoteConfig uses this to decide whether to return surveys or not
         # We should check this matches the api endpoint logic
         self.team.surveys_opt_in = True
@@ -3123,7 +3123,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         )
         self.client.logout()
 
-        with self.settings(SURVEYS_API_USE_REMOTE_CONFIG_TOKENS=[self.team.api_token]):
+        with self.settings(SURVEYS_API_USE_HYPERCACHE_TOKENS=[self.team.api_token]):
             cache_response = self._get_surveys(token=self.team.api_token).json()
 
         non_cache_response = self._get_surveys(token=self.team.api_token).json()
