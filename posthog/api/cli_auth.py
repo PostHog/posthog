@@ -55,7 +55,6 @@ CLI_POLL_INTERVAL_SECONDS = 5
 CLI_SCOPES = [
     "event_definition:read",
     "property_definition:read",
-    "error_tracking:read",
     "error_tracking:write",
 ]
 
@@ -104,6 +103,11 @@ class DeviceAuthorizationSerializer(serializers.Serializer):
 
     user_code = serializers.CharField(max_length=9, help_text="The user code displayed in CLI")
     project_id = serializers.IntegerField(help_text="The project to authorize CLI access for")
+    scopes = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Scopes to grant to the CLI (defaults to CLI_SCOPES)",
+    )
 
 
 class DevicePollSerializer(serializers.Serializer):
@@ -205,6 +209,14 @@ class CLIAuthViewSet(viewsets.ViewSet):
 
         user_code = serializer.validated_data["user_code"]
         project_id = serializer.validated_data["project_id"]
+        scopes = serializer.validated_data.get("scopes", CLI_SCOPES)
+
+        # Validate that at least one scope is provided
+        if not scopes or len(scopes) == 0:
+            return Response(
+                {"error": "invalid_request", "error_description": "At least one scope is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         # Look up device code from user code
         user_code_cache_key = get_user_code_cache_key(user_code)
@@ -264,7 +276,7 @@ class CLIAuthViewSet(viewsets.ViewSet):
             label=label,
             secure_value=secure_value,
             mask_value=mask_value,
-            scopes=CLI_SCOPES,
+            scopes=scopes,
         )
 
         # Mark device as authorized and store the API key

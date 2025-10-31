@@ -424,7 +424,6 @@ class TestCLIAuthEndToEnd(APIBaseTest):
         self.assertEqual(api_key.scopes, CLI_SCOPES)
         self.assertIn("event_definition:read", api_key.scopes)
         self.assertIn("property_definition:read", api_key.scopes)
-        self.assertIn("error_tracking:read", api_key.scopes)
         self.assertIn("error_tracking:write", api_key.scopes)
 
     def test_cross_team_access_is_prevented(self):

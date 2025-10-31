@@ -33,7 +33,8 @@ struct PollResponse {
 
 pub fn login(host_override: Option<String>) -> Result<(), Error> {
     let host = if let Some(override_host) = host_override {
-        override_host
+        // Strip trailing slashes to avoid double slashes in URLs
+        override_host.trim_end_matches('/').to_string()
     } else {
         // Prompt user to select region or manual login
         let options = vec!["US", "EU", "Manual"];
@@ -256,7 +257,7 @@ fn manual_login() -> Result<(), Error> {
     .prompt()?;
 
     let token = Token {
-        host: Some(host.clone()),
+        host: Some(host.trim_end_matches('/').to_string()),
         token,
         env_id,
     };
