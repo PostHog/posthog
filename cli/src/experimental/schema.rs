@@ -16,6 +16,48 @@ struct SchemaConfig {
     output_paths: HashMap<String, String>,
 }
 
+impl SchemaConfig {
+    /// Load config from posthog.json, returns None if file doesn't exist or is invalid
+    fn load() -> Option<Self> {
+        let content = fs::read_to_string("posthog.json").ok()?;
+        serde_json::from_str(&content).ok()
+    }
+
+    /// Save config to posthog.json
+    fn save(&self) -> Result<()> {
+        let json = serde_json::to_string_pretty(self)
+            .context("Failed to serialize schema config")?;
+        fs::write("posthog.json", json)
+            .context("Failed to write posthog.json")?;
+        Ok(())
+    }
+
+    /// Get output path for a language
+    fn get_output_path(&self, language: &str) -> Option<String> {
+        self.output_paths.get(language).cloned()
+    }
+
+    /// Create a new config with the given parameters, preserving existing output paths
+    fn new(event_count: usize, language: &str, output_path: String) -> Self {
+        use chrono::Utc;
+
+        // Load existing config to preserve other languages
+        let mut output_paths = Self::load()
+            .map(|config| config.output_paths)
+            .unwrap_or_default();
+
+        // Update the path for the current language
+        output_paths.insert(language.to_string(), output_path);
+
+        Self {
+            schema_version: Utc::now().timestamp_millis(),
+            updated_at: Utc::now().to_rfc3339(),
+            event_count,
+            output_paths,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct TypescriptResponse {
     content: String,
@@ -57,11 +99,8 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
 
     // Update schema configuration
     info!("Updating posthog.json...");
-    let schema_config = create_schema_config(event_count, &language, output_path.clone())?;
-    let schema_json = serde_json::to_string_pretty(&schema_config)
-        .context("Failed to serialize schema config")?;
-    fs::write("posthog.json", schema_json)
-        .context("Failed to write posthog.json")?;
+    let schema_config = SchemaConfig::new(event_count, &language, output_path.clone());
+    schema_config.save()?;
     info!("✓ Updated posthog.json");
 
     println!("\n✓ Schema sync complete!");
@@ -84,16 +123,9 @@ fn determine_output_path(language: &str, output_override: Option<String>) -> Res
     }
 
     // Check if posthog.json exists and has an output_path for this language
-    if Path::new("posthog.json").exists() {
-        match fs::read_to_string("posthog.json") {
-            Ok(content) => {
-                if let Ok(config) = serde_json::from_str::<SchemaConfig>(&content) {
-                    if let Some(path) = config.output_paths.get(language) {
-                        return Ok(path.clone());
-                    }
-                }
-            }
-            Err(_) => {}
+    if let Some(config) = SchemaConfig::load() {
+        if let Some(path) = config.get_output_path(language) {
+            return Ok(path);
         }
     }
 
@@ -159,43 +191,31 @@ pub fn status() -> Result<()> {
 
     // Check schema status
     println!("Schema:");
-    if Path::new("posthog.json").exists() {
-        match fs::read_to_string("posthog.json") {
-            Ok(content) => {
-                match serde_json::from_str::<SchemaConfig>(&content) {
-                    Ok(config) => {
-                        println!("  ✓ Schema synced");
-                        println!("  Version: {}", config.schema_version);
-                        println!("  Updated: {}", config.updated_at);
-                        println!("  Events: {}", config.event_count);
+    match SchemaConfig::load() {
+        Some(config) => {
+            println!("  ✓ Schema synced");
+            println!("  Version: {}", config.schema_version);
+            println!("  Updated: {}", config.updated_at);
+            println!("  Events: {}", config.event_count);
 
-                        println!("\n  Type definitions:");
-                        for (language, path) in &config.output_paths {
-                            if Path::new(path).exists() {
-                                println!("    ✓ {}: {}", language_display_name(language), path);
-                            } else {
-                                println!("    ! {}: {} (missing)", language_display_name(language), path);
-                            }
-                        }
-
-                        if config.output_paths.is_empty() {
-                            println!("    ! No type definitions configured");
-                            println!("    Run: posthog-cli schema pull");
-                        }
-                    }
-                    Err(_) => {
-                        println!("  ! Invalid posthog.json format");
-                    }
+            println!("\n  Type definitions:");
+            for (language, path) in &config.output_paths {
+                if Path::new(path).exists() {
+                    println!("    ✓ {}: {}", language_display_name(language), path);
+                } else {
+                    println!("    ! {}: {} (missing)", language_display_name(language), path);
                 }
             }
-            Err(_) => {
-                println!("  ✗ Schema not synced");
-                println!("  Run: posthog-cli schema pull");
+
+            if config.output_paths.is_empty() {
+                println!("    ! No type definitions configured");
+                println!("    Run: posthog-cli schema pull");
             }
         }
-    } else {
-        println!("  ✗ Schema not synced");
-        println!("  Run: posthog-cli schema pull");
+        None => {
+            println!("  ✗ Schema not synced");
+            println!("  Run: posthog-cli schema pull");
+        }
     }
 
     println!();
@@ -225,36 +245,6 @@ fn fetch_typescript_definitions(host: &str, env_id: &str, token: &str) -> Result
         .context("Failed to parse TypeScript definitions response")?;
 
     Ok((json.content, json.event_count))
-}
-
-fn create_schema_config(event_count: usize, language: &str, output_path: String) -> Result<SchemaConfig> {
-    use chrono::Utc;
-
-    // Load existing config to preserve other languages
-    let mut output_paths = if Path::new("posthog.json").exists() {
-        match fs::read_to_string("posthog.json") {
-            Ok(content) => {
-                if let Ok(config) = serde_json::from_str::<SchemaConfig>(&content) {
-                    config.output_paths
-                } else {
-                    HashMap::new()
-                }
-            }
-            Err(_) => HashMap::new(),
-        }
-    } else {
-        HashMap::new()
-    };
-
-    // Update the path for the current language
-    output_paths.insert(language.to_string(), output_path);
-
-    Ok(SchemaConfig {
-        schema_version: Utc::now().timestamp_millis(),
-        updated_at: Utc::now().to_rfc3339(),
-        event_count,
-        output_paths,
-    })
 }
 
 fn select_language() -> Result<String> {
