@@ -921,6 +921,7 @@ class DatabaseSchemaTableType(StrEnum):
     BATCH_EXPORT = "batch_export"
     MATERIALIZED_VIEW = "materialized_view"
     MANAGED_VIEW = "managed_view"
+    ENDPOINT = "endpoint"
 
 
 class DatabaseSerializedFieldType(StrEnum):
@@ -13355,6 +13356,19 @@ class DataVisualizationNode(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class DatabaseSchemaEndpointTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    query: HogQLQuery
+    row_count: Optional[float] = None
+    status: Optional[str] = None
+    type: Literal["endpoint"] = "endpoint"
+
+
 class DatabaseSchemaManagedViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14451,6 +14465,7 @@ class QueryResponseAlternative66(BaseModel):
             DatabaseSchemaManagedViewTable,
             DatabaseSchemaBatchExportTable,
             DatabaseSchemaMaterializedViewTable,
+            DatabaseSchemaEndpointTable,
         ],
     ]
 
@@ -14666,6 +14681,7 @@ class DatabaseSchemaQueryResponse(BaseModel):
             DatabaseSchemaManagedViewTable,
             DatabaseSchemaBatchExportTable,
             DatabaseSchemaMaterializedViewTable,
+            DatabaseSchemaEndpointTable,
         ],
     ]
 

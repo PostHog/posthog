@@ -3136,6 +3136,7 @@ export type DatabaseSchemaTableType =
     | 'batch_export'
     | 'materialized_view'
     | 'managed_view'
+    | 'endpoint'
 
 export interface DatabaseSchemaTableCommon {
     type: DatabaseSchemaTableType
@@ -3163,6 +3164,13 @@ export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommo
     type: 'managed_view'
     kind: DatabaseSchemaManagedViewTableKind
     source_id?: string
+}
+
+export interface DatabaseSchemaEndpointTable extends DatabaseSchemaTableCommon {
+    query: HogQLQuery
+    type: 'endpoint'
+    last_run_at?: string
+    status?: string
 }
 
 export interface DatabaseSchemaMaterializedViewTable extends DatabaseSchemaTableCommon {
@@ -3200,6 +3208,7 @@ export type DatabaseSchemaTable =
     | DatabaseSchemaManagedViewTable
     | DatabaseSchemaBatchExportTable
     | DatabaseSchemaMaterializedViewTable
+    | DatabaseSchemaEndpointTable
 
 export interface DatabaseSchemaQueryResponse {
     tables: Record<string, DatabaseSchemaTable>

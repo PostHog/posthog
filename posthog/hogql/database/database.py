@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaEndpointTable,
     DatabaseSchemaField,
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaPostHogTable,
@@ -144,6 +145,7 @@ type DatabaseSchemaTable = (
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaManagedViewTable
+    | DatabaseSchemaEndpointTable
 )
 
 
@@ -489,6 +491,7 @@ class Database(BaseModel):
                 continue
 
             saved_query = views_dict.get(view_name)
+
             if not saved_query:
                 continue
 
@@ -496,11 +499,22 @@ class Database(BaseModel):
             if saved_query.table:
                 row_count = saved_query.table.row_count
 
+            if saved_query and saved_query.source == DataWarehouseSavedQuery.Source.ENDPOINT:
+                tables[view_name] = DatabaseSchemaEndpointTable(
+                    fields=fields_dict,
+                    id=str(saved_query.pk),
+                    name=view_name,
+                    query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
+                    row_count=row_count,
+                    status=saved_query.status,
+                )
+                continue
+
             tables[view_name] = DatabaseSchemaViewTable(
                 fields=fields_dict,
                 id=str(saved_query.pk),
                 name=view_name,
-                query=HogQLQuery(query=saved_query.query["query"]),
+                query=HogQLQuery(query=saved_query.query["query"]),  # type: ignore[index]
                 row_count=row_count,
             )
 
@@ -668,6 +682,26 @@ class Database(BaseModel):
                         TableNode(name=saved_query.name, table=saved_query.hogql_definition(modifiers)),
                         table_conflict_mode="ignore",
                     )
+
+        with timings.measure("endpoint_saved_query"):
+            endpoint_saved_queries = []
+            try:
+                endpoint_saved_queries = list(
+                    DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                    .filter(source=DataWarehouseSavedQuery.Source.ENDPOINT)
+                    .exclude(deleted=True)
+                    .select_related("table", "table__credential")
+                )
+                for endpoint_saved_query in endpoint_saved_queries:
+                    with timings.measure(f"endpoint_saved_query_{endpoint_saved_query.name}"):
+                        views.add_child(
+                            TableNode(
+                                name=endpoint_saved_query.name, table=endpoint_saved_query.hogql_definition(modifiers)
+                            ),
+                            table_conflict_mode="ignore",
+                        )
+            except Exception as e:
+                capture_exception(e)
 
         with timings.measure("revenue_analytics_views"):
             revenue_views = []
