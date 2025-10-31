@@ -359,6 +359,10 @@ impl From<Frame> for FrameData {
     }
 }
 
+fn to_vec<T, E>(item: Result<T, E>) -> Result<Vec<T>, E> {
+    item.map(|t| vec![t])
+}
+
 #[cfg(test)]
 mod test {
     use crate::frames::RawFrame;
@@ -384,8 +388,4 @@ mod test {
             _ => panic!("Expected a custom frame"),
         }
     }
-}
-
-fn to_vec<T, E>(item: Result<T, E>) -> Result<Vec<T>, E> {
-    item.map(|t| vec![t])
 }

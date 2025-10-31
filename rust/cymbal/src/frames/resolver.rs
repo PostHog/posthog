@@ -53,7 +53,7 @@ impl Resolver {
         let loaded = ErrorTrackingStackFrame::load_all(pool, &raw_id, self.result_ttl).await?;
 
         if !loaded.is_empty() {
-            self.cache.insert(raw_id.clone().into(), loaded.clone());
+            self.cache.insert(raw_id.clone(), loaded.clone());
             metrics::counter!(FRAME_DB_HITS).increment(1);
             return Ok(loaded.into_iter().map(|f| f.contents).collect());
         }

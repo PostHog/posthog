@@ -41,7 +41,7 @@ impl Parser for ProguardProvider {
 
     async fn parse(&self, source: Self::Source) -> Result<FetchedMapping, ResolveError> {
         let map: ProguardMapping =
-            read_symbol_data(source).map_err(|e| ProguardError::DataError(e))?;
+            read_symbol_data(source).map_err(ProguardError::DataError)?;
         Ok(FetchedMapping::new(map)?)
     }
 }
@@ -52,7 +52,7 @@ impl FetchedMapping {
         // and re-construct it as needed
         let mapping = proguard::ProguardMapping::new(inner.content.as_bytes());
         if !mapping.is_valid() {
-            return Err(ProguardError::InvalidMapping.into());
+            return Err(ProguardError::InvalidMapping);
         }
         Ok(Self { inner })
     }
