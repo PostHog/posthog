@@ -4,7 +4,6 @@ from posthog.settings.base_variables import DEBUG
 from posthog.settings.utils import get_from_env
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
-TEMPORAL_TASK_QUEUE: str = os.getenv("TEMPORAL_TASK_QUEUE", "general-purpose-task-queue")
 TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "127.0.0.1")
 TEMPORAL_PORT: str = os.getenv("TEMPORAL_PORT", "7233")
 TEMPORAL_CLIENT_ROOT_CA: str | None = os.getenv("TEMPORAL_CLIENT_ROOT_CA", None)
@@ -47,10 +46,12 @@ CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
 # In production (DEBUG=False), we use separate queues for each worker type.
 def _set_temporal_task_queue(task_queue: str) -> str:
     if DEBUG:
-        return "general-purpose-task-queue"
+        return "development-task-queue"
     return task_queue
 
 
+default_task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "general-purpose-task-queue")
+TEMPORAL_TASK_QUEUE: str = _set_temporal_task_queue(default_task_queue)
 DATA_WAREHOUSE_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-task-queue")
 MAX_AI_TASK_QUEUE = _set_temporal_task_queue("max-ai-task-queue")
 DATA_WAREHOUSE_COMPACTION_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-compaction-task-queue")
