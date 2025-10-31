@@ -100,6 +100,7 @@ class TestErrorTracking(APIBaseTest):
         assert response.json() == {
             "id": str(issue.id),
             "name": None,
+            "cohort": None,
             "description": None,
             "status": "active",
             "assignee": None,
