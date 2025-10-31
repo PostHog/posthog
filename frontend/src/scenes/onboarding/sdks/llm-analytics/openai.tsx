@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { DocumentationLink } from './DocumentationLink'
 import { LanguageSelector, useLanguageSelector } from './LanguageSelector'
 import { ManualCaptureNotice } from './ManualCaptureNotice'
+import { ProxyNote } from './ProxyNote'
 
 export function LLMOpenAIInstructions(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -45,6 +46,8 @@ const openai = new OpenAI({
 
 phClient.shutdown()`}</CodeSnippet>
 
+                    <ProxyNote />
+
                     <DocumentationLink provider="openai" />
                 </>
             )}
@@ -71,6 +74,8 @@ client = OpenAI(
     messages=[{"role": "user", "content": "Tell me a fun fact about hedgehogs"}],
     posthog_distinct_id="user_123"
 )`}</CodeSnippet>
+
+                    <ProxyNote />
 
                     <DocumentationLink provider="openai" />
                 </>

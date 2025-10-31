@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { DocumentationLink } from './DocumentationLink'
 import { LanguageSelector, useLanguageSelector } from './LanguageSelector'
 import { ManualCaptureNotice } from './ManualCaptureNotice'
+import { ProxyNote } from './ProxyNote'
 
 export function LLMLangChainInstructions(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -50,6 +51,8 @@ const response = await model.invoke(
 
 phClient.shutdown()`}</CodeSnippet>
 
+                    <ProxyNote />
+
                     <DocumentationLink provider="langchain" />
                 </>
             )}
@@ -81,6 +84,8 @@ response = model.invoke(
     "Tell me a fun fact about hedgehogs",
     config={"callbacks": [callback_handler]}
 )`}</CodeSnippet>
+
+                    <ProxyNote />
 
                     <DocumentationLink provider="langchain" />
                 </>

@@ -6,6 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { DocumentationLink } from './DocumentationLink'
 import { ManualCaptureNotice } from './ManualCaptureNotice'
+import { ProxyNote } from './ProxyNote'
 
 export function LLMVercelAIInstructions(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -43,6 +44,8 @@ const { text } = await generateText({
 })
 
 phClient.shutdown()`}</CodeSnippet>
+
+            <ProxyNote />
 
             <DocumentationLink provider="vercel-ai" />
 

@@ -6,6 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { DocumentationLink } from './DocumentationLink'
 import { ManualCaptureNotice } from './ManualCaptureNotice'
+import { ProxyNote } from './ProxyNote'
 
 export function LLMLiteLLMInstructions(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -34,6 +35,8 @@ response = litellm.completion(
         "user_id": "user_123"  # Maps to PostHog distinct_id
     }
 )`}</CodeSnippet>
+
+            <ProxyNote />
 
             <DocumentationLink provider="litellm" />
 

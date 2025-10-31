@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { DocumentationLink } from './DocumentationLink'
 import { LanguageSelector, useLanguageSelector } from './LanguageSelector'
 import { ManualCaptureNotice } from './ManualCaptureNotice'
+import { ProxyNote } from './ProxyNote'
 
 export function LLMAnthropicInstructions(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -46,6 +47,8 @@ const client = new Anthropic({
 
 phClient.shutdown()`}</CodeSnippet>
 
+                    <ProxyNote />
+
                     <DocumentationLink provider="anthropic" />
                 </>
             )}
@@ -73,6 +76,8 @@ client = Anthropic(
     messages=[{"role": "user", "content": "Tell me a fun fact about hedgehogs"}],
     posthog_distinct_id="user_123"
 )`}</CodeSnippet>
+
+                    <ProxyNote />
 
                     <DocumentationLink provider="anthropic" />
                 </>
