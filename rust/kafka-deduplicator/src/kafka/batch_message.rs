@@ -182,7 +182,6 @@ impl<T> KafkaMessage<T> {
                 match serde_json::from_slice::<T>(payload) {
                     Ok(hydrated_payload) => {
                         out.message = Some(hydrated_payload);
-                        out.original_payload = Some(payload.to_vec());
                     }
                     Err(e) => {
                         return Err(anyhow!("Failed to deserialize message: {e}"));
