@@ -48,6 +48,7 @@ The session recording consumer currently processes messages in `consumer.ts:199-
     - Parse headers from message to extract token/distinct_id
     - Call `parseEventHeaders(message.headers)`
 - **Note**: Required before applying restrictions since we need token/distinct_id
+- **Status**: ✅ Implemented and tested
 - **File**: `steps/parse-headers.ts`
 
 ### Step 2: Apply Restrictions

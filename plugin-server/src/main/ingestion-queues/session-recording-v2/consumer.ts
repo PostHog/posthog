@@ -4,12 +4,13 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../../../config/config'
-import { BatchPipeline } from '../../../ingestion/pipelines/batch-pipeline.interface'
-import { createBatch } from '../../../ingestion/pipelines/helpers'
+import { BatchPipelineUnwrapper } from '../../../ingestion/pipelines/batch-pipeline-unwrapper'
+import { createBatch, createUnwrapper } from '../../../ingestion/pipelines/helpers'
 import { PipelineConfig } from '../../../ingestion/pipelines/result-handling-pipeline'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import {
+    EventHeaders,
     HealthCheckResult,
     Hub,
     PluginServerService,
@@ -69,7 +70,11 @@ export class SessionRecordingIngester {
     private restrictionHandler?: SessionRecordingRestrictionHandler
     private kafkaOverflowProducer?: KafkaProducerWrapper
     private readonly overflowTopic: string
-    private pipeline!: BatchPipeline<{ message: Message }, { message: Message }, { message: Message }>
+    private pipeline!: BatchPipelineUnwrapper<
+        { message: Message },
+        { message: Message; headers: EventHeaders },
+        { message: Message }
+    >
 
     constructor(
         private hub: Hub,
@@ -202,16 +207,25 @@ export class SessionRecordingIngester {
                 const batch = createBatch(messages.map((message) => ({ message })))
                 this.pipeline.feed(batch)
 
-                // Pipeline handles batch metrics
-                await this.pipeline.next()
+                // Get results from pipeline
+                const pipelineResults = await this.pipeline.next()
 
-                // Continue with old flow for now
-                await this.processBatchMessages(messages)
+                if (pipelineResults === null) {
+                    return
+                }
+
+                // Continue with old flow using unwrapped pipeline results
+                await this.processBatchMessages(pipelineResults)
             }
         )
     }
 
-    private async processBatchMessages(messages: Message[]): Promise<void> {
+    private async processBatchMessages(
+        pipelineResults: Array<{ message: Message; headers: EventHeaders }>
+    ): Promise<void> {
+        // Extract messages from pipeline results for legacy processing
+        const messages = pipelineResults.map((result) => result.message)
+
         // Apply event ingestion restrictions before parsing
         const messagesToProcess = await instrumentFn(
             `recordingingesterv2.handleEachBatch.applyRestrictions`,
@@ -288,7 +302,8 @@ export class SessionRecordingIngester {
             promiseScheduler: this.promiseScheduler,
         }
 
-        this.pipeline = createSessionRecordingPipeline(pipelineConfig)
+        const pipeline = createSessionRecordingPipeline(pipelineConfig)
+        this.pipeline = createUnwrapper(pipeline)
     }
 
     public async start(): Promise<void> {
