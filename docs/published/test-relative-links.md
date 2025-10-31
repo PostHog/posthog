@@ -8,37 +8,38 @@ This document tests the simplified gatsby-remark-rewrite-relative-links plugin.
 
 ## Plugin Behavior
 
-The plugin does two things:
-1. **Strips `.md`/`.mdx` extensions** from relative links (keeps paths relative!)
-2. **Normalizes posthog.com URLs** to relative paths (better client-side routing)
+The plugin does three things:
+1. **Strips `.md`/`.mdx` extensions** from markdown links
+2. **Converts relative links to absolute paths** - Required for Gatsby client-side routing (relative links cause full page refresh)
+3. **Normalizes posthog.com URLs** to absolute paths - Prevents external navigation on web
 
-## Relative Links (extension should be stripped)
+## Relative Links (should be converted to absolute paths)
 
 ### Same directory
-- Link to [Safe Django Migrations](./safe-django-migrations.md) - should become `./safe-django-migrations`
-- Link to [Stack documentation](./stack.md) - should become `./stack`
-- Link to [Development process](./development-process.md) - should become `./development-process`
+- Link to [Safe Django Migrations](./safe-django-migrations.md) - should become `/handbook/engineering/safe-django-migrations`
+- Link to [Stack documentation](./stack.md) - should become `/handbook/engineering/stack`
+- Link to [Development process](./development-process.md) - should become `/handbook/engineering/development-process`
 
 ### Subdirectory
-- Link to [ClickHouse data storage](./clickhouse/data-storage.mdx) - should become `./clickhouse/data-storage`
-- Link to [Backend coding conventions](./conventions/backend-coding.md) - should become `./conventions/backend-coding`
-- Link to [AI architecture](./ai/architecture.md) - should become `./ai/architecture`
-- Link to [Database schema changes](./databases/schema-changes.md) - should become `./databases/schema-changes`
+- Link to [ClickHouse data storage](./clickhouse/data-storage.mdx) - should become `/handbook/engineering/clickhouse/data-storage`
+- Link to [Backend coding conventions](./conventions/backend-coding.md) - should become `/handbook/engineering/conventions/backend-coding`
+- Link to [AI architecture](./ai/architecture.md) - should become `/handbook/engineering/ai/architecture`
+- Link to [Database schema changes](./databases/schema-changes.md) - should become `/handbook/engineering/databases/schema-changes`
 
 ### With anchors (should preserve)
-- Link to [ClickHouse storage with anchor](./clickhouse/data-storage.mdx#partition-by) - should become `./clickhouse/data-storage#partition-by`
-- Link to [AI products with anchor](./ai/products.md#posthog-ai) - should become `./ai/products#posthog-ai`
+- Link to [ClickHouse storage with anchor](./clickhouse/data-storage.mdx#partition-by) - should become `/handbook/engineering/clickhouse/data-storage#partition-by`
+- Link to [AI products with anchor](./ai/products.md#posthog-ai) - should become `/handbook/engineering/ai/products#posthog-ai`
 
 ### With query parameters (should preserve)
-- [Link with query](./stack.md?section=backend) - should become `./stack?section=backend`
+- [Link with query](./stack.md?section=backend) - should become `/handbook/engineering/stack?section=backend`
 
 ### README/index files
-- Link to [ClickHouse index](./clickhouse/index.mdx) - should become `./clickhouse/index`
-- Link to [ClickHouse schema index](./clickhouse/schema/index.mdx) - should become `./clickhouse/schema/index`
+- Link to [ClickHouse index](./clickhouse/index.mdx) - should become `/handbook/engineering/clickhouse/index`
+- Link to [ClickHouse schema index](./clickhouse/schema/index.mdx) - should become `/handbook/engineering/clickhouse/schema/index`
 
-## posthog.com URLs (should be normalized)
+## posthog.com URLs (should be normalized to absolute paths)
 
-These links use full URLs in source (good for GitHub) but should be normalized to relative paths (good for web):
+These links use full URLs in source (good for GitHub) but should be normalized to absolute paths (prevents external navigation):
 
 - [PostHog AI docs](https://posthog.com/docs/posthog-ai) - should become `/docs/posthog-ai`
 - [PostHog AI team](https://posthog.com/teams/posthog-ai) - should become `/teams/posthog-ai`
@@ -76,7 +77,7 @@ These links use full URLs in source (good for GitHub) but should be normalized t
 
 When viewing this page on the Vercel preview at `/handbook/engineering/test-relative-links`:
 
-1. **Relative links** should resolve correctly (no 404s) because `.md` was stripped but path stayed relative
+1. **Relative links** should navigate with client-side routing (no page reload) because they're converted to absolute paths
 2. **posthog.com URLs** should navigate with client-side routing (no page reload)
-3. **Absolute paths** should work as-is
-4. **External links** should work as-is
+3. **Absolute paths** should work with client-side routing
+4. **External links** should work as-is (external navigation expected)
