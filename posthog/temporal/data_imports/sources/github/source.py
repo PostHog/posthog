@@ -26,6 +26,7 @@ class GithubSource(BaseSource[GithubSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.GITHUB,
             iconPath="/static/services/github.png",
+            iconClassName="dark:bg-white rounded",
             caption=None,  # only needed if you want to inline docs
             docsUrl=None,  # TODO(Andrew J. McGehee): link to the docs in the website, full path including https://
             fields=cast(list[FieldType], []),  # TODO(Andrew J. McGehee): add source config fields here

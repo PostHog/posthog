@@ -4182,6 +4182,7 @@ export interface SourceConfig {
     betaSource?: boolean
     iconPath: string
     featureFlag?: string
+    iconClassName?: string
 }
 
 export const externalDataSources = [
