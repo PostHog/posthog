@@ -1,13 +1,13 @@
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { Team } from '../../types'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
 import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { PipelineTeam } from './helpers'
 
 export class IngestionWarningHandlingBatchPipeline<
     TInput,
     TOutput,
-    CInput extends { team: Team },
-    COutput extends { team: Team } = CInput,
+    CInput extends { team: PipelineTeam },
+    COutput extends { team: PipelineTeam } = CInput,
 > implements BatchPipeline<TInput, TOutput, CInput, COutput>
 {
     constructor(
