@@ -41,6 +41,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, SessionPlayerState } from '~/types'
 
+import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import { getTestWorkerManager, terminateTestWorker } from './TestWorkerManager'
@@ -1609,6 +1610,27 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
+            const encodeRecording = (recording: ExportedSessionRecordingFileV2): string[] => {
+                let output = [
+                    `{"version":"${recording.version}",`,
+                    `"data":{"id":"${recording.data.id}",`,
+                    `"person":${JSON.stringify(recording.data.person)},`,
+                    `"snapshots":[`,
+                ]
+
+                // Stringify the snapshots one-by-one to allow exports to work for very large recordings
+                for (const snapshot of recording.data.snapshots) {
+                    output.push(JSON.stringify(snapshot))
+                    output.push(',')
+                }
+                if (recording.data.snapshots.length > 0) {
+                    output.pop()
+                }
+                output.push(']}}')
+
+                return output
+            }
+
             const doExport = async (): Promise<void> => {
                 actions.setPause()
 
@@ -1627,9 +1649,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     await delay(delayTime)
                 }
 
-                const payload = values.createExportJSON()
+                const exportedRecording = values.createExportJSON()
+
                 const recordingFile = new File(
-                    [JSON.stringify(payload, null, 2)],
+                    encodeRecording(exportedRecording),
                     `export-${props.sessionRecordingId}-ph-recording.json`,
                     { type: 'application/json' }
                 )
