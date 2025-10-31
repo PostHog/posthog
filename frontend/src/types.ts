@@ -1189,6 +1189,7 @@ export enum SessionPlayerState {
     PAUSE = 'pause',
     SCRUB = 'scrub',
     SKIP = 'skip',
+    SKIP_TO_MATCHING_EVENT = 'skip_to_matching_event',
     ERROR = 'error',
 }
 
@@ -1386,6 +1387,7 @@ export type CreateGroupParams = {
 
 export interface MatchedRecordingEvent {
     uuid: string
+    timestamp: string
 }
 
 export interface MatchedRecording {
@@ -5219,6 +5221,7 @@ export type SDK = {
 export enum SDKKey {
     ANDROID = 'android',
     ANGULAR = 'angular',
+    ANTHROPIC = 'anthropic',
     ASTRO = 'astro',
     API = 'api',
     BUBBLE = 'bubble',
@@ -5230,6 +5233,7 @@ export enum SDKKey {
     FLUTTER = 'flutter',
     GATSBY = 'gatsby',
     GO = 'go',
+    GOOGLE_GEMINI = 'google_gemini',
     GOOGLE_TAG_MANAGER = 'google_tag_manager',
     HELICONE = 'helicone',
     HTML_SNIPPET = 'html',
@@ -5237,10 +5241,15 @@ export enum SDKKey {
     JAVA = 'java',
     JS_WEB = 'javascript_web',
     LARAVEL = 'laravel',
+    LANGCHAIN = 'langchain',
     LANGFUSE = 'langfuse',
+    LITELLM = 'litellm',
+    MANUAL_CAPTURE = 'manual_capture',
     NEXT_JS = 'nextjs',
     NODE_JS = 'nodejs',
     NUXT_JS = 'nuxtjs',
+    OPENAI = 'openai',
+    OPENROUTER = 'openrouter',
     PHP = 'php',
     PYTHON = 'python',
     REACT = 'react',
@@ -5255,6 +5264,7 @@ export enum SDKKey {
     SHOPIFY = 'shopify',
     SVELTE = 'svelte',
     TRACELOOP = 'traceloop',
+    VERCEL_AI = 'vercel_ai',
     VUE_JS = 'vuejs',
     WEBFLOW = 'webflow',
     WORDPRESS = 'wordpress',
@@ -5342,7 +5352,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
     | ProductKey.WEB_ANALYTICS
-    | ProductKey.ERROR_TRACKING,
+    | ProductKey.ERROR_TRACKING
+    | ProductKey.LLM_ANALYTICS,
     OnboardingProduct
 >
 
