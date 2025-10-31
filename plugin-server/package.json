@@ -48,6 +48,7 @@
     "license": "MIT",
     "dependencies": {
         "@amplitude/ua-parser-js": "^0.7.33",
+        "@temporalio/client": "^1.12.0",
         "@aws-sdk/client-s3": "^3.709.0",
         "@aws-sdk/lib-storage": "^3.709.0",
         "@babel/core": "^7.22.10",
@@ -58,7 +59,6 @@
         "@clickhouse/client": "^1.12.0",
         "@google-cloud/pubsub": "4.11.0",
         "@google-cloud/storage": "^5.8.5",
-        "@grpc/grpc-js": "^1.14.0",
         "@maxmind/geoip2-node": "^3.4.0",
         "@opentelemetry/api": "^1.9.0",
         "@opentelemetry/auto-instrumentations-node": "^0.62.1",
@@ -74,7 +74,6 @@
         "@posthog/plugin-scaffold": "1.4.4",
         "@posthog/siphash": "1.1.1",
         "@segment/action-destinations": "^3.383.0",
-        "@temporalio/client": "^1.12.0",
         "@types/lru-cache": "^5.1.0",
         "@types/node": "^22.13.14",
         "@types/tail": "^2.2.1",
