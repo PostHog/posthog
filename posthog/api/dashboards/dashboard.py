@@ -610,14 +610,8 @@ class DashboardsViewSet(
 
     @tracer.start_as_current_span("DashboardViewSet.get_serializer_context")
     def get_serializer_context(self) -> dict[str, Any]:
-        from posthog.hogql.database.database import Database
-
         context = super().get_serializer_context()
         context["insight_variables"] = InsightVariable.objects.filter(team=self.team).all()
-
-        # Create database once and pass in context to avoid N+1 queries when checking
-        # data warehouse sync status across multiple insights in a dashboard
-        context["database"] = Database.create_for(team=self.team)
 
         return context
 

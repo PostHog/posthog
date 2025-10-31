@@ -599,8 +599,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         ):
             return custom_404_response(self.request)
 
-        from posthog.hogql.database.database import Database
-
         embedded = "embedded" in request.GET or "/embedded/" in request.path
         context = {
             "view": self,
@@ -609,9 +607,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "is_shared": True,
             "get_team": lambda: resource.team,
             "insight_variables": InsightVariable.objects.filter(team=resource.team).all(),
-            # Create database once and pass in context to avoid N+1 queries when checking
-            # data warehouse sync status across multiple insights
-            "database": Database.create_for(team=resource.team),
         }
         exported_data: dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
