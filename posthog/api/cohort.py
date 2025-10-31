@@ -93,13 +93,9 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
 
 
-def extract_bytecode_from_filters(
+def compute_realtime_support_and_inline_bytecode(
     filters_dict: dict, team: Team, current_cohort_type: str | None = None
 ) -> tuple[dict, str | None, list | None]:
-    """
-    Extract bytecode from validated filters into a separate compiled_bytecode array.
-    Returns (clean_filters_dict, cohort_type, compiled_bytecode_array)
-    """
     from posthog.models.cohort.cohort import CohortType
 
     try:
@@ -464,7 +460,7 @@ class CohortSerializer(serializers.ModelSerializer):
         # Process bytecode for filters if present
         if validated_data.get("filters"):
             team = Team.objects.get(id=self.context["team_id"])
-            clean_filters, computed_cohort_type, _ = extract_bytecode_from_filters(
+            clean_filters, computed_cohort_type, _ = compute_realtime_support_and_inline_bytecode(
                 validated_data["filters"], team, current_cohort_type=validated_data.get("cohort_type")
             )
             validated_data["filters"] = clean_filters
@@ -761,7 +757,7 @@ class CohortSerializer(serializers.ModelSerializer):
         if "filters" in validated_data:
             filters = validated_data["filters"]
             if filters:
-                clean_filters, computed_cohort_type, _ = extract_bytecode_from_filters(
+                clean_filters, computed_cohort_type, _ = compute_realtime_support_and_inline_bytecode(
                     filters, cohort.team, current_cohort_type=cohort.cohort_type
                 )
                 cohort.filters = clean_filters
