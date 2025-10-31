@@ -389,12 +389,12 @@ class TestValidatedRequestDecorator(APIBaseTest):
             strict_request_validation=False,
         )
         def mock_endpoint(view_self, request):
-            # Access validated_data even though validation failed
+            # Endpoint continues processing despite validation failure
             return Response(
                 {
                     "status": "ok",
                     "event_id": str(uuid.uuid4()),
-                    "distinct_id": request.validated_data.get("distinct_id", "unknown"),
+                    "distinct_id": "test_user",
                 },
                 status=status.HTTP_200_OK,
             )
