@@ -4,108 +4,16 @@
 
 This document describes the technical architecture for generalizing the LLM traces summarization system.
 
-## Current Architecture (MVP)
-
-### Data Flow
-
-```mermaid
-flowchart TD
-    A[Temporal Workflow:<br/>SummarizeLLMTracesWorkflow] --> B[LLMTracesSummarizer<br/>Orchestrates entire pipeline<br/>Hard-coded to PostHog AI traces]
-
-    B --> C[1. Collector<br/>Get traces from ClickHouse<br/>LangGraph filter HARDCODED ❌]
-
-    C --> D[2. Stringifier<br/>PostHog AI message format<br/>HARDCODED ❌]
-
-    D --> E[3. Generator<br/>Gemini summaries<br/>Find issues prompt]
-
-    E --> F[4. Embedder<br/>Kafka → ClickHouse<br/>document_embeddings]
-
-    E --> G[5. Storage<br/>PostgreSQL<br/>LLMTraceSummary table]
-
-    F --> H[Search / Clustering<br/>On Demand]
-    G --> H
-
-    H --> I[LLMTracesSummarizerFinder<br/>Cosine similarity search]
-    H --> J[KmeansClusterizer<br/>Group similar issues]
-    H --> K[ClusterExplainer<br/>Generate cluster names]
-
-    style D fill:#ffcccc
-    style C fill:#ffcccc
-```
-
-### Key Components
-
-#### 1. Trace Collection (`tools/get_traces.py`)
-
-```python
-class LLMTracesSummarizerCollector:
-    def get_db_traces_per_page(self, offset, date_range):
-        query = TracesQuery(
-            dateRange=date_range,
-            properties=[
-                HogQLPropertyFilter(
-                    key="properties.$ai_span_name = 'LangGraph'",  # ❌ HARDCODED
-                )
-            ]
-        )
-```
-
-#### 2. Trace Stringification (`tools/stringify_trace.py`)
-
-```python
-class LLMTracesSummarizerStringifier:
-    def stringify_trace(self, trace: LLMTrace):
-        messages = trace.outputState.get("messages")  # ❌ PostHog AI specific
-        for message in messages:
-            if message["type"] == "ai":  # ❌ PostHog AI message types
-                # Format AI message
-            elif message["type"] == "human":
-                # Format human message
-```
-
-#### 3. Summary Generation (`tools/generate_stringified_summaries.py`)
-
-```python
-PROMPT = """
-Analyze this conversation between the user and the PostHog AI assistant  # ❌ HARDCODED
-List all pain points, frustrations, and feature limitations
-"""
-
-class LLMTraceSummarizerGenerator:
-    async def summarize_stringified_traces(self, stringified_traces):
-        # Generate summaries using Gemini
-        # Cleans up LLM output (removes excessive formatting)
-```
-
-#### 4. Embedding (`tools/embed_summaries.py`)
-
-```python
-class LLMTracesSummarizerEmbedder:
-    def embed_summaries(self, summarized_traces, summary_type):
-        # Send to Kafka → ClickHouse document_embeddings table
-        # text-embedding-3-large-3072 model
-```
-
-#### 5. Storage (`models/llm_traces_summaries.py`)
-
-```python
-class LLMTraceSummary(Model):
-    team: ForeignKey
-    trace_id: CharField
-    summary: CharField(max_length=1000)
-    trace_summary_type: CharField  # Currently only "issues_search"
-```
-
-## Proposed Generalized Architecture
+## Architecture
 
 ### Core Principles
 
-1. **Universal Stringifier (v1)**: All traces use generic LLMA stringifier - domain expertise via custom prompts
+1. **Universal Stringifier**: All traces use generic LLMA stringifier - domain expertise comes from custom analysis prompts
 2. **Configurable Analysis**: Users define filters and prompts per theme
-3. **Multi-Perspective Insights**: 5 built-in themes + custom themes
-4. **Flexible Architecture**: Design allows future stringifier plugins without UI complexity in v1
+3. **Multi-Perspective Insights**: 6 built-in themes + unlimited custom themes
+4. **Flexible Architecture**: Designed for extensibility while maintaining simplicity
 
-### New Data Flow
+### Data Flow
 
 ```mermaid
 flowchart TD
@@ -141,7 +49,7 @@ flowchart TD
 
 ### Core Concept
 
-Instead of running a single analysis pass over all traces, **Analysis Themes** provide different analytical lenses:
+**Analysis Themes** provide different analytical lenses for examining traces from multiple perspectives:
 
 ```python
 # One trace can be analyzed by multiple themes
@@ -279,7 +187,7 @@ flowchart LR
 ```text
 Stage 1 (HogQL): No filter → 5000 traces analyzed
 Stage 2 (LLM):   theme_relevant=true → 1250 traces (25% relevance rate)
-Result:          Embed 1250 traces instead of 5000 (75% cost savings)
+Result:          Only 1250 embeddings created (75% cost savings)
 ```
 
 ### Component Designs
@@ -557,14 +465,14 @@ If theme_relevant=true, explain what made the experience successful in maximum 1
 }
 ```
 
-#### 2. Trace Stringification (v1: Generic LLMA Only)
+#### 2. Trace Stringification
 
-**Design Decision**: v1 uses only the **Generic LLMA Stringifier** for all themes and all traces. Domain expertise comes from custom prompts, not custom stringifiers. This ensures:
+The system uses a **Generic LLMA Stringifier** for all themes and traces. Domain expertise comes from custom analysis prompts rather than specialized stringifiers. This design provides:
 
-- **Consistency**: All PostHog users dogfood the same system
-- **Simplicity**: No UI complexity for stringifier selection
-- **Validation**: Easier to validate and improve one universal stringifier
-- **Future flexibility**: Architecture allows pluggable stringifiers later if needed
+- **Consistency**: All users leverage the same proven stringification logic
+- **Simplicity**: Clean architecture without stringifier selection complexity
+- **Maintainability**: Single stringifier to validate, improve, and debug
+- **Extensibility**: Architecture supports pluggable stringifiers if needed in the future
 
 **Implementation**: Leverages the general-purpose stringification endpoint from PR #40502.
 
@@ -591,7 +499,7 @@ def stringify_trace(trace: LLMTrace) -> str | None:
 # See PR #40502 for full implementation details
 ```
 
-**Future Work** (not v1): Pluggable stringifier architecture exists in the codebase design for potential future use cases (custom trace formats, domain-specific stringification), but is intentionally not exposed in v1.
+**Future Extensions**: The architecture supports pluggable stringifiers for potential future use cases (custom trace formats, domain-specific stringification), though these capabilities are not currently exposed to users.
 
 #### 3. Theme-Based Collection with Caching
 
@@ -625,7 +533,7 @@ class ThemeBasedCollector:
 
     def _get_cache_key(self, trace_id: str) -> str:
         """Generate cache key for stringified trace"""
-        # Generic LLMA stringifier for all traces in v1
+        # Uses generic LLMA stringifier for all traces
         return f"trace_text:{self._team.id}:generic_llma:{trace_id}"
 
     def collect_and_stringify(self) -> Dict[str, str]:
@@ -725,8 +633,8 @@ class LLMTracesSummarizer:
     """
     Theme-based trace summarizer.
 
-    Instead of analyzing all traces with one config, this orchestrates
-    multiple theme analyses in parallel.
+    Orchestrates multiple theme analyses in parallel, allowing each theme
+    to apply its own filters, prompts, and clustering configuration.
     """
 
     def __init__(
@@ -1561,7 +1469,7 @@ def get_latest_clusters_for_theme(team: Team, theme_id: str) -> list[dict]:
 
 **Key Design Decisions**
 
-1. **Scheduled Only**: Simple daily clustering at 3 AM UTC (no on-demand for MVP)
+1. **Scheduled Clustering**: Daily clustering at 3 AM UTC for all themes
 2. **Event Storage**: `$ai_trace_cluster` events align with PostHog patterns
 3. **Per-Theme Independence**: Each theme has separate clusters
 4. **Embeddings as Durable Asset**: Clustering reuses existing embeddings
