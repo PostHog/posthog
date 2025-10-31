@@ -65,10 +65,12 @@ const forcedOverflowEventsCounter = new Counter({
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
 })
 
+type EventWithHeaders = IncomingEventWithTeam & { headers: EventHeaders }
+
 type EventsForDistinctId = {
     token: string
     distinctId: string
-    events: IncomingEventWithTeam[]
+    events: EventWithHeaders[]
 }
 
 type IncomingEventsByDistinctId = {
@@ -83,6 +85,7 @@ type PreprocessedEvent = {
 }
 
 export interface PerDistinctIdPipelineInput extends IncomingEventWithTeam {
+    headers: EventHeaders
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
 }
@@ -415,7 +418,7 @@ export class IngestionConsumer {
         }
 
         const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
-        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents.map((x) => x.eventWithTeam))
+        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents)
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
@@ -645,11 +648,12 @@ export class IngestionConsumer {
         return result
     }
 
-    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
+    private groupEventsByDistinctId(preprocessedEvents: PreprocessedEvent[]): IncomingEventsByDistinctId {
         const groupedEvents: IncomingEventsByDistinctId = {}
 
-        for (const eventWithTeam of messages) {
-            const { message, event, team, headers } = eventWithTeam
+        for (const preprocessedEvent of preprocessedEvents) {
+            const { eventWithTeam, headers } = preprocessedEvent
+            const { message, event, team } = eventWithTeam
             const token = event.token ?? ''
             const distinctId = event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
