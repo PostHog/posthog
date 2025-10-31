@@ -122,7 +122,6 @@ describe('createResolveTeamStep()', () => {
                     event: { ...pipelineEvent, token: teamTwoToken },
                     team: teamTwo,
                     message: input.message,
-                    headers: input.headers,
                 },
             })
         )
@@ -168,7 +167,6 @@ describe('createResolveTeamStep()', () => {
                     event: { ...pipelineEvent, team_id: 3, token: teamTwoToken },
                     team: teamTwo,
                     message: input.message,
-                    headers: input.headers,
                 },
             })
         )
