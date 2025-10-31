@@ -3,13 +3,22 @@ Synthetic playlists are virtual playlists that are dynamically calculated and av
 They are not stored in the database but appear alongside regular playlists in the API.
 """
 
+import re
+import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
+from urllib.parse import urlparse
+
+from django.core.cache import cache
+
+import pytz
+import posthoganalytics
 
 from posthog.schema import RecordingOrder, RecordingsQuery
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Comment, Team, User
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -33,6 +42,13 @@ class CountSessionIdsCallable(Protocol):
 
 
 class SyntheticPlaylistSource(ABC):
+    """
+    Base class for synthetic playlist sources.
+    Subclasses can implement either:
+    1. to_synthetic_playlist() for static playlists (one playlist per source)
+    2. generate_dynamic_playlists() for dynamic playlists (multiple playlists generated on-demand)
+    """
+
     @staticmethod
     def _slice_indices(limit: int | None = None, offset: int | None = None) -> tuple[int, int | None]:
         start = offset or 0
@@ -57,9 +73,27 @@ class SyntheticPlaylistSource(ABC):
     def count_session_ids(self, team: Team, user: User) -> int:
         pass
 
-    @abstractmethod
-    def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
-        pass
+    def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition | None":
+        """
+        Return a single static synthetic playlist definition.
+        Return None if this source only generates dynamic playlists.
+        """
+        return None
+
+    def generate_dynamic_playlists(self, team: Team) -> list["SyntheticPlaylistDefinition"]:
+        """
+        Generate multiple dynamic playlist definitions for this source.
+        Override this method to create playlists that vary based on data (e.g., one per URL).
+        Return empty list if this source only generates a static playlist.
+        """
+        return []
+
+    def get_dynamic_playlist_by_id(self, short_id: str, team: Team) -> "SyntheticPlaylistDefinition | None":
+        """
+        Retrieve a specific dynamic playlist by its short_id.
+        Override this method for dynamic playlist sources.
+        """
+        return None
 
 
 @dataclass
@@ -255,6 +289,311 @@ class ExpiringPlaylistSource(SyntheticPlaylistSource):
 
 
 @dataclass
+class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
+    """
+    Dynamic synthetic playlist source that creates one playlist per new URL detected in the last 14 days.
+    A URL is considered "new" if it first appeared in recordings within the last 14 days, and not previously seen within the last 90 days.
+    """
+
+    url: str | None = None
+
+    CACHE_KEY_PREFIX = "new_urls_synthetic_playlist"
+    CACHE_TTL = 3600  # 1 hour
+    LOOKBACK_DAYS = 14
+    MIN_ID = -1000  # Start IDs from -1000 for new URL playlists
+
+    @staticmethod
+    def _get_cache_key(team_id: int) -> str:
+        """Generate cache key for new URLs list"""
+        return f"{NewUrlsSyntheticPlaylistSource.CACHE_KEY_PREFIX}_team_{team_id}"
+
+    @staticmethod
+    def _url_to_hash(url: str) -> str:
+        """Convert URL to a stable short hash for use in short_id"""
+        return hashlib.sha256(url.encode()).hexdigest()[:12]
+
+    @staticmethod
+    def _short_id_to_url(short_id: str) -> str | None:
+        """Extract URL from short_id. Returns None if not a valid new-url playlist ID."""
+        # Format: synthetic-new-url-{hash}
+        # We can't reverse the hash, so we need to look it up
+        # This is handled by get_dynamic_playlist_by_id which queries all new URLs
+        return None
+
+    @staticmethod
+    def _normalize_url(url: str) -> str:
+        """
+        Normalize a URL by:
+        1. Removing query parameters and fragments
+        2. Replacing path segments that look like IDs with placeholders
+
+        This groups:
+        - /billing?id=1 and /billing?id=2 -> /billing
+        - /project/1/settings and /project/2/settings -> /project/{id}/settings
+        - /user/abc-123-def/profile -> /user/{uuid}/profile
+        - /item/xYz123AbC456DeF789 -> /item/{hash}
+        """
+        try:
+            parsed = urlparse(url)
+            path = parsed.path
+
+            # Split path into segments
+            segments = path.split("/")
+            normalized_segments: list[str] = []
+
+            for segment in segments:
+                if not segment:  # Empty segment (leading/trailing slash)
+                    normalized_segments.append(segment)
+                # Check if segment looks like a UUID (standard format)
+                elif re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", segment, re.I):
+                    normalized_segments.append("{uuid}")
+                # Check if segment is purely numeric (likely an ID)
+                elif re.match(r"^\d+$", segment):
+                    normalized_segments.append("{id}")
+                # Check if segment is a long alphanumeric string (likely hash/encoded ID)
+                # Must be at least 16 chars to avoid false positives with normal words
+                elif re.match(r"^[a-z0-9_-]{16,}$", segment, re.I):
+                    normalized_segments.append("{hash}")
+                else:
+                    # Keep segment as-is
+                    normalized_segments.append(segment)
+
+            normalized_path = "/".join(normalized_segments)
+            normalized = f"{parsed.scheme}://{parsed.netloc}{normalized_path}"
+
+            # Remove trailing slash for consistency (except for root path)
+            if normalized.endswith("/") and len(normalized_path) > 1:
+                normalized = normalized.rstrip("/")
+
+            return normalized
+        except Exception:
+            # If URL parsing fails, return original URL
+            return url
+
+    @staticmethod
+    def _get_new_urls_with_counts(team: Team) -> dict[str, int]:
+        """
+        Query ClickHouse to find URL patterns that first appeared in the last 14 days.
+        Also pre-computes session counts for each pattern in a SINGLE query for performance.
+
+        Returns: dict mapping pattern -> session count
+        """
+        cache_key = f"{NewUrlsSyntheticPlaylistSource.CACHE_KEY_PREFIX}_with_counts_{team.pk}"
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return cached_data
+
+        now = datetime.now(pytz.timezone("UTC"))
+        lookback_start = now - timedelta(days=NewUrlsSyntheticPlaylistSource.LOOKBACK_DAYS)
+        history_window_start = now - timedelta(days=90)
+
+        # Fetch URLs from last 90 days for pattern detection
+        # AND from last 14 days for counting (we'll do both in one pass)
+        query = """
+            SELECT
+                session_id,
+                arrayJoin(all_urls) as url,
+                min(min_first_timestamp) as first_seen
+            FROM session_replay_events
+            WHERE team_id = %(team_id)s
+                AND min_first_timestamp >= %(history_start)s
+                AND url != ''
+            GROUP BY session_id, url
+            ORDER BY first_seen DESC
+            LIMIT 50000
+        """
+
+        result = sync_execute(
+            query,
+            {
+                "team_id": team.pk,
+                "history_start": history_window_start,
+            },
+        )
+
+        # Build pattern tracking data structures
+        pattern_first_seen: dict[str, datetime] = {}
+        pattern_sessions: dict[str, set[str]] = {}  # pattern -> set of session_ids
+
+        for session_id, raw_url, first_seen_ts in result:
+            normalized = NewUrlsSyntheticPlaylistSource._normalize_url(raw_url)
+
+            # Track earliest appearance of this pattern
+            if normalized not in pattern_first_seen or first_seen_ts < pattern_first_seen[normalized]:
+                pattern_first_seen[normalized] = first_seen_ts
+
+            # Track sessions for patterns in the lookback window (for counting)
+            if lookback_start <= first_seen_ts <= now:
+                if normalized not in pattern_sessions:
+                    pattern_sessions[normalized] = set()
+                pattern_sessions[normalized].add(session_id)
+
+        # Filter to patterns that FIRST appeared within the lookback window
+        new_patterns_with_counts = {
+            pattern: len(pattern_sessions.get(pattern, set()))
+            for pattern, first_seen in pattern_first_seen.items()
+            if lookback_start <= first_seen <= now
+        }
+
+        # Sort by count (descending) then by pattern name, take top 20
+        sorted_patterns = sorted(
+            new_patterns_with_counts.items(),
+            key=lambda x: (-x[1], x[0]),  # Sort by count desc, then pattern asc
+        )[:20]
+
+        result_dict = dict(sorted_patterns)
+
+        cache.set(cache_key, result_dict, NewUrlsSyntheticPlaylistSource.CACHE_TTL)
+        return result_dict
+
+    @staticmethod
+    def _get_new_urls(team: Team) -> list[str]:
+        """
+        Get just the list of new URL patterns (for backwards compatibility).
+        """
+        return list(NewUrlsSyntheticPlaylistSource._get_new_urls_with_counts(team).keys())
+
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
+        """
+        Get session IDs for sessions that visited URLs matching this pattern.
+        Since self.url is a normalized pattern (like /project/{id}/settings),
+        we need to fetch all URLs and match them after normalization.
+
+        Uses caching to avoid expensive queries on every request.
+        """
+        if not self.url:
+            return []
+
+        # Cache key includes the pattern URL to ensure different patterns have different caches
+        cache_key = f"{self.CACHE_KEY_PREFIX}_sessions_{team.pk}_{hashlib.sha256(self.url.encode()).hexdigest()[:16]}"
+        cached_session_ids = cache.get(cache_key)
+        if cached_session_ids is not None:
+            return self._paginate_list(cached_session_ids, limit, offset)
+
+        now = datetime.now(pytz.timezone("UTC"))
+        lookback_start = now - timedelta(days=self.LOOKBACK_DAYS)
+
+        # Fetch sessions with their URLs from the lookback window
+        # We limit and sample to avoid fetching millions of rows for high-traffic teams
+        # Since results are cached for 1 hour, the first request will build the cache
+        query = """
+            SELECT
+                session_id,
+                arrayJoin(all_urls) as url
+            FROM session_replay_events
+            WHERE team_id = %(team_id)s
+                AND min_first_timestamp >= %(lookback_start)s
+                AND min_first_timestamp <= %(now)s
+                AND url != ''
+            ORDER BY min_first_timestamp DESC
+            LIMIT 100000
+        """
+
+        result = sync_execute(
+            query,
+            {
+                "team_id": team.pk,
+                "lookback_start": lookback_start,
+                "now": now,
+            },
+        )
+
+        # Filter to sessions where any URL normalizes to our pattern
+        # Use early termination if we find enough sessions (optimization)
+        matching_session_ids = set()
+        for session_id, raw_url in result:
+            normalized = self._normalize_url(raw_url)
+            if normalized == self.url:
+                matching_session_ids.add(session_id)
+                # Early termination: if we've found 1000+ sessions, that's plenty
+                # (we only show top 50 by default anyway)
+                if len(matching_session_ids) >= 1000:
+                    break
+
+        # Convert to sorted list for consistent ordering and cache it
+        session_ids = sorted(matching_session_ids)
+        cache.set(cache_key, session_ids, self.CACHE_TTL)
+
+        return self._paginate_list(session_ids, limit, offset)
+
+    def count_session_ids(self, team: Team, user: User) -> int:
+        """
+        Count sessions that visited URLs matching this pattern.
+        Uses pre-computed counts from _get_new_urls_with_counts for performance.
+        """
+        if not self.url:
+            return 0
+
+        # Try to get the pre-computed count first (fast path)
+        counts_dict = self._get_new_urls_with_counts(team)
+        if self.url in counts_dict:
+            return counts_dict[self.url]
+
+        # Fallback: if not in pre-computed cache, use the expensive query
+        # (This shouldn't happen in normal operation)
+        all_session_ids = self.get_session_ids(team, user, limit=None, offset=None)
+        return len(all_session_ids)
+
+    def generate_dynamic_playlists(self, team: Team) -> list["SyntheticPlaylistDefinition"]:
+        """Generate a playlist for each new URL"""
+        new_urls = self._get_new_urls(team)
+        playlists = []
+
+        for idx, url in enumerate(new_urls):
+            # Create a source instance for this specific URL
+            url_source = NewUrlsSyntheticPlaylistSource(url=url)
+            url_hash = self._url_to_hash(url)
+            short_id = f"synthetic-new-url-{url_hash}"
+
+            # Truncate URL for display if too long
+            display_url = url if len(url) <= 60 else url[:57] + "..."
+
+            playlists.append(
+                SyntheticPlaylistDefinition(
+                    id=self.MIN_ID - idx,  # Negative IDs to avoid conflicts
+                    short_id=short_id,
+                    name=f"New URL: {display_url}",
+                    description=f"Recordings from the last {self.LOOKBACK_DAYS} days on a page not previously seen within the last 90 days",
+                    type="collection",
+                    get_session_ids=url_source.get_session_ids,
+                    count_session_ids=url_source.count_session_ids,
+                    metadata={"icon": "IconSparkles", "is_user_specific": False, "url": url},
+                )
+            )
+
+        return playlists
+
+    def get_dynamic_playlist_by_id(self, short_id: str, team: Team) -> "SyntheticPlaylistDefinition | None":
+        """Retrieve a specific new URL playlist by its short_id"""
+        if not short_id.startswith("synthetic-new-url-"):
+            return None
+
+        # Extract hash from short_id
+        url_hash = short_id.replace("synthetic-new-url-", "")
+
+        # Get all new URLs and find the one matching this hash
+        new_urls = self._get_new_urls(team)
+        for url in new_urls:
+            if self._url_to_hash(url) == url_hash:
+                # Create a source instance for this specific URL
+                url_source = NewUrlsSyntheticPlaylistSource(url=url)
+                display_url = url if len(url) <= 60 else url[:57] + "..."
+
+                return SyntheticPlaylistDefinition(
+                    id=self.MIN_ID,  # Use a consistent ID for individual lookups
+                    short_id=short_id,
+                    name=f"New URL: {display_url}",
+                    description=f"Recordings from the last {self.LOOKBACK_DAYS} days on a page not previously seen within the last 90 days",
+                    type="collection",
+                    get_session_ids=url_source.get_session_ids,
+                    count_session_ids=url_source.count_session_ids,
+                    metadata={"icon": "IconSparkles", "is_user_specific": False, "url": url},
+                )
+
+        return None
+
+
+@dataclass
 class SyntheticPlaylistDefinition:
     """Definition of a synthetic playlist that will be computed on-demand"""
 
@@ -270,8 +609,8 @@ class SyntheticPlaylistDefinition:
     metadata: dict
 
 
-# Registry of all synthetic playlists
-def _get_synthetic_playlists() -> list[SyntheticPlaylistDefinition]:
+# Registry of static synthetic playlists
+def _get_static_synthetic_playlists() -> list[SyntheticPlaylistDefinition]:
     playlists = [
         WatchedPlaylistSource().to_synthetic_playlist(),
         CommentedPlaylistSource().to_synthetic_playlist(),
@@ -284,14 +623,72 @@ def _get_synthetic_playlists() -> list[SyntheticPlaylistDefinition]:
     if HAS_EE:
         playlists.append(SummarisedPlaylistSource().to_synthetic_playlist())
 
-    return playlists
+    # Filter out None values (sources that only generate dynamic playlists)
+    return [p for p in playlists if p is not None]
 
 
-SYNTHETIC_PLAYLISTS: list[SyntheticPlaylistDefinition] = _get_synthetic_playlists()
+# Registry of dynamic synthetic playlist sources
+def _get_dynamic_synthetic_playlist_sources() -> list[SyntheticPlaylistSource]:
+    return [
+        NewUrlsSyntheticPlaylistSource(),
+    ]
 
 
-def get_synthetic_playlist(short_id: str) -> SyntheticPlaylistDefinition | None:
+# fixed list of synthetic playlists, including Watch History, Expiring Soon, etc
+SYNTHETIC_PLAYLISTS: list[SyntheticPlaylistDefinition] = _get_static_synthetic_playlists()
+# dynamic synthetic playlists, detecting newly seen URLs
+DYNAMIC_SYNTHETIC_PLAYLIST_SOURCES: list[SyntheticPlaylistSource] = _get_dynamic_synthetic_playlist_sources()
+
+
+def get_synthetic_playlist(short_id: str, team: Team | None = None) -> SyntheticPlaylistDefinition | None:
+    """
+    Get a synthetic playlist by short_id.
+    Checks both static playlists and dynamic playlists (if team is provided).
+    """
+    # Check static playlists first
     for playlist in SYNTHETIC_PLAYLISTS:
         if playlist.short_id == short_id:
             return playlist
+
+    # Check dynamic playlists if team is provided
+    if team:
+        for source in DYNAMIC_SYNTHETIC_PLAYLIST_SOURCES:
+            # Gate new URL collections behind feature flag
+            if isinstance(source, NewUrlsSyntheticPlaylistSource):
+                flag_result = posthoganalytics.get_feature_flag(
+                    "replay-new-detected-url-collections",
+                    str(team.uuid),
+                    groups={"organization": str(team.organization_id)},
+                )
+                # Skip if flag is not set to "test" variant
+                if flag_result is None or flag_result.variant != "test":
+                    continue
+
+            dynamic_playlist = source.get_dynamic_playlist_by_id(short_id, team)
+            if dynamic_playlist:
+                return dynamic_playlist
+
     return None
+
+
+def get_all_synthetic_playlists(team: Team) -> list[SyntheticPlaylistDefinition]:
+    """
+    Get all synthetic playlists for a team, including both static and dynamic ones.
+    """
+    all_playlists = list(SYNTHETIC_PLAYLISTS)
+
+    # Add dynamic playlists from each source
+    for source in DYNAMIC_SYNTHETIC_PLAYLIST_SOURCES:
+        # Gate new URL collections behind feature flag
+        if isinstance(source, NewUrlsSyntheticPlaylistSource):
+            flag_result = posthoganalytics.get_feature_flag(
+                "replay-new-detected-url-collections",
+                str(team.uuid),
+                groups={"organization": str(team.organization_id)},
+            )
+            if flag_result is None or flag_result.variant != "test":
+                continue
+
+        all_playlists.extend(source.generate_dynamic_playlists(team))
+
+    return all_playlists
