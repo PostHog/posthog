@@ -111,6 +111,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 return prevLastSeen
             },
         },
+        similarIssuesMaxDistance: {
+            setSimilarIssuesMaxDistance: (_, { distance }) => distance,
+        },
         initialEventTimestamp: {
             setInitialEventTimestamp: (state, { timestamp }) => {
                 if (!state && timestamp) {
@@ -372,7 +375,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.loadIssue()
                 }
             },
-            increaseSimilarIssuesMaxDistance: () => {
+            setSimilarIssuesMaxDistance: () => {
                 actions.loadSimilarIssues(true)
             },
         }

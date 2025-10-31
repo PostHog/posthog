@@ -37,7 +37,6 @@ export const SimilarIssuesList = (): JSX.Element => {
 
     const increaseMaxDistance = (): void => {
         setSimilarIssuesMaxDistance(similarIssuesMaxDistance + 0.1)
-        loadSimilarIssues(true)
     }
 
     return (
