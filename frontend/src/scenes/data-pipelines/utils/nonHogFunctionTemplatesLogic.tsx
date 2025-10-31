@@ -2,7 +2,7 @@ import { connect, kea, path, props, selectors } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS, FeatureFlagLookupKey } from 'lib/constants'
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
@@ -39,14 +39,10 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
             (s) => [s.connectors, s.manualConnectors, s.featureFlags],
             (connectors, manualConnectors, featureFlags): HogFunctionTemplateType[] => {
                 const managed = connectors.map((connector: SourceConfig): HogFunctionTemplateType => {
-                    const featureFlagKey = Object.keys(FEATURE_FLAGS).find(
-                        (k) => FEATURE_FLAGS[k as FeatureFlagLookupKey] === connector.featureFlag
-                    )
-                    const featureFlagEnabledForUser =
-                        featureFlagKey && featureFlags[FEATURE_FLAGS[featureFlagKey as FeatureFlagLookupKey]]
+                    const featureFlagEnabledForUser = !!featureFlags[connector.featureFlag as FeatureFlagKey]
                     // explicitly checks for no provided or no matching feature flag
                     const isUnreleasedAndShouldntAccess =
-                        (connector.unreleasedSource && !featureFlagKey) ||
+                        (connector.unreleasedSource && !connector.featureFlag) ||
                         (connector.unreleasedSource && !featureFlagEnabledForUser)
                     return {
                         id: `managed-${connector.name}`,
@@ -72,7 +68,6 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         filters: null,
                         masking: null,
                         free: true,
-                        flag: connector.featureFlag,
                     }
                 })
                 const selfManaged = manualConnectors.map(
