@@ -14,7 +14,7 @@ from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.user import User
 
-from ee.hogai.utils.dispatcher import AssistantDispatcher
+from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config
 from ee.hogai.utils.types.base import BaseStateWithIntermediateSteps, NodePath
 from ee.models import Conversation, CoreMemory
 
@@ -197,8 +197,9 @@ class TaxonomyUpdateDispatcherNodeMixin:
         self.dispatcher.message(AssistantMessage(content=content))
 
 
-class NodePathMixin:
+class AssistantDispatcherMixin:
     _node_path: tuple[NodePath, ...]
+    _config: RunnableConfig | None
 
     @property
     def node_path(self) -> tuple[NodePath, ...]:
@@ -208,3 +209,11 @@ class NodePathMixin:
     def tool_call_id(self) -> str | None:
         parent_tool_call_id = next((path.tool_call_id for path in reversed(self._node_path) if path.tool_call_id), None)
         return parent_tool_call_id
+
+    @property
+    def dispatcher(self) -> AssistantDispatcher:
+        """Create a dispatcher for this node"""
+        if self._dispatcher:
+            return self._dispatcher
+        self._dispatcher = create_dispatcher_from_config(self._config or {}, self._node_path)
+        return self._dispatcher

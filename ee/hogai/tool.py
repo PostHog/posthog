@@ -18,7 +18,7 @@ from posthog.models import Team, User
 import products
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.mixins import AssistantContextMixin, NodePathMixin
+from ee.hogai.graph.mixins import AssistantContextMixin, AssistantDispatcherMixin
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
@@ -58,7 +58,7 @@ class MaxToolArgs(BaseModel):
     tool_call_id: Annotated[str, InjectedToolCallId, SkipJsonSchema]
 
 
-class MaxTool(AssistantContextMixin, NodePathMixin, BaseTool):
+class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     # LangChain's default is just "content", but we always want to return the tool call artifact too
     # - it becomes the `ui_payload`
     response_format: Literal["content_and_artifact"] = "content_and_artifact"

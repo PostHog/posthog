@@ -413,10 +413,10 @@ class AssistantNodeName(StrEnum):
 
 
 class AssistantGraphName(StrEnum):
-    ASSISTANT = "assistant"
-    INSIGHTS = "insights"
-    TAXONOMY = "taxonomy"
-    DEEP_RESEARCH = "deep_research"
+    ASSISTANT = "assistant_graph"
+    INSIGHTS = "insights_graph"
+    TAXONOMY = "taxonomy_graph"
+    DEEP_RESEARCH = "deep_research_graph"
 
 
 class AssistantMode(StrEnum):

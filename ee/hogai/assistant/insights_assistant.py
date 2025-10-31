@@ -10,25 +10,12 @@ from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
 from ee.hogai.utils.stream_processor import AssistantStreamProcessor
-from ee.hogai.utils.types import (
-    AssistantMode,
-    AssistantNodeName,
-    AssistantOutput,
-    AssistantState,
-    PartialAssistantState,
-)
+from ee.hogai.utils.types import AssistantMode, AssistantOutput, AssistantState, PartialAssistantState
 from ee.models import Conversation
 
 if TYPE_CHECKING:
     from ee.hogai.utils.types.composed import MaxNodeName
 
-VISUALIZATION_NODES: set["MaxNodeName"] = {
-    AssistantNodeName.TRENDS_GENERATOR,
-    AssistantNodeName.FUNNEL_GENERATOR,
-    AssistantNodeName.RETENTION_GENERATOR,
-    AssistantNodeName.SQL_GENERATOR,
-    AssistantNodeName.INSIGHTS_SEARCH,
-}
 
 STREAMING_NODES: set["MaxNodeName"] = {
     TaxonomyNodeName.LOOP_NODE,
@@ -58,7 +45,7 @@ class InsightsAssistant(BaseAssistant):
             conversation,
             new_message=new_message,
             user=user,
-            graph=InsightsGraph(team, user).compile_full_graph(),
+            graph=InsightsGraph(team, user, ()).compile_full_graph(),
             state_type=AssistantState,
             partial_state_type=PartialAssistantState,
             mode=AssistantMode.INSIGHTS_TOOL,
@@ -68,11 +55,7 @@ class InsightsAssistant(BaseAssistant):
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
-            stream_processor=AssistantStreamProcessor(
-                verbose_nodes=STREAMING_NODES,
-                streaming_nodes=STREAMING_NODES,
-                visualization_nodes=VISUALIZATION_NODES,
-            ),
+            stream_processor=AssistantStreamProcessor(verbose_nodes=STREAMING_NODES, streaming_nodes=STREAMING_NODES),
         )
 
     def get_initial_state(self) -> AssistantState:

@@ -12,8 +12,8 @@ from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.graph.mixins import AssistantContextMixin, NodePathMixin
-from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config
+from ee.hogai.graph.mixins import AssistantContextMixin, AssistantDispatcherMixin
+from ee.hogai.utils.dispatcher import AssistantDispatcher
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types.base import (
@@ -28,7 +28,7 @@ from ee.hogai.utils.types.base import (
 from ee.models import Conversation
 
 
-class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, NodePathMixin, ABC):
+class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, AssistantDispatcherMixin, ABC):
     _config: RunnableConfig | None = None
     _context_manager: AssistantContextManager | None = None
     _dispatcher: AssistantDispatcher | None = None
@@ -82,14 +82,6 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
                 config = self._config
             self._context_manager = AssistantContextManager(self._team, self._user, config)
         return self._context_manager
-
-    @property
-    def dispatcher(self) -> AssistantDispatcher:
-        """Create a dispatcher for this node"""
-        if self._dispatcher:
-            return self._dispatcher
-        self._dispatcher = create_dispatcher_from_config(self._config or {}, self._node_path)
-        return self._dispatcher
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)
