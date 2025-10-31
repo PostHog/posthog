@@ -1,4 +1,5 @@
 import signal
+import typing as t
 import asyncio
 import datetime as dt
 import functools
@@ -8,6 +9,8 @@ from collections import defaultdict
 import structlog
 from temporalio import workflow
 from temporalio.worker import Worker
+
+from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
@@ -188,10 +191,10 @@ _task_queue_specs = [
 # the same queue. We aggregate with defaultdict(set) so all workflows/activities
 # registered for a shared queue name are combined, ensuring the worker registers
 # everything it should.
-_workflows = defaultdict(set)
-_activities = defaultdict(set)
+_workflows: defaultdict[str, set[type[PostHogWorkflow]]] = defaultdict(set)
+_activities: defaultdict[str, set[t.Callable[..., t.Any]]] = defaultdict(set)
 for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_specs:
-    _workflows[task_queue_name].update(workflows_for_queue)
+    _workflows[task_queue_name].update(workflows_for_queue)  # type: ignore
     _activities[task_queue_name].update(activities_for_queue)
 
 WORKFLOWS_DICT = _workflows
@@ -345,7 +348,7 @@ class Command(BaseCommand):
                     server_root_ca_cert=server_root_ca_cert,
                     client_cert=client_cert,
                     client_key=client_key,
-                    workflows=workflows,  # type: ignore
+                    workflows=workflows,
                     activities=activities,
                     graceful_shutdown_timeout=(
                         dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
