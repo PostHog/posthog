@@ -45,7 +45,7 @@ def validate_value_update(
 
 class LangGraphState(TypedDict):
     langgraph_node: MaxNodeName
-    checkpoint_ns: str
+    langgraph_checkpoint_ns: str
 
 
 GraphMessageUpdateTuple = tuple[Literal["messages"], tuple[Union[AIMessageChunk, Any], LangGraphState]]

@@ -1,4 +1,4 @@
-from typing import Protocol, cast
+from typing import Protocol, cast, get_args
 
 import structlog
 from langchain_core.messages import AIMessageChunk
@@ -128,7 +128,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
             action = AssistantDispatcherEvent(
                 action=MessageChunkAction(message=maybe_message_chunk),
                 node_name=state["langgraph_node"],
-                node_run_id=state["checkpoint_ns"],
+                node_run_id=state["langgraph_checkpoint_ns"],
             )
             return self.process(action)
 
@@ -142,22 +142,26 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         # Set the parent tool call id on the message if it's required,
         # so the frontend can properly display the message chain.
         message = self._set_message_parent_id(message, action.node_path)
+        produced_message: AssistantResultUnion | None = None
 
         # Root messages (no parent)
         if message.parent_tool_call_id is None:
-            # Messages with existing IDs must be deduplicated.
-            # Messages WITHOUT IDs must be streamed because they're progressive.
-            if hasattr(message, "id") and message.id is not None:
-                if message.id in self._streamed_update_ids:
-                    return None
-                self._streamed_update_ids.add(message.id)
-
-            return self._handle_root_message(message, node_name)
+            produced_message = self._handle_root_message(message, node_name)
         # AssistantMessage with parent creates AssistantUpdateEvent
         elif isinstance(message, AssistantMessage):
-            return self._handle_assistant_message_with_parent(action, message)
+            produced_message = self._handle_assistant_message_with_parent(action, message)
         # Other message types with parents (viz, notebook, failure, tool call)
-        return self._handle_special_child_message(message, node_name)
+        else:
+            produced_message = self._handle_special_child_message(message, node_name)
+
+        # Messages with existing IDs must be deduplicated.
+        # Messages WITHOUT IDs must be streamed because they're progressive.
+        if isinstance(produced_message, get_args(AssistantMessageUnion)) and message.id is not None:
+            if message.id in self._streamed_update_ids:
+                return None
+            self._streamed_update_ids.add(message.id)
+
+        return produced_message
 
     def _handle_root_message(
         self, message: AssistantMessageUnion, node_name: MaxNodeName
