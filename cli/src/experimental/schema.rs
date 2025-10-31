@@ -155,7 +155,7 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     }
 
     fs::write(&output_path, &response.content)
-        .context(format!("Failed to write {}", output_path))?;
+        .context(format!("Failed to write {output_path}"))?;
     info!("✓ Generated {}", output_path);
 
     // Update schema configuration for this language
@@ -168,7 +168,7 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     println!("\n✓ Schema sync complete!");
     println!("\nNext steps:");
     println!("  1. Import PostHog from your generated module:");
-    println!("     import posthog from './{}'", output_path);
+    println!("     import posthog from './{output_path}'");
     println!("  2. Use typed events with autocomplete and type safety:");
     println!("     posthog.captureTyped('event_name', {{ property: 'value' }})");
     println!("  3. Or use regular capture() for flexibility:");
@@ -201,8 +201,7 @@ fn determine_output_path(language: Language, output_override: Option<String>) ->
         "Your app will import PostHog from this file, so it should be accessible \
          throughout your codebase (e.g., src/lib/, app/lib/, or your project root). \
          This path will be saved in posthog.json and can be changed later. \
-         Current directory: {}",
-        current_dir
+         Current directory: {current_dir}"
     );
 
     let path = Text::new(&format!(
@@ -247,7 +246,7 @@ pub fn status() -> Result<()> {
                                &token.token[..4],
                                &token.token[token.token.len()-4..]
     );
-    println!("  Token: {}", masked_token);
+    println!("  Token: {masked_token}");
 
     println!();
 
@@ -267,7 +266,7 @@ pub fn status() -> Result<()> {
                 .map(|l| l.display_name())
                 .unwrap_or(language_str.as_str());
 
-            println!("  {}:", display);
+            println!("  {display}:");
             println!("    Hash: {}", lang_config.schema_hash);
             println!("    Updated: {}", lang_config.updated_at);
             println!("    Events: {}", lang_config.event_count);
