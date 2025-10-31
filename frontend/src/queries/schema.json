@@ -3594,9 +3594,12 @@
                     "type": "array"
                 },
                 "breakdown_values": {
-                    "description": "List of all breakdown values found in the results (e.g., [\"Chrome\", \"Safari\"])",
+                    "description": "List of all breakdown combinations found in the results (e.g., [[\"MacOS\", \"Chrome\"], [\"Windows\", \"Safari\"]])",
                     "items": {
-                        "type": "string"
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -4796,7 +4799,10 @@
                 },
                 "breakdown_values": {
                     "items": {
-                        "type": "string"
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -12336,15 +12342,18 @@
         },
         "ExperimentBreakdownResult": {
             "additionalProperties": false,
-            "description": "Represents experiment results for a single breakdown value. Each breakdown is treated as an independent A/B test with its own baseline and variants.",
+            "description": "Represents experiment results for a single breakdown combination. Each breakdown is treated as an independent A/B test with its own baseline and variants. For multiple breakdowns, values are in the same order as breakdownFilter.breakdowns.",
             "properties": {
                 "baseline": {
                     "$ref": "#/definitions/ExperimentStatsBaseValidated",
                     "description": "Control variant stats for this breakdown"
                 },
                 "breakdown_value": {
-                    "description": "The breakdown value (e.g., \"Chrome\", \"Safari\")",
-                    "type": "string"
+                    "description": "The breakdown values as an array (e.g., [\"MacOS\", \"Chrome\"] for multi-breakdown, [\"Chrome\"] for single)",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "variants": {
                     "anyOf": [
@@ -13195,9 +13204,12 @@
                     "type": "array"
                 },
                 "breakdown_values": {
-                    "description": "List of all breakdown values found in the results (e.g., [\"Chrome\", \"Safari\"])",
+                    "description": "List of all breakdown combinations found in the results (e.g., [[\"MacOS\", \"Chrome\"], [\"Windows\", \"Safari\"]])",
                     "items": {
-                        "type": "string"
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -18404,7 +18416,10 @@
                 },
                 "breakdown_values": {
                     "items": {
-                        "type": "string"
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -20325,9 +20340,12 @@
                             "type": "array"
                         },
                         "breakdown_values": {
-                            "description": "List of all breakdown values found in the results (e.g., [\"Chrome\", \"Safari\"])",
+                            "description": "List of all breakdown combinations found in the results (e.g., [[\"MacOS\", \"Chrome\"], [\"Windows\", \"Safari\"]])",
                             "items": {
-                                "type": "string"
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
                             },
                             "type": "array"
                         },
