@@ -9,7 +9,7 @@ from ee.hogai.assistant.insights_assistant import InsightsAssistant
 class TestMaxToolsAPI(APIBaseTest):
     @patch.object(InsightsAssistant, "invoke")
     def test_create_and_query_insight_returns_json(self, mock_generate):
-        mock_generate.return_value = [("message", AssistantMessage(content="Creating your insight", role="assistant"))]
+        mock_generate.return_value = [AssistantMessage(content="Creating your insight", role="assistant")]
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/max_tools/create_and_query_insight/",

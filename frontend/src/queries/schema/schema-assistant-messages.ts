@@ -243,15 +243,6 @@ export interface AssistantUpdateEvent {
     content: string
 }
 
-export enum AssistantGenerationStatusType {
-    Acknowledged = 'ack',
-    GenerationError = 'generation_error',
-}
-
-export interface AssistantGenerationStatusEvent {
-    type: AssistantGenerationStatusType
-}
-
 export interface AssistantToolCallMessage extends BaseAssistantMessage {
     type: AssistantMessageType.ToolCall
     /**

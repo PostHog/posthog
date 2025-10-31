@@ -9,12 +9,15 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
+from posthog.schema import AssistantEventType
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer
 
+from ee.hogai.assistant import Assistant
 from ee.hogai.utils.types import AssistantMode, AssistantState
 from ee.models.assistant import Conversation
 
@@ -53,8 +56,6 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         required_scopes=["insight:read", "query:read"],
     )
     def create_and_query_insight(self, request: Request, *args, **kwargs):
-        from ee.hogai.assistant import Assistant
-
         serializer = InsightsToolCallSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         conversation = self.get_queryset().create(user=request.user, team=self.team, type=Conversation.Type.TOOL_CALL)
@@ -69,7 +70,7 @@ class MaxToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         return Response(
             [
-                {"type": event_type, "data": data.model_dump(exclude_none=True)}
-                for event_type, data in assistant.invoke()
+                {"type": AssistantEventType.MESSAGE, "data": message.model_dump(exclude_none=True)}
+                for message in assistant.invoke()
             ]
         )

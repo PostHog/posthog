@@ -14,8 +14,6 @@ from unittest.mock import MagicMock
 from langchain_core.messages import AIMessageChunk
 
 from posthog.schema import (
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
@@ -58,14 +56,11 @@ class TestStreamProcessor(BaseTest):
         """Helper to create a dispatcher event for testing."""
         return AssistantDispatcherEvent(action=action, node_name=node_name)
 
-    def test_node_start_action_returns_ack(self):
-        """Test NODE_START action returns ACK status event."""
+    def test_node_start_action_returns_none(self):
+        """Test NODE_START action returns None."""
         event = self._create_dispatcher_event(NodeStartAction())
         result = self.stream_processor.process(event)
-
-        self.assertIsNotNone(result)
-        result = cast(AssistantGenerationStatusEvent, result)
-        self.assertEqual(result.type, AssistantGenerationStatusType.ACK)
+        self.assertIsNone(result)
 
     def test_message_with_tool_calls_stores_in_registry(self):
         """Test AssistantMessage with tool_calls is stored in _tool_call_id_to_message."""
@@ -141,19 +136,17 @@ class TestStreamProcessor(BaseTest):
         self.assertEqual(result.id, root_message.id)
         self.assertEqual(result.tool_call_id, root_tool_call_id)
 
-    def test_missing_parent_message_returns_ack(self):
-        """Test that missing parent message returns ACK."""
+    def test_missing_parent_message_returns_none(self):
+        """Test that missing parent message returns None."""
         missing_parent_id = str(uuid4())
         child_message = AssistantMessage(content="Orphan", parent_tool_call_id=missing_parent_id)
 
         event = self._create_dispatcher_event(MessageAction(message=child_message))
 
         result = self.stream_processor.process(event)
-        self.assertIsInstance(result, AssistantGenerationStatusEvent)
-        result = cast(AssistantGenerationStatusEvent, result)
-        self.assertEqual(result.type, AssistantGenerationStatusType.ACK)
+        self.assertIsNone(result)
 
-    def test_parent_without_id_returns_ack(self):
+    def test_parent_without_id_returns_none(self):
         """Test that parent message without ID logs warning and returns None."""
         parent_tool_call_id = str(uuid4())
         # Parent message WITHOUT an id
@@ -169,9 +162,7 @@ class TestStreamProcessor(BaseTest):
         event = self._create_dispatcher_event(MessageAction(message=child_message))
 
         result = self.stream_processor.process(event)
-        self.assertIsInstance(result, AssistantGenerationStatusEvent)
-        result = cast(AssistantGenerationStatusEvent, result)
-        self.assertEqual(result.type, AssistantGenerationStatusType.ACK)
+        self.assertIsNone(result)
 
     def test_visualization_message_in_visualization_nodes(self):
         """Test VisualizationMessage is returned when node is in VISUALIZATION_NODES."""
@@ -211,7 +202,7 @@ class TestStreamProcessor(BaseTest):
         event = self._create_dispatcher_event(MessageAction(message=viz_message), node_name=node_name)
 
         result = self.stream_processor.process(event)
-        self.assertEqual(result, AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK))
+        self.assertIsNone(result)
 
     def test_multi_visualization_message_in_visualization_nodes(self):
         """Test MultiVisualizationMessage is returned when node is in VISUALIZATION_NODES."""
@@ -272,7 +263,7 @@ class TestStreamProcessor(BaseTest):
         self.assertEqual(result, failure_message)
 
     def test_assistant_tool_call_message_returns_as_is(self):
-        """Test AssistantToolCallMessage with parent is filtered out (returns ACK)."""
+        """Test AssistantToolCallMessage with parent is filtered out (returns None)."""
         tool_call_message = AssistantToolCallMessage(content="Tool result", tool_call_id=str(uuid4()))
         tool_call_message.parent_tool_call_id = str(uuid4())
 
@@ -288,12 +279,10 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         # New behavior: AssistantToolCallMessages with parents are filtered out
-        self.assertIsInstance(result, AssistantGenerationStatusEvent)
-        result = cast(AssistantGenerationStatusEvent, result)
-        self.assertEqual(result.type, AssistantGenerationStatusType.ACK)
+        self.assertIsNone(result)
 
     def test_cycle_detection_in_parent_chain(self):
-        """Test that circular parent chains are detected and returns ACK."""
+        """Test that circular parent chains are detected and returns None."""
         # Create circular chain: A -> B -> A
         tool_call_a = str(uuid4())
         tool_call_b = str(uuid4())
@@ -321,10 +310,8 @@ class TestStreamProcessor(BaseTest):
 
         result = self.stream_processor.process(event)
 
-        # Cycle detection returns ACK instead of raising error
-        self.assertIsInstance(result, AssistantGenerationStatusEvent)
-        result = cast(AssistantGenerationStatusEvent, result)
-        self.assertEqual(result.type, AssistantGenerationStatusType.ACK)
+        # Cycle detection returns None instead of raising error
+        self.assertIsNone(result)
 
     def test_handles_mixed_content_types_in_chunks(self):
         """Test that stream processor correctly handles switching between string and list content formats."""
@@ -414,16 +401,12 @@ class TestStreamProcessor(BaseTest):
         # Process second message with same ID - should return ACK
         event2 = self._create_dispatcher_event(MessageAction(message=message2))
         result2 = self.stream_processor.process(event2)
-        self.assertIsInstance(result2, AssistantGenerationStatusEvent)
-        result2 = cast(AssistantGenerationStatusEvent, result2)
-        self.assertEqual(result2.type, AssistantGenerationStatusType.ACK)
+        self.assertIsNone(result2)
 
         # Process third message with same ID - should also return ACK
         event3 = self._create_dispatcher_event(MessageAction(message=message3))
         result3 = self.stream_processor.process(event3)
-        self.assertIsInstance(result3, AssistantGenerationStatusEvent)
-        result3 = cast(AssistantGenerationStatusEvent, result3)
-        self.assertEqual(result3.type, AssistantGenerationStatusType.ACK)
+        self.assertIsNone(result3)
 
     def test_stream_processor_with_preexisting_message_ids(self):
         """Test that stream processor correctly filters messages when initialized with existing IDs."""
@@ -437,9 +420,7 @@ class TestStreamProcessor(BaseTest):
         message1 = AssistantMessage(id=message_id_1, content="Already seen")
         event1 = self._create_dispatcher_event(MessageAction(message=message1))
         result1 = self.stream_processor.process(event1)
-        self.assertIsInstance(result1, AssistantGenerationStatusEvent)
-        result1 = cast(AssistantGenerationStatusEvent, result1)
-        self.assertEqual(result1.type, AssistantGenerationStatusType.ACK)
+        self.assertIsNone(result1)
 
         # Process message with new ID - should be yielded
         message2 = AssistantMessage(id=message_id_2, content="New message")

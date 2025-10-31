@@ -142,11 +142,6 @@ class AssistantFunnelsMath(StrEnum):
     FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
 
-class AssistantGenerationStatusType(StrEnum):
-    ACK = "ack"
-    GENERATION_ERROR = "generation_error"
-
-
 class AssistantGenericMultipleBreakdownFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3344,13 +3339,6 @@ class AssistantFunnelsFilter(BaseModel):
         default=FunnelLayout.VERTICAL,
         description="Controls how the funnel chart is displayed: vertically (preferred) or horizontally.",
     )
-
-
-class AssistantGenerationStatusEvent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    type: AssistantGenerationStatusType
 
 
 class AssistantGenericPropertyFilter1(BaseModel):

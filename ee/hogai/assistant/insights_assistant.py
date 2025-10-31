@@ -2,33 +2,19 @@ from collections.abc import AsyncGenerator
 from typing import Any, Optional
 from uuid import UUID
 
-from posthog.schema import (
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
-    AssistantMessage,
-    HumanMessage,
-    MaxBillingContext,
-    VisualizationMessage,
-)
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
 
 from posthog.models import Team, User
 
 from ee.hogai.assistant.base import BaseAssistant
-from ee.hogai.graph import FunnelGeneratorNode, RetentionGeneratorNode, SQLGeneratorNode, TrendsGeneratorNode
-from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.graph import InsightsAssistantGraph
-from ee.hogai.graph.query_executor.nodes import QueryExecutorNode
-from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
-from ee.hogai.utils.state import GraphValueUpdateTuple, validate_value_update
-from ee.hogai.utils.types import (
+from ee.hogai.utils.types.base import (
+    AssistantDispatcherEvent,
     AssistantMode,
-    AssistantNodeName,
-    AssistantOutput,
     AssistantState,
+    MessageAction,
     PartialAssistantState,
 )
-from ee.hogai.utils.types.base import AssistantResultUnion
-from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
 
 
@@ -67,22 +53,6 @@ class InsightsAssistant(BaseAssistant):
             initial_state=initial_state,
         )
 
-    @property
-    def VISUALIZATION_NODES(self) -> dict[MaxNodeName, type[BaseAssistantNode]]:
-        return {
-            AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
-            AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
-            AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
-            AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
-            AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
-        }
-
-    @property
-    def STREAMING_NODES(self) -> set[MaxNodeName]:
-        return {
-            TaxonomyNodeName.LOOP_NODE,
-        }
-
     def get_initial_state(self) -> AssistantState:
         return AssistantState(messages=[])
 
@@ -93,29 +63,23 @@ class InsightsAssistant(BaseAssistant):
             messages=[self._latest_message], graph_status="resumed", query_generation_retry_count=0
         )
 
-    async def astream(
-        self,
-        stream_message_chunks: bool = True,
-        stream_subgraphs: bool = True,
-        stream_first_message: bool = False,
-        stream_only_assistant_messages: bool = False,
-    ) -> AsyncGenerator[AssistantOutput, None]:
+    async def astream(self, stream_first_message: bool = False) -> AsyncGenerator[AssistantDispatcherEvent, None]:
         last_ai_message: AssistantMessage | None = None
         last_viz_message: VisualizationMessage | None = None
 
-        # stream_first_message is always False for this mode
-        async for stream_event in super().astream(
-            stream_message_chunks, stream_subgraphs, False, stream_only_assistant_messages
-        ):
-            _, message = stream_event
-            if isinstance(message, VisualizationMessage):
-                last_viz_message = message
-            if isinstance(message, AssistantMessage):
-                last_ai_message = message
-            yield stream_event
+        async for dispatcher_event in super().astream(stream_first_message=stream_first_message):
+            # Track messages for reporting
+            if isinstance(dispatcher_event.action, MessageAction):
+                message = dispatcher_event.action.message
+                if isinstance(message, VisualizationMessage):
+                    last_viz_message = message
+                if isinstance(message, AssistantMessage):
+                    last_ai_message = message
+            yield dispatcher_event
 
         if not self._initial_state:
             return
+
         visualization_response = last_viz_message.model_dump_json(exclude_none=True) if last_viz_message else None
         await self._report_conversation_state(
             "standalone ai tool call",
@@ -127,13 +91,3 @@ class InsightsAssistant(BaseAssistant):
                 "is_new_conversation": False,
             },
         )
-
-    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
-        _, maybe_state_update = update
-        state_update = validate_value_update(maybe_state_update)
-        if intersected_nodes := state_update.keys() & self.VISUALIZATION_NODES.keys():
-            node_name: MaxNodeName = intersected_nodes.pop()
-            node_val = state_update[node_name]
-            if isinstance(node_val, PartialAssistantState) and node_val.intermediate_steps:
-                return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-        return await super()._aprocess_value_update(update)

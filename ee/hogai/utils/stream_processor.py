@@ -4,8 +4,6 @@ import structlog
 from langchain_core.messages import AIMessageChunk
 
 from posthog.schema import (
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
     AssistantMessage,
     AssistantToolCallMessage,
     AssistantUpdateEvent,
@@ -81,7 +79,8 @@ class AssistantStreamProcessor:
             return self._handle_message_stream(action.message, cast(MaxNodeName, node_name))
 
         if isinstance(action, NodeStartAction):
-            return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
+            # These are only used to keep the thread alive, we don't need to return anything for them
+            return None
 
         if isinstance(action, MessageAction):
             message = action.message
@@ -89,9 +88,7 @@ class AssistantStreamProcessor:
             # Register any tool calls for later parent chain lookups
             self._register_tool_calls(message)
             result = self._handle_message(message, cast(MaxNodeName, node_name))
-            return (
-                result if result is not None else AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
-            )
+            return result if result is not None else None
 
     def _find_parent_ids(self, message: AssistantMessage) -> tuple[str | None, str | None]:
         """

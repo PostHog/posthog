@@ -1141,20 +1141,6 @@
             "required": ["kind", "series"],
             "type": "object"
         },
-        "AssistantGenerationStatusEvent": {
-            "additionalProperties": false,
-            "properties": {
-                "type": {
-                    "$ref": "#/definitions/AssistantGenerationStatusType"
-                }
-            },
-            "required": ["type"],
-            "type": "object"
-        },
-        "AssistantGenerationStatusType": {
-            "enum": ["ack", "generation_error"],
-            "type": "string"
-        },
         "AssistantGenericMultipleBreakdownFilter": {
             "additionalProperties": false,
             "properties": {

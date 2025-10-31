@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
-from typing import Any, Literal, Optional, cast, get_args
+from typing import Any, Optional, cast
 from uuid import UUID, uuid4
 
 import structlog
@@ -16,35 +16,25 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import StreamMode
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
-from posthog.schema import (
-    AssistantEventType,
-    AssistantGenerationStatusEvent,
-    AssistantMessage,
-    AssistantUpdateEvent,
-    FailureMessage,
-    HumanMessage,
-    MaxBillingContext,
-)
+from posthog.schema import AssistantMessage, FailureMessage, HumanMessage, MaxBillingContext
 
 from posthog import event_usage
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import extract_stream_update
-from ee.hogai.utils.state import (
-    GraphValueUpdateTuple,
-    is_message_update,
-    is_state_update,
-    is_value_update,
-    validate_state_update,
+from ee.hogai.utils.state import is_message_update, is_state_update, validate_state_update
+from ee.hogai.utils.types.base import (
+    AssistantDispatcherEvent,
+    AssistantMessageUnion,
+    AssistantMode,
+    AssistantNodeName,
+    MessageAction,
+    MessageChunkAction,
 )
-from ee.hogai.utils.stream_processor import AssistantStreamProcessor
-from ee.hogai.utils.types import AssistantMessageUnion, AssistantOutput
-from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMode, AssistantResultUnion, MessageChunkAction
-from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState, MaxNodeName
+from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPartialGraphState
 from ee.models import Conversation
 
 logger = structlog.get_logger(__name__)
@@ -66,8 +56,6 @@ class BaseAssistant(ABC):
     _trace_id: Optional[str | UUID]
     _billing_context: Optional[MaxBillingContext]
     _initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState]
-    _stream_processor: AssistantStreamProcessor
-    """The stream processor that processes dispatcher actions and message chunks."""
 
     def __init__(
         self,
@@ -120,23 +108,6 @@ class BaseAssistant(ABC):
         self._billing_context = billing_context
         self._mode = mode
         self._initial_state = initial_state
-        # Initialize the stream processor with node configuration
-        self._stream_processor = AssistantStreamProcessor(
-            streaming_nodes=self.STREAMING_NODES,
-            visualization_nodes=self.VISUALIZATION_NODES,
-        )
-
-    @property
-    @abstractmethod
-    def VISUALIZATION_NODES(self) -> dict[MaxNodeName, type[BaseAssistantNode]]:
-        """Nodes that can generate visualizations."""
-        pass
-
-    @property
-    @abstractmethod
-    def STREAMING_NODES(self) -> set[MaxNodeName]:
-        """Nodes that can stream messages to the client."""
-        pass
 
     @abstractmethod
     def get_initial_state(self) -> AssistantMaxGraphState:
@@ -148,67 +119,52 @@ class BaseAssistant(ABC):
         """The state of the graph after a resume."""
         pass
 
-    async def ainvoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
+    async def ainvoke(self) -> list[AssistantMessageUnion]:
         """Returns all messages at once without streaming."""
-        messages: list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]] = []
+        messages: list[AssistantMessageUnion] = []
 
-        async for event_type, message in self.astream(
-            stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
-        ):
-            messages.append(
-                (cast(Literal[AssistantEventType.MESSAGE], event_type), cast(AssistantMessageUnion, message))
-            )
+        async for dispatcher_event in self.astream():
+            # Only collect MESSAGE events
+            if isinstance(dispatcher_event.action, MessageAction):
+                messages.append(cast(AssistantMessageUnion, dispatcher_event.action.message))
         return messages
 
     @async_to_sync
-    async def invoke(self) -> list[tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]]:
+    async def invoke(self) -> list[AssistantMessageUnion]:
         """Sync method. Returns all messages in once without streaming."""
         return await self.ainvoke()
 
-    async def astream(
-        self,
-        stream_message_chunks: bool = True,
-        stream_subgraphs: bool = True,
-        stream_first_message: bool = True,
-        stream_only_assistant_messages: bool = False,
-    ) -> AsyncGenerator[AssistantOutput, None]:
+    async def astream(self, stream_first_message: bool = True) -> AsyncGenerator[AssistantDispatcherEvent, None]:
+        """Yields raw AssistantDispatcherEvent objects.
+
+        Args:
+            None
+
+        Returns:
+            Generator yielding AssistantDispatcherEvent objects
+        """
         state = await self._init_or_update_state()
         config = self._get_config()
 
-        stream_mode: list[StreamMode] = ["values", "updates", "custom"]
-        if stream_message_chunks:
-            stream_mode.append("messages")
+        stream_mode: list[StreamMode] = ["updates", "custom", "messages"]
 
         generator: AsyncIterator[Any] = self._graph.astream(
-            state, config=config, stream_mode=stream_mode, subgraphs=stream_subgraphs
+            state, config=config, stream_mode=stream_mode, subgraphs=True
         )
 
         async with self._lock_conversation():
-            # Assign the conversation id to the client.
-            if not stream_only_assistant_messages and self._is_new_conversation:
-                yield AssistantEventType.CONVERSATION, self._conversation
-
             if stream_first_message and self._latest_message:
-                # Send the latest received human message with the initialized id.
-                yield AssistantEventType.MESSAGE, self._latest_message
+                yield AssistantDispatcherEvent(
+                    action=MessageAction(message=self._latest_message), node_name=AssistantNodeName.ROOT
+                )
 
             try:
                 async for update in generator:
-                    if messages := await self._process_update(update):
-                        for message in messages:
-                            if isinstance(message, get_args(AssistantMessageUnion)):
-                                message = cast(AssistantMessageUnion, message)
-                                yield AssistantEventType.MESSAGE, message
+                    # Yield raw dispatcher events without processing
+                    if dispatcher_event := self._extract_dispatcher_event(update):
+                        yield dispatcher_event
 
-                            if stream_only_assistant_messages:
-                                continue
-
-                            if isinstance(message, AssistantGenerationStatusEvent):
-                                yield AssistantEventType.STATUS, message
-                            elif isinstance(message, AssistantUpdateEvent):
-                                yield AssistantEventType.UPDATE, message
-
-                # Check if the assistant has requested help.
+                # Check if the assistant has requested help (interrupts)
                 state = await self._graph.aget_state(config)
                 if state.next:
                     interrupt_messages = []
@@ -220,7 +176,10 @@ class BaseAssistant(ABC):
                                 else interrupt.value
                             )
                             interrupt_messages.append(interrupt_message)
-                            yield AssistantEventType.MESSAGE, interrupt_message
+                            # Yield interrupt message as dispatcher event with the node name from the task
+                            yield AssistantDispatcherEvent(
+                                action=MessageAction(message=interrupt_message), node_name=task.name
+                            )
 
                     await self._graph.aupdate_state(
                         config,
@@ -231,15 +190,13 @@ class BaseAssistant(ABC):
                         ),
                     )
             except GraphRecursionError:
-                yield (
-                    AssistantEventType.MESSAGE,
-                    FailureMessage(
-                        content="The assistant has reached the maximum number of steps. You can explicitly ask to continue.",
-                        id=str(uuid4()),
-                    ),
+                failure = FailureMessage(
+                    content="The assistant has reached the maximum number of steps. You can explicitly ask to continue.",
+                    id=str(uuid4()),
                 )
+                yield AssistantDispatcherEvent(action=MessageAction(message=failure), node_name=AssistantNodeName.ROOT)
             except Exception as e:
-                # Reset the state, so that the next generation starts from the beginning.
+                # Reset the state
                 await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
 
                 if not isinstance(e, GenerationCanceled):
@@ -251,7 +208,9 @@ class BaseAssistant(ABC):
                     state_snapshot = validate_state_update(snapshot.values, self._state_type)
                     # Some nodes might have already sent a failure message, so we don't want to send another one.
                     if not state_snapshot.messages or not isinstance(state_snapshot.messages[-1], FailureMessage):
-                        yield AssistantEventType.MESSAGE, FailureMessage()
+                        yield AssistantDispatcherEvent(
+                            action=MessageAction(message=FailureMessage()), node_name=AssistantNodeName.ROOT
+                        )
 
     def _get_config(self) -> RunnableConfig:
         callbacks = [self._callback_handler] if self._callback_handler else None
@@ -283,15 +242,6 @@ class BaseAssistant(ABC):
         saved_state = validate_state_update(snapshot.values, self._state_type)
         last_recorded_dt = saved_state.start_dt
 
-        # Add existing ids to streamed messages, so we don't send the messages again.
-        for message in saved_state.messages:
-            if message.id is not None:
-                self._stream_processor._streamed_update_ids.add(message.id)
-
-        # Add the latest message id to streamed messages, so we don't send it multiple times.
-        if self._latest_message and self._latest_message.id is not None:
-            self._stream_processor._streamed_update_ids.add(self._latest_message.id)
-
         # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
         if snapshot.next and self._latest_message and saved_state.graph_status == "interrupted":
             self._state = saved_state
@@ -319,32 +269,28 @@ class BaseAssistant(ABC):
         self._state = initial_state
         return initial_state
 
-    async def _process_update(self, update: Any) -> list[AssistantResultUnion] | None:
+    def _extract_dispatcher_event(self, update: Any) -> AssistantDispatcherEvent | None:
+        """Extract raw dispatcher event from LangGraph update."""
         update = extract_stream_update(update)
 
-        new_message: AssistantResultUnion | None = None
-        if not isinstance(update, AssistantDispatcherEvent):
-            if is_state_update(update):
-                _, new_state = update
-                self._state = validate_state_update(new_state, self._state_type)
-            elif is_value_update(update) and (new_message := await self._aprocess_value_update(update)):
-                return [new_message]
+        # Pass through dispatcher events as-is (check first before other tuple checks)
+        if isinstance(update, AssistantDispatcherEvent):
+            return update
 
-            if is_message_update(update):
-                # Convert the message chunk update to a dispatcher event to prepare for a bright future without LangGraph
-                message, state = update[1]
-                if not isinstance(message, AIMessageChunk):
-                    return None
-                update = AssistantDispatcherEvent(
+        # Handle state updates (track internally but don't yield)
+        if is_state_update(update):
+            _, new_state = update
+            self._state = validate_state_update(new_state, self._state_type)
+            return None
+
+        # Convert LangGraph message chunks to dispatcher events
+        if is_message_update(update):
+            message, state = update[1]
+            if isinstance(message, AIMessageChunk):
+                return AssistantDispatcherEvent(
                     action=MessageChunkAction(message=message), node_name=state["langgraph_node"]
                 )
 
-        if isinstance(update, AssistantDispatcherEvent) and (new_message := self._stream_processor.process(update)):
-            return [new_message] if new_message else None
-
-        return None
-
-    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
         return None
 
     def _build_root_config_for_persistence(self) -> RunnableConfig:
