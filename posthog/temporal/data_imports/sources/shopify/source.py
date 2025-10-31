@@ -63,6 +63,7 @@ The simplest setup for permissions is to only allow **read** permissions for the
                     ),
                 ],
             ),
+            unreleasedSource=True,
             betaSource=True,
             featureFlag="shopify-dwh",
         )

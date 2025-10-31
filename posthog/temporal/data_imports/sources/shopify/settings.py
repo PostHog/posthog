@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
@@ -9,9 +10,11 @@ from posthog.temporal.data_imports.sources.shopify.constants import (
     COLLECTIONS,
     CREATED_AT,
     CUSTOMERS,
+    DISCOUNT_NODES,
     ID,
     UPDATED_AT,
 )
+from posthog.temporal.data_imports.sources.shopify.utils import safe_set, unwrap
 from posthog.warehouse.types import IncrementalField, IncrementalFieldType
 
 
@@ -26,6 +29,8 @@ class ShopifyEndpointConfig:
     partition_mode: PartitionMode | None = "datetime"
     partition_format: PartitionFormat | None = "week"
     partition_keys: list[str] = field(default_factory=lambda: [CREATED_AT])
+    incremental_field_resolver: Callable | None = None
+    partition_key_resolver: Callable | None = None
 
 
 ENDPOINT_CONFIGS: dict[str, ShopifyEndpointConfig] = {
@@ -95,5 +100,22 @@ ENDPOINT_CONFIGS: dict[str, ShopifyEndpointConfig] = {
             },
         ],
         query_filter=UPDATED_AT,
+    ),
+    DISCOUNT_NODES: ShopifyEndpointConfig(
+        fields=[
+            {
+                "label": "updatedAt",
+                "type": IncrementalFieldType.Timestamp,
+                "field": UPDATED_AT,
+                "field_type": IncrementalFieldType.Timestamp,
+            },
+        ],
+        query_filter=UPDATED_AT,
+        incremental_field_resolver=lambda row: safe_set(
+            row, path="updatedAt", value=unwrap(row, path="discount.updatedAt")
+        ),
+        partition_key_resolver=lambda row: safe_set(
+            row, path="createdAt", value=unwrap(row, path="discount.createdAt")
+        ),
     ),
 }
