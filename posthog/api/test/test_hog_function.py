@@ -192,9 +192,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         sync_template_to_db(webhook_template)
         sync_template_to_db(geoip_template)
 
-        # Create the action referenced in EXAMPLE_FULL
-        if not Action.objects.filter(id=9, team=self.team).exists():
-            Action.objects.create(id=9, name="Test Action", team=self.team, created_by=self.user)
+        # Create the action referenced in EXAMPLE_FULL (use auto-generated ID to avoid sequence collision)
+        self.test_action, _ = Action.objects.get_or_create(
+            name="Test Action", team=self.team, defaults={"created_by": self.user}
+        )
+        # Update EXAMPLE_FULL to use the actual action ID
+        EXAMPLE_FULL["filters"]["actions"][0]["id"] = str(self.test_action.id)
 
     def _get_function_activity(
         self,
