@@ -29,6 +29,9 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     extract_session_group_patterns_activity,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
+from posthog.temporal.ai.session_summary.activities.video_validation import (
+    validate_llm_single_session_summary_with_videos_activity,
+)
 from posthog.temporal.ai.session_summary.state import (
     StateActivitiesEnum,
     _compress_redis_data,
@@ -932,6 +935,7 @@ class TestSummarizeSessionGroupWorkflow:
                         fetch_session_batch_events_activity,
                         combine_patterns_from_chunks_activity,
                         split_session_summaries_into_chunks_for_patterns_extraction_activity,
+                        validate_llm_single_session_summary_with_videos_activity,
                     ],
                     workflow_runner=UnsandboxedWorkflowRunner(),
                 ) as worker:
@@ -1186,6 +1190,79 @@ class TestSummarizeSessionGroupWorkflow:
                 if any(status_pattern in message for message in status_messages):
                     found_status_patterns.append(status_pattern)
             assert len(found_status_patterns) > 0
+
+    @pytest.mark.asyncio
+    async def test_video_validation_called_when_enabled(
+        self,
+        mocker: MockerFixture,
+        mock_session_id: str,
+        auser: User,
+        ateam: Team,
+        mock_call_llm: Callable,
+        mock_raw_metadata: dict[str, Any],
+        mock_valid_event_ids: list[str],
+        mock_session_group_summary_inputs: Callable,
+        mock_patterns_extraction_yaml_response: str,
+        mock_patterns_assignment_yaml_response: str,
+        mock_cached_session_batch_events_query_response_factory: Callable,
+        redis_test_setup: AsyncRedisTestContext,
+        mock_session_summary_serializer: SessionSummarySerializer,
+    ):
+        """Test that the workflow completes successfully and returns the expected result"""
+        session_ids, workflow_id, workflow_input = self.setup_workflow_test(
+            mock_session_id, mock_session_group_summary_inputs, "success", auser.id, ateam.id
+        )
+        # Enable video validation
+        workflow_input = SessionGroupSummaryInputs(
+            session_ids=workflow_input.session_ids,
+            user_id=workflow_input.user_id,
+            team_id=workflow_input.team_id,
+            redis_key_base=workflow_input.redis_key_base,
+            min_timestamp_str=workflow_input.min_timestamp_str,
+            max_timestamp_str=workflow_input.max_timestamp_str,
+            model_to_use=workflow_input.model_to_use,
+            extra_summary_context=workflow_input.extra_summary_context,
+            local_reads_prod=workflow_input.local_reads_prod,
+            video_validation_enabled=True,
+        )
+        # Store session summaries in DB for each session (following the new approach)
+        for session_id in session_ids:
+            await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
+                team_id=ateam.id,
+                session_id=session_id,
+                summary=mock_session_summary_serializer,
+                exception_event_ids=[],
+                extra_summary_context=workflow_input.extra_summary_context,
+                created_by=auser,
+            )
+        # Create mock for video validation class to avoid LLM calls and video generation
+        mocket_video_validator = mocker.MagicMock()
+        mocket_video_validator.validate_session_summary_with_videos = mocker.AsyncMock(return_value=None)
+        # Run the workflow to verify the activity was called
+        async with self.temporal_workflow_test_environment(
+            session_ids,
+            mock_call_llm,
+            ateam,
+            mock_raw_metadata,
+            mock_valid_event_ids,
+            mock_patterns_extraction_yaml_response,
+            mock_patterns_assignment_yaml_response,
+            mock_cached_session_batch_events_query_response_factory,
+            custom_content=None,
+        ) as (activity_environment, worker):
+            with mocker.patch(
+                "posthog.temporal.ai.session_summary.activities.video_validation.SessionSummaryVideoValidator",
+                return_value=mocket_video_validator,
+            ):
+                # Wait for workflow to complete and get result
+                await activity_environment.client.execute_workflow(
+                    SummarizeSessionGroupWorkflow.run,
+                    workflow_input,
+                    id=workflow_id,
+                    task_queue=worker.task_queue,
+                )
+                # Verify video validation was called for each session
+                assert mocket_video_validator.validate_session_summary_with_videos.call_count == len(session_ids)
 
 
 @pytest.mark.asyncio
