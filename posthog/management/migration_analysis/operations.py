@@ -438,9 +438,23 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 )
             return OperationRisk(
                 type=self.operation_type,
-                score=1,
-                reason="DROP CONSTRAINT is fast (just removes metadata)",
+                score=2,
+                reason="DROP CONSTRAINT is fast but needs deployment safety review",
                 details={"sql": sql},
+                guidance=f"""⚠️ **Deployment Safety:** While `DROP CONSTRAINT` is instant (no table lock), dropping constraints can break running code during rolling deployments.
+
+**Safe pattern:**
+1. Ensure no running code relies on the constraint (uniqueness checks, foreign key validation, etc.)
+2. If replacing with a new constraint, deploy the new one first
+3. Wait at least one full deployment cycle before dropping the old constraint
+4. Consider keeping unused constraints if removal risk outweighs benefits
+
+**Common scenarios:**
+- Dropping UNIQUE constraints: Ensure code handles potential duplicates
+- Dropping FOREIGN KEY constraints: Ensure code doesn't assume referential integrity
+- Replacing constraints: Add new → deploy → wait → drop old
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL})""",
             )
 
         # Check for metadata-only operations (safe and instant)
