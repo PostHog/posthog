@@ -5,6 +5,7 @@ from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 
 from django_filters.rest_framework import DjangoFilterBackend
+from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.exceptions import Throttled, ValidationError
@@ -40,6 +41,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
@@ -101,6 +103,25 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return Response({"results": results})
 
+    def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
+        """Retrieve an endpoint."""
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        return Response(
+            {
+                "id": str(endpoint.id),
+                "name": endpoint.name,
+                "description": endpoint.description,
+                "query": endpoint.query,
+                "parameters": endpoint.parameters,
+                "is_active": endpoint.is_active,
+                "endpoint_path": endpoint.endpoint_path,
+                "created_at": endpoint.created_at,
+                "updated_at": endpoint.updated_at,
+                "created_by": UserBasicSerializer(endpoint.created_by).data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
     def validate_request(self, data: EndpointRequest, strict: bool = True) -> None:
         query = data.query
         if not query and strict:
@@ -137,6 +158,18 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 is_active=data.is_active if data.is_active is not None else True,
             )
 
+            # Activity log: created
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(endpoint.id),
+                scope="Endpoint",
+                activity="created",
+                detail=Detail(name=endpoint.name),
+            )
+
             return Response(
                 {
                     "id": str(endpoint.id),
@@ -164,6 +197,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def update(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Update an existing endpoint."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        # Capture a snapshot for diffing
+        try:
+            before_update = Endpoint.objects.get(pk=endpoint.id)
+        except Endpoint.DoesNotExist:
+            before_update = None
 
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, EndpointRequest)
@@ -180,6 +218,19 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 endpoint.is_active = data.is_active
 
             endpoint.save()
+
+            # Activity log: updated with field diffs
+            changes = changes_between("Endpoint", previous=before_update, current=endpoint)
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(endpoint.id),
+                scope="Endpoint",
+                activity="updated",
+                detail=Detail(name=endpoint.name, changes=changes),
+            )
 
             return Response(
                 {

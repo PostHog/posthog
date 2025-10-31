@@ -17,6 +17,9 @@ import {
     ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
+    ExperimentFunnelsQuery,
+    ExperimentMetric,
+    ExperimentTrendsQuery,
     FunnelsQuery,
     GoalLine,
     GroupsQuery,
@@ -242,6 +245,12 @@ export function isRevenueExampleDataWarehouseTablesQuery(
 
 export function isErrorTrackingQuery(node?: Record<string, any> | null): node is ErrorTrackingQuery {
     return node?.kind === NodeKind.ErrorTrackingQuery
+}
+
+export function isExperimentMetric(
+    metric: ExperimentMetric | ExperimentFunnelsQuery | ExperimentTrendsQuery
+): metric is ExperimentMetric {
+    return metric.kind === NodeKind.ExperimentMetric
 }
 
 export function isErrorTrackingIssueCorrelationQuery(

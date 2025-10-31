@@ -2826,6 +2826,7 @@ dependencies = [
  "common-cookieless",
  "common-database",
  "common-geoip",
+ "common-hypercache",
  "common-metrics",
  "common-redis",
  "common-types",
@@ -2833,6 +2834,7 @@ dependencies = [
  "envconfig",
  "futures",
  "health",
+ "hex",
  "json5",
  "limiters",
  "md5",
@@ -2841,6 +2843,7 @@ dependencies = [
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.22.1",
+ "pbkdf2",
  "percent-encoding",
  "petgraph",
  "rand 0.8.5",
@@ -2853,6 +2856,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "sha2",
  "sqlx",
  "strum 0.26.3",
  "test-case",
@@ -5368,6 +5372,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "password-hash"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "346f04948ba92c43e8469c1ee6736c7563d71012b17d40745260fe106aac2166"
+dependencies = [
+ "base64ct",
+ "rand_core 0.6.4",
+ "subtle",
+]
+
+[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5381,6 +5396,8 @@ checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
 dependencies = [
  "digest",
  "hmac",
+ "password-hash",
+ "sha2",
 ]
 
 [[package]]

@@ -46,6 +46,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttribu
                     showExport: false,
                     showDateRange: false,
                     showPropertyFilter: false,
+                    showTimings: false,
                 }}
                 context={context}
                 setQuery={(query) => {

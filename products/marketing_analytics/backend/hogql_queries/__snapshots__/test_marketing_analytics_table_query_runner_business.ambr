@@ -154,7 +154,7 @@
       
   GROUP BY
           campaign,
-          source) AS ucg ON and(equals(campaign_costs.campaign, ucg.campaign), or(equals(campaign_costs.source, ucg.source), and(equals(campaign_costs.source, 'google'), in(lower(ucg.source), ['google', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze'])), and(equals(campaign_costs.source, 'linkedin'), in(lower(ucg.source), ['linkedin', 'li'])), and(equals(campaign_costs.source, 'reddit'), in(lower(ucg.source), ['reddit'])), and(equals(campaign_costs.source, 'meta'), in(lower(ucg.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']))))
+          source) AS ucg ON and(equals(campaign_costs.campaign, ucg.campaign), or(equals(campaign_costs.source, ucg.source), and(equals(campaign_costs.source, 'google'), in(lower(ucg.source), ['google', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze'])), and(equals(campaign_costs.source, 'linkedin'), in(lower(ucg.source), ['linkedin', 'li'])), and(equals(campaign_costs.source, 'reddit'), in(lower(ucg.source), ['reddit'])), and(equals(campaign_costs.source, 'meta'), in(lower(ucg.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads'])), and(equals(campaign_costs.source, 'tiktok'), in(lower(ucg.source), ['tiktok']))))
   ORDER BY
       Cost DESC
   

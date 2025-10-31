@@ -19,7 +19,7 @@ use tower_http::{
 };
 
 use crate::{
-    api::endpoint,
+    api::{endpoint, local_evaluation},
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdCollection},
     metrics::utils::team_id_label_filter,
@@ -87,6 +87,14 @@ where
     let flags_router = Router::new()
         .route("/flags", any(endpoint::flags))
         .route("/flags/", any(endpoint::flags))
+        .route(
+            "/flags/definitions",
+            any(local_evaluation::flags_definitions),
+        )
+        .route(
+            "/flags/definitions/",
+            any(local_evaluation::flags_definitions),
+        )
         .route("/decide", any(endpoint::flags))
         .route("/decide/", any(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));

@@ -67,6 +67,15 @@
   GROUP BY toString(reddit_campaign.name)
   '''
 # ---
+# name: TestMarketingAnalyticsAdapters.test_tiktok_ads_native_query_generation
+  '''
+  
+  SELECT toString(tiktok_campaigns.campaign_name) AS campaign, toString('tiktok') AS source, toFloat(SUM(toFloatOrZero(tiktok_campaign_report.impressions))) AS impressions, toFloat(SUM(toFloatOrZero(tiktok_campaign_report.clicks))) AS clicks, toFloat(SUM(toFloatOrZero(tiktok_campaign_report.spend))) AS cost, toFloat(SUM(toFloatOrZero(tiktok_campaign_report.conversion))) AS reported_conversion 
+  FROM tiktok_campaigns LEFT JOIN tiktok_campaign_report ON equals(tiktok_campaigns.campaign_id, tiktok_campaign_report.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(tiktok_campaign_report.stat_time_day), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(tiktok_campaign_report.stat_time_day), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY toString(tiktok_campaigns.campaign_name)
+  '''
+# ---
 # name: TestMarketingAnalyticsAdapters.test_tiktok_ads_query_generation
   '''
   
