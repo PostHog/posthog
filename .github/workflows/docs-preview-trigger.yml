@@ -21,125 +21,27 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v4
 
-            - name: Trigger Vercel build with inline env
+            - name: Trigger Vercel build
               id: trigger-build
               env:
                   VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
                   VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
                   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-              run: |
-                  if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_TEAM_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
-                    echo "⚠️ Vercel secrets not configured, skipping"
-                    exit 0
-                  fi
-
-                  PR_BRANCH="${{ github.event.pull_request.head.ref || github.ref_name }}"
-
-                  echo "📢 Triggering Vercel deployment for posthog.com@master (gatsby-source-git)"
-                  echo "   Monorepo branch: $PR_BRANCH (per-deployment env)"
-
-                  PAYLOAD='{
-                    "name": "posthog-com",
-                    "project": "'"$VERCEL_PROJECT_ID"'",
-                    "gitSource": {
-                      "type": "github",
-                      "repoId": "260550412",
-                      "ref": "master"
-                    },
-                    "build": {
-                      "env": {
-                        "GATSBY_POSTHOG_BRANCH": "'"$PR_BRANCH"'"
-                      }
-                    }
-                  }'
-
-                  RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "https://api.vercel.com/v13/deployments?teamId=${VERCEL_TEAM_ID}" \
-                    -H "Authorization: Bearer $VERCEL_TOKEN" \
-                    -H "Content-Type: application/json" \
-                    -d "$PAYLOAD")
-
-                  HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-                  BODY=$(echo "$RESPONSE" | head -n-1)
-
-                  if [ "$HTTP_CODE" -eq 200 ] || [ "$HTTP_CODE" -eq 201 ]; then
-                    DEPLOYMENT_URL=$(echo "$BODY" | jq -r '.url // empty')
-                    DEPLOYMENT_ID=$(echo "$BODY" | jq -r '.id // empty')
-                    echo "✅ Successfully triggered Vercel preview build"
-                    echo "trigger_status=success" >> $GITHUB_OUTPUT
-                    if [ -n "$DEPLOYMENT_URL" ]; then
-                      echo "   Preview URL: https://${DEPLOYMENT_URL}"
-                      echo "deployment_url=https://${DEPLOYMENT_URL}" >> $GITHUB_OUTPUT
-                    fi
-                    if [ -n "$DEPLOYMENT_ID" ]; then
-                      echo "deployment_id=${DEPLOYMENT_ID}" >> $GITHUB_OUTPUT
-                    fi
-                  else
-                    echo "❌ Failed to trigger preview build (HTTP $HTTP_CODE)"
-                    echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
-                    echo "trigger_status=failed" >> $GITHUB_OUTPUT
-                  fi
+              run: .github/scripts/trigger-vercel-preview.sh "${{ github.event.pull_request.head.ref || github.ref_name }}"
 
             - name: Comment on PR
               if: github.event_name == 'pull_request'
               uses: actions/github-script@v7
               with:
                   script: |
-                      const prNumber = ${{ github.event.pull_request.number }};
-                      const triggerStatus = "${{ steps.trigger-build.outputs.trigger_status }}";
-                      const deploymentUrl = "${{ steps.trigger-build.outputs.deployment_url }}";
-                      const deploymentId = "${{ steps.trigger-build.outputs.deployment_id }}";
-                      const commentHash = `[docs-preview]: #docs-preview-${prNumber}`;
-
-                      // Delete old preview comments by finding our hash
-                      const comments = await github.rest.issues.listComments({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        issue_number: prNumber
-                      });
-
-                      for (const comment of comments.data) {
-                        if (comment.user.login === 'github-actions[bot]' && comment.body.includes('[docs-preview]:')) {
-                          await github.rest.issues.deleteComment({
-                            owner: context.repo.owner,
-                            repo: context.repo.repo,
-                            comment_id: comment.id
-                          });
-                        }
-                      }
-
-                      // Format timestamp like Vercel (UTC)
-                      const now = new Date();
-                      const timestamp = now.toLocaleString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                        hour12: true,
-                        timeZone: 'UTC'
-                      });
-
-                      let message = '';
-
-                      if (triggerStatus === 'success') {
-                        const previewUrl = deploymentUrl || 'https://posthog.com';
-                        const inspectorUrl = deploymentId ? `https://vercel.com/post-hog/posthog/${deploymentId}` : 'https://vercel.com/post-hog/posthog';
-
-                        message = `${commentHash}\nDocs from this PR will be published at posthog.com\n\n` +
-                                  `| Project | Deployment | Preview | Updated (UTC) |\n` +
-                                  `| :--- | :----- | :------ | :------ |\n` +
-                                  `| [posthog.com](${inspectorUrl}) | 🤷 Unknown | [Preview](${previewUrl}) | ${timestamp} |\n\n` +
-                                  `*Preview will be ready in ~10 minutes. Click Preview link above to access docs at \`/handbook/engineering/\`*`;
-                      } else {
-                        message = `${commentHash}\n⚠️ **Docs Preview Build Failed**\n\n` +
-                                  `Preview build could not be triggered. Check the [GitHub Action logs](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`;
-                      }
-
-                      github.rest.issues.createComment({
-                        issue_number: prNumber,
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        body: message
+                      const commentFn = require('./.github/scripts/comment-pr-preview.js');
+                      await commentFn({
+                        github,
+                        context,
+                        prNumber: ${{ github.event.pull_request.number }},
+                        triggerStatus: "${{ steps.trigger-build.outputs.trigger_status }}",
+                        deploymentUrl: "${{ steps.trigger-build.outputs.deployment_url }}",
+                        deploymentId: "${{ steps.trigger-build.outputs.deployment_id }}"
                       });
 
     validate-docs:

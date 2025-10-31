@@ -11,9 +11,8 @@ Documentation published to https://posthog.com/handbook/engineering/ when merged
 - Architecture guides
 - Contributing guides
 - Engineering practices
-- Runbooks for self-hosters
 
-**When to use**: Documentation that external users, contributors, or self-hosters need.
+**When to use**: Documentation that external users or contributors need.
 
 ### `internal/` - GitHub-only
 
@@ -28,7 +27,7 @@ Documentation that stays in the repository:
 ## Publishing Flow
 
 ```text
-Engineer creates PR with /docs/** changes
+Engineer creates PR with /docs/published/** changes
   ↓
 GitHub Action triggers posthog.com preview build
   ↓
@@ -38,6 +37,8 @@ Merge to master
   ↓
 Docs go live on posthog.com
 ```
+
+The posthog.com Gatsby build uses gatsby-source-git to clone this monorepo and pull files from `/docs/published/` during the build process.
 
 ## Guidelines
 
