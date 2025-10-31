@@ -27,6 +27,7 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
+    isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
 import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 
@@ -118,6 +119,8 @@ export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
     [NodeKind.PathsQuery]: InsightType.PATHS,
     [NodeKind.StickinessQuery]: InsightType.STICKINESS,
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
+    [NodeKind.WebStatsTableQuery]: InsightType.WEB_ANALYTICS,
+    [NodeKind.WebOverviewQuery]: InsightType.WEB_ANALYTICS,
 }
 
 const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
@@ -127,9 +130,18 @@ const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
+    [NodeKind.WebStatsTableQuery]: 'webStatsTableFilter',
+    [NodeKind.WebOverviewQuery]: 'webOverviewFilter',
 }
 
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
+    // Web Analytics queries don't have a legacy filter format
+    if (isWebAnalyticsInsightQuery(query)) {
+        return {
+            insight: nodeKindToInsightType[query.kind],
+        }
+    }
+
     const filters: Partial<FilterType> = objectClean({
         insight: nodeKindToInsightType[query.kind],
         properties: query.properties,
