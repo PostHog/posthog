@@ -1,0 +1,86 @@
+# serializer version: 1
+# name: TestErrorTrackingSimilarIssuesQueryRunner.test_column_names
+  '''
+  SELECT b.document_id AS fingerprint,
+         min(cosineDistance(a.embedding, b.embedding)) AS distance
+  FROM
+    (SELECT document_embeddings.document_id AS document_id,
+            document_embeddings.document_type AS document_type,
+            document_embeddings.rendering AS rendering,
+            document_embeddings.model_name AS model_name,
+            document_embeddings.embedding AS embedding
+     FROM
+       (SELECT argMax(posthog_document_embeddings.embedding, toTimeZone(posthog_document_embeddings.inserted_at, 'UTC')) AS embedding,
+               posthog_document_embeddings.product AS product,
+               posthog_document_embeddings.document_type AS document_type,
+               posthog_document_embeddings.model_name AS model_name,
+               posthog_document_embeddings.rendering AS rendering,
+               posthog_document_embeddings.document_id AS document_id,
+               toTimeZone(posthog_document_embeddings.timestamp, 'UTC') AS timestamp
+        FROM posthog_document_embeddings
+        WHERE equals(posthog_document_embeddings.team_id, 99999)
+        GROUP BY posthog_document_embeddings.product,
+                 posthog_document_embeddings.document_type,
+                 posthog_document_embeddings.model_name,
+                 posthog_document_embeddings.rendering,
+                 posthog_document_embeddings.document_id,
+                 toTimeZone(posthog_document_embeddings.timestamp, 'UTC') SETTINGS optimize_aggregation_in_order=1) AS document_embeddings
+     WHERE and(ifNull(equals(document_embeddings.document_type, 'fingerprint'), 0), ifNull(equals(document_embeddings.rendering, 'type_message_and_stack'), 0), ifNull(equals(document_embeddings.model_name, 'text-embedding-3-large-3072'), 0), in(document_embeddings.document_id, []), ifNull(equals(document_embeddings.product, 'error_tracking'), 0))) AS a
+  CROSS JOIN
+    (SELECT document_embeddings.document_id AS document_id,
+            document_embeddings.document_type AS document_type,
+            document_embeddings.rendering AS rendering,
+            document_embeddings.model_name AS model_name,
+            document_embeddings.embedding AS embedding
+     FROM
+       (SELECT argMax(posthog_document_embeddings.embedding, toTimeZone(posthog_document_embeddings.inserted_at, 'UTC')) AS embedding,
+               posthog_document_embeddings.product AS product,
+               posthog_document_embeddings.document_type AS document_type,
+               posthog_document_embeddings.model_name AS model_name,
+               posthog_document_embeddings.rendering AS rendering,
+               posthog_document_embeddings.document_id AS document_id,
+               toTimeZone(posthog_document_embeddings.timestamp, 'UTC') AS timestamp
+        FROM posthog_document_embeddings
+        WHERE equals(posthog_document_embeddings.team_id, 99999)
+        GROUP BY posthog_document_embeddings.product,
+                 posthog_document_embeddings.document_type,
+                 posthog_document_embeddings.model_name,
+                 posthog_document_embeddings.rendering,
+                 posthog_document_embeddings.document_id,
+                 toTimeZone(posthog_document_embeddings.timestamp, 'UTC') SETTINGS optimize_aggregation_in_order=1) AS document_embeddings
+     WHERE and(ifNull(equals(document_embeddings.document_type, 'fingerprint'), 0), ifNull(equals(document_embeddings.rendering, 'type_message_and_stack'), 0), ifNull(equals(document_embeddings.model_name, 'text-embedding-3-large-3072'), 0), notIn(document_embeddings.document_id, []), ifNull(equals(document_embeddings.product, 'error_tracking'), 0))) AS b
+  GROUP BY fingerprint
+  HAVING ifNull(lessOrEquals(distance, 1000.0), 0)
+  ORDER BY distance ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestErrorTrackingSimilarIssuesQueryRunner.test_column_names.1
+  '''
+  SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', '') AS `$exception_issue_id`,
+         min(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')) AS `Min(properties.$lib)`
+  FROM events
+  WHERE 0
+  GROUP BY replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$exception_issue_id'), ''), 'null'), '^"|"$', '')
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
