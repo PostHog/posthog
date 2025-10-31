@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
                 migrations.AddConstraint(
                     model_name="errortrackingstackframe",
                     constraint=models.UniqueConstraint(
-                        fields=["team_id", "raw_id", "part"], name="idx_team_id_raw_id_part"
+                        fields=["team_id", "raw_id", "part"], name="unique_team_id_raw_id_part"
                     ),
                 ),
             ],
