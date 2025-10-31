@@ -74,10 +74,9 @@ impl SchemaConfig {
 
     /// Save config to posthog.json
     fn save(&self) -> Result<()> {
-        let json = serde_json::to_string_pretty(self)
-            .context("Failed to serialize schema config")?;
-        fs::write("posthog.json", json)
-            .context("Failed to write posthog.json")?;
+        let json =
+            serde_json::to_string_pretty(self).context("Failed to serialize schema config")?;
+        fs::write("posthog.json", json).context("Failed to write posthog.json")?;
         Ok(())
     }
 
@@ -88,11 +87,19 @@ impl SchemaConfig {
 
     /// Get output path for a language
     fn get_output_path(&self, language: Language) -> Option<String> {
-        self.languages.get(language.as_str()).map(|l| l.output_path.clone())
+        self.languages
+            .get(language.as_str())
+            .map(|l| l.output_path.clone())
     }
 
     /// Update language config, preserving other languages
-    fn update_language(&mut self, language: Language, output_path: String, schema_hash: String, event_count: usize) {
+    fn update_language(
+        &mut self,
+        language: Language,
+        output_path: String,
+        schema_hash: String,
+        event_count: usize,
+    ) {
         use chrono::Utc;
 
         self.languages.insert(
@@ -118,7 +125,10 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     // Select language
     let language = select_language()?;
 
-    info!("Fetching {} definitions from PostHog...", language.display_name());
+    info!(
+        "Fetching {} definitions from PostHog...",
+        language.display_name()
+    );
 
     // Load credentials
     let token = context().token.clone();
@@ -130,14 +140,25 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     // Fetch definitions from the server
     let response = fetch_definitions(&host, &token.env_id, &token.token, language)?;
 
-    info!("✓ Fetched {} definitions for {} events", language.display_name(), response.event_count);
+    info!(
+        "✓ Fetched {} definitions for {} events",
+        language.display_name(),
+        response.event_count
+    );
 
     // Check if schema has changed for this language
     let config = SchemaConfig::load();
     if let Some(lang_config) = config.get_language(language) {
         if lang_config.schema_hash == response.schema_hash {
-            info!("Schema unchanged for {} (hash: {})", language.as_str(), response.schema_hash);
-            println!("\n✓ {} schema is already up to date!", language.display_name());
+            info!(
+                "Schema unchanged for {} (hash: {})",
+                language.as_str(),
+                response.schema_hash
+            );
+            println!(
+                "\n✓ {} schema is already up to date!",
+                language.display_name()
+            );
             println!("  No changes detected - skipping file write.");
             return Ok(());
         }
@@ -154,14 +175,18 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
         }
     }
 
-    fs::write(&output_path, &response.content)
-        .context(format!("Failed to write {output_path}"))?;
+    fs::write(&output_path, &response.content).context(format!("Failed to write {output_path}"))?;
     info!("✓ Generated {}", output_path);
 
     // Update schema configuration for this language
     info!("Updating posthog.json...");
     let mut config = SchemaConfig::load();
-    config.update_language(language, output_path.clone(), response.schema_hash, response.event_count);
+    config.update_language(
+        language,
+        output_path.clone(),
+        response.schema_hash,
+        response.event_count,
+    );
     config.save()?;
     info!("✓ Updated posthog.json");
 
@@ -242,9 +267,10 @@ pub fn status() -> Result<()> {
     println!("  ✓ Authenticated");
     println!("  Host: {}", token.get_host());
     println!("  Project ID: {}", token.env_id);
-    let masked_token = format!("{}****{}",
-                               &token.token[..4],
-                               &token.token[token.token.len()-4..]
+    let masked_token = format!(
+        "{}****{}",
+        &token.token[..4],
+        &token.token[token.token.len() - 4..]
     );
     println!("  Token: {masked_token}");
 
@@ -285,15 +311,24 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-fn fetch_definitions(host: &str, env_id: &str, token: &str, language: Language) -> Result<DefinitionsResponse> {
-    let url = format!("{}/api/projects/{}/event_definitions/{}/", host, env_id, language.as_str());
+fn fetch_definitions(
+    host: &str,
+    env_id: &str,
+    token: &str,
+    language: Language,
+) -> Result<DefinitionsResponse> {
+    let url = format!(
+        "{}/api/projects/{}/event_definitions/{}/",
+        host,
+        env_id,
+        language.as_str()
+    );
 
     let client = &context().client;
-    let response = client
-        .get(&url)
-        .bearer_auth(token)
-        .send()
-        .context(format!("Failed to fetch {} definitions", language.display_name()))?;
+    let response = client.get(&url).bearer_auth(token).send().context(format!(
+        "Failed to fetch {} definitions",
+        language.display_name()
+    ))?;
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
@@ -303,9 +338,10 @@ fn fetch_definitions(host: &str, env_id: &str, token: &str, language: Language) 
         ));
     }
 
-    let json: DefinitionsResponse = response
-        .json()
-        .context(format!("Failed to parse {} definitions response", language.display_name()))?;
+    let json: DefinitionsResponse = response.json().context(format!(
+        "Failed to parse {} definitions response",
+        language.display_name()
+    ))?;
 
     Ok(json)
 }
