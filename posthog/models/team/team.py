@@ -372,6 +372,9 @@ class Team(UUIDTClassicModel):
     # Heatmaps
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
 
+    # Activity logs
+    receive_org_level_activity_logs = models.BooleanField(null=True, blank=True, default=False)
+
     # Web analytics
     web_analytics_pre_aggregated_tables_enabled = field_access_control(
         models.BooleanField(default=False, null=True), "web_analytics", "editor"

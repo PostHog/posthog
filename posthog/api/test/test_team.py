@@ -301,6 +301,23 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             self.assertEqual(self.team.test_account_filters_default_checked, True)
 
+        def test_retrieve_receive_org_level_activity_logs(self):
+            response = self.client.get("/api/environments/@current/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["receive_org_level_activity_logs"], False)
+
+        def test_update_receive_org_level_activity_logs(self):
+            response = self.client.patch("/api/environments/@current/", {"receive_org_level_activity_logs": True})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_data = response.json()
+            self.assertEqual(response_data["receive_org_level_activity_logs"], True)
+
+            self.team.refresh_from_db()
+            self.assertEqual(self.team.receive_org_level_activity_logs, True)
+
         def test_cannot_set_invalid_timezone_for_team(self):
             response = self.client.patch("/api/environments/@current/", {"timezone": "America/I_Dont_Exist"})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
