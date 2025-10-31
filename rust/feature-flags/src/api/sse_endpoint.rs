@@ -1,6 +1,6 @@
 use axum::{
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::sse::{Event, KeepAlive, Sse},
 };
 use bytes::Bytes;
@@ -9,10 +9,12 @@ use serde::Deserialize;
 use std::{convert::Infallible, time::Duration};
 use tracing::{error, info, warn};
 
-use crate::{api::auth::extract_bearer_token, router::State as AppState};
+use crate::router::State as AppState;
 
 #[derive(Debug, Deserialize)]
 pub struct SseQueryParams {
+    #[serde(alias = "api_key", alias = "$token")]
+    pub token: Option<String>,
     pub distinct_id: Option<String>,
     #[serde(default)]
     pub person_properties: Option<serde_json::Value>,
@@ -41,10 +43,8 @@ fn default_evaluations() -> bool {
 ///   - Returns raw flag data
 ///   - Client evaluates locally
 ///
-/// Authentication:
-/// - `Authorization` header: Bearer token with PostHog API token (required)
-///
 /// Query parameters:
+/// - `token` (or `api_key` or `$token`): PostHog API token (required)
 /// - `evaluations`: Whether to evaluate flags server-side (default: true)
 /// - `distinct_id`: User's distinct ID (required if evaluations=true, optional otherwise)
 /// - `person_properties`: JSON object with person properties (optional, only used if evaluations=true)
@@ -52,7 +52,7 @@ fn default_evaluations() -> bool {
 /// - `groups`: JSON object with group memberships (optional, only used if evaluations=true)
 ///
 /// The endpoint:
-/// - Authenticates the token from Authorization header to determine the team
+/// - Authenticates the token to determine the team
 /// - Sends connection confirmation (no flag evaluation on initial connect)
 /// - Subscribes to Redis Pub/Sub for the team's feature flag updates
 /// - When a flag is updated:
@@ -74,14 +74,13 @@ fn default_evaluations() -> bool {
 /// ```
 pub async fn feature_flags_stream(
     State(state): State<AppState>,
-    headers: HeaderMap,
     Query(params): Query<SseQueryParams>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
-    // Extract and validate token from Authorization header
-    let token = match extract_bearer_token(&headers) {
+    // Extract and validate token
+    let token = match params.token {
         Some(t) if !t.is_empty() => t,
         _ => {
-            warn!("SSE request missing or invalid Authorization header");
+            warn!("SSE request missing token parameter");
             return Err(StatusCode::UNAUTHORIZED);
         }
     };
