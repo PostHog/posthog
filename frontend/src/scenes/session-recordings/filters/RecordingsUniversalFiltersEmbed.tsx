@@ -3,8 +3,27 @@ import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
+import {
+    IconAsterisk,
+    IconClock,
+    IconEye,
+    IconFilter,
+    IconHide,
+    IconPlus,
+    IconRevert,
+    IconTrash,
+    IconX,
+} from '@posthog/icons'
+import {
+    LemonBadge,
+    LemonButton,
+    LemonInput,
+    LemonModal,
+    LemonTab,
+    LemonTabs,
+    LemonTag,
+    Popover,
+} from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -40,6 +59,7 @@ import { playlistLogic } from '../playlist/playlistLogic'
 import { createPlaylist, updatePlaylist } from '../playlist/playlistUtils'
 import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { SavedFilters } from './SavedFilters'
 
@@ -97,6 +117,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { setIsFiltersExpanded } = useActions(playlistLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
@@ -135,6 +156,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     </LemonButton>
                 </>
             </MaxTool>
+            {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] && <CurrentFilterIndicator />}
             <div className="flex gap-2 mt-2 justify-between">
                 <HideRecordingsMenu />
                 <SettingsMenu
@@ -285,11 +307,177 @@ export const RecordingsUniversalFiltersEmbed = ({
         )
     }
 
+    const hasFilterChanges = appliedSavedFilter ? !equal(appliedSavedFilter.filters, filters) : false
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const tabs: LemonTab<string>[] = [
         {
             key: 'filters',
             label: <div className="px-2">Filters</div>,
-            content: (
+            content: featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] ? (
+                <div className={clsx('relative bg-surface-primary w-full ', className)}>
+                    {appliedSavedFilter && (
+                        <div className="border-b px-2 py-3 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                                <span className="font-medium whitespace-nowrap flex-shrink-0">
+                                    Loaded saved filter:
+                                </span>
+                                <LemonTag
+                                    type={hasFilterChanges ? 'option' : 'primary'}
+                                    icon={hasFilterChanges ? <IconAsterisk /> : undefined}
+                                    closable
+                                    onClose={() => {
+                                        resetFilters?.()
+                                        setAppliedSavedFilter(null)
+                                    }}
+                                    className="max-w-xs"
+                                >
+                                    <span className="truncate">
+                                        {appliedSavedFilter.name || appliedSavedFilter.derived_name || 'Unnamed'}
+                                        {hasFilterChanges && ' (edited)'}
+                                    </span>
+                                </LemonTag>
+                            </div>
+                            {hasFilterChanges && (
+                                <div className="flex gap-2 flex-shrink-0">
+                                    <LemonButton
+                                        data-attr="replay-filters-discard-changes-button"
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconTrash />}
+                                        onClick={() =>
+                                            setFilters(appliedSavedFilter.filters as Partial<RecordingUniversalFilters>)
+                                        }
+                                    >
+                                        Discard changes
+                                    </LemonButton>
+                                    <LemonButton
+                                        data-attr="replay-filters-save-changes-button"
+                                        type="secondary"
+                                        status="danger"
+                                        size="small"
+                                        onClick={() => void updateSavedFilter()}
+                                        className="max-w-72"
+                                    >
+                                        <span className="truncate">
+                                            Save changes to "{appliedSavedFilter.name || 'Unnamed'}"
+                                        </span>
+                                    </LemonButton>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    <div className="flex items-center py-2 justify-between">
+                        <AndOrFilterSelect
+                            value={filters.filter_group.type}
+                            onChange={(type) => {
+                                let values = filters.filter_group.values
+
+                                // set the type on the nested child when only using a single filter group
+                                const hasSingleGroup = values.length === 1
+                                if (hasSingleGroup) {
+                                    const group = values[0] as UniversalFiltersGroup
+                                    values = [{ ...group, type }]
+                                }
+
+                                setFilters({
+                                    filter_group: {
+                                        type: type,
+                                        values: values,
+                                    },
+                                })
+                            }}
+                            topLevelFilter={true}
+                            suffix={['filter', 'filters']}
+                            size="small"
+                        />
+                        <div className="mr-2">
+                            <TestAccountFilter
+                                size="small"
+                                filters={filters}
+                                onChange={(testFilters) =>
+                                    setFilters({
+                                        filter_test_accounts: testFilters.filter_test_accounts,
+                                    })
+                                }
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex justify-between flex-wrap gap-2 px-2 mt-2">
+                        <div className="flex flex-wrap gap-2 items-center">
+                            <div className="py-2 font-medium">Applied filters:</div>
+                            <DateFilter
+                                dateFrom={filters.date_from ?? '-3d'}
+                                dateTo={filters.date_to}
+                                onChange={(changedDateFrom, changedDateTo) => {
+                                    setFilters({
+                                        date_from: changedDateFrom,
+                                        date_to: changedDateTo,
+                                    })
+                                }}
+                                dateOptions={[
+                                    { key: 'Custom', values: [] },
+                                    { key: 'Last 24 hours', values: ['-24h'] },
+                                    { key: 'Last 3 days', values: ['-3d'] },
+                                    { key: 'Last 7 days', values: ['-7d'] },
+                                    { key: 'Last 30 days', values: ['-30d'] },
+                                    { key: 'All time', values: ['-90d'] },
+                                ]}
+                                dropdownPlacement="bottom-start"
+                                size="small"
+                                // we always want to include the time in the date when setting it
+                                allowTimePrecision={true}
+                                // we always want to present the time control
+                                forceGranularity="minute"
+                            />
+                            <DurationFilter
+                                onChange={(newRecordingDurationFilter, newDurationType) => {
+                                    setFilters({
+                                        duration: [
+                                            {
+                                                ...newRecordingDurationFilter,
+                                                key: newDurationType,
+                                            },
+                                        ],
+                                    })
+                                }}
+                                recordingDurationFilter={durationFilter}
+                                durationTypeFilter={durationFilter.key}
+                                pageKey="session-recordings"
+                                size="small"
+                            />
+                            <UniversalFilters
+                                rootKey="session-recordings"
+                                group={filters.filter_group}
+                                taxonomicGroupTypes={taxonomicGroupTypes}
+                                onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
+                            >
+                                <RecordingsUniversalFilterGroup />
+                            </UniversalFilters>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center pt-4 justify-end px-2 gap-2 border-t mt-8">
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            onClick={handleResetFilters}
+                            icon={<IconRevert />}
+                            tooltip="Remove all filters and reset to defaults"
+                            disabledReason={
+                                !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
+                            }
+                        >
+                            Reset filters
+                        </LemonButton>
+                        <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
+                            Save as new filter
+                        </LemonButton>
+                    </div>
+                    {SaveFiltersModal()}
+                </div>
+            ) : (
                 <div className={clsx('relative bg-surface-primary w-full ', className)}>
                     <div className="flex items-center py-2 justify-between">
                         <AndOrFilterSelect
