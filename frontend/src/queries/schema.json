@@ -13319,6 +13319,7 @@
         },
         "ExternalDataSourceType": {
             "enum": [
+                "Github",
                 "Stripe",
                 "Hubspot",
                 "Postgres",
