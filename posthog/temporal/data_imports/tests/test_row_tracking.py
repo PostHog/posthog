@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 from zoneinfo import ZoneInfo
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest import mock
 
@@ -71,15 +72,20 @@ class TestRowTracking(BaseTest):
         with (
             override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
             self._setup_limits(limit),
+            freeze_time("2024-01-01 12:00:00"),
         ):
             return will_hit_billing_limit(team_id=self.team.pk, source=source, logger=self._logger())
 
+    def _create_source(self) -> ExternalDataSource:
+        with freeze_time(datetime(2023, 12, 20)):
+            return ExternalDataSource.objects.create(team=self.team)
+
     def test_row_tracking(self):
-        source = ExternalDataSource.objects.create(team=self.team)
+        source = self._create_source()
         assert self._run(source, 10) is False
 
     def test_row_tracking_with_previous_jobs(self):
-        source = ExternalDataSource.objects.create(team=self.team)
+        source = self._create_source()
         ExternalDataJob.objects.create(
             team=self.team,
             rows_synced=11,
@@ -92,7 +98,7 @@ class TestRowTracking(BaseTest):
         assert self._run(source, 10) is True
 
     def test_row_tracking_with_previous_incomplete_jobs(self):
-        source = ExternalDataSource.objects.create(team=self.team)
+        source = self._create_source()
         ExternalDataJob.objects.create(
             team=self.team,
             rows_synced=11,
@@ -105,7 +111,7 @@ class TestRowTracking(BaseTest):
         assert self._run(source, 10) is False
 
     def test_row_tracking_with_previous_no_finished_at_jobs(self):
-        source = ExternalDataSource.objects.create(team=self.team)
+        source = self._create_source()
         ExternalDataJob.objects.create(
             team=self.team,
             rows_synced=11,
@@ -118,7 +124,7 @@ class TestRowTracking(BaseTest):
         assert self._run(source, 10) is False
 
     def test_row_tracking_with_previous_unbillable_jobs(self):
-        source = ExternalDataSource.objects.create(team=self.team)
+        source = self._create_source()
         ExternalDataJob.objects.create(
             team=self.team,
             rows_synced=11,
@@ -131,13 +137,13 @@ class TestRowTracking(BaseTest):
         assert self._run(source, 10) is False
 
     def test_row_tracking_with_in_progress_rows(self):
-        source = ExternalDataSource.objects.create(team=self.team)
+        source = self._create_source()
         with self._setup_redis_rows(20):
             assert self._run(source, 10) is True
 
     def test_row_tracking_with_previous_rows_from_other_team_in_org(self):
         another_team = Team.objects.create(organization=self.organization)
-        source = ExternalDataSource.objects.create(team=self.team)
+        source = self._create_source()
         ExternalDataJob.objects.create(
             team=another_team,
             rows_synced=11,
@@ -151,7 +157,7 @@ class TestRowTracking(BaseTest):
 
     def test_row_tracking_with_in_progress_rows_from_other_team_in_org(self):
         another_team = Team.objects.create(organization=self.organization)
-        source = ExternalDataSource.objects.create(team=another_team)
+        source = self._create_source()
 
         with self._setup_redis_rows(20, team_id=another_team.pk):
             assert self._run(source, 10) is True

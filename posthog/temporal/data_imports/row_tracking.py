@@ -1,6 +1,7 @@
 import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db.models import Sum
@@ -13,8 +14,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team
 from posthog.redis import get_client
 from posthog.settings import EE_AVAILABLE
-from posthog.temporal.data_imports.external_data_job import ExternalDataSource
 from posthog.warehouse.models import ExternalDataJob
+
+if TYPE_CHECKING:
+    from posthog.warehouse.models import ExternalDataSource
 
 
 def _get_hash_key(team_id: int) -> str:
@@ -110,7 +113,7 @@ dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
 dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
 
 
-def will_hit_billing_limit(team_id: int, source: ExternalDataSource, logger: FilteringBoundLogger) -> bool:
+def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", logger: FilteringBoundLogger) -> bool:
     if not EE_AVAILABLE:
         return False
 
