@@ -5,7 +5,7 @@ from posthog.models import Team, User
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.utils.types import PartialStateType, StateType
-from ee.hogai.utils.types.base import NodePath
+from ee.hogai.utils.types.base import AssistantGraphName, NodePath
 
 from .nodes import StateClassMixin, TaxonomyAgentNode, TaxonomyAgentToolsNode
 from .toolkit import TaxonomyAgentToolkit
@@ -26,13 +26,20 @@ class TaxonomyAgent(
         tools_node_class: type["TaxonomyAgentToolsNode"],
         toolkit_class: type["TaxonomyAgentToolkit"],
     ):
-        # Extract the State type from the generic parameter
-        state_class, _ = self._get_state_class(TaxonomyAgent)
-        super().__init__(team, user, state_class, node_path=node_path)
-
+        super().__init__(team, user, node_path)
         self._loop_node_class = loop_node_class
         self._tools_node_class = tools_node_class
         self._toolkit_class = toolkit_class
+
+    @property
+    def state_type(self) -> type[StateType]:
+        # Extract the State type from the generic parameter
+        state_type, _ = self._get_state_class(TaxonomyAgent)
+        return state_type
+
+    @property
+    def graph_name(self) -> AssistantGraphName:
+        return AssistantGraphName.TAXONOMY
 
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
         """Compile a complete taxonomy graph."""

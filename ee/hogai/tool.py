@@ -109,7 +109,10 @@ class MaxTool(AssistantContextMixin, BaseTool):
         super().__init__(**tool_kwargs, **kwargs)
         self._team = team
         self._user = user
-        self._node_path = node_path or ()
+        self._node_path = (
+            *(node_path or ()),
+            NodePath(name=f"max_tool.{self.get_name()}", message_id=None, tool_call_id=None),
+        )
         self._state = state if state else AssistantState(messages=[])
         self._config = config if config else RunnableConfig(configurable={})
         self._context_manager = context_manager or AssistantContextManager(team, user, self._config)

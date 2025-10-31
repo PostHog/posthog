@@ -1,5 +1,4 @@
 from typing import Literal
-from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -157,7 +156,6 @@ class CreateAndQueryInsightTool(MaxTool):
     thinking_message: str = "Coming up with an insight"
 
     async def _arun_impl(self, query_description: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        print(self._node_path)
         graph = InsightsGraph(self._team, self._user, self._node_path).compile_full_graph()
         new_state = self._state.model_copy(
             update={
@@ -194,7 +192,7 @@ class CreateAndQueryInsightTool(MaxTool):
             tool_call_message = AssistantToolCallMessage(
                 content=tool_call_message.content,
                 ui_payload={self.get_name(): maybe_viz_message.answer.model_dump(exclude_none=True)},
-                id=str(uuid4()),
+                id=tool_call_message.id,
                 tool_call_id=tool_call_message.tool_call_id,
             )
 

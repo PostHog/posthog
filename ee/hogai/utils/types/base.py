@@ -412,6 +412,13 @@ class AssistantNodeName(StrEnum):
     REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS = "revenue_analytics_filter_options_tools"
 
 
+class AssistantGraphName(StrEnum):
+    ASSISTANT = "assistant"
+    INSIGHTS = "insights"
+    TAXONOMY = "taxonomy"
+    DEEP_RESEARCH = "deep_research"
+
+
 class AssistantMode(StrEnum):
     ASSISTANT = "assistant"
     INSIGHTS_TOOL = "insights_tool"
@@ -442,7 +449,7 @@ class NodeStartAction(BaseModel):
     type: Literal["NODE_START"] = "NODE_START"
 
 
-class NodeEndAction(Generic[PartialStateType], BaseModel):
+class NodeEndAction(BaseModel, Generic[PartialStateType]):
     type: Literal["NODE_END"] = "NODE_END"
     state: PartialStateType | None = None
 

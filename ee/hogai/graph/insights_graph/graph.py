@@ -1,11 +1,8 @@
 from typing import Literal, Optional
 
-from posthog.models.team.team import Team
-from posthog.models.user import User
-
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.base import BaseAssistantGraph
-from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, NodePath, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState, PartialAssistantState
 
 from ..funnels.nodes import FunnelGeneratorNode, FunnelGeneratorToolsNode
 from ..query_executor.nodes import QueryExecutorNode
@@ -17,8 +14,13 @@ from ..trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
 
 
 class InsightsGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
-    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...]):
-        super().__init__(team, user, AssistantState, node_path)
+    @property
+    def graph_name(self) -> AssistantGraphName:
+        return AssistantGraphName.INSIGHTS
+
+    @property
+    def state_type(self) -> type[AssistantState]:
+        return AssistantState
 
     def add_rag_context(self):
         self._has_start_node = True

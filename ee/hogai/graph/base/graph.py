@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Generic, Literal
 
 from langgraph.graph.state import StateGraph
@@ -5,7 +6,7 @@ from langgraph.graph.state import StateGraph
 from posthog.models import Team, User
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.utils.types.base import AssistantNodeName, NodePath, PartialStateType, StateType
+from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, NodePath, PartialStateType, StateType
 
 from .node import BaseAssistantNode
 
@@ -17,18 +18,31 @@ if TYPE_CHECKING:
 global_checkpointer = DjangoCheckpointer()
 
 
-class BaseAssistantGraph(Generic[StateType, PartialStateType]):
+class BaseAssistantGraph(Generic[StateType, PartialStateType], ABC):
     _team: Team
     _user: User
     _graph: StateGraph
     _node_path: tuple[NodePath, ...]
 
-    def __init__(self, team: Team, user: User, state_type: type[StateType], node_path: tuple[NodePath, ...]):
+    def __init__(
+        self,
+        team: Team,
+        user: User,
+        node_path: tuple[NodePath, ...],
+    ):
         self._team = team
         self._user = user
-        self._graph = StateGraph(state_type)
+        self._graph = StateGraph(self.state_type)
         self._has_start_node = False
-        self._node_path = node_path
+        self._node_path = (*node_path, NodePath(name=self.graph_name.value))
+
+    @property
+    @abstractmethod
+    def state_type(self) -> type[StateType]: ...
+
+    @property
+    @abstractmethod
+    def graph_name(self) -> AssistantGraphName: ...
 
     def add_edge(self, from_node: "MaxNodeName", to_node: "MaxNodeName"):
         if from_node == AssistantNodeName.START:

@@ -19,6 +19,7 @@ from ee.hogai.utils.helpers import normalize_ai_message, should_output_assistant
 from ee.hogai.utils.state import is_message_update, merge_message_chunk
 from ee.hogai.utils.types.base import (
     AssistantDispatcherEvent,
+    AssistantGraphName,
     AssistantMessageUnion,
     AssistantResultUnion,
     BaseStateWithMessages,
@@ -138,27 +139,34 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
 
         # Set the parent tool call id on the message if it's required,
         # so the frontend can properly display the message chain.
-        message = self._set_message_parent_id(message, action.node_path)
         produced_message: AssistantResultUnion | None = None
 
-        # Root messages (no parent)
-        if message.parent_tool_call_id is None:
+        # Output all messages from the top-level graph.
+        if not self._is_message_from_nested_graph(action.node_path or ()):
             produced_message = self._handle_root_message(message, node_name)
         # AssistantMessage with parent creates AssistantUpdateEvent
         elif isinstance(message, AssistantMessage):
-            produced_message = self._handle_assistant_message_with_parent(action, message)
+            return self._handle_update_message(action, message)
         # Other message types with parents (viz, notebook, failure, tool call)
         else:
             produced_message = self._handle_special_child_message(message, node_name)
 
         # Messages with existing IDs must be deduplicated.
         # Messages WITHOUT IDs must be streamed because they're progressive.
-        if isinstance(produced_message, get_args(AssistantMessageUnion)) and message.id is not None:
-            if message.id in self._streamed_update_ids:
+        if isinstance(produced_message, get_args(AssistantMessageUnion)) and produced_message.id is not None:
+            if produced_message.id in self._streamed_update_ids:
                 return None
-            self._streamed_update_ids.add(message.id)
+            self._streamed_update_ids.add(produced_message.id)
 
         return produced_message
+
+    def _is_message_from_nested_graph(self, node_path: tuple[NodePath, ...]) -> bool:
+        if not node_path:
+            return False
+        # The first path is always the top-level graph.
+        if next((path for path in node_path[1:] if path.name in AssistantGraphName), None):
+            return True
+        return False
 
     def _handle_root_message(
         self, message: AssistantMessageUnion, node_name: MaxNodeName
@@ -168,17 +176,20 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
             return None
         return message
 
-    def _handle_assistant_message_with_parent(
+    def _handle_update_message(
         self, event: AssistantDispatcherEvent, message: AssistantMessage
     ) -> AssistantUpdateEvent | None:
         """Handle AssistantMessage that has a parent, creating an AssistantUpdateEvent."""
         if not event.node_path or not message.content:
             return None
 
-        last_path = event.node_path[-1]
-        message_id = last_path.message_id
-        tool_call_id = last_path.tool_call_id
+        parent_path = next((path for path in reversed(event.node_path) if path.tool_call_id), None)
+        # Updates from the top-level graph nodes are not supported.
+        if not parent_path:
+            return None
 
+        message_id = parent_path.message_id
+        tool_call_id = parent_path.tool_call_id
         if not message_id or not tool_call_id:
             return None
 
@@ -245,32 +256,3 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
             ):
                 results.extend(new_event)
         return results
-
-    def _set_message_parent_id(
-        self, message: AssistantMessageUnion, node_path: tuple[NodePath, ...] | None = None
-    ) -> AssistantMessageUnion:
-        """Associate a message with the parent tool call."""
-        # No path – stream all messages.
-        if not node_path:
-            return message
-
-        parent_tool_call_id = node_path[-1].tool_call_id
-
-        # If the dispatcher is initialized with a parent tool call id, set the parent tool call id on the message
-        # This is to ensure that the message is associated with the correct tool call
-        # Don't set parent_tool_call_id on:
-        # 1. AssistantToolCallMessage with the same tool_call_id (to avoid self-reference)
-        # 2. AssistantMessage with tool_calls containing the same ID (to avoid cycles)
-        should_skip = False
-        if isinstance(message, AssistantToolCallMessage) and parent_tool_call_id == message.tool_call_id:
-            should_skip = True
-        elif isinstance(message, AssistantMessage) and message.tool_calls:
-            # Check if any tool call has the same ID as the parent
-            for tool_call in message.tool_calls:
-                if tool_call.id == parent_tool_call_id:
-                    should_skip = True
-                    break
-        if not should_skip:
-            message.parent_tool_call_id = parent_tool_call_id
-
-        return message

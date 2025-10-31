@@ -12,12 +12,20 @@ from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
 from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types.base import NodePath
+from ee.hogai.utils.types.base import AssistantGraphName
 
 
 class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState, PartialDeepResearchState]):
-    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
-        super().__init__(team, user, DeepResearchState, node_path)
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user, ())
+
+    @property
+    def graph_name(self) -> AssistantGraphName:
+        return AssistantGraphName.DEEP_RESEARCH
+
+    @property
+    def state_type(self) -> type[DeepResearchState]:
+        return DeepResearchState
 
     def add_onboarding_node(
         self, node_map: Optional[dict[Literal["onboarding", "planning", "continue"], DeepResearchNodeName]] = None

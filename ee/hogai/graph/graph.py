@@ -7,7 +7,7 @@ from posthog.models.user import User
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState, PartialAssistantState
 
 from .memory.nodes import (
     MemoryCollectorNode,
@@ -24,7 +24,15 @@ from .root.nodes import RootNode, RootNodeTools
 
 class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
     def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState, ())
+        super().__init__(team, user, ())
+
+    @property
+    def graph_name(self) -> AssistantGraphName:
+        return AssistantGraphName.ASSISTANT
+
+    @property
+    def state_type(self) -> type[AssistantState]:
+        return AssistantState
 
     def add_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
         self._has_start_node = True

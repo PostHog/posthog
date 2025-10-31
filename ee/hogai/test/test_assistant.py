@@ -61,7 +61,7 @@ from posthog.models import Action
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.base import BaseAssistantNode
+from ee.hogai.graph.base import AssistantNode, BaseAssistantNode
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.graph.memory import prompts as memory_prompts
@@ -254,7 +254,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     )
     async def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_query_planner_run):
         output, _ = await self._run_assistant_graph(
-            InsightsGraph(self.team, self.user)
+            InsightsGraph(self.team, self.user, ())
             .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
             .add_query_planner(
                 {
@@ -344,7 +344,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     )
     async def test_reasoning_messages_with_substeps_added(self, _mock_query_planner_run):
         output, _ = await self._run_assistant_graph(
-            InsightsGraph(self.team, self.user)
+            InsightsGraph(self.team, self.user, ())
             .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
             .add_query_planner(
                 {
@@ -463,7 +463,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ),
         ):
             test_graph = (
-                InsightsGraph(self.team, self.user)
+                InsightsGraph(self.team, self.user, ())
                 .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
                 .add_query_planner(
                     {
@@ -629,7 +629,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_ai_messages_appended_after_interrupt(self):
         with patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model") as mock:
-            graph = InsightsGraph(self.team, self.user).compile_full_graph()
+            graph = InsightsGraph(self.team, self.user, ()).compile_full_graph()
             config: RunnableConfig = {
                 "configurable": {
                     "thread_id": self.conversation.id,
@@ -801,12 +801,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(actual_output, expected_output)
 
     async def test_async_stream_handles_exceptions(self):
-        def node_handler(state):
-            raise ValueError()
+        class NodeHandler(AssistantNode):
+            async def arun(self, state, config):
+                raise ValueError()
 
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, node_handler)
+            .add_node(AssistantNodeName.ROOT, NodeHandler(self.team, self.user))
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
@@ -995,6 +996,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", {"tool_call_id": "xyz", "type": "tool"}),  # Don't check content as it's implementation detail
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
+        print(actual_output)
         self.assertConversationEqual(actual_output, expected_output)
         self.assertEqual(
             cast(HumanMessage, actual_output[1][1]).id, cast(VisualizationMessage, actual_output[5][1]).initiator
@@ -1782,12 +1784,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         """Test that ui_context persists when retrieving conversation state across multiple runs."""
 
         # Create a simple graph that just returns the initial state
-        def return_initial_state(state):
-            return {"messages": [AssistantMessage(content="Response from assistant")]}
+        class ReturnInitialStateNode(AssistantNode):
+            async def arun(self, state, config):
+                return PartialAssistantState(messages=[AssistantMessage(content="Response from assistant")])
 
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, return_initial_state)
+            .add_node(AssistantNodeName.ROOT, ReturnInitialStateNode(self.team, self.user))
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
@@ -1911,6 +1914,26 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
+            (
+                "message",
+                AssistantMessage(
+                    content="",
+                    id="56076433-5d90-4248-9a46-df3fda42bd0a",
+                    tool_calls=[
+                        AssistantToolCall(
+                            args={"query_description": "Foobar"},
+                            id="xyz",
+                            name="create_and_query_insight",
+                            type="tool_call",
+                        )
+                    ],
+                ),
+            ),
+            (
+                "update",
+                AssistantUpdateEvent(content="Picking relevant events and properties", tool_call_id="xyz", id=""),
+            ),
+            ("update", AssistantUpdateEvent(content="Creating trends query", tool_call_id="xyz", id="")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             (
                 "message",
@@ -2182,19 +2205,19 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_messages_without_id_are_yielded(self):
         """Test that messages without ID are always yielded."""
 
-        class MessageWithoutIdNode:
+        class MessageWithoutIdNode(BaseAssistantNode):
             def __init__(self):
                 self.call_count = 0
 
-            def __call__(self, state):
+            async def arun(self, state, config):
                 self.call_count += 1
                 # Return message without ID - should always be yielded
-                return {
-                    "messages": [
+                return PartialAssistantState(
+                    messages=[
                         AssistantMessage(content=f"Message {self.call_count} without ID"),
                         AssistantMessage(content=f"Message {self.call_count} without ID"),
                     ]
-                }
+                )
 
         node = MessageWithoutIdNode()
         graph = (
@@ -2217,21 +2240,20 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         """Test that messages with ID are deduplicated during streaming."""
         message_id = str(uuid4())
 
-        class DuplicateMessageNode:
-            def __init__(self):
-                self.call_count = 0
+        class DuplicateMessageNode(AssistantNode):
+            call_count = 0
 
-            def __call__(self, state):
+            async def arun(self, state, config):
                 self.call_count += 1
                 # Always return the same message with same ID
-                return {
-                    "messages": [
+                return PartialAssistantState(
+                    messages=[
                         AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
                         AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
                     ]
-                }
+                )
 
-        node = DuplicateMessageNode()
+        node = DuplicateMessageNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, node)
@@ -2270,29 +2292,30 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         call_count = [0]
 
         # Create a simple graph that returns messages with IDs
-        def create_messages_with_ids(_):
-            result = None
-            if call_count[0] == 0:
-                result = PartialAssistantState(
-                    messages=[
-                        AssistantMessage(id=message_id_1, content="Message 1"),
-                    ]
-                )
-            else:
-                result = PartialAssistantState(
-                    messages=ReplaceMessages(
-                        [
+        class TestNode(AssistantNode):
+            async def arun(self, state, config):
+                result = None
+                if call_count[0] == 0:
+                    result = PartialAssistantState(
+                        messages=[
                             AssistantMessage(id=message_id_1, content="Message 1"),
-                            AssistantMessage(id=message_id_2, content="Message 2"),
                         ]
                     )
-                )
-            call_count[0] += 1
-            return result
+                else:
+                    result = PartialAssistantState(
+                        messages=ReplaceMessages(
+                            [
+                                AssistantMessage(id=message_id_1, content="Message 1"),
+                                AssistantMessage(id=message_id_2, content="Message 2"),
+                            ]
+                        )
+                    )
+                call_count[0] += 1
+                return result
 
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, create_messages_with_ids)
+            .add_node(AssistantNodeName.ROOT, TestNode(self.team, self.user))
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
