@@ -30,6 +30,7 @@ import {
     ExternalDataSourceType,
     FileSystemCount,
     FileSystemEntry,
+    FileSystemViewLogEntry,
     HogCompileResponse,
     HogQLQuery,
     HogQLQueryResponse,
@@ -1841,6 +1842,13 @@ const api = {
     },
 
     fileSystemLogView: {
+        async list(params?: { type?: string; limit?: number }): Promise<FileSystemViewLogEntry[]> {
+            const request = new ApiRequest().fileSystemLogView()
+            if (params) {
+                request.withQueryString(params)
+            }
+            return await request.get()
+        },
         async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLogView().create({ data })
         },

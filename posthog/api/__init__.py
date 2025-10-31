@@ -27,9 +27,11 @@ import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
+import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
@@ -758,6 +760,13 @@ environments_router.register(
 )
 
 projects_router.register(
+    r"live_debugger_breakpoints",
+    live_debugger.LiveDebuggerBreakpointViewSet,
+    "project_live_debugger_breakpoints",
+    ["project_id"],
+)
+
+projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",
@@ -878,6 +887,13 @@ environments_router.register(
     r"user_interviews",
     UserInterviewViewSet,
     "environment_user_interviews",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"desktop_recordings",
+    DesktopRecordingViewSet,
+    "environment_desktop_recordings",
     ["team_id"],
 )
 

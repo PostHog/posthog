@@ -229,34 +229,32 @@ describe('dropOldEventsStep()', () => {
     })
 
     describe('timestamp handling', () => {
-        it('handles events with sent_at timestamp', async () => {
+        it('ignores sent_at and uses already-normalized timestamp from Rust', async () => {
             const team = createTeamWithDropSetting(3600) // 1 hour threshold
 
-            // Test events with sent_at that should pass through (adjusted age under 1 hour)
+            // Note: Timestamp normalization (clock skew with sent_at) is now done in Rust capture service.
+            // The timestamp field contains the already-normalized value.
+            // sent_at is included in test data but should be ignored by plugin-server.
+
+            // Test events that should pass through (under 1 hour old after normalization)
             const eventsThatShouldPass = [
                 createEvent({
                     now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2024-01-15T11:00:00.000Z',
-                    sent_at: '2024-01-15T11:30:00.000Z',
-                    eventType: 'sent_at_30min_timestamp_1h',
+                    timestamp: '2024-01-15T11:30:00.000Z', // Normalized timestamp: 30 min old
+                    sent_at: '2024-01-15T11:00:00.000Z', // This should be IGNORED
+                    eventType: 'normalized_30min_old_with_sent_at',
                 }),
                 createEvent({
                     now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2024-01-15T10:00:00.000Z',
-                    sent_at: '2024-01-15T11:00:00.000Z',
-                    eventType: 'sent_at_1h_timestamp_2h',
+                    timestamp: '2024-01-15T11:00:00.000Z', // Normalized timestamp: 1 hour old
+                    sent_at: '2024-01-15T10:00:00.000Z', // This should be IGNORED
+                    eventType: 'normalized_1h_old_with_sent_at',
                 }),
                 createEvent({
                     now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2024-01-15T11:00:00.000Z',
-                    sent_at: '2024-01-15T11:01:00.000Z',
-                    eventType: 'sent_at_59min_timestamp_1h',
-                }),
-                createEvent({
-                    now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2024-01-15T10:59:50.000Z',
-                    sent_at: '2024-01-15T11:00:00.000Z',
-                    eventType: 'sent_at_1h_timestamp_1h_minus_10s',
+                    timestamp: '2024-01-15T11:00:01.000Z', // Normalized timestamp: just under 1 hour
+                    sent_at: '2024-01-15T09:00:00.000Z', // This should be IGNORED
+                    eventType: 'normalized_just_under_1h_with_sent_at',
                 }),
             ]
 
@@ -265,49 +263,19 @@ describe('dropOldEventsStep()', () => {
                 expect(result).toEqual(event)
             }
 
-            // Test events with sent_at that should be dropped (adjusted age 1 hour or older)
+            // Test events that should be dropped (over 1 hour old after normalization)
             const eventsThatShouldBeDropped = [
                 createEvent({
                     now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2024-01-15T09:59:59.000Z',
-                    sent_at: '2024-01-15T11:00:00.000Z',
-                    eventType: 'sent_at_2h1s_timestamp_1h',
+                    timestamp: '2024-01-15T10:59:59.000Z', // Normalized timestamp: just over 1 hour
+                    sent_at: '2024-01-15T11:30:00.000Z', // This should be IGNORED (would suggest event is recent if used)
+                    eventType: 'normalized_just_over_1h_with_sent_at',
                 }),
                 createEvent({
                     now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2024-01-15T09:00:00.000Z',
-                    sent_at: '2024-01-15T11:00:00.000Z',
-                    eventType: 'sent_at_3h_timestamp_1h',
-                }),
-                createEvent({
-                    now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2024-01-15T08:00:00.000Z',
-                    sent_at: '2024-01-15T11:00:00.000Z',
-                    eventType: 'sent_at_4h_timestamp_1h',
-                }),
-                createEvent({
-                    now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2024-01-14T12:00:00.000Z',
-                    sent_at: '2024-01-15T11:00:00.000Z',
-                    eventType: 'sent_at_1day_timestamp_1h',
-                }),
-                createEvent({
-                    now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2024-01-10T12:00:00.000Z',
-                    sent_at: '2024-01-15T11:00:00.000Z',
-                    eventType: 'sent_at_5days_timestamp_1h',
-                }),
-                createEvent({
-                    now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2023-12-15T12:00:00.000Z',
-                    sent_at: '2024-01-15T11:00:00.000Z',
-                    eventType: 'sent_at_1month_timestamp_1h',
-                }),
-                createEvent({
-                    now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2022-01-15T12:00:00.000Z',
-                    sent_at: '2024-01-15T11:00:00.000Z',
-                    eventType: 'sent_at_2years_timestamp_1h',
+                    timestamp: '2024-01-15T10:00:00.000Z', // Normalized timestamp: 2 hours old
+                    sent_at: '2024-01-15T11:45:00.000Z', // This should be IGNORED (would suggest event is recent if used)
+                    eventType: 'normalized_2h_old_with_sent_at',
                 }),
             ]
 
@@ -317,16 +285,33 @@ describe('dropOldEventsStep()', () => {
             }
         })
 
-        it('handles events with offset', async () => {
+        it('ignores offset and uses already-normalized timestamp from Rust', async () => {
             const team = createTeamWithDropSetting(86400) // 1 day threshold
 
-            // Test events with offset that should pass through (under 1 day old)
+            // Note: Offset normalization is now done in Rust capture service.
+            // The timestamp field contains the already-normalized value (now - offset).
+            // offset is included in test data but should be ignored by plugin-server.
+
+            // Test events that should pass through (under 1 day old after normalization)
             const eventsThatShouldPass = [
-                createEvent({ now: '2024-01-15T12:00:00.000Z', eventType: 'current_time_no_offset' }),
-                createEvent({ now: '2024-01-15T12:00:00.000Z', offset: 60000, eventType: 'offset_1min' }), // 1 minute old
-                createEvent({ now: '2024-01-15T12:00:00.000Z', offset: 3600000, eventType: 'offset_1h' }), // 1 hour old
-                createEvent({ now: '2024-01-15T12:00:00.000Z', offset: 43200000, eventType: 'offset_12h' }), // 12 hours old
-                createEvent({ now: '2024-01-15T12:00:00.000Z', offset: 86399000, eventType: 'offset_just_under_1day' }), // 23:59:59 old
+                createEvent({
+                    now: '2024-01-15T12:00:00.000Z',
+                    timestamp: '2024-01-15T11:59:00.000Z', // Normalized: 1 min old
+                    offset: 3600000, // This should be IGNORED (would suggest 1 hour old if used)
+                    eventType: 'normalized_1min_old_with_offset',
+                }),
+                createEvent({
+                    now: '2024-01-15T12:00:00.000Z',
+                    timestamp: '2024-01-15T00:00:00.000Z', // Normalized: 12 hours old
+                    offset: 86400000, // This should be IGNORED (would suggest 1 day old if used)
+                    eventType: 'normalized_12h_old_with_offset',
+                }),
+                createEvent({
+                    now: '2024-01-15T12:00:00.000Z',
+                    timestamp: '2024-01-14T12:00:01.000Z', // Normalized: just under 1 day
+                    offset: 172800000, // This should be IGNORED (would suggest 2 days old if used)
+                    eventType: 'normalized_just_under_1day_with_offset',
+                }),
             ]
 
             for (const event of eventsThatShouldPass) {
@@ -334,13 +319,20 @@ describe('dropOldEventsStep()', () => {
                 expect(result).toEqual(event)
             }
 
-            // Test events with offset that should be dropped (1 day old or older)
+            // Test events that should be dropped (1 day old or older after normalization)
             const eventsThatShouldBeDropped = [
-                createEvent({ now: '2024-01-15T12:00:00.000Z', offset: 86401000, eventType: 'offset_just_over_1day' }), // 1:00:01 old
-                createEvent({ now: '2024-01-15T12:00:00.000Z', offset: 172800000, eventType: 'offset_2days' }), // 2 days old
-                createEvent({ now: '2024-01-15T12:00:00.000Z', offset: 604800000, eventType: 'offset_1week' }), // 1 week old
-                createEvent({ now: '2024-01-15T12:00:00.000Z', offset: 2592000000, eventType: 'offset_30days' }), // 30 days old
-                createEvent({ now: '2024-01-15T12:00:00.000Z', offset: 31536000000, eventType: 'offset_1year' }), // 1 year old
+                createEvent({
+                    now: '2024-01-15T12:00:00.000Z',
+                    timestamp: '2024-01-14T11:59:59.000Z', // Normalized: just over 1 day
+                    offset: 60000, // This should be IGNORED (would suggest 1 min old if used)
+                    eventType: 'normalized_just_over_1day_with_offset',
+                }),
+                createEvent({
+                    now: '2024-01-15T12:00:00.000Z',
+                    timestamp: '2024-01-13T12:00:00.000Z', // Normalized: 2 days old
+                    offset: 3600000, // This should be IGNORED (would suggest 1 hour old if used)
+                    eventType: 'normalized_2days_old_with_offset',
+                }),
             ]
 
             for (const event of eventsThatShouldBeDropped) {
@@ -415,8 +407,12 @@ describe('dropOldEventsStep()', () => {
             }
         })
 
-        it('handles invalid timestamps, offsets, and sent_at gracefully', async () => {
+        it('handles invalid timestamps gracefully', async () => {
             const team = createTeamWithDropSetting(3600) // 1 hour threshold
+
+            // Note: Timestamp normalization is done in Rust, but we still need to handle
+            // invalid timestamps gracefully in case they slip through.
+            // Invalid timestamps should not cause the drop logic to fail - events should pass through.
 
             const invalidTimestampEvents = [
                 createEvent({
@@ -432,48 +428,8 @@ describe('dropOldEventsStep()', () => {
                 }),
             ]
 
+            // Invalid timestamps should be handled gracefully and events should pass through
             for (const event of invalidTimestampEvents) {
-                const result = await dropOldEventsStep(mockRunner, event, team)
-                expect(result).toEqual(event)
-            }
-
-            const invalidOffsetEvents = [
-                createEvent({ now: '2024-01-15T12:00:00.000Z', offset: NaN, eventType: 'invalid_offset_nan' }),
-                createEvent({
-                    now: '2024-01-15T12:00:00.000Z',
-                    offset: Infinity,
-                    eventType: 'invalid_offset_infinity',
-                }),
-                createEvent({ now: '2024-01-15T12:00:00.000Z', offset: -1, eventType: 'invalid_offset_negative' }),
-            ]
-
-            for (const event of invalidOffsetEvents) {
-                const result = await dropOldEventsStep(mockRunner, event, team)
-                expect(result).toEqual(event)
-            }
-
-            const invalidSentAtEvents = [
-                createEvent({
-                    now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2024-01-15T11:00:00.000Z',
-                    sent_at: 'invalid-sent-at',
-                    eventType: 'invalid_sent_at_event',
-                }),
-                createEvent({
-                    now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2024-01-15T11:00:00.000Z',
-                    sent_at: '',
-                    eventType: 'empty_sent_at_event',
-                }),
-                createEvent({
-                    now: '2024-01-15T12:00:00.000Z',
-                    timestamp: '2024-01-15T11:00:00.000Z',
-                    sent_at: '2024-13-45T25:70:99.999Z',
-                    eventType: 'invalid_sent_at_date_event',
-                }),
-            ]
-
-            for (const event of invalidSentAtEvents) {
                 const result = await dropOldEventsStep(mockRunner, event, team)
                 expect(result).toEqual(event)
             }

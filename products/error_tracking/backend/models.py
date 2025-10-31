@@ -88,6 +88,24 @@ class ErrorTrackingExternalReference(UUIDTModel):
         db_table = "posthog_errortrackingexternalreference"
 
 
+class ErrorTrackingIssueCohort(UUIDTModel):
+    issue = models.ForeignKey(
+        ErrorTrackingIssue,
+        on_delete=models.CASCADE,
+        related_name="cohorts",
+    )
+    cohort = models.ForeignKey(
+        "posthog.Cohort",
+        on_delete=models.CASCADE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Create a virtual one-to-one relationship constraint we can release later if needed
+        constraints = [models.UniqueConstraint(fields=["issue"], name="unique_cohort_for_issue")]
+        db_table = "posthog_errortrackingissuecohort"
+
+
 class ErrorTrackingIssueAssignment(UUIDTModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE)
@@ -286,6 +304,8 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
 class ErrorTrackingStackFrame(UUIDTModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
+    # Raw frames could be resolved into multiple frames after demangling because of compilation process
+    part = models.IntegerField(null=False, default=0)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.SET_NULL, null=True)
@@ -297,6 +317,7 @@ class ErrorTrackingStackFrame(UUIDTModel):
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "raw_id"]),
+            models.Index(fields=["team_id", "raw_id", "part"], name="idx_team_id_raw_id_part"),
         ]
 
         constraints = [

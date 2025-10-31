@@ -2222,6 +2222,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     limit?: integer
     offset?: integer
     personId?: string
+    groupKey?: string
+    groupTypeIndex?: integer
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
@@ -2546,11 +2548,13 @@ export type FileSystemIconType =
     | 'early_access_feature'
     | 'experiment'
     | 'feature_flag'
+    | 'feature_flag_off'
     | 'data_pipeline'
     | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
     | 'link'
+    | 'live_debugger'
     | 'logs'
     | 'workflows'
     | 'notebook'
@@ -2594,6 +2598,14 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     iconColor?: FileSystemIconColor
     /** Match this with the a base scene key or a specific one */
     sceneKey?: string
+    /** List of all scenes exported by the app */
+    sceneKeys?: string[]
+}
+
+export interface FileSystemViewLogEntry {
+    type: string
+    ref: string
+    viewed_at: string
 }
 
 export interface PersistedFolder {

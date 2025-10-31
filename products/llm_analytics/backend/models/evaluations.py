@@ -30,7 +30,6 @@ class Evaluation(UUIDTModel):
     evaluation_config = models.JSONField(default=dict)
     output_type = models.CharField(max_length=50, choices=OutputType.choices)
     output_config = models.JSONField(default=dict)
-    prompt = models.TextField(null=True, blank=True)
 
     conditions = models.JSONField(default=list)
 
