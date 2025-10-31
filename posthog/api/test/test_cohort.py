@@ -3486,6 +3486,176 @@ email@example.org,
         cohort = Cohort.objects.get(id=cohort_id)
         self.assertTrue(cohort.deleted)
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_test_account_filters(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Add cohort to test_account_filters
+        self.team.test_account_filters = [{"key": "id", "value": cohort_id, "type": "cohort"}]
+        self.team.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(
+            "This cohort is used in 'Filter out internal and test users' for 1 environment(s):",
+            response.json()["detail"],
+        )
+        self.assertIn(self.team.name, response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_multiple_teams_test_account_filters(
+        self, patch_calculate_cohort, patch_capture
+    ):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Add cohort to test_account_filters for multiple teams
+        self.team.test_account_filters = [{"key": "id", "value": cohort_id, "type": "cohort"}]
+        self.team.save()
+
+        team2 = Team.objects.create(organization=self.organization, project=self.team.project, name="Team 2")
+        team2.test_account_filters = [{"key": "id", "value": cohort_id, "type": "cohort"}]
+        team2.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = response.json()["detail"]
+        self.assertIn("This cohort is used in 'Filter out internal and test users' for 2 environment(s):", detail)
+        self.assertIn(self.team.name, detail)
+        self.assertIn(team2.name, detail)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_can_delete_cohort_not_used_in_test_account_filters(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Add a different cohort to test_account_filters
+        other_cohort = Cohort.objects.create(
+            team=self.team, name="Other Cohort", groups=[{"properties": {"team_id": 6}}]
+        )
+        self.team.test_account_filters = [{"key": "id", "value": other_cohort.id, "type": "cohort"}]
+        self.team.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort = Cohort.objects.get(id=cohort_id)
+        self.assertTrue(cohort.deleted)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_insight(self, patch_calculate_cohort, patch_capture):
+        from posthog.models.insight import Insight
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Create an insight that uses the cohort
+        Insight.objects.create(
+            team=self.team,
+            name="Test Insight",
+            query={"properties": [{"type": "cohort", "value": cohort_id}]},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("This cohort is used in 1 insight(s): Test Insight", response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_multiple_insights(self, patch_calculate_cohort, patch_capture):
+        from posthog.models.insight import Insight
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Create multiple insights that use the cohort
+        Insight.objects.create(
+            team=self.team,
+            name="First Insight",
+            query={"properties": [{"type": "cohort", "value": cohort_id}]},
+        )
+        Insight.objects.create(
+            team=self.team,
+            name="Second Insight",
+            query={"properties": [{"type": "cohort", "value": cohort_id}]},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = response.json()["detail"]
+        self.assertIn("This cohort is used in 2 insight(s):", detail)
+        self.assertIn("First Insight", detail)
+        self.assertIn("Second Insight", detail)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_can_delete_cohort_not_used_in_insights(self, patch_calculate_cohort, patch_capture):
+        from posthog.models.insight import Insight
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Create an insight that uses a different cohort
+        other_cohort = Cohort.objects.create(
+            team=self.team, name="Other Cohort", groups=[{"properties": {"team_id": 6}}]
+        )
+        Insight.objects.create(
+            team=self.team,
+            name="Test Insight",
+            query={"properties": [{"type": "cohort", "value": other_cohort.id}]},
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort = Cohort.objects.get(id=cohort_id)
+        self.assertTrue(cohort.deleted)
+
 
 class TestCalculateCohortCommand(APIBaseTest):
     def test_calculate_cohort_command_success(self):
