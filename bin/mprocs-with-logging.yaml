@@ -11,12 +11,8 @@ procs:
     plugin-server:
         shell: 'bin/check_postgres_up && bin/check_kafka_clickhouse_up && ./bin/plugin-server 2>&1 | tee /tmp/posthog-plugin-server.log'
 
-    frontend-vite:
-        shell: 'SKIP_TYPEGEN=1 ./bin/start-frontend 2>&1 | tee /tmp/posthog-frontend-vite.log'
-        autorestart: true
-
-    frontend-typegen:
-        shell: './bin/start-frontend-typegen 2>&1 | tee /tmp/posthog-frontend-typegen.log'
+    frontend:
+        shell: './bin/start-frontend 2>&1 | tee /tmp/posthog-frontend.log'
         autorestart: true
 
     temporal-worker-general-purpose:
