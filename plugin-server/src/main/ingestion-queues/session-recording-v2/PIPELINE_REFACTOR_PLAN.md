@@ -23,9 +23,21 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 
 ## Pipeline Steps
 
-### Step 0: Collect Metrics
+### Step 0: Send Kafka Heartbeat (Before Processing)
 
-- **Type**: Batch-level operation (first step)
+- **Type**: Batch-level operation (very first step)
+- **Input**: `{ message: Message }[]`
+- **Output**: `{ message: Message }[]`
+- **Operations**:
+    - Call `kafkaConsumer.heartbeat()` to keep connection alive
+    - Pass through all messages unchanged
+- **Note**: Ensures Kafka doesn't think we've died during long batch processing
+- **Status**: 📝 Planned
+- **File**: `steps/send-heartbeat.ts`
+
+### Step 1: Collect Metrics
+
+- **Type**: Batch-level operation
 - **Input**: `{ message: Message }[]`
 - **Output**: `{ message: Message }[]`
 - **Operations**:
@@ -39,7 +51,7 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/collect-batch-metrics.ts`
 
-### Step 1: Parse Headers
+### Step 2: Parse Headers
 
 - **Type**: Per-message, sequential
 - **Input**: `{ message: Message }`
@@ -51,7 +63,7 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/parse-headers.ts`
 
-### Step 2: Apply Restrictions
+### Step 3: Apply Restrictions
 
 - **Type**: Per-message, sequential
 - **Input**: `{ message: Message, headers: EventHeaders }`
@@ -64,7 +76,7 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Status**: ✅ Implemented and tested
 - **Files**: `steps/apply-drop-restrictions.ts`, `steps/apply-overflow-restrictions.ts`
 
-### Step 3: Parse Kafka Message
+### Step 4: Parse Kafka Message
 
 - **Type**: Per-message, sequential
 - **Input**: `{ message: Message, headers: EventHeaders }`
@@ -81,7 +93,7 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/parse-kafka-message.ts`
 
-### Step 4: Resolve Team
+### Step 5: Resolve Team
 
 - **Type**: Per-message, sequential
 - **Input**: `{ message: Message, headers: EventHeaders, parsedMessage: ParsedMessageData }`
@@ -95,7 +107,7 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Result types**: `ok`, `drop`
 - **File**: `steps/resolve-team.ts`
 
-### Step 5: Obtain Batch
+### Step 6: Obtain Batch
 
 - **Type**: Batch-level operation
 - **Input**: `MessageWithTeam[]`
@@ -103,15 +115,11 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Operations**:
     - Call `sessionBatchManager.getCurrentBatch()` once for entire batch
     - Attach batch recorder to each message
-- **Note**: Requires `.gather()` before this step to collect all messages
+- **Note**: No gather needed before this step since we're already gathered from filterOk
+- **Status**: ✅ Implemented and tested
 - **File**: `steps/obtain-batch.ts`
 
-### Step 6: Track Lib Version
-
-- **Status**: ❌ Removed - Not implemented
-- **Reason**: We don't publish the lib version header, so this step would not have any data to track. The original implementation didn't track lib versions either.
-
-### Step 7: Record Session Event (renumbered to Step 6)
+### Step 7: Record Session Event
 
 - **Type**: Per-message, sequential (team-aware)
 - **Input**: `MessageWithTeam & { batchRecorder: SessionBatchRecorder }`
@@ -121,18 +129,33 @@ The session recording consumer currently processes messages in `consumer.ts:199-
     - Log debug info if enabled
     - Observe session info metrics
     - Call `batchRecorder.record(message)`
+- **Status**: ✅ Implemented and tested
 - **File**: `steps/record-session-event.ts`
 
-### Step 7: Flush Batch (renumbered from Step 8)
+### Step 8: Send Kafka Heartbeat (Before Flush)
 
 - **Type**: Batch-level operation
-- **Input**: `void[]`
-- **Output**: `void[]`
+- **Input**: `void[]` (generic - accepts any type)
+- **Output**: `void[]` (passes through input unchanged)
+- **Operations**:
+    - Call `kafkaConsumer.heartbeat()` to keep connection alive
+    - Pass through all messages unchanged
+- **Note**: Ensures Kafka doesn't time out during potentially slow flush operations
+- **Status**: 📝 Planned
+- **File**: `steps/send-heartbeat.ts`
+
+### Step 9: Maybe Flush Batch
+
+- **Type**: Batch-level operation
+- **Input**: `void[]` (generic - accepts any type)
+- **Output**: `void[]` (passes through input unchanged)
 - **Operations**:
     - Check if `sessionBatchManager.shouldFlush()`
     - If true, call `sessionBatchManager.flush()`
+    - Pass through input unchanged
 - **Note**: Requires `.gather()` before this step to collect all processed messages
-- **File**: `steps/flush-batch.ts`
+- **Status**: ✅ Implemented and tested
+- **File**: `steps/maybe-flush-batch.ts`
 
 ---
 

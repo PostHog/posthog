@@ -179,10 +179,8 @@ export class SessionRecordingIngester {
                 const batch = createBatch(messages.map((message) => ({ message })))
                 this.pipeline.feed(batch)
 
-                // Process pipeline (recording and flushing happens inside)
+                // Process pipeline (heartbeats, recording, and flushing all happen inside)
                 await this.pipeline.next()
-
-                this.kafkaConsumer.heartbeat()
             }
         )
     }
@@ -198,6 +196,7 @@ export class SessionRecordingIngester {
             teamService: this.teamService,
             sessionBatchManager: this.sessionBatchManager,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,
+            kafkaConsumer: this.kafkaConsumer,
         }
 
         const pipeline = createSessionRecordingPipeline(pipelineConfig)

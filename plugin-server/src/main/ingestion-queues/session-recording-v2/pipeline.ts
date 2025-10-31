@@ -3,6 +3,7 @@ import { Message } from 'node-rdkafka'
 import { BatchPipeline } from '../../../ingestion/pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from '../../../ingestion/pipelines/builders'
 import { PipelineConfig } from '../../../ingestion/pipelines/result-handling-pipeline'
+import { KafkaConsumer } from '../../../kafka/consumer'
 import { ValueMatcher } from '../../../types'
 import { EventIngestionRestrictionManager } from '../../../utils/event-ingestion-restriction-manager'
 import { SessionBatchManager } from './sessions/session-batch-manager'
@@ -15,6 +16,7 @@ import { createParseHeadersStep } from './steps/parse-headers'
 import { createParseKafkaMessageStep } from './steps/parse-kafka-message'
 import { createRecordSessionEventStep } from './steps/record-session-event'
 import { createResolveTeamStep } from './steps/resolve-team'
+import { createSendHeartbeatStep } from './steps/send-heartbeat'
 import { TeamService } from './teams/team-service'
 
 export interface SessionRecordingPipelineConfig extends PipelineConfig {
@@ -24,6 +26,7 @@ export interface SessionRecordingPipelineConfig extends PipelineConfig {
     teamService: TeamService
     sessionBatchManager: SessionBatchManager
     isDebugLoggingEnabled: ValueMatcher<number>
+    kafkaConsumer: KafkaConsumer
 }
 
 export function createSessionRecordingPipeline(
@@ -31,19 +34,22 @@ export function createSessionRecordingPipeline(
 ): BatchPipeline<{ message: Message }, void, { message: Message }> {
     return (
         newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
-            // Step 0: Collect batch metrics (batch-level)
+            // Step 0: Send heartbeat (batch-level)
+            .pipeBatch(createSendHeartbeatStep(config.kafkaConsumer))
+
+            // Step 1: Collect batch metrics (batch-level)
             .pipeBatch(createCollectBatchMetricsStep())
 
             .messageAware((builder) =>
                 builder.sequentially((b) =>
                     b
-                        // Step 1: Parse headers
+                        // Step 2: Parse headers
                         .pipe(createParseHeadersStep())
 
-                        // Step 2a: Apply drop restrictions
+                        // Step 3a: Apply drop restrictions
                         .pipe(createApplyDropRestrictionsStep(config.restrictionManager))
 
-                        // Step 2b: Apply overflow restrictions
+                        // Step 3b: Apply overflow restrictions
                         .pipe(
                             createApplyOverflowRestrictionsStep(
                                 config.restrictionManager,
@@ -52,10 +58,10 @@ export function createSessionRecordingPipeline(
                             )
                         )
 
-                        // Step 3: Parse Kafka message
+                        // Step 4: Parse Kafka message
                         .pipe(createParseKafkaMessageStep())
 
-                        // Step 4: Resolve team
+                        // Step 5: Resolve team
                         .pipe(createResolveTeamStep(config.teamService))
                 )
             )
@@ -75,10 +81,10 @@ export function createSessionRecordingPipeline(
                 },
             }))
 
-            // Step 5: Obtain batch recorder (batch-level, no gather needed since we're already gathered from filterOk)
+            // Step 6: Obtain batch recorder (batch-level, no gather needed since we're already gathered from filterOk)
             .pipeBatch(createObtainBatchStep(config.sessionBatchManager))
 
-            // Step 6: Record to batch using batch recorder (sequential, team-aware)
+            // Step 7: Record to batch using batch recorder (sequential, team-aware)
             .messageAware((builder) =>
                 builder.teamAware((b) =>
                     b.sequentially((seq) => seq.pipe(createRecordSessionEventStep(config.isDebugLoggingEnabled)))
@@ -87,8 +93,12 @@ export function createSessionRecordingPipeline(
             .handleResults(config)
             .handleSideEffects(config.promiseScheduler, { await: false })
 
-            // Step 7: Maybe flush batch (after side effects are handled)
             .gather()
+
+            // Step 8: Send heartbeat before flush (batch-level)
+            .pipeBatch(createSendHeartbeatStep(config.kafkaConsumer))
+
+            // Step 9: Maybe flush batch (after side effects are handled)
             .pipeBatch(createMaybeFlushBatchStep(config.sessionBatchManager))
 
             .build()
