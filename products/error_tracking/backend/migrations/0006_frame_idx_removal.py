@@ -11,6 +11,10 @@ class Migration(migrations.Migration):
     operations = [
         migrations.SeparateDatabaseAndState(
             state_operations=[
+                migrations.RemoveIndex(
+                    model_name="errortrackingstackframe",
+                    name="posthog_err_team_id_dc6a7f_idx",
+                ),
                 migrations.RemoveConstraint(
                     model_name="errortrackingstackframe",
                     name="unique_raw_id_per_team",
