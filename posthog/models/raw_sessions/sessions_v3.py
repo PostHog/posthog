@@ -75,6 +75,7 @@ def DROP_RAW_SESSION_VIEW_SQL_V3():
 
 # if updating these column definitions
 # you'll need to update the explicit column definitions in the materialized view creation statement below
+# you'll also need to ensure that the overrides table is still compatible
 RAW_SESSIONS_TABLE_BASE_SQL_V3 = """
 CREATE TABLE IF NOT EXISTS {table_name}
 (
@@ -211,6 +212,7 @@ new_line = "\n"
 
 # See https://kb.altinity.com/altinity-kb-queries-and-syntax/jsonextract-to-parse-many-attributes-at-a-time/
 # Or https://posthog.slack.com/archives/C02JQ320FV3/p1721406540313379?thread_ts=1721334861.073739&cid=C02JQ320FV3
+# if updating these, you'll want to make a migration to update the MV. Also update the sessions-on-events + overrides
 PROPERTIES = f"""
         JSONExtract(properties, 'Tuple(
             `$current_url` Nullable(String),
