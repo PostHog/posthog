@@ -202,7 +202,7 @@ export function getRecordingStatus(properties: ErrorEventProperties): string | u
 }
 
 // we had a bug where SDK was sending non-string values for exception value
-export function ensureStringExceptionValues(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
+function ensureStringExceptionValues(exceptionList: ErrorTrackingException[]): ErrorTrackingException[] {
     if (!Array.isArray(exceptionList)) {
         return []
     }
