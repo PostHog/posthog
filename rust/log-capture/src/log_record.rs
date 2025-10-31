@@ -44,8 +44,6 @@ pub struct KafkaLogRow {
     pub attributes_map_str: HashMap<String, String>,
     pub attributes_map_float: HashMap<String, f64>,
     pub attributes_map_datetime: HashMap<String, f64>,
-    pub attribute_keys: Vec<String>,
-    pub attribute_values: Vec<String>,
 }
 
 impl KafkaLogRow {
@@ -148,8 +146,6 @@ impl KafkaLogRow {
                 .map(|(k, v)| (k + "__float", v.unwrap()))
                 .collect(),
             attributes_map_datetime: HashMap::new(),
-            attribute_keys: attributes.keys().cloned().collect(),
-            attribute_values: attributes.values().cloned().collect(),
         };
         debug!("log: {:?}", log_row);
 
