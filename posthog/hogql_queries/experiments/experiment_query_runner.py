@@ -486,13 +486,13 @@ class ExperimentQueryRunner(QueryRunner):
             builder = ExperimentQueryBuilder(
                 team=self.team,
                 feature_flag_key=self.feature_flag.key,
-                metric=self.metric,
                 exposure_config=exposure_config,
                 filter_test_accounts=filter_test_accounts,
                 multiple_variant_handling=multiple_variant_handling,
                 variants=self.variants,
                 date_range_query=self.date_range_query,
                 entity_key=self.entity_key,
+                metric=self.metric,
             )
             return builder.build_query()
 

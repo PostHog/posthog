@@ -123,22 +123,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
                 self.experiment
             )
 
-            # Get a metric from the experiment if available, otherwise create a dummy metric
-            # The metric is not actually used for exposure queries, but the builder requires it
-            if self.experiment.metrics and len(self.experiment.metrics) > 0:
-                from posthog.schema import ExperimentMeanMetric
-
-                metric = ExperimentMeanMetric.model_validate(self.experiment.metrics[0])
-            else:
-                # Create a minimal dummy metric as a placeholder
-                from posthog.schema import EventsNode, ExperimentMeanMetric
-
-                metric = ExperimentMeanMetric(source=EventsNode(event="$pageview"))
-
             builder = ExperimentQueryBuilder(
                 team=self.team,
                 feature_flag_key=self.feature_flag_key,
-                metric=metric,
                 exposure_config=exposure_config,
                 filter_test_accounts=filter_test_accounts,
                 multiple_variant_handling=multiple_variant_handling,

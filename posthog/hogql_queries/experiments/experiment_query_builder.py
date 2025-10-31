@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ActionsNode,
@@ -63,13 +63,13 @@ class ExperimentQueryBuilder:
         self,
         team: Team,
         feature_flag_key: str,
-        metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
         exposure_config: ExperimentEventExposureConfig | ActionsNode,
         filter_test_accounts: bool,
         multiple_variant_handling: MultipleVariantHandling,
         variants: list[str],
         date_range_query: QueryDateRange,
         entity_key: str,
+        metric: Optional[ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric] = None,
     ):
         self.team = team
         self.metric = metric
@@ -85,6 +85,7 @@ class ExperimentQueryBuilder:
         """
         Main entry point. Returns complete query built from HogQL with placeholders.
         """
+        assert self.metric is not None, "metric is required for build_query()"
         match self.metric:
             case ExperimentFunnelMetric():
                 return self._build_funnel_query()
@@ -143,6 +144,7 @@ class ExperimentQueryBuilder:
         Returns the conversion window in seconds for the current metric.
         Returns 0 if no conversion window is configured.
         """
+        assert self.metric is not None, "metric is required for _get_conversion_window_seconds()"
         if self.metric.conversion_window and self.metric.conversion_window_unit:
             return conversion_window_to_seconds(
                 self.metric.conversion_window,
