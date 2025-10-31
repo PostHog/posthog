@@ -149,7 +149,18 @@ export function Login(): JSX.Element {
                         </div>
                     </div>
                 ) : (
-                    <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="deprecated-space-y-4">
+                    <Form
+                        logic={loginLogic}
+                        formKey="login"
+                        enableFormOnSubmit
+                        onSubmitCapture={(e) => {
+                            if (isPasswordHidden) {
+                                e.preventDefault()
+                                e.stopPropagation()
+                            }
+                        }}
+                        className="deprecated-space-y-4"
+                    >
                         <RegionSelect />
                         <LemonField name="email" label="Email">
                             <LemonInput
@@ -160,10 +171,8 @@ export function Login(): JSX.Element {
                                 type="email"
                                 onBlur={() => precheck({ email: login.email })}
                                 onPressEnter={(e) => {
-                                    precheck({ email: login.email })
                                     if (isPasswordHidden) {
                                         e.preventDefault() // Don't trigger submission if password field is still hidden
-                                        passwordInputRef.current?.focus()
                                     }
                                 }}
                             />
@@ -199,7 +208,7 @@ export function Login(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 status="alt"
-                                htmlType={isPasswordHidden ? 'button' : 'submit'}
+                                htmlType="submit"
                                 data-attr="password-login"
                                 fullWidth
                                 center
