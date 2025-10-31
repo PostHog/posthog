@@ -9,7 +9,6 @@ from temporalio import activity
 
 from posthog.models.team.team import Team
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_imports.external_data_job import ExternalDataJob, ExternalDataSource
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
@@ -36,6 +35,8 @@ dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
 
 @activity.defn
 def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> bool:
+    from posthog.temporal.data_imports.external_data_job import ExternalDataJob, ExternalDataSource
+
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     close_old_connections()
