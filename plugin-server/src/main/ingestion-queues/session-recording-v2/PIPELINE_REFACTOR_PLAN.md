@@ -29,10 +29,10 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message }[]`
 - **Output**: `{ message: Message }[]`
 - **Operations**:
-    - Call `kafkaConsumer.heartbeat()` to keep connection alive
-    - Pass through all messages unchanged
+  - Call `kafkaConsumer.heartbeat()` to keep connection alive
+  - Pass through all messages unchanged
 - **Note**: Ensures Kafka doesn't think we've died during long batch processing
-- **Status**: 📝 Planned
+- **Status**: ✅ Implemented and tested
 - **File**: `steps/send-heartbeat.ts`
 
 ### Step 1: Collect Metrics
@@ -41,12 +41,12 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message }[]`
 - **Output**: `{ message: Message }[]`
 - **Operations**:
-    - Calculate batch size (number of messages)
-    - Calculate batch size in KB
-    - Call `SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)`
-    - Call `SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)`
-    - Aggregate per-partition message counts
-    - Call `SessionRecordingIngesterMetrics.incrementMessageReceived(partition, count)` for each partition
+  - Calculate batch size (number of messages)
+  - Calculate batch size in KB
+  - Call `SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)`
+  - Call `SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)`
+  - Aggregate per-partition message counts
+  - Call `SessionRecordingIngesterMetrics.incrementMessageReceived(partition, count)` for each partition
 - **Note**: Metrics are NOT treated as side effects. Both batch-level and per-message metrics are collected in this single step.
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/collect-batch-metrics.ts`
@@ -57,8 +57,8 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message }`
 - **Output**: `{ message: Message, headers: EventHeaders }`
 - **Operations**:
-    - Parse headers from message to extract token/distinct_id
-    - Call `parseEventHeaders(message.headers)`
+  - Parse headers from message to extract token/distinct_id
+  - Call `parseEventHeaders(message.headers)`
 - **Note**: Required before applying restrictions since we need token/distinct_id
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/parse-headers.ts`
@@ -69,8 +69,8 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message, headers: EventHeaders }`
 - **Output**: `{ message: Message, headers: EventHeaders }`
 - **Operations**:
-    - **Step 2a**: Drop if `shouldDropEvent(token, distinct_id)` - `apply-drop-restrictions.ts`
-    - **Step 2b**: Redirect to overflow if `shouldForceOverflow(token, distinct_id)` - `apply-overflow-restrictions.ts`
+  - **Step 2a**: Drop if `shouldDropEvent(token, distinct_id)` - `apply-drop-restrictions.ts`
+  - **Step 2b**: Redirect to overflow if `shouldForceOverflow(token, distinct_id)` - `apply-overflow-restrictions.ts`
 - **Result types**: `ok`, `drop`, `redirect`
 - **Note**: Split into two separate steps for cleaner separation of concerns
 - **Status**: ✅ Implemented and tested
@@ -82,12 +82,12 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message, headers: EventHeaders }`
 - **Output**: `{ message: Message, headers: EventHeaders, parsedMessage: ParsedMessageData }`
 - **Operations**:
-    - Call `kafkaParser.parseMessage(message)` which:
-        - Checks if gzipped and decompresses
-        - Parses JSON payload
-        - Validates against schemas (`RawEventMessageSchema`, `EventSchema`, `SnapshotEventSchema`)
-        - Extracts snapshot items and validates timestamps
-    - **Redirect to DLQ if parse fails**
+  - Call `kafkaParser.parseMessage(message)` which:
+    - Checks if gzipped and decompresses
+    - Parses JSON payload
+    - Validates against schemas (`RawEventMessageSchema`, `EventSchema`, `SnapshotEventSchema`)
+    - Extracts snapshot items and validates timestamps
+  - **Redirect to DLQ if parse fails**
 - **Result types**: `ok`, `dlq`
 - **Note**: Uses existing `KafkaMessageParser.parseMessage()` method, made public for pipeline use
 - **Status**: ✅ Implemented and tested
@@ -99,11 +99,11 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message, headers: EventHeaders, parsedMessage: ParsedMessageData }`
 - **Output**: `MessageWithTeam`
 - **Operations**:
-    - Extract token from headers
-    - Call `teamService.getTeamByToken(token)`
-    - Validate team exists and is enabled
-    - Get retention period via `teamService.getRetentionPeriodByTeamId()`
-    - Drop if team missing or no retention period
+  - Extract token from headers
+  - Call `teamService.getTeamByToken(token)`
+  - Validate team exists and is enabled
+  - Get retention period via `teamService.getRetentionPeriodByTeamId()`
+  - Drop if team missing or no retention period
 - **Result types**: `ok`, `drop`
 - **File**: `steps/resolve-team.ts`
 
@@ -113,8 +113,8 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `MessageWithTeam[]`
 - **Output**: `MessageWithTeam & { batchRecorder: SessionBatchRecorder }[]`
 - **Operations**:
-    - Call `sessionBatchManager.getCurrentBatch()` once for entire batch
-    - Attach batch recorder to each message
+  - Call `sessionBatchManager.getCurrentBatch()` once for entire batch
+  - Attach batch recorder to each message
 - **Note**: No gather needed before this step since we're already gathered from filterOk
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/obtain-batch.ts`
@@ -125,10 +125,10 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `MessageWithTeam & { batchRecorder: SessionBatchRecorder }`
 - **Output**: `void`
 - **Operations**:
-    - Reset sessions revoked metric
-    - Log debug info if enabled
-    - Observe session info metrics
-    - Call `batchRecorder.record(message)`
+  - Reset sessions revoked metric
+  - Log debug info if enabled
+  - Observe session info metrics
+  - Call `batchRecorder.record(message)`
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/record-session-event.ts`
 
@@ -138,10 +138,10 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `void[]` (generic - accepts any type)
 - **Output**: `void[]` (passes through input unchanged)
 - **Operations**:
-    - Call `kafkaConsumer.heartbeat()` to keep connection alive
-    - Pass through all messages unchanged
+  - Call `kafkaConsumer.heartbeat()` to keep connection alive
+  - Pass through all messages unchanged
 - **Note**: Ensures Kafka doesn't time out during potentially slow flush operations
-- **Status**: 📝 Planned
+- **Status**: ✅ Implemented and tested
 - **File**: `steps/send-heartbeat.ts`
 
 ### Step 9: Maybe Flush Batch
@@ -150,9 +150,9 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `void[]` (generic - accepts any type)
 - **Output**: `void[]` (passes through input unchanged)
 - **Operations**:
-    - Check if `sessionBatchManager.shouldFlush()`
-    - If true, call `sessionBatchManager.flush()`
-    - Pass through input unchanged
+  - Check if `sessionBatchManager.shouldFlush()`
+  - If true, call `sessionBatchManager.flush()`
+  - Pass through input unchanged
 - **Note**: Requires `.gather()` before this step to collect all processed messages
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/maybe-flush-batch.ts`
@@ -323,12 +323,14 @@ Create or update type definitions for pipeline inputs/outputs.
 ### Phase 3: Refactor Supporting Classes
 
 1. **`LibVersionMonitor`**
-    - Add `processSingle(message)` method that returns warnings
-    - Keep `processBatch()` for backward compatibility
+
+- Add `processSingle(message)` method that returns warnings
+- Keep `processBatch()` for backward compatibility
 
 2. **`SessionRecordingRestrictionHandler`**
-    - Logic moves into step 2
-    - Can be removed or simplified
+
+- Logic moves into step 2
+- Can be removed or simplified
 
 ### Phase 4: Update Consumer Class
 
@@ -336,12 +338,54 @@ Create or update type definitions for pipeline inputs/outputs.
 2. Implement `initializePipeline()` method
 3. Update `handleEachBatch()` to use pipeline
 4. Remove old methods:
-    - `processBatchMessages()`
-    - `processMessages()`
-    - `consume()`
+
+- `processBatchMessages()`
+- `processMessages()`
+- `consume()`
 
 ### Phase 5: Testing
 
 1. Unit tests for each step
 2. Integration tests for full pipeline
 3. Regression tests to ensure existing behavior preserved
+
+---
+
+## Post-Implementation Quality Improvements
+
+### Generic Type Constraints for Property Preservation
+
+**Status**: ✅ Complete
+
+All pipeline steps were enhanced to use generic type constraints (`T extends Input`) following the pattern from event-processing and event-preprocessing pipelines. This allows steps to:
+
+1. Accept inputs with additional properties beyond their required `Input` type
+2. Preserve those additional properties in their output
+3. Maintain type safety throughout the pipeline
+
+**Implementation details**:
+
+- Each step function signature changed from `Step<Input, Output>` to `<T extends Input>Step<T, T & Output>`
+- Tests added for each step to verify generic property preservation
+- All type safety maintained without using `any`, type casting, or error suppression
+- 70 total tests passing
+
+**Files updated**:
+
+- `steps/collect-batch-metrics.ts` + tests
+- `steps/parse-headers.ts` + tests
+- `steps/apply-drop-restrictions.ts` + tests
+- `steps/apply-overflow-restrictions.ts` + tests
+- `steps/parse-kafka-message.ts` + tests
+- `steps/resolve-team.ts` + tests
+- `steps/obtain-batch.ts` + tests
+- `steps/record-session-event.ts` + tests
+- `steps/maybe-flush-batch.ts` + tests
+- `steps/send-heartbeat.ts` + tests
+
+**Benefits**:
+
+- Type-safe property propagation through pipeline
+- Better composability with other pipeline systems
+- Easier to extend with new properties in future
+- Consistent pattern with other PostHog ingestion pipelines
