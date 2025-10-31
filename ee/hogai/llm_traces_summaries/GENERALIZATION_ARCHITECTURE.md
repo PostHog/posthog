@@ -115,33 +115,6 @@ flowchart TD
 4. **Caching**: Stringified traces reused across themes
 5. **Parallelism**: Themes can run in separate Temporal workers
 
-### Cost Comparison
-
-**Naive Approach** (collect all, analyze all):
-
-```text
-10,000 traces × 6 themes = 60,000 LLM calls + embeddings = $600
-```
-
-**Theme-Filtered Approach (with theme_relevance)**:
-
-```text
-Theme                    | HogQL Filter   | Analyzed | theme_relevant | Embedded | Cost
--------------------------|----------------|----------|----------------|----------|------
-Unhappy Users            | none           | 5,000    | 1,250 (25%)   | 1,250    | $51.25
-Errors & Failures        | $ai_error SET  |   500    |   400 (80%)   |   400    | $5.40
-Feature Gaps             | input patterns | 1,500    |   900 (60%)   |   900    | $15.90
-Performance/Cost         | latency/tokens |   500    |   350 (70%)   |   350    | $5.35
-Happy Users              | no errors      | 2,000    |   800 (40%)   |   800    | $20.80
-------------------------------------------------------------
-Total LLM calls: 9,500 traces × $0.01 = $95
-Total embeddings: 3,700 traces × $0.001 = $3.70
-Total cost: $98.70 (80% savings vs naive $500 approach)
-```
-
-**Key Insight**: theme_relevance filtering reduces embedding costs by 61% (3,700 vs 9,500 traces),
-while maintaining high signal-to-noise ratio in clusters.
-
 ### Two-Tier Filtering: HogQL + theme_relevance
 
 To optimize costs and signal quality, we use a two-stage filtering strategy:

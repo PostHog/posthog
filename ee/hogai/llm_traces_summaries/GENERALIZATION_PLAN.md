@@ -109,15 +109,6 @@ DocsUXTheme:
   prompt: "Identify documentation UX issues..."
 ```
 
-**Cost Efficiency**
-
-Per-theme collection dramatically reduces costs:
-
-| Approach                        | Traces Collected                     | LLM Calls | Embeddings | Cost                   |
-| ------------------------------- | ------------------------------------ | --------- | ---------- | ---------------------- |
-| Naive (all traces × all themes) | 10K × 6 themes                       | 60K       | 60K        | $600                   |
-| **Theme-filtered**              | 7K + 3K + 2K + 1.5K + 500 + 2K = 16K | 16K       | 16K        | **$250 (58% savings)** |
-
 ### Generalization Strategy
 
 **Core Principle**: Universal stringification (generic LLMA formatter for all traces) + flexible analysis themes with custom prompts.
@@ -401,6 +392,42 @@ Per-theme collection dramatically reduces costs:
 - [ ] Theme-based alerts catch issues 50% faster
 - [ ] Performance improvements: 50% faster clustering per theme
 - [ ] Integration with 3+ external tools (GitHub, Linear, Slack)
+
+## Rough Cost Estimation
+
+**Important**: These are ballpark estimates for planning purposes only. Actual costs will vary significantly based on:
+
+- LLM model selection and pricing (which changes frequently)
+- Token usage per trace (depends on trace complexity and length)
+- Embedding model costs
+- Volume discounts and negotiated rates
+- Provider and deployment (OpenAI, Anthropic, Google, self-hosted)
+
+**Conceptual Example** (illustrative only):
+
+For a hypothetical scenario with 10,000 traces/day and 6 analysis themes:
+
+- **Without theme_relevance filtering**: ~60K LLM calls/day (10K traces × 6 themes)
+- **With theme_relevance filtering**: ~15-20K LLM calls/day (50-70% cost reduction)
+  - Many traces filtered as not relevant to specific themes
+  - Embeddings only created for relevant traces
+
+**Key Cost Factors**:
+
+1. **HogQL filtering** (pre-filters): Free/negligible - runs in ClickHouse
+2. **LLM summarization calls**: Highest cost component - scales with trace count × themes
+3. **theme_relevance filtering**: Reduces embedding costs by 50-90% by skipping irrelevant traces
+4. **Vector embeddings**: Lower cost than LLM calls - only for relevant traces
+5. **Clustering LLM calls**: Low cost - only runs once per cluster per day
+
+**Optimization levers**:
+
+- Tighter HogQL filters reduce traces analyzed
+- Higher theme_relevance filtering rates reduce embeddings created
+- Sampling rates (10% vs 100%) for high-volume scenarios
+- Choice of smaller/cheaper LLM models for summarization
+
+Use these concepts for order-of-magnitude planning, not precise budgeting.
 
 ## Open Questions
 
