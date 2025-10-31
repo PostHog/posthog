@@ -37,16 +37,14 @@ import { SessionRecordingIngesterMetrics } from './metrics'
 import { SessionRecordingPipelineConfig, createSessionRecordingPipeline } from './pipeline'
 import { RetentionAwareStorage } from './retention/retention-aware-batch-writer'
 import { RetentionService } from './retention/retention-service'
-import { SessionRecordingRestrictionHandler } from './session-recording-restriction-handler'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionMetadataStore } from './sessions/session-metadata-store'
-import { TeamFilter } from './teams/team-filter'
 import { TeamService } from './teams/team-service'
-import { MessageWithTeam } from './teams/types'
+import { MessageWithTeam, TeamForReplay } from './teams/types'
 import { CaptureIngestionWarningFn } from './types'
 import { LibVersionMonitor } from './versions/lib-version-monitor'
 
@@ -61,18 +59,17 @@ export class SessionRecordingIngester {
     private readonly promiseScheduler: PromiseScheduler
     private readonly sessionBatchManager: SessionBatchManager
     private readonly redisPool: RedisPool
-    private readonly teamFilter: TeamFilter
     private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
     private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    private restrictionHandler?: SessionRecordingRestrictionHandler
     private kafkaOverflowProducer?: KafkaProducerWrapper
     private readonly overflowTopic: string
     private pipeline!: BatchPipelineUnwrapper<
         { message: Message },
-        { message: Message; headers: EventHeaders; parsedMessage: ParsedMessageData },
+        { message: Message; headers: EventHeaders; parsedMessage: ParsedMessageData; team: TeamForReplay },
         { message: Message }
     >
+    private readonly teamService: TeamService
 
     constructor(
         private hub: Hub,
@@ -126,13 +123,12 @@ export class SessionRecordingIngester {
 
         this.redisPool = createRedisPool(this.hub, 'session-recording')
 
-        const teamService = new TeamService(postgres)
+        this.teamService = new TeamService(postgres)
 
         this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.hub, {
             pipeline: 'session_recordings',
         })
 
-        this.teamFilter = new TeamFilter(teamService)
         if (ingestionWarningProducer) {
             const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
                 await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
@@ -140,7 +136,7 @@ export class SessionRecordingIngester {
             this.libVersionMonitor = new LibVersionMonitor(captureWarning)
         }
 
-        const retentionService = new RetentionService(this.redisPool, teamService)
+        const retentionService = new RetentionService(this.redisPool, this.teamService)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(
@@ -217,19 +213,29 @@ export class SessionRecordingIngester {
     }
 
     private async processBatchMessages(
-        pipelineResults: Array<{ message: Message; headers: EventHeaders; parsedMessage: ParsedMessageData }>
+        pipelineResults: Array<{
+            message: Message
+            headers: EventHeaders
+            parsedMessage: ParsedMessageData
+            team: TeamForReplay
+        }>
     ): Promise<void> {
-        // Extract parsed messages from pipeline results for legacy processing
-        const parsedMessages = pipelineResults.map((result) => result.parsedMessage)
+        // Convert pipeline results to MessageWithTeam format for legacy processing
+        const messagesWithTeam: MessageWithTeam[] = pipelineResults.map((result) => ({
+            team: result.team,
+            message: result.parsedMessage,
+        }))
 
-        const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.filterBatch`, async () => {
-            const messagesWithTeam = await this.teamFilter.filterBatch(parsedMessages)
-            const processedMessages = this.libVersionMonitor
-                ? await this.libVersionMonitor.processBatch(messagesWithTeam)
-                : messagesWithTeam
+        const processedMessages = await instrumentFn(
+            `recordingingesterv2.handleEachBatch.processLibVersions`,
+            async () => {
+                const processedMessages = this.libVersionMonitor
+                    ? await this.libVersionMonitor.processBatch(messagesWithTeam)
+                    : messagesWithTeam
 
-            return processedMessages
-        })
+                return processedMessages
+            }
+        )
 
         this.kafkaConsumer.heartbeat()
 
@@ -292,6 +298,7 @@ export class SessionRecordingIngester {
             restrictionManager: this.eventIngestionRestrictionManager,
             overflowTopic: this.overflowTopic,
             consumeOverflow: this.consumeOverflow,
+            teamService: this.teamService,
         }
 
         const pipeline = createSessionRecordingPipeline(pipelineConfig)
@@ -308,15 +315,6 @@ export class SessionRecordingIngester {
         if (!this.consumeOverflow) {
             this.kafkaOverflowProducer = await KafkaProducerWrapper.create(this.hub, 'CONSUMER')
         }
-
-        // Initialize restriction handler with the overflow producer
-        this.restrictionHandler = new SessionRecordingRestrictionHandler(
-            this.eventIngestionRestrictionManager,
-            this.overflowTopic,
-            this.kafkaOverflowProducer,
-            this.promiseScheduler,
-            this.consumeOverflow
-        )
 
         // Initialize pipeline
         this.initializePipeline()

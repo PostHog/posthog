@@ -11,18 +11,22 @@ import { createApplyOverflowRestrictionsStep } from './steps/apply-overflow-rest
 import { createCollectBatchMetricsStep } from './steps/collect-batch-metrics'
 import { createParseHeadersStep } from './steps/parse-headers'
 import { createParseKafkaMessageStep } from './steps/parse-kafka-message'
+import { createResolveTeamStep } from './steps/resolve-team'
+import { TeamService } from './teams/team-service'
+import { TeamForReplay } from './teams/types'
 
 export interface SessionRecordingPipelineConfig extends PipelineConfig {
     restrictionManager: EventIngestionRestrictionManager
     overflowTopic: string
     consumeOverflow: boolean
+    teamService: TeamService
 }
 
 export function createSessionRecordingPipeline(
     config: SessionRecordingPipelineConfig
 ): BatchPipeline<
     { message: Message },
-    { message: Message; headers: EventHeaders; parsedMessage: ParsedMessageData },
+    { message: Message; headers: EventHeaders; parsedMessage: ParsedMessageData; team: TeamForReplay },
     { message: Message }
 > {
     return (
@@ -50,6 +54,9 @@ export function createSessionRecordingPipeline(
 
                         // Step 3: Parse Kafka message
                         .pipe(createParseKafkaMessageStep())
+
+                        // Step 4: Resolve team
+                        .pipe(createResolveTeamStep(config.teamService))
                 )
             )
             .handleResults(config)
