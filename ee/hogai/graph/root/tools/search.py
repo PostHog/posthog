@@ -8,10 +8,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
+from posthog.models import Team, User
+
+from ee.hogai.graph.root.tools.full_text_search.tool import EntitySearchToolkit, FTSKind
 from ee.hogai.tool import MaxTool
 
 SEARCH_TOOL_PROMPT = """
-Use this tool to search docs or insights by using natural language.
+Use this tool to search docs, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog.
 If the user's question mentions multiple topics, search for each topic separately and combine the results.
 
 # Documentation search
@@ -45,13 +48,13 @@ Examples:
 
 If the user's question should be satisfied by using insights, do that before answering using documentation.
 
-# Insights search
+# Other entity kinds
 
-Use this tool when you can assume that an insight you want to analyze was already created by the user.
+Use this tool to find PostHog entities using full-text search.
+Full-text search is a more powerful way to find entities than natural language search. It relies on the PostgreSQL full-text search capabilities.
+So the query used in this tool should be a natural language query that is optimized for full-text search, consider tokenizing of the query and using synonyms.
+If you want to search for all entities, you should use `all`.
 
-Examples:
-- Product-specific metrics that most likely exist.
-- Common sense metrics that are relevant to the product.
 """.strip()
 
 DOCS_SEARCH_RESULTS_TEMPLATE = """Found {count} relevant documentation page(s):
@@ -80,7 +83,12 @@ URL: {url}
 {text}
 """.strip()
 
-SearchKind = Literal["insights"] | Literal["docs"]
+
+FTS_SEARCH_FEATURE_FLAG = "hogai-insights-fts-search"
+
+ENTITIES = [f"{entity}" for entity in FTSKind if entity != FTSKind.INSIGHTS]
+
+SearchKind = Literal["insights", "docs", *ENTITIES]  # type: ignore
 
 
 class SearchToolArgs(BaseModel):
@@ -115,10 +123,16 @@ class InkeepResponse(BaseModel):
 class SearchTool(MaxTool):
     name: Literal["search"] = "search"
     description: str = SEARCH_TOOL_PROMPT
-    thinking_message: str = "Searching for information"
-    context_prompt_template: str = "Searches documentation or user data in PostHog (insights)"
+    context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
-    show_tool_call_message: bool = False
+
+    @staticmethod
+    def _get_fts_entities(include_insight_fts: bool) -> list[str]:
+        if not include_insight_fts:
+            entities = [e for e in FTSKind if e != FTSKind.INSIGHTS]
+        else:
+            entities = list(FTSKind)
+        return [*entities, FTSKind.ALL]
 
     async def _arun_impl(self, kind: SearchKind, query: str) -> tuple[str, dict[str, Any] | None]:
         if kind == "docs":
@@ -127,6 +141,12 @@ class SearchTool(MaxTool):
             if self._has_docs_search_feature_flag():
                 return await self._search_docs(query), None
 
+        fts_entities = SearchTool._get_fts_entities(SearchTool._has_fts_search_feature_flag(self._user, self._team))
+
+        if kind in fts_entities:
+            entity_search_toolkit = EntitySearchToolkit(self._team, self._user)
+            response = await entity_search_toolkit.execute(query, FTSKind(kind))
+            return response, None
         # Used for routing
         return "Search tool executed", SearchToolArgs(kind=kind, query=query).model_dump()
 
@@ -136,6 +156,16 @@ class SearchTool(MaxTool):
             str(self._user.distinct_id),
             groups={"organization": str(self._team.organization_id)},
             group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+
+    @staticmethod
+    def _has_fts_search_feature_flag(user: User, team: Team) -> bool:
+        return posthoganalytics.feature_enabled(
+            FTS_SEARCH_FEATURE_FLAG,
+            str(user.distinct_id),
+            groups={"organization": str(team.organization_id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
             send_feature_flag_events=False,
         )
 

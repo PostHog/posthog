@@ -41,12 +41,12 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                                 ) : null
                             }
                             placement="left-start"
-                            fallbackPlacements={['bottom']}
+                            fallbackPlacements={['bottom', 'top', 'right-end']}
                             showArrow
                         >
                             <LemonButton
                                 icon={<IconGear />}
-                                onClick={() => setIsPropertyPopoverOpen(true)}
+                                onClick={() => setIsPropertyPopoverOpen(!isPropertyPopoverOpen)}
                                 fullWidth
                                 size="small"
                                 type="secondary"

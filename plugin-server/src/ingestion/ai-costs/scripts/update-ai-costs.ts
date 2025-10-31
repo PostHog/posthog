@@ -185,6 +185,30 @@ const fetchOpenRouterCosts = async (): Promise<ModelRow[]> => {
     return allModels
 }
 
+const sortProviderCosts = (models: ModelRow[]): ModelRow[] => {
+    return models.map((model) => {
+        const sortedCost: Record<string, ModelCost> = {}
+
+        // Get all provider keys and sort them
+        const providerKeys = Object.keys(model.cost)
+        const otherProviders = providerKeys.filter((key) => key !== 'default').sort()
+
+        // Always put 'default' first, then add the rest alphabetically
+        if (model.cost.default) {
+            sortedCost.default = model.cost.default
+        }
+
+        for (const provider of otherProviders) {
+            sortedCost[provider] = model.cost[provider]
+        }
+
+        return {
+            ...model,
+            cost: sortedCost,
+        }
+    })
+}
+
 const generateCanonicalProviders = (models: ModelRow[]): void => {
     // Extract all unique provider keys from the cost data
     const providerSet = new Set<string>()
@@ -195,15 +219,18 @@ const generateCanonicalProviders = (models: ModelRow[]): void => {
         }
     }
 
-    // Sort alphabetically
-    const providers = Array.from(providerSet).sort()
+    // Sort deterministically: default first, then alphabetically
+    const allProviders = Array.from(providerSet)
+    const otherProviders = allProviders.filter((p) => p !== 'default').sort()
+    const providers = allProviders.includes('default') ? ['default', ...otherProviders] : otherProviders
 
     // Generate TypeScript file content
-    const timestamp = new Date().toISOString().split('T')[0]
-    const typeUnion = providers.map((p) => `  | '${p}'`).join('\n')
+    const now = new Date()
+    const timestamp = `${now.toISOString().split('.')[0].replace('T', ' ')} UTC`
+    const typeUnion = providers.map((p) => `    | '${p}'`).join('\n')
 
     const fileContent = `// Auto-generated from OpenRouter API - Do not edit manually
-// Generated on: ${timestamp}
+// Generated at: ${timestamp}
 
 export type CanonicalProvider =
 ${typeUnion}
@@ -226,12 +253,15 @@ const main = async () => {
     const openRouterCosts = await fetchOpenRouterCosts()
     console.log(`Fetched ${openRouterCosts.length} models from OpenRouter`)
 
+    // Sort provider costs deterministically (default first, then alphabetically)
+    const sortedCosts = sortProviderCosts(openRouterCosts)
+
     // Write OpenRouter costs as backup
-    fs.writeFileSync(path.join(PATH_TO_PROVIDERS, OPENROUTER_COSTS_FILENAME), JSON.stringify(openRouterCosts, null, 2))
+    fs.writeFileSync(path.join(PATH_TO_PROVIDERS, OPENROUTER_COSTS_FILENAME), JSON.stringify(sortedCosts, null, 4))
     console.log(`Wrote OpenRouter costs to ${OPENROUTER_COSTS_FILENAME}`)
 
     // Generate canonical providers TypeScript file
-    generateCanonicalProviders(openRouterCosts)
+    generateCanonicalProviders(sortedCosts)
 }
 
 ;(async () => {

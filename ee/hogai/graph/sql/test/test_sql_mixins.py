@@ -120,7 +120,7 @@ class TestSQLMixins(NonAtomicBaseTest):
             await mixin._quality_check_output(invalid_output)
 
         self.assertEqual(context.exception.llm_output, "SELECT * FROM nowhere")
-        self.assertEqual(context.exception.validation_message, 'Unknown table "nowhere".')
+        self.assertEqual(context.exception.validation_message, "Unknown table `nowhere`.")
 
     async def test_quality_check_output_empty_query_raises_exception(self):
         """Test quality check failure with empty query."""
@@ -175,7 +175,7 @@ class TestSQLMixins(NonAtomicBaseTest):
             await mixin._quality_check_output(invalid_table_output)
 
         self.assertEqual(context.exception.llm_output, "SELECT count() FROM nonexistent_table")
-        self.assertEqual(context.exception.validation_message, 'Unknown table "nonexistent_table".')
+        self.assertEqual(context.exception.validation_message, "Unknown table `nonexistent_table`.")
 
     async def test_quality_check_output_complex_query_with_joins(self):
         """Test quality check success with complex query including joins."""

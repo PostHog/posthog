@@ -1,4 +1,4 @@
-import uuid
+import time
 import asyncio
 
 import structlog
@@ -54,7 +54,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         # Generate unique workflow ID
-        workflow_id = f"eval-{evaluation_id}-{target_event_id}-{uuid.uuid4()}"
+        workflow_id = f"{evaluation_id}-{target_event_id}-manual-{int(time.time() * 1000)}"
 
         # Start Temporal workflow
         try:

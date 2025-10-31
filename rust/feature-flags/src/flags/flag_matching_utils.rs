@@ -7,13 +7,14 @@ use tokio_retry::{
     Retry,
 };
 
-use crate::database::PostgresRouter;
+use crate::database::{
+    get_connection_with_metrics, get_writer_connection_with_metrics, PostgresRouter,
+};
 use common_database::PostgresReader;
 use common_types::{PersonId, ProjectId, TeamId};
 use serde_json::Value;
 use sha1::{Digest, Sha1};
 use sqlx::{Acquire, Row};
-use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 
 // Add thread-local imports for test-specific counter
@@ -25,13 +26,10 @@ use crate::{
     cohorts::cohort_models::CohortId,
     flags::flag_models::FeatureFlagId,
     metrics::consts::{
-        FLAG_ACQUIRE_TIMEOUT_COUNTER, FLAG_CLIENT_TIMEOUT_COUNTER, FLAG_COHORT_PROCESSING_TIME,
-        FLAG_COHORT_QUERY_TIME, FLAG_CONNECTION_HOLD_TIME, FLAG_CONNECTION_OVERLAP_TIME_MS,
-        FLAG_DATABASE_ERROR_COUNTER, FLAG_DB_CONNECTION_TIME, FLAG_DEFINITION_QUERY_TIME,
-        FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME, FLAG_HASH_KEY_RETRIES_COUNTER,
-        FLAG_MULTI_CONNECTION_OPERATION_COUNTER, FLAG_PERSON_PROCESSING_TIME,
+        FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_CONNECTION_HOLD_TIME,
+        FLAG_DATABASE_ERROR_COUNTER, FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME,
+        FLAG_GROUP_QUERY_TIME, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
         FLAG_PERSON_QUERY_TIME, FLAG_POOL_UTILIZATION_GAUGE,
-        FLAG_READER_TIMEOUT_WITH_WRITER_STATE_COUNTER,
     },
     properties::{
         property_matching::match_property,
@@ -94,15 +92,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     // Add the test-specific counter increment
     #[cfg(test)]
     increment_fetch_calls_count();
-    let labels = [
-        ("pool".to_string(), "reader".to_string()),
-        (
-            "operation".to_string(),
-            "fetch_and_locally_cache_all_relevant_properties".to_string(),
-        ),
-    ];
-    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
-
     // Log pool stats before attempting connection
     if let Some(stats) = reader.as_ref().get_pool_stats() {
         info!(
@@ -114,7 +103,8 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
 
     let conn_acquisition_start = Instant::now();
-    let conn_result = reader.as_ref().get_connection().await;
+    let conn_result =
+        get_connection_with_metrics(&reader, "persons_reader", "fetch_person_properties").await;
     let conn_acquisition_duration = conn_acquisition_start.elapsed();
 
     let mut conn = match conn_result {
@@ -146,29 +136,11 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 "Failed to acquire database connection"
             );
 
-            // Track pool acquisition timeouts specifically
-            if matches!(
-                e,
-                common_database::CustomDatabaseError::Other(sqlx::Error::PoolTimedOut)
-            ) {
-                common_metrics::inc(
-                    FLAG_ACQUIRE_TIMEOUT_COUNTER,
-                    &[
-                        ("pool".to_string(), "persons_reader".to_string()),
-                        (
-                            "operation".to_string(),
-                            "should_write_hash_key_override".to_string(),
-                        ),
-                    ],
-                    1,
-                );
-            }
-
-            conn_timer.fin();
             return Err(FlagError::from(e));
         }
     };
-    conn_timer.fin();
+
+    let query_labels = [("pool".to_string(), "persons_reader".to_string())];
 
     // First query: Get person data from the distinct_id (person_id and person_properties)
     // TRICKY: sometimes we don't have a person_id ingested by the time we get a `/flags` request for a given
@@ -191,7 +163,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     "#;
 
     let person_query_start = Instant::now();
-    let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &[]);
+    let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
     let (person_id, person_props): (Option<PersonId>, Option<Value>) = sqlx::query_as(person_query)
         .bind(&distinct_id)
         .bind(team_id)
@@ -239,7 +211,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
                 "#;
 
             let cohort_query_start = Instant::now();
-            let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &[]);
+            let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &query_labels);
             let cohort_rows = sqlx::query(cohort_query)
                 .bind(&static_cohort_ids)
                 .bind(person_id)
@@ -328,7 +300,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
         let group_query_start = Instant::now();
-        let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &[]);
+        let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &query_labels);
         let groups = sqlx::query(group_query)
             .bind(team_id)
             .bind(&group_type_indexes_vec)
@@ -598,16 +570,12 @@ async fn try_get_feature_flag_hash_key_overrides(
     distinct_id_and_hash_key_override: &[String],
 ) -> Result<HashMap<String, String>, FlagError> {
     let mut feature_flag_hash_key_overrides = HashMap::new();
-    let labels = [
-        ("pool".to_string(), "reader".to_string()),
-        (
-            "operation".to_string(),
-            "get_feature_flag_hash_key_overrides".to_string(),
-        ),
-    ];
-    let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
-    let mut conn = reader.as_ref().get_connection().await?;
-    conn_timer.fin();
+    let mut conn = get_connection_with_metrics(
+        reader,
+        "persons_reader",
+        "get_feature_flag_hash_key_overrides",
+    )
+    .await?;
 
     // Get person data and their hash key overrides in one query
     let hash_override_query = r#"
@@ -771,16 +739,12 @@ async fn try_set_feature_flag_hash_key_overrides(
     hash_key_override: &str,
 ) -> Result<bool, FlagError> {
     // Get connection from persons writer for the transaction
-    let persons_labels = [
-        ("pool".to_string(), "persons_writer".to_string()),
-        (
-            "operation".to_string(),
-            "set_feature_flag_hash_key_overrides".to_string(),
-        ),
-    ];
-    let persons_conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &persons_labels);
-    let mut persons_conn = router.get_persons_writer().get_connection().await?;
-    persons_conn_timer.fin();
+    let mut persons_conn = get_writer_connection_with_metrics(
+        router.get_persons_writer(),
+        "persons_writer",
+        "set_feature_flag_hash_key_overrides",
+    )
+    .await?;
     let mut transaction = persons_conn.begin().await?;
 
     // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
@@ -827,6 +791,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
+            ("pool".to_string(), "persons_writer".to_string()),
         ];
         let person_query_start = Instant::now();
         let person_query_timer =
@@ -879,25 +844,17 @@ async fn try_set_feature_flag_hash_key_overrides(
 
         // Step 2: Get active feature flags (from non-person pool)
         // Get separate connection for non-persons query
-        let non_persons_labels = [
-            ("pool".to_string(), "non_persons_reader".to_string()),
-            (
-                "operation".to_string(),
-                "set_feature_flag_hash_key_overrides".to_string(),
-            ),
-        ];
-        let non_persons_conn_timer =
-            common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &non_persons_labels);
-        let mut non_persons_conn = router
-            .get_non_persons_reader()
-            .get_connection()
-            .await
-            .map_err(|e| {
-                sqlx::Error::Configuration(
-                    format!("Failed to acquire non-persons connection: {e}").into(),
-                )
-            })?;
-        non_persons_conn_timer.fin();
+        let mut non_persons_conn = get_connection_with_metrics(
+            router.get_non_persons_reader(),
+            "non_persons_reader",
+            "set_hash_key_overrides",
+        )
+        .await
+        .map_err(|e| {
+            sqlx::Error::Configuration(
+                format!("Failed to acquire non-persons connection: {e}").into(),
+            )
+        })?;
 
         let flags_labels = [
             (
@@ -908,6 +865,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
+            ("pool".to_string(), "non_persons_reader".to_string()),
         ];
         let flags_query_start = Instant::now();
         let flags_query_timer =
@@ -971,6 +929,7 @@ async fn try_set_feature_flag_hash_key_overrides(
                 "operation".to_string(),
                 "set_hash_key_overrides".to_string(),
             ),
+            ("pool".to_string(), "persons_writer".to_string()),
         ];
         let insert_start = Instant::now();
         let insert_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &insert_labels);
@@ -1091,9 +1050,6 @@ async fn try_should_write_hash_key_override(
     distinct_ids: &[String],
     project_id: ProjectId,
 ) -> Result<bool, FlagError> {
-    const QUERY_TIMEOUT: Duration = Duration::from_millis(1000);
-    let operation_start = Instant::now();
-
     // Query 1: Get person_ids and existing overrides from person pool in one shot
     let person_data_query = r#"
         SELECT DISTINCT
@@ -1115,57 +1071,52 @@ async fn try_should_write_hash_key_override(
             AND flag.deleted = FALSE
     "#;
 
-    let result = timeout(QUERY_TIMEOUT, async {
-        // Log pool states before attempting connections
-        let persons_reader_stats = router.get_persons_reader().get_pool_stats();
-        let non_persons_reader_stats = router.get_non_persons_reader().get_pool_stats();
+    // Log pool states before attempting connections
+    let persons_reader_stats = router.get_persons_reader().get_pool_stats();
+    let non_persons_reader_stats = router.get_non_persons_reader().get_pool_stats();
 
-        if let (Some(pr_stats), Some(npr_stats)) = (&persons_reader_stats, &non_persons_reader_stats) {
-            let pr_utilization = (pr_stats.size - pr_stats.num_idle as u32) as f64 / pr_stats.size as f64;
-            let npr_utilization = (npr_stats.size - npr_stats.num_idle as u32) as f64 / npr_stats.size as f64;
+    if let (Some(pr_stats), Some(npr_stats)) = (&persons_reader_stats, &non_persons_reader_stats) {
+        let pr_utilization =
+            (pr_stats.size - pr_stats.num_idle as u32) as f64 / pr_stats.size as f64;
+        let npr_utilization =
+            (npr_stats.size - npr_stats.num_idle as u32) as f64 / npr_stats.size as f64;
 
-            if pr_utilization > 0.8 || npr_utilization > 0.8 {
-                warn!(
-                    team_id = %team_id,
-                    distinct_ids = ?distinct_ids,
-                    persons_reader_pool_size = pr_stats.size,
-                    persons_reader_idle = pr_stats.num_idle,
-                    persons_reader_utilization_pct = pr_utilization * 100.0,
-                    non_persons_reader_pool_size = npr_stats.size,
-                    non_persons_reader_idle = npr_stats.num_idle,
-                    non_persons_reader_utilization_pct = npr_utilization * 100.0,
-                    "High pool utilization before should_write_hash_key_override"
-                );
-            }
-
-            common_metrics::gauge(
-                FLAG_POOL_UTILIZATION_GAUGE,
-                &[("pool".to_string(), "persons_reader".to_string())],
-                pr_utilization,
-            );
-            common_metrics::gauge(
-                FLAG_POOL_UTILIZATION_GAUGE,
-                &[("pool".to_string(), "non_persons_reader".to_string())],
-                npr_utilization,
+        if pr_utilization > 0.8 || npr_utilization > 0.8 {
+            warn!(
+                team_id = %team_id,
+                distinct_ids = ?distinct_ids,
+                persons_reader_pool_size = pr_stats.size,
+                persons_reader_idle = pr_stats.num_idle,
+                persons_reader_utilization_pct = pr_utilization * 100.0,
+                non_persons_reader_pool_size = npr_stats.size,
+                non_persons_reader_idle = npr_stats.num_idle,
+                non_persons_reader_utilization_pct = npr_utilization * 100.0,
+                "High pool utilization before should_write_hash_key_override"
             );
         }
 
-        // Get connection from persons pool for person data
-        let persons_labels = [
-            ("pool".to_string(), "persons_reader".to_string()),
-            (
-                "operation".to_string(),
-                "should_write_hash_key_override".to_string()),
-        ];
+        common_metrics::gauge(
+            FLAG_POOL_UTILIZATION_GAUGE,
+            &[("pool".to_string(), "persons_reader".to_string())],
+            pr_utilization,
+        );
+        common_metrics::gauge(
+            FLAG_POOL_UTILIZATION_GAUGE,
+            &[("pool".to_string(), "non_persons_reader".to_string())],
+            npr_utilization,
+        );
+    }
+
+    // Step 1: Get person data and existing overrides (scoped connection)
+    let person_data_rows = {
         let persons_conn_start = Instant::now();
-        let persons_conn_timer =
-            common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &persons_labels);
-        let mut persons_conn = router
-            .get_persons_reader()
-            .get_connection()
-            .await
-            .map_err(FlagError::from)?;
-        persons_conn_timer.fin();
+        let mut persons_conn = get_connection_with_metrics(
+            router.get_persons_reader(),
+            "persons_reader",
+            "should_write_check",
+        )
+        .await
+        .map_err(FlagError::from)?;
         let persons_conn_acquisition_time = persons_conn_start.elapsed();
 
         if persons_conn_acquisition_time > Duration::from_millis(100) {
@@ -1177,13 +1128,13 @@ async fn try_should_write_hash_key_override(
             );
         }
 
-        // Step 1: Get person data and existing overrides
         let person_query_labels = [
             (
                 "query".to_string(),
                 "person_data_with_overrides".to_string(),
             ),
             ("operation".to_string(), "should_write_check".to_string()),
+            ("pool".to_string(), "persons_reader".to_string()),
         ];
         let person_query_timer =
             common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &person_query_labels);
@@ -1193,106 +1144,38 @@ async fn try_should_write_hash_key_override(
             .fetch_all(&mut *persons_conn)
             .await
             .map_err(|e| {
+                // Track timeout errors with detailed context
+                if common_database::is_timeout_error(&e) {
+                    let timeout_type =
+                        common_database::extract_timeout_type(&e).unwrap_or("unknown_timeout");
+
+                    common_metrics::inc(
+                        FLAG_DATABASE_ERROR_COUNTER,
+                        &[
+                            ("error_type".to_string(), "timeout".to_string()),
+                            ("timeout_type".to_string(), timeout_type.to_string()),
+                            ("pool".to_string(), "persons_reader".to_string()),
+                            (
+                                "operation".to_string(),
+                                "should_write_hash_key_override".to_string(),
+                            ),
+                        ],
+                        1,
+                    );
+
+                    warn!(
+                        team_id = %team_id,
+                        pool = "persons_reader",
+                        timeout_type = timeout_type,
+                        error = ?e,
+                        "Query timed out on persons_reader pool"
+                    );
+                }
                 FlagError::DatabaseError(e, Some("Failed to fetch person data".to_string()))
             })?;
         person_query_timer.fin();
 
-        // If no person_ids found, there's nothing to check
-        if person_data_rows.is_empty() {
-            return Ok(false);
-        }
-
-        // Extract existing flag keys from overrides
-        let existing_flag_keys: HashSet<String> = person_data_rows
-            .iter()
-            .filter_map(|row| row.try_get::<String, _>("feature_flag_key").ok())
-            .collect();
-
-        // Step 2: Get active feature flags with experience continuity from non-persons pool
-        // Get connection from non-persons pool for flag data
-        let non_persons_labels = [
-            ("pool".to_string(), "non_persons_reader".to_string()),
-            (
-                "operation".to_string(),
-                "should_write_hash_key_override".to_string(),
-            ),
-        ];
-
-        // Track that we're about to hold multiple connections
-        common_metrics::inc(
-            FLAG_MULTI_CONNECTION_OPERATION_COUNTER,
-            &[
-                ("operation".to_string(), "should_write_hash_key_override".to_string()),
-                ("connection_count".to_string(), "2".to_string()),
-            ],
-            1,
-        );
-
-        // Start tracking connection overlap time
-        let overlap_start = persons_conn_start;
-
-        // Log that we're holding one connection while acquiring another
-        info!(
-            team_id = %team_id,
-            persons_conn_held_ms = persons_conn_start.elapsed().as_millis(),
-            "Acquiring non_persons_reader connection while holding persons_reader connection"
-        );
-
-        let non_persons_conn_start = Instant::now();
-        let non_persons_conn_timer =
-            common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &non_persons_labels);
-        let mut non_persons_conn = router
-            .get_non_persons_reader()
-            .get_connection()
-            .await
-            .map_err(FlagError::from)?;
-        non_persons_conn_timer.fin();
-        let non_persons_conn_acquisition_time = non_persons_conn_start.elapsed();
-
-        if non_persons_conn_acquisition_time > Duration::from_millis(100) {
-            warn!(
-                team_id = %team_id,
-                pool = "non_persons_reader",
-                acquisition_ms = non_persons_conn_acquisition_time.as_millis(),
-                persons_conn_held_ms = persons_conn_start.elapsed().as_millis(),
-                "Slow connection acquisition from non_persons_reader pool while holding persons_reader connection"
-            );
-        }
-        let flags_labels = [
-            (
-                "query".to_string(),
-                "active_flags_with_continuity".to_string(),
-            ),
-            ("operation".to_string(), "should_write_check".to_string()),
-        ];
-        let flags_query_timer =
-            common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
-        let flag_rows = sqlx::query(flags_query)
-            .bind(project_id)
-            .fetch_all(&mut *non_persons_conn)
-            .await
-            .map_err(|e| FlagError::DatabaseError(e, Some("Failed to fetch flags".to_string())))?;
-        flags_query_timer.fin();
-
-        // Check if there are any flags that don't have overrides
-        for row in flag_rows {
-            let flag_key: String = row.get("key");
-            if !existing_flag_keys.contains(&flag_key) {
-                return Ok(true); // Found a flag without override
-            }
-        }
-
-        // Record connection overlap time (time holding both connections)
-        common_metrics::histogram(
-            FLAG_CONNECTION_OVERLAP_TIME_MS,
-            &[
-                ("operation".to_string(), "should_write_hash_key_override".to_string()),
-                ("connection_count".to_string(), "2".to_string()),
-            ],
-            overlap_start.elapsed().as_millis() as f64,
-        );
-
-        // Record how long both connections were held
+        // Record connection hold time for persons_reader pool
         common_metrics::histogram(
             FLAG_CONNECTION_HOLD_TIME,
             &[
@@ -1302,93 +1185,111 @@ async fn try_should_write_hash_key_override(
             persons_conn_start.elapsed().as_millis() as f64,
         );
 
-        Ok::<bool, FlagError>(false) // All flags have overrides
-    })
-    .await;
+        person_data_rows
+        // Connection automatically released here when persons_conn goes out of scope
+    };
 
-    let total_operation_time = operation_start.elapsed();
+    // If no person_ids found, there's nothing to check
+    if person_data_rows.is_empty() {
+        return Ok(false);
+    }
 
-    match result {
-        Ok(Ok(flags_present)) => {
-            if total_operation_time > Duration::from_millis(500) {
-                warn!(
-                    team_id = %team_id,
-                    distinct_ids = ?distinct_ids,
-                    operation_ms = total_operation_time.as_millis(),
-                    result = flags_present,
-                    "Slow should_write_hash_key_override operation completed"
-                );
-            }
-            Ok(flags_present)
-        }
-        Ok(Err(e)) => {
-            tracing::error!(
+    // Step 2: Process data without holding any connections
+    let existing_flag_keys: HashSet<String> = person_data_rows
+        .iter()
+        .filter_map(|row| row.try_get::<String, _>("feature_flag_key").ok())
+        .collect();
+
+    // Step 3: Get active feature flags with experience continuity (scoped connection)
+    let flag_rows = {
+        let non_persons_conn_start = Instant::now();
+        let mut non_persons_conn = get_connection_with_metrics(
+            router.get_non_persons_reader(),
+            "non_persons_reader",
+            "should_write_check",
+        )
+        .await
+        .map_err(FlagError::from)?;
+        let non_persons_conn_acquisition_time = non_persons_conn_start.elapsed();
+
+        if non_persons_conn_acquisition_time > Duration::from_millis(100) {
+            warn!(
                 team_id = %team_id,
-                distinct_ids = ?distinct_ids,
-                operation_ms = total_operation_time.as_millis(),
-                error = ?e,
-                "should_write_hash_key_override failed with error"
+                pool = "non_persons_reader",
+                acquisition_ms = non_persons_conn_acquisition_time.as_millis(),
+                "Slow connection acquisition from non_persons_reader pool"
             );
-            Err(e)
         }
-        Err(_) => {
-            // Track client timeout
-            common_metrics::inc(
-                FLAG_CLIENT_TIMEOUT_COUNTER,
-                &[
-                    (
-                        "operation".to_string(),
-                        "should_write_hash_key_override".to_string(),
-                    ),
-                    (
-                        "timeout_ms".to_string(),
-                        QUERY_TIMEOUT.as_millis().to_string(),
-                    ),
-                ],
-                1,
-            );
 
-            // Capture all pool states on timeout
-            let persons_reader_stats = router.get_persons_reader().get_pool_stats();
-            let non_persons_reader_stats = router.get_non_persons_reader().get_pool_stats();
-            let persons_writer_stats = router.get_persons_writer().get_pool_stats();
-            let non_persons_writer_stats = router.get_non_persons_writer().get_pool_stats();
+        let flags_labels = [
+            (
+                "query".to_string(),
+                "active_flags_with_continuity".to_string(),
+            ),
+            ("operation".to_string(), "should_write_check".to_string()),
+            ("pool".to_string(), "non_persons_reader".to_string()),
+        ];
+        let flags_query_timer =
+            common_metrics::timing_guard(FLAG_DEFINITION_QUERY_TIME, &flags_labels);
+        let rows = sqlx::query(flags_query)
+            .bind(project_id)
+            .fetch_all(&mut *non_persons_conn)
+            .await
+            .map_err(|e| {
+                // Track timeout errors with detailed context
+                if common_database::is_timeout_error(&e) {
+                    let timeout_type =
+                        common_database::extract_timeout_type(&e).unwrap_or("unknown_timeout");
 
-            tracing::error!(
-                team_id = %team_id,
-                distinct_ids = ?distinct_ids,
-                timeout_after_ms = QUERY_TIMEOUT.as_millis(),
-                operation_elapsed_ms = total_operation_time.as_millis(),
-                persons_reader_pool = ?persons_reader_stats,
-                non_persons_reader_pool = ?non_persons_reader_stats,
-                persons_writer_pool = ?persons_writer_stats,
-                non_persons_writer_pool = ?non_persons_writer_stats,
-                "should_write_hash_key_override timed out - capturing all pool states"
-            );
+                    common_metrics::inc(
+                        FLAG_DATABASE_ERROR_COUNTER,
+                        &[
+                            ("error_type".to_string(), "timeout".to_string()),
+                            ("timeout_type".to_string(), timeout_type.to_string()),
+                            ("pool".to_string(), "non_persons_reader".to_string()),
+                            (
+                                "operation".to_string(),
+                                "should_write_hash_key_override".to_string(),
+                            ),
+                        ],
+                        1,
+                    );
 
-            // Emit metrics for timeout with pool states
-            if let Some(stats) = persons_writer_stats {
-                common_metrics::inc(
-                    FLAG_READER_TIMEOUT_WITH_WRITER_STATE_COUNTER,
-                    &[
-                        (
-                            "writer_pool_busy".to_string(),
-                            (stats.num_idle == 0).to_string(),
-                        ),
-                        (
-                            "writer_utilization_pct".to_string(),
-                            ((((stats.size - stats.num_idle as u32) as f64 / stats.size as f64)
-                                * 100.0) as i64)
-                                .to_string(),
-                        ),
-                    ],
-                    1,
-                );
-            }
+                    warn!(
+                        team_id = %team_id,
+                        pool = "non_persons_reader",
+                        timeout_type = timeout_type,
+                        error = ?e,
+                        "Query timed out on non_persons_reader pool"
+                    );
+                }
+                FlagError::DatabaseError(e, Some("Failed to fetch flags".to_string()))
+            })?;
+        flags_query_timer.fin();
 
-            Err(FlagError::TimeoutError(Some("query_timeout".to_string())))
+        // Record connection hold time for non_persons_reader pool
+        common_metrics::histogram(
+            FLAG_CONNECTION_HOLD_TIME,
+            &[
+                ("pool".to_string(), "non_persons_reader".to_string()),
+                ("operation".to_string(), "should_write_check".to_string()),
+            ],
+            non_persons_conn_start.elapsed().as_millis() as f64,
+        );
+
+        rows
+        // Connection automatically released here when non_persons_conn goes out of scope
+    };
+
+    // Step 4: Check if there are any flags that don't have overrides
+    for row in flag_rows {
+        let flag_key: String = row.get("key");
+        if !existing_flag_keys.contains(&flag_key) {
+            return Ok(true); // Found a flag without override
         }
     }
+
+    Ok::<bool, FlagError>(false) // All flags have overrides
 }
 
 #[cfg(test)]

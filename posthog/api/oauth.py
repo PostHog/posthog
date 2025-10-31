@@ -398,7 +398,22 @@ class OAuthTokenView(TokenView):
                     status=400,
                 )
 
-        return super().post(request, *args, **kwargs)
+        response = super().post(request, *args, **kwargs)
+
+        if response.status_code == 200:
+            try:
+                response_data = json.loads(response.content)
+                access_token_value = response_data.get("access_token")
+
+                if access_token_value:
+                    access_token = OAuthAccessToken.objects.get(token=access_token_value)
+                    response_data["scoped_teams"] = access_token.scoped_teams or []
+                    response_data["scoped_organizations"] = access_token.scoped_organizations or []
+                    return JsonResponse(response_data)
+            except (json.JSONDecodeError, OAuthAccessToken.DoesNotExist) as e:
+                logger.warning(f"Error adding scoped fields to token response: {e}")
+
+        return response
 
 
 class OAuthRevokeTokenView(RevokeTokenView):

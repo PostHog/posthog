@@ -44,7 +44,7 @@ pub struct Team {
     pub session_recording_trigger_match_type_config: Option<String>, // character varying(24) in postgres
     pub recording_domains: Option<Vec<String>>, // character varying(200)[] in postgres
     #[serde(with = "option_i16_as_i16")]
-    pub cookieless_server_hash_mode: i16,
+    pub cookieless_server_hash_mode: Option<i16>,
     #[serde(default = "default_timezone")]
     pub timezone: String,
 }
@@ -56,18 +56,18 @@ fn default_timezone() -> String {
 mod option_i16_as_i16 {
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(value: &i16, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(value: &Option<i16>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_i16(*value)
+        serializer.serialize_i16(value.unwrap_or(0))
     }
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<i16, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<i16>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        Option::<i16>::deserialize(deserializer).map(|opt| opt.unwrap_or(0))
+        Option::<i16>::deserialize(deserializer)
     }
 }
 

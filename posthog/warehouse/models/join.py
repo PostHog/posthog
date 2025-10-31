@@ -55,7 +55,10 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         self.save()
 
     def join_function(
-        self, override_source_table_key: Optional[str] = None, override_joining_table_key: Optional[str] = None
+        self,
+        override_source_table_key: Optional[str] = None,
+        override_joining_table_key: Optional[str] = None,
+        override_join_type: Optional[str] = None,
     ):
         def _join_function(
             join_to_add: LazyJoinToAdd,
@@ -81,7 +84,7 @@ class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=self.joining_table_name_chain)),
                 ),
-                join_type="LEFT JOIN",
+                join_type=override_join_type or "LEFT JOIN",
                 alias=join_to_add.to_table,
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(

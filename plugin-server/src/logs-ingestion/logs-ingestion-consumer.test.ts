@@ -128,7 +128,6 @@ describe('LogsIngestionConsumer', () => {
             const logData = createLogMessage()
             const messages = createKafkaMessages([logData], {
                 token: team.api_token,
-                distinct_id: 'user-1',
             })
 
             await consumer.processKafkaBatch(messages)
@@ -144,7 +143,6 @@ describe('LogsIngestionConsumer', () => {
             ]
             const messages = createKafkaMessages(logData, {
                 token: team.api_token,
-                distinct_id: 'user-1',
             })
 
             await consumer.processKafkaBatch(messages)
@@ -159,20 +157,7 @@ describe('LogsIngestionConsumer', () => {
         it('should drop messages with missing token', async () => {
             const logData = createLogMessage()
             const messages = createKafkaMessages([logData], {
-                distinct_id: 'user-1',
                 // missing token
-            })
-
-            await consumer.processKafkaBatch(messages)
-
-            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
-        })
-
-        it('should drop messages with missing distinct_id', async () => {
-            const logData = createLogMessage()
-            const messages = createKafkaMessages([logData], {
-                token: team.api_token,
-                // missing distinct_id
             })
 
             await consumer.processKafkaBatch(messages)
@@ -184,7 +169,6 @@ describe('LogsIngestionConsumer', () => {
             const logData = createLogMessage()
             const messages = createKafkaMessages([logData], {
                 token: 'invalid-token',
-                distinct_id: 'user-1',
             })
 
             await consumer.processKafkaBatch(messages)
@@ -202,7 +186,7 @@ describe('LogsIngestionConsumer', () => {
                     offset: offsetIncrementer++,
                     timestamp: DateTime.now().toMillis(),
                     partition: 1,
-                    headers: [{ token: Buffer.from('missing') }, { distinct_id: Buffer.from('user-1') }],
+                    headers: [{ token: Buffer.from('missing') }],
                 } as Message,
             ]
 
@@ -226,7 +210,6 @@ describe('LogsIngestionConsumer', () => {
             const logData = createLogMessage()
             const messages = createKafkaMessages([logData], {
                 token: team.api_token,
-                distinct_id: 'user-1',
             })
 
             await consumer.processKafkaBatch(messages)
@@ -237,7 +220,6 @@ describe('LogsIngestionConsumer', () => {
             expect(producedMessages[0].headers).toEqual({
                 token: team.api_token,
                 team_id: team.id.toString(),
-                distinct_id: 'user-1',
             })
         })
 
@@ -245,7 +227,6 @@ describe('LogsIngestionConsumer', () => {
             const logData = createLogMessage({ level: 'error', message: 'Critical error' })
             const messages = createKafkaMessages([logData], {
                 token: team.api_token,
-                distinct_id: 'user-123',
             })
 
             await consumer.processKafkaBatch(messages)
@@ -260,7 +241,6 @@ describe('LogsIngestionConsumer', () => {
             expect(message.messages[0].headers).toEqual({
                 token: team.api_token,
                 team_id: team.id.toString(),
-                distinct_id: 'user-123',
             })
         })
     })
@@ -286,7 +266,6 @@ describe('LogsIngestionConsumer', () => {
             const logData = createLogMessage()
             const messages = createKafkaMessages([logData], {
                 token: team.api_token,
-                distinct_id: 'user-1',
             })
 
             // Mock producer to throw an error
@@ -305,7 +284,6 @@ describe('LogsIngestionConsumer', () => {
             const logData = createLogMessage()
             const messages = createKafkaMessages([logData], {
                 token: team.api_token,
-                distinct_id: 'user-1',
             })
 
             await consumer.processKafkaBatch(messages)
@@ -322,11 +300,9 @@ describe('LogsIngestionConsumer', () => {
             const messages = [
                 ...createKafkaMessages([logData1], {
                     token: team.api_token,
-                    distinct_id: 'user-1',
                 }),
                 ...createKafkaMessages([logData2], {
                     token: team2.api_token,
-                    distinct_id: 'user-2',
                 }),
             ]
 
@@ -358,7 +334,6 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = createKafkaMessages([logData], {
                 token: team.api_token,
-                distinct_id: 'user-1',
             })
 
             await consumer.processKafkaBatch(messages)
@@ -380,7 +355,7 @@ describe('LogsIngestionConsumer', () => {
                     offset: offsetIncrementer++,
                     timestamp: DateTime.now().toMillis(),
                     partition: 1,
-                    headers: [{ token: Buffer.from(team.api_token) }, { distinct_id: Buffer.from('user-1') }],
+                    headers: [{ token: Buffer.from(team.api_token) }],
                 } as Message,
             ]
 

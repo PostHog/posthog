@@ -9,6 +9,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { personsLogic } from 'scenes/persons/personsLogic'
 
 import { playerMetaLogic } from '../player-meta/playerMetaLogic'
+import { sessionRecordingPinnedPropertiesLogic } from '../player-meta/sessionRecordingPinnedPropertiesLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 
 export type PlayerSidebarEditPinnedPropertiesPopoverProps = {
@@ -23,8 +24,10 @@ export function PlayerSidebarEditPinnedPropertiesPopover(
     const { loadPerson, loadPersonUUID } = useActions(personsLogic({ syncWithUrl: false }))
     const { person, personLoading } = useValues(personsLogic({ syncWithUrl: false }))
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { pinnedProperties, propertySearchQuery, filteredPropertiesWithInfo } = useValues(playerMetaLogic(logicProps))
-    const { togglePropertyPin, setPropertySearchQuery } = useActions(playerMetaLogic(logicProps))
+    const { propertySearchQuery, filteredPropertiesWithInfo } = useValues(playerMetaLogic(logicProps))
+    const { setPropertySearchQuery } = useActions(playerMetaLogic(logicProps))
+    const { pinnedProperties } = useValues(sessionRecordingPinnedPropertiesLogic)
+    const { togglePropertyPin } = useActions(sessionRecordingPinnedPropertiesLogic)
 
     useEffect(() => {
         if (props.distinctId) {
@@ -72,6 +75,7 @@ export function PlayerSidebarEditPinnedPropertiesPopover(
                     prefix={<IconSearch />}
                     size="small"
                     fullWidth
+                    autoFocus
                 />
             </div>
 

@@ -11,8 +11,10 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -27,6 +29,7 @@ import {
     EventDefinitionType,
     HogQLMathType,
     InsightShortId,
+    ProductKey,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -86,7 +89,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
     props({} as LLMAnalyticsLogicProps),
     key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
-    connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
+    connect(() => ({
+        values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']],
+        actions: [teamLogic, ['addProductIntent']],
+    })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -864,7 +870,6 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
 
     tabAwareUrlToAction(({ actions, values }) => {
         function applySearchParams({ filters, date_from, date_to, filter_test_accounts }: Record<string, any>): void {
-            // Normal parameter handling
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
             if (!objectsEqual(parsedFilters, values.propertyFilters)) {
                 actions.setPropertyFilters(parsedFilters)
@@ -884,7 +889,13 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         }
 
         return {
-            [urls.llmAnalyticsDashboard()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsDashboard()]: (_, searchParams) => {
+                applySearchParams(searchParams)
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
+                })
+            },
             [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
