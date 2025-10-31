@@ -39,23 +39,6 @@ import { SessionSummaryContent } from './types'
 
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
-// Common properties that should always be available to pin (person, event, and session properties)
-const COMMON_PERSON_PROPERTIES = [
-    'email',
-    '$user_id',
-    '$initial_geoip_country_code',
-    '$initial_browser',
-    '$initial_device_type',
-    '$initial_os',
-    '$initial_utm_source',
-    '$initial_utm_campaign',
-    '$initial_utm_medium',
-    '$entry_referring_domain',
-    '$entry_current_url',
-    '$geoip_country_code',
-    '$geoip_city_name',
-]
-
 function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
     return sessionPlayerMetaData?.person?.properties ?? {}
 }
@@ -150,7 +133,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
         summarizeSession: () => ({}),
         setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
         setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
-        setPropertySearchQuery: (query: string) => ({ query }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
@@ -179,20 +161,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 setIsPropertyPopoverOpen: (_, { isOpen }) => isOpen,
             },
         ],
-        propertySearchQuery: [
-            '',
-            {
-                setPropertySearchQuery: (_, { query }) => query,
-            },
-        ],
-    })),
-    listeners(({ actions }) => ({
-        setIsPropertyPopoverOpen: ({ isOpen }) => {
-            // Clear search query when popover is closed
-            if (!isOpen) {
-                actions.setPropertySearchQuery('')
-            }
-        },
     })),
     selectors(() => ({
         loading: [
@@ -348,13 +316,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     }
                 })
 
-                // Add common person properties so they're always available to pin
-                COMMON_PERSON_PROPERTIES.forEach((property) => {
-                    if (!allPropertyKeys.has(property)) {
-                        allPropertyKeys.add(property)
-                    }
-                })
-
                 Array.from(allPropertyKeys).forEach((property) => {
                     if (property === '$geoip_subdivision_1_name' || property === '$geoip_city_name') {
                         // they're just shown in the title for Country
@@ -421,65 +382,6 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                     const bIndex = pinnedProperties.indexOf(String(bKey))
                     return aIndex - bIndex
                 })
-            },
-        ],
-        filteredPropertiesWithInfo: [
-            (s) => [s.allOverviewItems, s.propertySearchQuery],
-            (allOverviewItems: OverviewItem[], propertySearchQuery: string) => {
-                // Extract all property keys from allOverviewItems
-                const allPropertyKeys = allOverviewItems
-                    .map((item) => (item.type === 'property' ? item.property : item.label))
-                    .filter((key): key is string => key !== undefined)
-                    .sort()
-
-                return allPropertyKeys
-                    .map((propertyKey) => {
-                        // Find the corresponding overview item to get the label
-                        // so we can check both the key and human-readable label for search
-                        const overviewItem = allOverviewItems.find(
-                            (item) => (item.type === 'property' ? item.property : item.label) === propertyKey
-                        )
-
-                        if (overviewItem) {
-                            return {
-                                propertyKey,
-                                propertyInfo: {
-                                    label: overviewItem.label,
-                                    originalKey: propertyKey,
-                                    type:
-                                        overviewItem.type === 'property'
-                                            ? TaxonomicFilterGroupType.EventProperties
-                                            : TaxonomicFilterGroupType.Replay,
-                                    propertyFilterType:
-                                        overviewItem.type === 'property'
-                                            ? PropertyFilterType.Event
-                                            : PropertyFilterType.Recording,
-                                },
-                            }
-                        }
-
-                        // Fallback for any missing items
-                        return {
-                            propertyKey,
-                            propertyInfo: {
-                                label: propertyKey,
-                                originalKey: propertyKey,
-                                type: TaxonomicFilterGroupType.Replay,
-                                propertyFilterType: PropertyFilterType.Recording,
-                            },
-                        }
-                    })
-                    .filter(({ propertyInfo }) => {
-                        if (!propertySearchQuery.trim()) {
-                            return true
-                        }
-
-                        const searchLower = propertySearchQuery.toLowerCase()
-                        return (
-                            propertyInfo.label.toLowerCase().includes(searchLower) ||
-                            propertyInfo.originalKey.toLowerCase().includes(searchLower)
-                        )
-                    })
             },
         ],
     })),

@@ -30,9 +30,7 @@ export function PlayerSidebarOverviewGrid(): JSX.Element {
                             visible={isPropertyPopoverOpen}
                             onClickOutside={() => setIsPropertyPopoverOpen(false)}
                             overlay={<PlayerSidebarEditPinnedPropertiesPopover />}
-                            placement="left-start"
-                            fallbackPlacements={['bottom', 'top', 'right-end']}
-                            showArrow
+                            placement="bottom"
                         >
                             <LemonButton
                                 icon={<IconGear />}
