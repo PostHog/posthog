@@ -66,7 +66,7 @@ impl SchemaConfig {
 }
 
 #[derive(Debug, Deserialize)]
-struct TypescriptResponse {
+struct DefinitionsResponse {
     content: String,
     event_count: usize,
     schema_hash: String,
@@ -85,8 +85,8 @@ pub fn pull(_host: Option<String>, output_override: Option<String>) -> Result<()
     // Determine output path
     let output_path = determine_output_path(&language, output_override)?;
 
-    // Fetch TypeScript definitions from the server
-    let response = fetch_typescript_definitions(&host, &token.env_id, &token.token)?;
+    // Fetch definitions from the server
+    let response = fetch_definitions(&host, &token.env_id, &token.token, &language)?;
 
     info!("✓ Fetched {} definitions for {} events", language_display_name(&language), response.event_count);
 
@@ -148,47 +148,48 @@ fn determine_output_path(language: &str, output_override: Option<String>) -> Res
         return Ok(path);
     }
 
-    // Get current directory for help message
-    let current_dir = std::env::current_dir()
-        .ok()
-        .and_then(|p| p.to_str().map(|s| s.to_string()))
-        .unwrap_or_else(|| ".".to_string());
-
     // Prompt user for output path
     let default_filename = default_output_path(language);
-    let help_message = format!("Your app will import PostHog from this file, so it should be accessible throughout your codebase (e.g., src/lib/, app/lib/, or your project root). This path will be saved in posthog.json and can be changed later. Current directory: {}", current_dir);
+    let current_dir = std::env::current_dir()
+        .ok()
+        .and_then(|p| p.to_str().map(String::from))
+        .unwrap_or_else(|| ".".to_string());
 
-    let path = Text::new(&format!("Where should we save the {} typed PostHog module?", language_display_name(language)))
-        .with_default(&default_filename)
-        .with_help_message(&help_message)
-        .prompt()
-        .unwrap_or(default_filename.clone());
+    let help_message = format!(
+        "Your app will import PostHog from this file, so it should be accessible \
+         throughout your codebase (e.g., src/lib/, app/lib/, or your project root). \
+         This path will be saved in posthog.json and can be changed later. \
+         Current directory: {}",
+        current_dir
+    );
 
-    // Normalize the path (handle directories)
+    let path = Text::new(&format!(
+        "Where should we save the {} typed PostHog module?",
+        language_display_name(language)
+    ))
+    .with_default(&default_filename)
+    .with_help_message(&help_message)
+    .prompt()
+    .unwrap_or(default_filename);
+
     Ok(normalize_output_path(&path, language))
 }
 
 fn normalize_output_path(path: &str, language: &str) -> String {
     let path_obj = Path::new(path);
 
-    // If the path exists and is a directory, append the default filename
-    if path_obj.exists() && path_obj.is_dir() {
-        let default_filename = default_output_path(language);
-        return path_obj.join(default_filename)
-            .to_string_lossy()
-            .to_string();
-    }
+    // If it's a directory (existing or ends with slash), append default filename
+    let should_append_filename =
+        (path_obj.exists() && path_obj.is_dir()) || path.ends_with('/') || path.ends_with('\\');
 
-    // If the path doesn't exist but looks like a directory (ends with /), append default filename
-    if path.ends_with('/') || path.ends_with('\\') {
-        let default_filename = default_output_path(language);
-        return Path::new(path).join(default_filename)
+    if should_append_filename {
+        path_obj
+            .join(default_output_path(language))
             .to_string_lossy()
-            .to_string();
+            .into_owned()
+    } else {
+        path.to_string()
     }
-
-    // Otherwise, assume it's a file path and use it as-is
-    path.to_string()
 }
 
 pub fn status() -> Result<()> {
@@ -238,26 +239,27 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-fn fetch_typescript_definitions(host: &str, env_id: &str, token: &str) -> Result<TypescriptResponse> {
-    let url = format!("{}/api/projects/{}/event_definitions/typescript/", host, env_id);
+fn fetch_definitions(host: &str, env_id: &str, token: &str, language: &str) -> Result<DefinitionsResponse> {
+    let url = format!("{}/api/projects/{}/event_definitions/{}/", host, env_id, language);
 
     let client = &context().client;
     let response = client
         .get(&url)
         .bearer_auth(token)
         .send()
-        .context("Failed to fetch TypeScript definitions")?;
+        .context(format!("Failed to fetch {} definitions", language))?;
 
     if !response.status().is_success() {
         return Err(anyhow::anyhow!(
-            "Failed to fetch TypeScript definitions: HTTP {}",
+            "Failed to fetch {} definitions: HTTP {}",
+            language,
             response.status()
         ));
     }
 
-    let json: TypescriptResponse = response
+    let json: DefinitionsResponse = response
         .json()
-        .context("Failed to parse TypeScript definitions response")?;
+        .context(format!("Failed to parse {} definitions response", language))?;
 
     Ok(json)
 }
