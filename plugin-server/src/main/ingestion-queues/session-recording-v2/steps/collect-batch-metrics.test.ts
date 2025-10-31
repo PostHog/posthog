@@ -1,3 +1,5 @@
+import { Message } from 'node-rdkafka'
+
 import { isOkResult } from '../../../../ingestion/pipelines/results'
 import { SessionRecordingIngesterMetrics } from '../metrics'
 import { createTestMessage } from '../test-helpers'
@@ -116,5 +118,33 @@ describe('collect-batch-metrics', () => {
         expect(SessionRecordingIngesterMetrics.incrementMessageReceived).toHaveBeenCalledWith(5, 3)
         expect(SessionRecordingIngesterMetrics.incrementMessageReceived).toHaveBeenCalledWith(10, 2)
         expect(SessionRecordingIngesterMetrics.incrementMessageReceived).toHaveBeenCalledWith(15, 1)
+    })
+
+    it('should preserve generic input properties not specified in Input type', async () => {
+        const step = createCollectBatchMetricsStep<{ message: Message; customField: string; anotherField: number }>()
+        const message1 = createTestMessage({ partition: 1, value: Buffer.from('test1') })
+        const message2 = createTestMessage({ partition: 1, value: Buffer.from('test2') })
+        const batch = [
+            { message: message1, customField: 'value1', anotherField: 123 },
+            { message: message2, customField: 'value2', anotherField: 456 },
+        ]
+
+        const results = await step(batch)
+
+        expect(results).toHaveLength(2)
+        expect(isOkResult(results[0])).toBe(true)
+        expect(isOkResult(results[1])).toBe(true)
+        if (isOkResult(results[0]) && isOkResult(results[1])) {
+            expect(results[0].value).toMatchObject({
+                message: message1,
+                customField: 'value1',
+                anotherField: 123,
+            })
+            expect(results[1].value).toMatchObject({
+                message: message2,
+                customField: 'value2',
+                anotherField: 456,
+            })
+        }
     })
 })

@@ -1,4 +1,4 @@
-import { MessageHeader } from 'node-rdkafka'
+import { Message, MessageHeader } from 'node-rdkafka'
 
 import { isOkResult } from '../../../../ingestion/pipelines/results'
 import { createTestMessage } from '../test-helpers'
@@ -167,5 +167,27 @@ describe('parse-headers', () => {
                 },
             },
         })
+    })
+
+    it('should preserve generic input properties not specified in Input type', async () => {
+        const step = createParseHeadersStep<{ message: Message; customField: string; anotherField: number }>()
+        const headers: MessageHeader[] = [{ token: Buffer.from('test-token') }]
+        const message = createTestMessage({ headers })
+        const input = { message, customField: 'test-value', anotherField: 123 }
+
+        const result = await step(input)
+
+        expect(isOkResult(result)).toBe(true)
+        if (isOkResult(result)) {
+            expect(result.value).toMatchObject({
+                message,
+                customField: 'test-value',
+                anotherField: 123,
+                headers: {
+                    token: 'test-token',
+                    force_disable_person_processing: false,
+                },
+            })
+        }
     })
 })

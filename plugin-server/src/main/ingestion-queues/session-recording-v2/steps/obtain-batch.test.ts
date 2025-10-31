@@ -97,7 +97,7 @@ describe('obtain-batch', () => {
     })
 
     it('should preserve all input fields', async () => {
-        const step = createObtainBatchStep(mockSessionBatchManager)
+        const step = createObtainBatchStep<ReturnType<typeof createInput>>(mockSessionBatchManager)
         const input = createInput(123)
 
         const results = await step([input])
@@ -109,6 +109,26 @@ describe('obtain-batch', () => {
             expect(results[0].value.parsedMessage).toEqual(input.parsedMessage)
             expect(results[0].value.team).toEqual(input.team)
             expect(results[0].value.batchRecorder).toBe(mockBatchRecorder)
+        }
+    })
+
+    it('should preserve generic input properties not specified in Input type', async () => {
+        const step = createObtainBatchStep<{ customField: string; anotherField: number }>(mockSessionBatchManager)
+        const input1 = { customField: 'value1', anotherField: 123 }
+        const input2 = { customField: 'value2', anotherField: 456 }
+
+        const results = await step([input1, input2])
+
+        expect(results).toHaveLength(2)
+        expect(isOkResult(results[0])).toBe(true)
+        expect(isOkResult(results[1])).toBe(true)
+        if (isOkResult(results[0]) && isOkResult(results[1])) {
+            expect(results[0].value.customField).toBe('value1')
+            expect(results[0].value.anotherField).toBe(123)
+            expect(results[0].value.batchRecorder).toBe(mockBatchRecorder)
+            expect(results[1].value.customField).toBe('value2')
+            expect(results[1].value.anotherField).toBe(456)
+            expect(results[1].value.batchRecorder).toBe(mockBatchRecorder)
         }
     })
 })

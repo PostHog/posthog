@@ -1,5 +1,3 @@
-import { Message } from 'node-rdkafka'
-
 import { PipelineResult, dlq, drop, ok } from '../../../../ingestion/pipelines/results'
 import { ProcessingStep } from '../../../../ingestion/pipelines/steps'
 import { EventHeaders } from '../../../../types'
@@ -7,17 +5,12 @@ import { ParsedMessageData } from '../kafka/types'
 import { TeamService } from '../teams/team-service'
 import { TeamForReplay } from '../teams/types'
 
-type Input = { message: Message; headers: EventHeaders; parsedMessage: ParsedMessageData }
-type Output = {
-    message: Message
-    headers: EventHeaders
-    parsedMessage: ParsedMessageData
-    team: TeamForReplay
-}
+type Input = { headers: EventHeaders; parsedMessage: ParsedMessageData }
+type Output = { team: TeamForReplay }
 
-export function createResolveTeamStep(teamService: TeamService): ProcessingStep<Input, Output> {
-    return async function resolveTeamStep(input: Input): Promise<PipelineResult<Output>> {
-        const { message, headers, parsedMessage } = input
+export function createResolveTeamStep<T extends Input>(teamService: TeamService): ProcessingStep<T, T & Output> {
+    return async function resolveTeamStep(input: T): Promise<PipelineResult<T & Output>> {
+        const { headers } = input
 
         if (!headers.token) {
             return dlq('no_token_in_header')
@@ -34,9 +27,7 @@ export function createResolveTeamStep(teamService: TeamService): ProcessingStep<
         }
 
         return ok({
-            message,
-            headers,
-            parsedMessage,
+            ...input,
             team,
         })
     }

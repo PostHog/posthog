@@ -5,7 +5,6 @@ import { gunzip } from 'zlib'
 
 import { PipelineResult, dlq, ok } from '../../../../ingestion/pipelines/results'
 import { ProcessingStep } from '../../../../ingestion/pipelines/steps'
-import { EventHeaders } from '../../../../types'
 import { parseJSON } from '../../../../utils/json-parse'
 import {
     EventSchema,
@@ -19,57 +18,16 @@ const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 const decompressWithGzip = promisify(gunzip)
 
-type Input = { message: Message; headers: EventHeaders }
-type Output = { message: Message; headers: EventHeaders; parsedMessage: ParsedMessageData }
+type Input = { message: Message }
+type Output = { parsedMessage: ParsedMessageData }
 
 function isGzipped(buffer: Buffer): boolean {
     return buffer.slice(0, GZIP_HEADER.length).equals(GZIP_HEADER)
 }
 
-function getValidEvents(events: unknown[]): {
-    validEvents: SnapshotEvent[]
-    startDateTime: DateTime
-    endDateTime: DateTime
-} | null {
-    const eventsWithDates = events
-        .map((event) => {
-            const parseResult = SnapshotEventSchema.safeParse(event)
-            if (!parseResult.success || parseResult.data.timestamp <= 0) {
-                return null
-            }
-            return {
-                event: parseResult.data,
-                dateTime: DateTime.fromMillis(parseResult.data.timestamp),
-            }
-        })
-        .filter((x): x is { event: SnapshotEvent; dateTime: DateTime } => x !== null)
-        .filter(({ dateTime }) => dateTime.isValid)
-
-    if (!eventsWithDates.length) {
-        return null
-    }
-
-    let startDateTime = eventsWithDates[0].dateTime
-    let endDateTime = eventsWithDates[0].dateTime
-    for (const { dateTime } of eventsWithDates) {
-        if (dateTime < startDateTime) {
-            startDateTime = dateTime
-        }
-        if (dateTime > endDateTime) {
-            endDateTime = dateTime
-        }
-    }
-
-    return {
-        validEvents: eventsWithDates.map(({ event }) => event),
-        startDateTime,
-        endDateTime,
-    }
-}
-
-export function createParseKafkaMessageStep(): ProcessingStep<Input, Output> {
-    return async function parseKafkaMessageStep(input: Input): Promise<PipelineResult<Output>> {
-        const { message, headers } = input
+export function createParseKafkaMessageStep<T extends Input>(): ProcessingStep<T, T & Output> {
+    return async function parseKafkaMessageStep(input: T): Promise<PipelineResult<T & Output>> {
+        const { message } = input
 
         if (!message.value || !message.timestamp) {
             return dlq('message_value_or_timestamp_is_empty')
@@ -150,9 +108,49 @@ export function createParseKafkaMessageStep(): ProcessingStep<Input, Output> {
         }
 
         return ok({
-            message,
-            headers,
+            ...input,
             parsedMessage,
         })
+    }
+}
+
+function getValidEvents(events: unknown[]): {
+    validEvents: SnapshotEvent[]
+    startDateTime: DateTime
+    endDateTime: DateTime
+} | null {
+    const eventsWithDates = events
+        .map((event) => {
+            const parseResult = SnapshotEventSchema.safeParse(event)
+            if (!parseResult.success || parseResult.data.timestamp <= 0) {
+                return null
+            }
+            return {
+                event: parseResult.data,
+                dateTime: DateTime.fromMillis(parseResult.data.timestamp),
+            }
+        })
+        .filter((x): x is { event: SnapshotEvent; dateTime: DateTime } => x !== null)
+        .filter(({ dateTime }) => dateTime.isValid)
+
+    if (!eventsWithDates.length) {
+        return null
+    }
+
+    let startDateTime = eventsWithDates[0].dateTime
+    let endDateTime = eventsWithDates[0].dateTime
+    for (const { dateTime } of eventsWithDates) {
+        if (dateTime < startDateTime) {
+            startDateTime = dateTime
+        }
+        if (dateTime > endDateTime) {
+            endDateTime = dateTime
+        }
+    }
+
+    return {
+        validEvents: eventsWithDates.map(({ event }) => event),
+        startDateTime,
+        endDateTime,
     }
 }

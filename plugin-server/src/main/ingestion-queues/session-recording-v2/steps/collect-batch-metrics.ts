@@ -5,10 +5,9 @@ import { PipelineResult, ok } from '../../../../ingestion/pipelines/results'
 import { SessionRecordingIngesterMetrics } from '../metrics'
 
 type Input = { message: Message }
-type Output = { message: Message }
 
-export function createCollectBatchMetricsStep(): BatchProcessingStep<Input, Output> {
-    return function collectBatchMetricsStep(batch: Input[]): Promise<PipelineResult<Output>[]> {
+export function createCollectBatchMetricsStep<T extends Input>(): BatchProcessingStep<T, T> {
+    return function collectBatchMetricsStep(batch: T[]): Promise<PipelineResult<T>[]> {
         // Calculate batch size metrics
         const batchSize = batch.length
         const batchSizeKb = batch.reduce((acc, item) => (item.message.value?.length ?? 0) + acc, 0) / 1024

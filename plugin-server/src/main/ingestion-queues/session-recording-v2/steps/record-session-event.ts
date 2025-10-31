@@ -1,8 +1,6 @@
-import { Message } from 'node-rdkafka'
-
 import { PipelineResult, ok } from '../../../../ingestion/pipelines/results'
 import { ProcessingStep } from '../../../../ingestion/pipelines/steps'
-import { EventHeaders, ValueMatcher } from '../../../../types'
+import { ValueMatcher } from '../../../../types'
 import { logger } from '../../../../utils/logger'
 import { ParsedMessageData } from '../kafka/types'
 import { SessionRecordingIngesterMetrics } from '../metrics'
@@ -10,15 +8,15 @@ import { SessionBatchRecorder } from '../sessions/session-batch-recorder'
 import { MessageWithTeam, TeamForReplay } from '../teams/types'
 
 type Input = {
-    message: Message
-    headers: EventHeaders
     parsedMessage: ParsedMessageData
     team: TeamForReplay
     batchRecorder: SessionBatchRecorder
 }
 
-export function createRecordSessionEventStep(isDebugLoggingEnabled: ValueMatcher<number>): ProcessingStep<Input, void> {
-    return async function recordSessionEventStep(input: Input): Promise<PipelineResult<void>> {
+export function createRecordSessionEventStep<T extends Input>(
+    isDebugLoggingEnabled: ValueMatcher<number>
+): ProcessingStep<T, void> {
+    return async function recordSessionEventStep(input: T): Promise<PipelineResult<void>> {
         // Reset sessions revoked metric
         // We have to reset this counter once we're consuming messages since then we know we're not re-balancing
         // Otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever

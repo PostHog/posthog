@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 import { promisify } from 'node:util'
 import { gzip } from 'zlib'
 
@@ -40,14 +41,12 @@ describe('parse-kafka-message', () => {
         }
         const value = Buffer.from(JSON.stringify(rawMessage))
         const message = createTestMessage({ value, timestamp: 1672527600000 })
-        const headers = { token: 'test-token', distinct_id: 'user123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isOkResult(result)).toBe(true)
         if (isOkResult(result)) {
             expect(result.value.message).toEqual(message)
-            expect(result.value.headers).toEqual(headers)
             expect(result.value.parsedMessage).toMatchObject({
                 metadata: {
                     partition: 0,
@@ -91,9 +90,8 @@ describe('parse-kafka-message', () => {
         }
         const value = Buffer.from(JSON.stringify(rawMessage))
         const message = createTestMessage({ value, timestamp: 1672527600000 })
-        const headers = { token: 'test-token', distinct_id: 'user123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isOkResult(result)).toBe(true)
         if (isOkResult(result)) {
@@ -130,9 +128,8 @@ describe('parse-kafka-message', () => {
 
         const gzippedData = await compressWithGzip(JSON.stringify(rawMessage))
         const message = createTestMessage({ value: gzippedData, timestamp: 1672527600000 })
-        const headers = { token: 'test-token', distinct_id: 'user123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isOkResult(result)).toBe(true)
         if (isOkResult(result)) {
@@ -153,9 +150,8 @@ describe('parse-kafka-message', () => {
     it('should return dlq when message value is empty', async () => {
         const step = createParseKafkaMessageStep()
         const message = createTestMessage({ value: null })
-        const headers = { token: 'test-token', distinct_id: 'user-123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isDlqResult(result)).toBe(true)
         expect(result).toEqual(dlq('message_value_or_timestamp_is_empty'))
@@ -164,9 +160,8 @@ describe('parse-kafka-message', () => {
     it('should return dlq when message timestamp is missing', async () => {
         const step = createParseKafkaMessageStep()
         const message = createTestMessage({ value: Buffer.from('test'), timestamp: undefined })
-        const headers = { token: 'test-token', distinct_id: 'user-123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isDlqResult(result)).toBe(true)
         expect(result).toEqual(dlq('message_value_or_timestamp_is_empty'))
@@ -178,9 +173,8 @@ describe('parse-kafka-message', () => {
             value: Buffer.from([0x1f, 0x8b, 0x08, 0x00, 0x00]),
             timestamp: 1672527600000,
         })
-        const headers = { token: 'test-token', distinct_id: 'user-123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isDlqResult(result)).toBe(true)
         expect(result).toEqual(dlq('invalid_gzip_data'))
@@ -189,9 +183,8 @@ describe('parse-kafka-message', () => {
     it('should return dlq when JSON is invalid', async () => {
         const step = createParseKafkaMessageStep()
         const message = createTestMessage({ value: Buffer.from('invalid json'), timestamp: 1672527600000 })
-        const headers = { token: 'test-token', distinct_id: 'user-123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isDlqResult(result)).toBe(true)
         expect(result).toEqual(dlq('invalid_json'))
@@ -212,9 +205,8 @@ describe('parse-kafka-message', () => {
         }
         const value = Buffer.from(JSON.stringify(rawMessage))
         const message = createTestMessage({ value, timestamp: 1672527600000 })
-        const headers = { token: 'test-token', distinct_id: 'user-123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isDlqResult(result)).toBe(true)
         expect(result).toEqual(dlq('invalid_message_payload'))
@@ -234,9 +226,8 @@ describe('parse-kafka-message', () => {
         }
         const value = Buffer.from(JSON.stringify(rawMessage))
         const message = createTestMessage({ value, timestamp: 1672527600000 })
-        const headers = { token: 'test-token', distinct_id: 'user123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isDlqResult(result)).toBe(true)
         expect(result).toEqual(dlq('received_non_snapshot_message'))
@@ -256,9 +247,8 @@ describe('parse-kafka-message', () => {
         }
         const value = Buffer.from(JSON.stringify(rawMessage))
         const message = createTestMessage({ value, timestamp: 1672527600000 })
-        const headers = { token: 'test-token', distinct_id: 'user-123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isDlqResult(result)).toBe(true)
         expect(result).toEqual(dlq('received_non_snapshot_message'))
@@ -279,9 +269,8 @@ describe('parse-kafka-message', () => {
         }
         const value = Buffer.from(JSON.stringify(rawMessage))
         const message = createTestMessage({ value, timestamp: 1672527600000 })
-        const headers = { token: 'test-token', distinct_id: 'user-123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isDlqResult(result)).toBe(true)
         expect(result).toEqual(dlq('message_contained_no_valid_rrweb_events'))
@@ -309,9 +298,8 @@ describe('parse-kafka-message', () => {
         }
         const value = Buffer.from(JSON.stringify(rawMessage))
         const message = createTestMessage({ value, timestamp: 1672527600000 })
-        const headers = { token: 'test-token', distinct_id: 'user123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isOkResult(result)).toBe(true)
         if (isOkResult(result)) {
@@ -350,9 +338,8 @@ describe('parse-kafka-message', () => {
         }
         const value = Buffer.from(JSON.stringify(rawMessage))
         const message = createTestMessage({ value, timestamp: 1672527600000 })
-        const headers = { token: 'test-token', distinct_id: 'user123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ message })
 
         expect(isOkResult(result)).toBe(true)
         if (isOkResult(result)) {
@@ -407,10 +394,8 @@ describe('parse-kafka-message', () => {
             timestamp: 1672527600000,
         })
 
-        const headers = { token: 'test-token', distinct_id: 'user123', force_disable_person_processing: false }
-
-        const result1 = await step({ message: message1, headers })
-        const result2 = await step({ message: message2, headers })
+        const result1 = await step({ message: message1 })
+        const result2 = await step({ message: message2 })
 
         expect(isOkResult(result1)).toBe(true)
         if (isOkResult(result1)) {
@@ -474,10 +459,8 @@ describe('parse-kafka-message', () => {
             timestamp: 1672527600000,
         })
 
-        const headers = { token: 'test-token', distinct_id: 'user123', force_disable_person_processing: false }
-
-        const result1 = await step({ message: message1, headers })
-        const result2 = await step({ message: message2, headers })
+        const result1 = await step({ message: message1 })
+        const result2 = await step({ message: message2 })
 
         expect(isOkResult(result1)).toBe(true)
         if (isOkResult(result1)) {
@@ -495,5 +478,38 @@ describe('parse-kafka-message', () => {
 
         expect(isDlqResult(result2)).toBe(true)
         expect(result2).toEqual(dlq('message_timestamp_diff_too_large'))
+    })
+
+    it('should preserve generic input properties not specified in Input type', async () => {
+        const step = createParseKafkaMessageStep<{ message: Message; customField: string; anotherField: number }>()
+        const rawMessage = {
+            uuid: 'test-uuid',
+            distinct_id: 'user-123',
+            ip: '127.0.0.1',
+            site_url: 'https://example.com',
+            data: JSON.stringify({
+                event: '$snapshot_items',
+                properties: {
+                    $snapshot_items: [{ type: 2, timestamp: Date.now() }],
+                    $session_id: 'session-123',
+                    $window_id: 'window-123',
+                },
+            }),
+        }
+        const value = Buffer.from(JSON.stringify(rawMessage))
+        const message = createTestMessage({ value, timestamp: Date.now() })
+        const input = { message, customField: 'test-value', anotherField: 123 }
+
+        const result = await step(input)
+
+        expect(isOkResult(result)).toBe(true)
+        if (isOkResult(result)) {
+            expect(result.value).toMatchObject({
+                message,
+                customField: 'test-value',
+                anotherField: 123,
+            })
+            expect(result.value.parsedMessage).toBeDefined()
+        }
     })
 })

@@ -1,7 +1,7 @@
 import { isOkResult, isRedirectResult, ok, redirect } from '../../../../ingestion/pipelines/results'
+import { EventHeaders } from '../../../../types'
 import { EventIngestionRestrictionManager } from '../../../../utils/event-ingestion-restriction-manager'
 import { SessionRecordingIngesterMetrics } from '../metrics'
-import { createTestMessage } from '../test-helpers'
 import { createApplyOverflowRestrictionsStep } from './apply-overflow-restrictions'
 
 jest.mock('../metrics', () => ({
@@ -25,10 +25,9 @@ describe('apply-overflow-restrictions', () => {
         mockRestrictionManager.shouldForceOverflow.mockReturnValue(false)
         const step = createApplyOverflowRestrictionsStep(mockRestrictionManager, overflowTopic, false)
 
-        const message = createTestMessage()
         const headers = { token: 'test-token', distinct_id: 'user-123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ headers })
 
         expect(isOkResult(result)).toBe(true)
         expect(mockRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith('test-token', 'user-123')
@@ -39,10 +38,9 @@ describe('apply-overflow-restrictions', () => {
         mockRestrictionManager.shouldForceOverflow.mockReturnValue(true)
         const step = createApplyOverflowRestrictionsStep(mockRestrictionManager, overflowTopic, false)
 
-        const message = createTestMessage()
         const headers = { token: 'overflow-token', distinct_id: 'user-123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ headers })
 
         expect(isRedirectResult(result)).toBe(true)
         expect(result).toEqual(redirect('overflow_forced', overflowTopic, false, false))
@@ -54,10 +52,9 @@ describe('apply-overflow-restrictions', () => {
         mockRestrictionManager.shouldForceOverflow.mockReturnValue(true)
         const step = createApplyOverflowRestrictionsStep(mockRestrictionManager, overflowTopic, true)
 
-        const message = createTestMessage()
         const headers = { token: 'overflow-token', distinct_id: 'user-123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ headers })
 
         expect(isOkResult(result)).toBe(true)
         expect(mockRestrictionManager.shouldForceOverflow).not.toHaveBeenCalled()
@@ -68,10 +65,9 @@ describe('apply-overflow-restrictions', () => {
         mockRestrictionManager.shouldForceOverflow.mockReturnValue(false)
         const step = createApplyOverflowRestrictionsStep(mockRestrictionManager, overflowTopic, false)
 
-        const message = createTestMessage()
         const headers = { distinct_id: 'user-123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ headers })
 
         expect(isOkResult(result)).toBe(true)
         expect(mockRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(undefined, 'user-123')
@@ -81,10 +77,9 @@ describe('apply-overflow-restrictions', () => {
         mockRestrictionManager.shouldForceOverflow.mockReturnValue(false)
         const step = createApplyOverflowRestrictionsStep(mockRestrictionManager, overflowTopic, false)
 
-        const message = createTestMessage()
         const headers = { token: 'test-token', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ headers })
 
         expect(isOkResult(result)).toBe(true)
         expect(mockRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith('test-token', undefined)
@@ -94,12 +89,34 @@ describe('apply-overflow-restrictions', () => {
         mockRestrictionManager.shouldForceOverflow.mockReturnValue(false)
         const step = createApplyOverflowRestrictionsStep(mockRestrictionManager, overflowTopic, false)
 
-        const message = createTestMessage({ partition: 5, offset: 100 })
         const headers = { token: 'test-token', distinct_id: 'user-123', force_disable_person_processing: false }
 
-        const result = await step({ message, headers })
+        const result = await step({ headers })
 
         expect(isOkResult(result)).toBe(true)
-        expect(result).toEqual(ok({ message, headers }))
+        expect(result).toEqual(ok({ headers }))
+    })
+
+    it('should preserve generic input properties not specified in Input type', async () => {
+        mockRestrictionManager.shouldForceOverflow.mockReturnValue(false)
+        const step = createApplyOverflowRestrictionsStep<{
+            headers: EventHeaders
+            customField: string
+            anotherField: number
+        }>(mockRestrictionManager, overflowTopic, false)
+
+        const headers = { token: 'test-token', distinct_id: 'user-123', force_disable_person_processing: false }
+        const input = { headers, customField: 'test-value', anotherField: 123 }
+
+        const result = await step(input)
+
+        expect(isOkResult(result)).toBe(true)
+        if (isOkResult(result)) {
+            expect(result.value).toMatchObject({
+                headers,
+                customField: 'test-value',
+                anotherField: 123,
+            })
+        }
     })
 })

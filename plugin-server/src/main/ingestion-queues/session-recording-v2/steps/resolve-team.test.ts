@@ -1,4 +1,6 @@
 import { dlq, drop, isDlqResult, isDropResult, isOkResult, ok } from '../../../../ingestion/pipelines/results'
+import { EventHeaders } from '../../../../types'
+import { ParsedMessageData } from '../kafka/types'
 import { TeamService } from '../teams/team-service'
 import { TeamForReplay } from '../teams/types'
 import { createTestMessage } from '../test-helpers'
@@ -123,5 +125,33 @@ describe('resolve-team', () => {
 
         expect(isDropResult(result)).toBe(true)
         expect(result).toEqual(drop('team_missing_retention_period'))
+    })
+
+    it('should preserve generic input properties not specified in Input type', async () => {
+        const step = createResolveTeamStep<{
+            headers: EventHeaders
+            parsedMessage: ParsedMessageData
+            customField: string
+            anotherField: number
+        }>(mockTeamService)
+        const team = { teamId: 1, consoleLogIngestionEnabled: false }
+        const baseInput = createInput('test-token')
+        const input = { ...baseInput, customField: 'test-value', anotherField: 123 }
+
+        ;(mockTeamService.getTeamByToken as jest.Mock).mockResolvedValue(team)
+        ;(mockTeamService.getRetentionPeriodByTeamId as jest.Mock).mockResolvedValue(30)
+
+        const result = await step(input)
+
+        expect(isOkResult(result)).toBe(true)
+        if (isOkResult(result)) {
+            expect(result.value).toMatchObject({
+                headers: baseInput.headers,
+                parsedMessage: baseInput.parsedMessage,
+                customField: 'test-value',
+                anotherField: 123,
+                team,
+            })
+        }
     })
 })

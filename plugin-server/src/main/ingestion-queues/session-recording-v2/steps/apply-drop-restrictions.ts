@@ -1,18 +1,15 @@
-import { Message } from 'node-rdkafka'
-
 import { PipelineResult, drop, ok } from '../../../../ingestion/pipelines/results'
 import { ProcessingStep } from '../../../../ingestion/pipelines/steps'
 import { EventHeaders } from '../../../../types'
 import { EventIngestionRestrictionManager } from '../../../../utils/event-ingestion-restriction-manager'
 import { SessionRecordingIngesterMetrics } from '../metrics'
 
-type Input = { message: Message; headers: EventHeaders }
-type Output = { message: Message; headers: EventHeaders }
+type Input = { headers: EventHeaders }
 
-export function createApplyDropRestrictionsStep(
+export function createApplyDropRestrictionsStep<T extends Input>(
     restrictionManager: EventIngestionRestrictionManager
-): ProcessingStep<Input, Output> {
-    return function applyDropRestrictionsStep(input: Input): Promise<PipelineResult<Output>> {
+): ProcessingStep<T, T> {
+    return function applyDropRestrictionsStep(input: T): Promise<PipelineResult<T>> {
         const { headers } = input
         const { token, distinct_id } = headers
 
