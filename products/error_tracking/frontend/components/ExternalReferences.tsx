@@ -111,6 +111,7 @@ function SetupIntegrationsButton(): JSX.Element {
             to={urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' })}
             buttonProps={{ variant: 'panel', fullWidth: true, menuItem: true }}
             tooltip="Go to integrations configuration"
+            target="_blank"
         >
             Setup integrations
         </Link>

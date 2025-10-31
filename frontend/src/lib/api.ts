@@ -1085,6 +1085,10 @@ export class ApiRequest {
         return this.errorTrackingRules(rule).addPathComponent('reorder')
     }
 
+    public errorTrackingIssueCohort(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssue(issueId, teamId).addPathComponent(`cohort`)
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
@@ -3076,6 +3080,10 @@ const api = {
             issueId: ErrorTrackingIssue['id']
         ): Promise<Array<{ id: string; title: string; description: string }>> {
             return await new ApiRequest().errorTrackingSimilarIssues(issueId).get()
+        },
+
+        async assignCohort(issueId: ErrorTrackingIssue['id'], cohortId: CohortType['id']): Promise<{ id: string }> {
+            return await new ApiRequest().errorTrackingIssueCohort(issueId).put({ data: { cohortId } })
         },
     },
 
