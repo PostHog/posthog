@@ -91,6 +91,8 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
 
         This is the core functionality that prevents "excess property checking"
         errors in TypeScript while maintaining type safety for required fields.
+
+        Uses the real posthog-js package to ensure compatibility with actual types.
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
@@ -98,35 +100,9 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
             # Generate TypeScript
             ts_content = self._generate_typescript()
 
-            # Write posthog-js mock (minimal implementation)
-            posthog_js_file = tmpdir_path / "posthog-js.ts"
-            posthog_js_file.write_text(
-                """
-export interface CaptureOptions {
-    timestamp?: Date | string
-    send_instantly?: boolean
-}
-
-export type CaptureResult = void
-
-export interface PostHog {
-    capture(event_name: string, properties?: any, options?: CaptureOptions): CaptureResult | undefined
-}
-
-const posthog: PostHog = {
-    capture: () => undefined
-}
-
-export default posthog
-export type Properties = Record<string, any>
-"""
-            )
-
-            # Write generated types
+            # Write generated types (using real posthog-js)
             types_file = tmpdir_path / "posthog-typed.ts"
-            # Replace all 'posthog-js' imports/exports to use our mock
-            ts_content_modified = ts_content.replace("'posthog-js'", "'./posthog-js'")
-            types_file.write_text(ts_content_modified)
+            types_file.write_text(ts_content)
 
             # Create test file that exercises all type scenarios
             test_file = tmpdir_path / "test.ts"
@@ -261,11 +237,11 @@ posthog.captureRaw(stringVar, { any: 'data' })
 """
             )
 
-            # Create package.json to install TypeScript
+            # Create package.json to install TypeScript and posthog-js
             package_json = tmpdir_path / "package.json"
-            package_json.write_text('{"dependencies": {"typescript": "^5.0.0"}}')
+            package_json.write_text('{"dependencies": {"typescript": "^5.0.0", "posthog-js": "^1.0.0"}}')
 
-            # Install TypeScript
+            # Install TypeScript and posthog-js
             install_result = subprocess.run(
                 ["npm", "install", "--silent"],
                 cwd=str(tmpdir_path),
@@ -276,7 +252,7 @@ posthog.captureRaw(stringVar, { any: 'data' })
 
             if install_result.returncode != 0:
                 self.fail(
-                    f"Failed to install TypeScript:\n"
+                    f"Failed to install dependencies:\n"
                     f"STDOUT: {install_result.stdout}\n"
                     f"STDERR: {install_result.stderr}"
                 )
