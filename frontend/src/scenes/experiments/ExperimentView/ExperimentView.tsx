@@ -222,7 +222,7 @@ export function ExperimentView(): JSX.Element {
      * We show the create form if the experiment is draft + has no primary metrics. Otherwise,
      * we show the experiment view.
      */
-    const isCreateFormEnabled = useFeatureFlag('EXPERIMENTS_CREATE_FORM')
+    const isCreateFormEnabled = useFeatureFlag('EXPERIMENTS_CREATE_FORM', 'test')
     const allPrimaryMetrics = [
         ...(experiment.metrics || []),
         ...(experiment.saved_metrics || []).filter((sm) => sm.metadata.type === 'primary'),

@@ -257,13 +257,3 @@ def has_valid_credentials() -> bool:
     """Synchronous wrapper around check_valid_credentials."""
     loop = asyncio.get_event_loop()
     return loop.run_until_complete(check_valid_credentials())
-
-
-async def delete_all_from_s3_prefix(s3_client, bucket_name: str, key_prefix: str):
-    """Delete all objects in bucket_name under key_prefix."""
-    response = await s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
-
-    if "Contents" in response:
-        for obj in response["Contents"]:
-            if "Key" in obj:
-                await s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])

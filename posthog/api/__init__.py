@@ -27,6 +27,7 @@ import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
+import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
@@ -56,7 +57,7 @@ from products.workflows.backend.api import MessageCategoryViewSet, MessagePrefer
 
 from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
 
-from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
+from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
@@ -570,6 +571,10 @@ register_grandfathered_environment_nested_viewset(
 )
 
 register_grandfathered_environment_nested_viewset(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["team_id"])
+register_grandfathered_environment_nested_viewset(
+    r"heatmap_screenshots", HeatmapScreenshotViewSet, "environment_heatmap_screenshots", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(r"saved", SavedHeatmapViewSet, "environment_saved", ["team_id"])
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
@@ -752,6 +757,13 @@ environments_router.register(
     GitProviderFileLinksViewSet,
     "project_error_tracking_git_provider_file_links",
     ["team_id"],
+)
+
+projects_router.register(
+    r"live_debugger_breakpoints",
+    live_debugger.LiveDebuggerBreakpointViewSet,
+    "project_live_debugger_breakpoints",
+    ["project_id"],
 )
 
 projects_router.register(
