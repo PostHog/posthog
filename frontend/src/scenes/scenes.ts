@@ -232,6 +232,21 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'heatmap',
         description: 'Heatmaps are a way to visualize user behavior on your website.',
     },
+    [Scene.Heatmap]: {
+        projectBased: true,
+        name: 'Heatmap',
+        iconType: 'heatmap',
+    },
+    [Scene.HeatmapNew]: {
+        projectBased: true,
+        name: 'New heatmap',
+        iconType: 'heatmap',
+    },
+    [Scene.HeatmapRecording]: {
+        projectBased: true,
+        name: 'Heatmap recording',
+        iconType: 'heatmap',
+    },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
         projectBased: true,
@@ -681,6 +696,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
+    [urls.heatmapNew()]: [Scene.HeatmapNew, 'heatmapNew'],
+    [urls.heatmapRecording()]: [Scene.HeatmapRecording, 'heatmapRecording'],
+    [urls.heatmap(':id')]: [Scene.Heatmap, 'heatmap'],
     [urls.liveDebugger()]: [Scene.LiveDebugger, 'liveDebugger'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],

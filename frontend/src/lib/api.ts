@@ -108,6 +108,10 @@ import {
     GoogleAdsConversionActionType,
     Group,
     GroupListParams,
+    HeatmapScreenshotContentResponse,
+    HeatmapScreenshotType,
+    HeatmapStatus,
+    HeatmapType,
     HogFunctionIconResponse,
     HogFunctionStatus,
     HogFunctionTemplateType,
@@ -1571,6 +1575,24 @@ export class ApiRequest {
     // Session summary
     public sessionSummary(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('session_summaries')
+    }
+
+    // Heatmap screenshots
+    public heatmapScreenshots(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('heatmap_screenshots')
+    }
+
+    public heatmapScreenshot(id: number, teamId?: TeamType['id']): ApiRequest {
+        return this.heatmapScreenshots(teamId).addPathComponent(id)
+    }
+
+    public heatmapScreenshotsSaved(teamId?: TeamType['id']): ApiRequest {
+        // Deprecated path: kept for potential fallback during rollout
+        return this.environmentsDetail(teamId).addPathComponent('saved')
+    }
+
+    public heatmapScreenshotSaved(id: number | string, teamId?: TeamType['id']): ApiRequest {
+        return this.heatmapScreenshotsSaved(teamId).addPathComponent(id)
     }
 }
 
@@ -4538,6 +4560,64 @@ const api = {
             url = next
         }
         return results
+    },
+
+    heatmapScreenshots: {
+        async getContent(id: number): Promise<HeatmapScreenshotContentResponse> {
+            const response = await new ApiRequest().heatmapScreenshot(id).withAction('content').getResponse()
+
+            if (
+                response.ok &&
+                (response.headers.get('content-type')?.includes('image/jpeg') ||
+                    response.headers.get('content-type')?.includes('image/png'))
+            ) {
+                // 200: JPEG/PNG image data
+                return { success: true, data: response }
+            }
+            // 202/404/501: JSON with screenshot metadata
+            const jsonData = await response.json()
+            return { success: false, data: jsonData }
+        },
+    },
+
+    savedHeatmaps: {
+        async list(
+            params: {
+                type?: HeatmapType
+                status?: HeatmapStatus
+                search?: string
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<HeatmapScreenshotType>> {
+            return await new ApiRequest().heatmapScreenshotsSaved().withQueryString(params).get()
+        },
+
+        async create(data: {
+            name: string
+            url: string
+            data_url?: string | null
+            width?: number
+            type?: HeatmapType
+        }): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotsSaved().create({ data })
+        },
+
+        async get(id: number | string): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotSaved(id).get()
+        },
+
+        async update(
+            id: number | string,
+            data: Partial<{
+                url: string
+                data_url: string | null
+                width: number
+                type: HeatmapType
+            }>
+        ): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotSaved(id).update({ data })
+        },
     },
 
     sessionSummaries: {

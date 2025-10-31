@@ -1,16 +1,15 @@
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { HeatmapRecording } from 'scenes/heatmaps/components/HeatmapRecording'
+import { heatmapRecordingLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapRecordingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { HeatmapsBrowser } from './HeatmapsBrowser'
-import { heatmapsSceneLogic } from './heatmapsSceneLogic'
-
 export const scene: SceneExport = {
-    component: HeatmapsScene,
-    logic: heatmapsSceneLogic,
+    component: HeatmapRecordingScene,
+    logic: heatmapRecordingLogic,
     settingSectionId: 'environment-autocapture',
 }
 
-export function HeatmapsScene(): JSX.Element {
+export function HeatmapRecordingScene(): JSX.Element {
     return (
         <div>
             <LemonBanner
@@ -24,7 +23,7 @@ export function HeatmapsScene(): JSX.Element {
                     directly to us!
                 </p>
             </LemonBanner>
-            <HeatmapsBrowser />
+            <HeatmapRecording />
         </div>
     )
 }
