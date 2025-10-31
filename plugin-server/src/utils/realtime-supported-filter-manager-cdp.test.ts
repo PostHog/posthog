@@ -33,21 +33,41 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
         await closeHub(hub)
     })
 
-    // Helper function to create compiled_bytecode array from bytecode
-    const createCompiledBytecode = (
+    // Helper function to create inline filters structure with bytecode
+    const buildInlineFilters = (
         bytecode: any[],
         conditionHash: string,
-        filterPath: string = 'properties.values[0]',
+        type: string = 'behavioral',
+        key: string = '$test_event',
         extra?: Record<string, any>
-    ) => {
-        return [
-            {
-                filter_path: filterPath,
-                bytecode: bytecode,
-                conditionHash: conditionHash,
-                ...(extra || {}),
+    ): string => {
+        const filter: any = {
+            key,
+            type,
+            bytecode,
+            conditionHash,
+            ...(extra || {}),
+        }
+
+        // Add default fields based on type
+        if (type === 'behavioral') {
+            filter.value = 'performed_event'
+            filter.event_type = 'events'
+        } else if (type === 'person') {
+            filter.operator = 'is_set'
+        }
+
+        return JSON.stringify({
+            properties: {
+                type: 'OR',
+                values: [
+                    {
+                        type: 'OR',
+                        values: [filter],
+                    },
+                ],
             },
-        ]
+        })
     }
 
     describe('getRealtimeSupportedFiltersForTeam()', () => {
@@ -59,10 +79,10 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
         it('returns realtime supported filters for a team', async () => {
             const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
             const conditionHash = 'test_hash_001'
-            const compiledBytecode = createCompiledBytecode(bytecode, conditionHash)
+            const filters = buildInlineFilters(bytecode, conditionHash, 'event', '$browser')
 
             // Create a realtime cohort
-            const cohortId = await createCohort(postgres, teamId, 'Test Cohort', compiledBytecode)
+            const cohortId = await createCohort(postgres, teamId, 'Test Cohort', filters)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
             expect(result).toHaveLength(1)
@@ -71,28 +91,27 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
                 bytecode: bytecode,
                 team_id: teamId,
                 cohort_id: cohortId,
-                filter_path: 'properties.values[0]',
             })
         })
 
         it('filters out deleted cohorts', async () => {
             const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
-            const compiledBytecode = createCompiledBytecode(bytecode, 'test_hash_001')
+            const filters = buildInlineFilters(bytecode, 'test_hash_001', 'event', '$browser')
 
             // Create active cohort
-            await createCohort(postgres, teamId, 'Active Cohort', compiledBytecode)
+            await createCohort(postgres, teamId, 'Active Cohort', filters)
 
             // Create deleted cohort
-            await createCohort(postgres, teamId, 'Deleted Cohort', compiledBytecode, { deleted: true })
+            await createCohort(postgres, teamId, 'Deleted Cohort', filters, { deleted: true })
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
             expect(result).toHaveLength(1)
             expect(result[0].cohort_id).not.toBe('Deleted Cohort')
         })
 
-        it('filters out cohorts without compiled_bytecode', async () => {
-            // Create cohort without compiled_bytecode
-            await createCohort(postgres, teamId, 'No Bytecode Cohort', null)
+        it('filters out cohorts without filters', async () => {
+            // Create cohort without filters (uses default empty filters)
+            await createCohort(postgres, teamId, 'No Filters Cohort', null)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
             expect(result).toEqual([])
@@ -100,80 +119,353 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
 
         it('filters out non-realtime cohorts', async () => {
             const bytecode = ['_H', 1, 32, 'test']
-            const compiledBytecode = createCompiledBytecode(bytecode, 'test_hash_001')
+            const filters = buildInlineFilters(bytecode, 'test_hash_001')
 
             // Create behavioral cohort (not realtime)
-            await createCohort(postgres, teamId, 'Behavioral Cohort', compiledBytecode, { cohort_type: 'behavioral' })
+            await createCohort(postgres, teamId, 'Behavioral Cohort', filters, { cohort_type: 'behavioral' })
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
             expect(result).toEqual([])
         })
 
-        it('deduplicates filters by conditionHash', async () => {
-            const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
-            const conditionHash = 'duplicate_hash'
-            const compiledBytecode = createCompiledBytecode(bytecode, conditionHash)
+        it('deduplicates filters by conditionHash across complex nested structures', async () => {
+            const combinedBytecode = [
+                '_H',
+                1,
+                32,
+                '$pageview',
+                32,
+                'event',
+                1,
+                1,
+                11,
+                31,
+                32,
+                '$browser',
+                32,
+                'properties',
+                1,
+                2,
+                12,
+                31,
+                32,
+                '$browser_language',
+                32,
+                'properties',
+                1,
+                2,
+                12,
+                3,
+                2,
+                3,
+                2,
+            ]
+            const conditionHash = 'bcdc95b22cf3e527'
 
-            // Create two cohorts with the same conditionHash
-            await createCohort(postgres, teamId, 'Cohort 1', compiledBytecode)
-            await createCohort(postgres, teamId, 'Cohort 2', compiledBytecode)
+            // Complex filter structure matching the user's example
+            const filters = JSON.stringify({
+                properties: {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$pageview',
+                                    type: 'behavioral',
+                                    value: 'performed_event_multiple',
+                                    bytecode: combinedBytecode,
+                                    negation: false,
+                                    operator: 'exact',
+                                    event_type: 'events',
+                                    conditionHash: conditionHash,
+                                    event_filters: [
+                                        { key: '$browser', type: 'event', value: 'is_set', operator: 'is_set' },
+                                        {
+                                            key: '$browser_language',
+                                            type: 'event',
+                                            value: 'is_set',
+                                            operator: 'is_set',
+                                        },
+                                    ],
+                                    operator_value: 5,
+                                    explicit_datetime: '-30d',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            // Create two cohorts with the same conditionHash in complex structures
+            await createCohort(postgres, teamId, 'Cohort 1', filters)
+            await createCohort(postgres, teamId, 'Cohort 2', filters)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
             expect(result).toHaveLength(1) // Should be deduplicated
             expect(result[0].conditionHash).toBe(conditionHash)
+            expect(result[0].bytecode).toEqual(combinedBytecode)
         })
 
-        it('handles multiple filters in single cohort', async () => {
-            const bytecode1 = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
-            const bytecode2 = ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11]
-
-            const compiledBytecode = [
-                {
-                    filter_path: 'properties.values[0]',
-                    bytecode: bytecode1,
-                    conditionHash: 'hash_001',
-                },
-                {
-                    filter_path: 'properties.values[1]',
-                    bytecode: bytecode2,
-                    conditionHash: 'hash_002',
-                },
+        it('handles multiple filters in single cohort with complex nested structure', async () => {
+            // Complex filter: behavioral filter with event_filters (combined bytecode)
+            const behavioralWithEventFilterBytecode = [
+                '_H',
+                1,
+                32,
+                '$pageview',
+                32,
+                'event',
+                1,
+                1,
+                11,
+                31,
+                32,
+                '$browser',
+                32,
+                'properties',
+                1,
+                2,
+                12,
+                3,
+                2,
             ]
+            const pageviewOnlyBytecode = ['_H', 1, 32, '$pageleave', 32, 'event', 1, 1, 11]
 
-            await createCohort(postgres, teamId, 'Multi-Filter Cohort', compiledBytecode)
+            const filters = JSON.stringify({
+                properties: {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$pageview',
+                                    type: 'behavioral',
+                                    value: 'performed_event_multiple',
+                                    bytecode: behavioralWithEventFilterBytecode,
+                                    negation: false,
+                                    operator: 'gte',
+                                    event_type: 'events',
+                                    conditionHash: '512ef57e6f504fc6',
+                                    event_filters: [
+                                        { key: '$browser', type: 'event', value: 'is_set', operator: 'is_set' },
+                                    ],
+                                    operator_value: 5,
+                                    explicit_datetime: '-30d',
+                                },
+                                {
+                                    key: '$pageleave',
+                                    type: 'behavioral',
+                                    value: 'performed_event',
+                                    bytecode: pageviewOnlyBytecode,
+                                    negation: false,
+                                    event_type: 'events',
+                                    conditionHash: 'e0418e34fcd847e5',
+                                    explicit_datetime: '-30d',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            await createCohort(postgres, teamId, 'Multi-Filter Cohort', filters)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
             expect(result).toHaveLength(2)
-            expect(result.map((f) => f.conditionHash).sort()).toEqual(['hash_001', 'hash_002'])
+            expect(result.map((f) => f.conditionHash).sort()).toEqual(['512ef57e6f504fc6', 'e0418e34fcd847e5'])
+            // Verify the combined bytecode for the behavioral filter with event_filters
+            const behavioralFilter = result.find((f) => f.conditionHash === '512ef57e6f504fc6')
+            expect(behavioralFilter?.bytecode).toEqual(behavioralWithEventFilterBytecode)
         })
 
-        it('filters out person property bytecodes explicitly via filter_type', async () => {
-            const personPropBytecode = ['_H', 1, 31, 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 12]
-            const compiledBytecode = createCompiledBytecode(personPropBytecode, 'person_hash', 'properties.values[0]', {
-                filter_type: 'person',
+        it('filters out person property bytecodes explicitly via type in complex structure', async () => {
+            const personPropBytecode = ['_H', 1, 31, 32, '$host', 32, 'properties', 32, 'person', 1, 3, 12]
+            const behavioralBytecode = ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11]
+
+            // Complex structure with both person and behavioral filters - only behavioral should be extracted
+            const filters = JSON.stringify({
+                properties: {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$pageview',
+                                    type: 'behavioral',
+                                    value: 'performed_event',
+                                    bytecode: behavioralBytecode,
+                                    negation: false,
+                                    event_type: 'events',
+                                    conditionHash: 'e0418e34fcd847e5',
+                                    explicit_datetime: '-30d',
+                                },
+                                {
+                                    key: '$host',
+                                    type: 'person',
+                                    bytecode: personPropBytecode,
+                                    negation: false,
+                                    operator: 'is_set',
+                                    conditionHash: '30b9607b69c556bf',
+                                },
+                            ],
+                        },
+                    ],
+                },
             })
 
-            await createCohort(postgres, teamId, 'Person Prop Cohort', compiledBytecode)
+            await createCohort(postgres, teamId, 'Mixed Filters Cohort', filters)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
-            expect(result).toEqual([])
+            // Should only return the behavioral filter, not the person property filter
+            expect(result).toHaveLength(1)
+            expect(result[0].conditionHash).toBe('e0418e34fcd847e5')
+            expect(result[0].bytecode).toEqual(behavioralBytecode)
         })
 
-        it('handles malformed compiled_bytecode gracefully', async () => {
-            const validBytecode = ['_H', 1, 32, 'test']
-            const validCompiledBytecode = createCompiledBytecode(validBytecode, 'valid_hash')
+        it('handles complex OR structure with multiple filter groups', async () => {
+            // Test structure with OR at top level containing multiple groups (matching user's second example)
+            const pageviewWithBrowserBytecode = [
+                '_H',
+                1,
+                32,
+                '$pageview',
+                32,
+                'event',
+                1,
+                1,
+                11,
+                31,
+                32,
+                '$browser',
+                32,
+                'properties',
+                1,
+                2,
+                12,
+                3,
+                2,
+            ]
+            const pageleaveBytecode = ['_H', 1, 32, '$pageleave', 32, 'event', 1, 1, 11]
+            const groupidentifyBytecode = [
+                '_H',
+                1,
+                32,
+                '$groupidentify',
+                32,
+                'event',
+                1,
+                1,
+                11,
+                31,
+                32,
+                'id',
+                32,
+                'properties',
+                1,
+                2,
+                12,
+                3,
+                2,
+            ]
 
-            // Create cohort with valid bytecode
-            await createCohort(postgres, teamId, 'Valid Cohort', validCompiledBytecode)
-
-            // Create cohort with malformed bytecode
-            await createCohort(postgres, teamId, 'Malformed Cohort', [
-                {
-                    // Missing required fields
-                    filter_path: 'properties.values[0]',
-                    // Missing bytecode and conditionHash
+            const filters = JSON.stringify({
+                properties: {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$pageview',
+                                    type: 'behavioral',
+                                    value: 'performed_event_multiple',
+                                    bytecode: pageviewWithBrowserBytecode,
+                                    negation: false,
+                                    operator: 'gte',
+                                    event_type: 'events',
+                                    conditionHash: '512ef57e6f504fc6',
+                                    event_filters: [
+                                        { key: '$browser', type: 'event', value: 'is_set', operator: 'is_set' },
+                                    ],
+                                    operator_value: 5,
+                                    explicit_datetime: '-30d',
+                                },
+                                {
+                                    key: '$pageleave',
+                                    type: 'behavioral',
+                                    value: 'performed_event',
+                                    bytecode: pageleaveBytecode,
+                                    negation: false,
+                                    event_type: 'events',
+                                    conditionHash: 'e0418e34fcd847e5',
+                                    explicit_datetime: '-30d',
+                                },
+                            ],
+                        },
+                        {
+                            type: 'OR',
+                            values: [
+                                {
+                                    key: '$groupidentify',
+                                    type: 'behavioral',
+                                    value: 'performed_event',
+                                    bytecode: groupidentifyBytecode,
+                                    negation: false,
+                                    event_type: 'events',
+                                    conditionHash: 'f0bbe0140a9cfe05',
+                                    event_filters: [{ key: 'id', type: 'event', value: 'is_set', operator: 'is_set' }],
+                                    explicit_datetime: '-30d',
+                                },
+                            ],
+                        },
+                    ],
                 },
-            ])
+            })
+
+            await createCohort(postgres, teamId, 'Complex OR Cohort', filters)
+
+            const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
+            expect(result).toHaveLength(3)
+            const hashes = result.map((f) => f.conditionHash).sort()
+            expect(hashes).toEqual(['512ef57e6f504fc6', 'e0418e34fcd847e5', 'f0bbe0140a9cfe05'])
+
+            // Verify all bytecodes are correctly extracted
+            expect(result.find((f) => f.conditionHash === '512ef57e6f504fc6')?.bytecode).toEqual(
+                pageviewWithBrowserBytecode
+            )
+            expect(result.find((f) => f.conditionHash === 'e0418e34fcd847e5')?.bytecode).toEqual(pageleaveBytecode)
+            expect(result.find((f) => f.conditionHash === 'f0bbe0140a9cfe05')?.bytecode).toEqual(groupidentifyBytecode)
+        })
+
+        it('handles malformed filters gracefully', async () => {
+            const validBytecode = ['_H', 1, 32, 'test']
+            const validFilters = buildInlineFilters(validBytecode, 'valid_hash')
+
+            // Create cohort with valid filters
+            await createCohort(postgres, teamId, 'Valid Cohort', validFilters)
+
+            // Create cohort with malformed filters (missing bytecode/conditionHash)
+            const malformedFilters = JSON.stringify({
+                properties: {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'OR',
+                            values: [
+                                {
+                                    key: '$test',
+                                    type: 'behavioral',
+                                    // Missing bytecode and conditionHash
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+            await createCohort(postgres, teamId, 'Malformed Cohort', malformedFilters)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
             expect(result).toHaveLength(1) // Only valid filter should be returned
@@ -182,9 +474,9 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
 
         it('caches filters for subsequent calls', async () => {
             const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
-            const compiledBytecode = createCompiledBytecode(bytecode, 'cached_hash')
+            const filters = buildInlineFilters(bytecode, 'cached_hash', 'event', '$browser')
 
-            await createCohort(postgres, teamId, 'Cached Cohort', compiledBytecode)
+            await createCohort(postgres, teamId, 'Cached Cohort', filters)
 
             // First call
             const result1 = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
@@ -206,16 +498,16 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
     describe('getRealtimeSupportedFiltersForTeams()', () => {
         it('returns filters for multiple teams', async () => {
             const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
-            const compiledBytecode1 = createCompiledBytecode(bytecode, 'team1_hash')
-            const compiledBytecode2 = createCompiledBytecode(bytecode, 'team2_hash')
+            const filters1 = buildInlineFilters(bytecode, 'team1_hash', 'event', '$browser')
+            const filters2 = buildInlineFilters(bytecode, 'team2_hash', 'event', '$browser')
 
             // Create another team
             const team = await hub.teamManager.getTeam(teamId)
             const team2Id = await createTeam(postgres, team!.organization_id)
 
             // Create cohorts for both teams
-            await createCohort(postgres, teamId, 'Team 1 Cohort', compiledBytecode1)
-            await createCohort(postgres, team2Id, 'Team 2 Cohort', compiledBytecode2)
+            await createCohort(postgres, teamId, 'Team 1 Cohort', filters1)
+            await createCohort(postgres, team2Id, 'Team 2 Cohort', filters2)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeams([teamId, team2Id])
             expect(result[String(teamId)]).toHaveLength(1)
@@ -232,9 +524,9 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
 
         it('efficiently loads multiple teams with single database call', async () => {
             const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
-            const compiledBytecode = createCompiledBytecode(bytecode, 'test_hash')
+            const filters = buildInlineFilters(bytecode, 'test_hash', 'event', '$browser')
 
-            await createCohort(postgres, teamId, 'Test Cohort', compiledBytecode)
+            await createCohort(postgres, teamId, 'Test Cohort', filters)
 
             const promises = [
                 realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId),
@@ -252,15 +544,15 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
         it('deduplicates filters across multiple teams', async () => {
             const bytecode = ['_H', 1, 32, 'shared', 32, 'filter']
             const sharedHash = 'shared_condition_hash'
-            const compiledBytecode = createCompiledBytecode(bytecode, sharedHash)
+            const filters = buildInlineFilters(bytecode, sharedHash)
 
             // Create another team
             const team = await hub.teamManager.getTeam(teamId)
             const team2Id = await createTeam(postgres, team!.organization_id)
 
             // Create cohorts with same conditionHash for both teams
-            await createCohort(postgres, teamId, 'Team 1 Cohort', compiledBytecode)
-            await createCohort(postgres, team2Id, 'Team 2 Cohort', compiledBytecode)
+            await createCohort(postgres, teamId, 'Team 1 Cohort', filters)
+            await createCohort(postgres, team2Id, 'Team 2 Cohort', filters)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeams([teamId, team2Id])
 
@@ -293,14 +585,14 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const olderTime = new Date(Date.now() - 3600000).toISOString() // 1 hour ago
             const newerTime = new Date().toISOString()
 
-            const olderCompiledBytecode = createCompiledBytecode(bytecode, 'older_hash')
-            const newerCompiledBytecode = createCompiledBytecode(bytecode, 'newer_hash')
+            const olderFilters = buildInlineFilters(bytecode, 'older_hash')
+            const newerFilters = buildInlineFilters(bytecode, 'newer_hash')
 
-            await createCohort(postgres, teamId, 'Older Cohort', olderCompiledBytecode, {
+            await createCohort(postgres, teamId, 'Older Cohort', olderFilters, {
                 created_at: olderTime,
             })
 
-            await createCohort(postgres, teamId, 'Newer Cohort', newerCompiledBytecode, {
+            await createCohort(postgres, teamId, 'Newer Cohort', newerFilters, {
                 created_at: newerTime,
             })
 
