@@ -1,8 +1,0 @@
-#!/bin/bash
-set -e
-
-# delay by a second to not run two pnpm installs at the same time if starting with -vite
-sleep 1
-
-pnpm --filter=@posthog/frontend... install
-pnpm --filter=@posthog/frontend typegen:watch

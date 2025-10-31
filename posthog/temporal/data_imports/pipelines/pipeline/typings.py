@@ -9,7 +9,7 @@ from products.data_warehouse.backend.types import IncrementalFieldType
 
 SortMode = Literal["asc", "desc"]
 PartitionMode = Literal["md5", "numerical", "datetime"]
-PartitionFormat = Literal["month", "week", "day"]
+PartitionFormat = Literal["month", "week", "day", "hour"]
 
 
 @dataclasses.dataclass

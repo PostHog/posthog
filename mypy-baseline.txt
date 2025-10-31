@@ -658,7 +658,6 @@ posthog/hogql_queries/utils/query_date_range.py:0: error: Item "None" of "Interv
 posthog/hogql_queries/web_analytics/test/test_web_stats_table.py:0: error: Need type annotation for "prev_pathname"  [var-annotated]
 posthog/hogql_queries/web_analytics/test/test_web_stats_table.py:0: error: Need type annotation for "prev_scroll"  [var-annotated]
 posthog/management/commands/background_delete_model.py:0: error: Item "None" of "Any | None" has no attribute "split"  [union-attr]
-posthog/management/commands/create_datastack_source.py:0: error: Module "posthog.warehouse" has no attribute "types"  [attr-defined]
 posthog/management/commands/fix_future_person_created_at.py:0: error: Argument "version" to "create_person" has incompatible type "int | None"; expected "int"  [arg-type]
 posthog/management/commands/migrate_experiments.py:0: error: Item "None" of "Any | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/management/commands/migrate_retention_show_mean.py:0: error: Value of type "Any | None" is not indexable  [index]

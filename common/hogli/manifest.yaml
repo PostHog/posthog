@@ -192,10 +192,6 @@ start:
         bin_script: start-frontend-vite
         description: Start Vite dev server for frontend (runs pnpm start-vite)
         hidden: true
-    start:frontend-typegen:
-        bin_script: start-frontend-typegen
-        description: Start Kea typegen dev server for frontend (runs pnpm typegen:watch)
-        hidden: true
     start:worker:
         bin_script: start-worker
         description: Launch all background workers (Celery worker, beat scheduler, plugin-server)
@@ -421,7 +417,7 @@ tools:
         hidden: true
     create:notebook:node:
         bin_script: create-notebook-node.sh
-        description: Create a new NotebookNode file and update types and editor references
+        description: 'Create a new NotebookNode file and update types and editor references'
         hidden: true
 utilities:
     utilities:posthog-worktree:

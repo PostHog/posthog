@@ -439,7 +439,9 @@ def append_partition_key_to_table(
                 if partition_format is None:
                     partition_format = "month"
 
-                if partition_format == "day":
+                if partition_format == "hour":
+                    date_format = "%Y-%m-%dT%H"
+                elif partition_format == "day":
                     date_format = "%Y-%m-%d"
                 elif partition_format == "week":
                     date_format = "%G-w%V"
