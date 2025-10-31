@@ -11176,6 +11176,12 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "groupKey": {
+                    "type": "string"
+                },
+                "groupTypeIndex": {
+                    "$ref": "#/definitions/integer"
+                },
                 "issueId": {
                     "type": "string"
                 },

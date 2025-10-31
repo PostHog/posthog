@@ -2222,6 +2222,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     limit?: integer
     offset?: integer
     personId?: string
+    groupKey?: string
+    groupTypeIndex?: integer
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
