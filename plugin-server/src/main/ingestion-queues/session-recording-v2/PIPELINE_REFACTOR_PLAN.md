@@ -57,10 +57,12 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message, headers: EventHeaders }`
 - **Output**: `{ message: Message, headers: EventHeaders }`
 - **Operations**:
-    - Drop if `shouldDropEvent(token, distinct_id)`
-    - **Redirect to overflow** if `shouldForceOverflow(token, distinct_id)`
+    - **Step 2a**: Drop if `shouldDropEvent(token, distinct_id)` - `apply-drop-restrictions.ts`
+    - **Step 2b**: Redirect to overflow if `shouldForceOverflow(token, distinct_id)` - `apply-overflow-restrictions.ts`
 - **Result types**: `ok`, `drop`, `redirect`
-- **File**: `steps/apply-restrictions.ts`
+- **Note**: Split into two separate steps for cleaner separation of concerns
+- **Status**: ✅ Implemented and tested
+- **Files**: `steps/apply-drop-restrictions.ts`, `steps/apply-overflow-restrictions.ts`
 
 ### Step 3: Parse Kafka Message
 

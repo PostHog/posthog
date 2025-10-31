@@ -6,7 +6,6 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { buildIntegerMatcher } from '../../../config/config'
 import { BatchPipelineUnwrapper } from '../../../ingestion/pipelines/batch-pipeline-unwrapper'
 import { createBatch, createUnwrapper } from '../../../ingestion/pipelines/helpers'
-import { PipelineConfig } from '../../../ingestion/pipelines/result-handling-pipeline'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import {
@@ -35,7 +34,7 @@ import {
 import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
-import { createSessionRecordingPipeline } from './pipeline'
+import { SessionRecordingPipelineConfig, createSessionRecordingPipeline } from './pipeline'
 import { RetentionAwareStorage } from './retention/retention-aware-batch-writer'
 import { RetentionService } from './retention/retention-service'
 import { SessionRecordingRestrictionHandler } from './session-recording-restriction-handler'
@@ -296,10 +295,13 @@ export class SessionRecordingIngester {
     }
 
     private initializePipeline(): void {
-        const pipelineConfig: PipelineConfig = {
+        const pipelineConfig: SessionRecordingPipelineConfig = {
             kafkaProducer: this.kafkaOverflowProducer!,
             dlqTopic: '', // Session recordings don't use DLQ currently
             promiseScheduler: this.promiseScheduler,
+            restrictionManager: this.eventIngestionRestrictionManager,
+            overflowTopic: this.overflowTopic,
+            consumeOverflow: this.consumeOverflow,
         }
 
         const pipeline = createSessionRecordingPipeline(pipelineConfig)
