@@ -58,7 +58,7 @@ export function HeatmapNewScene(): JSX.Element {
             <SceneSection title="Page URL" description="URL to your website">
                 <LemonInput value={displayUrl || ''} onChange={setDisplayUrl} placeholder="https://www.example.com" />
                 {!isDisplayUrlValid ? <HeatmapsInvalidURL /> : null}
-                {displayUrl === '' ? <HeatmapsUrlsList /> : null}
+                {!displayUrl && <HeatmapsUrlsList />}
             </SceneSection>
             <SceneDivider />
             <SceneSection
