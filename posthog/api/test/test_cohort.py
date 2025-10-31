@@ -3611,9 +3611,9 @@ class TestCohortTypeIntegration(APIBaseTest):
 
         self.assertEqual(response.status_code, 201)
         cohort = Cohort.objects.get(id=response.data["id"])
-        # Should be None since no explicit type was provided
-        self.assertIsNone(cohort.cohort_type)
-        self.assertIsNone(response.data["cohort_type"])
+        # cohort_type is auto-computed for realtime-capable filters
+        self.assertEqual(cohort.cohort_type, "realtime")
+        self.assertEqual(response.data["cohort_type"], "realtime")
 
     def test_api_response_includes_cohort_type(self):
         """API responses should include the cohort_type field"""
@@ -3690,8 +3690,9 @@ class TestCohortTypeIntegration(APIBaseTest):
 
         self.assertEqual(response.status_code, 201)
         cohort = Cohort.objects.get(id=response.data["id"])
-        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)
-        self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+        # cohort_type is auto-computed and stored as 'realtime'
+        self.assertEqual(cohort.cohort_type, "realtime")
+        self.assertEqual(response.data["cohort_type"], "realtime")
 
     def test_explicit_cohort_type_validation_failure(self):
         """Should reject mismatched explicit cohort types"""
@@ -3783,7 +3784,8 @@ class TestCohortTypeIntegration(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
         cohort.refresh_from_db()
-        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)
+        # cohort_type is auto-computed and stored as 'realtime'
+        self.assertEqual(cohort.cohort_type, "realtime")
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
     def test_static_cohort_csv_upload_with_email_column_only(self, patch_calculate_cohort_from_list):
