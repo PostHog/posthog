@@ -86,9 +86,9 @@ function TableRowRaw<T extends Record<string, any>>({
                                 onClick={(event) => {
                                     setIsRowExpanded(!isRowExpanded)
                                     if (isRowExpanded) {
-                                        expandable?.onRowCollapse?.(record, recordIndex, event)
+                                        expandable?.onRowCollapse?.(record, recordIndex)
                                     } else {
-                                        expandable?.onRowExpand?.(record, recordIndex, event)
+                                        expandable?.onRowExpand?.(record, recordIndex)
                                     }
                                 }}
                                 icon={isRowExpanded ? <IconCollapse /> : <IconExpand />}

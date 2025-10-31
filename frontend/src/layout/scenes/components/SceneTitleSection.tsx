@@ -234,7 +234,7 @@ type SceneNameProps = {
     saveOnBlur?: boolean
 }
 
-function SceneName({
+export function SceneName({
     name: initialName,
     isLoading = false,
     onChange,

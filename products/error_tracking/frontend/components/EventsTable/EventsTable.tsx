@@ -8,6 +8,7 @@ import { getExceptionAttributes, getRecordingStatus, getSessionId } from 'lib/co
 import { TZLabel } from 'lib/components/TZLabel'
 import { useRecordingButton } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { isString } from 'lib/utils'
@@ -54,6 +55,26 @@ export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: E
         )
     }
 
+    function renderTitle(record: ErrorEventType): JSX.Element {
+        return (
+            <LemonTableLink
+                onClick={() => {
+                    debugger
+                    onEventSelect(record)
+                }}
+                title={record.properties.$exception_types[0]}
+                description={
+                    <div>
+                        <span>{record.properties.$exception_values[0]}</span>
+                        <div>{renderTime(record)}</div>
+                        <ExceptionAttributesPreview attributes={getExceptionAttributes(record.properties)} />
+                        {tagRenderer(record)}
+                    </div>
+                }
+            />
+        )
+    }
+
     function renderPerson(record: ErrorEventType): JSX.Element {
         const display = asDisplay(record.person)
         return (
@@ -87,23 +108,25 @@ export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: E
         <DataSourceTable<ErrorEventType>
             dataSource={dataSource}
             embedded
-            onRowClick={hasNewIssueLayout ? onEventSelect : toggleSelectedEvent}
+            onRowClick={hasNewIssueLayout ? undefined : toggleSelectedEvent}
             className="overflow-auto"
-            expandable={
-                hasNewIssueLayout
-                    ? {
-                          noIndent: true,
-                          expandedRowRender: (record) => <EventDetails event={record} />,
-                          onRowExpand: (_, __, event) => cancelEvent(event),
-                          onRowCollapse: (_, __, event) => cancelEvent(event),
-                      }
-                    : undefined
-            }
         >
-            {!hasNewIssueLayout && <DataSourceTableColumn<ErrorEventType> width="40px" cellRenderer={renderUUID} />}
-            <DataSourceTableColumn<ErrorEventType> title="Person" cellRenderer={renderPerson} />
-            <DataSourceTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
-            <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
+            <DataSourceTableColumn<ErrorEventType>
+                width="200px"
+                title="Exeption"
+                cellRenderer={hasNewIssueLayout ? renderTitle : renderUUID}
+            />
+            <DataSourceTableColumn<ErrorEventType> width="100px" title="Person" cellRenderer={renderPerson} />
+            {!hasNewIssueLayout && (
+                <>
+                    <DataSourceTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
+                    <DataSourceTableColumn<ErrorEventType>
+                        title="Labels"
+                        align="right"
+                        cellRenderer={renderAttributes}
+                    />
+                </>
+            )}
             <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={Actions} />
         </DataSourceTable>
     )

@@ -45,12 +45,16 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
                 dataAttrKey={RESOURCE_TYPE}
             />
 
-            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-            <IssueAssigneeSelect
-                assignee={issue.assignee}
-                onChange={updateAssignee}
-                disabled={issue.status != 'active'}
-            />
+            <ScenePanelLabel title="Status">
+                <IssueStatusSelect status={issue.status} onChange={updateStatus} />
+            </ScenePanelLabel>
+            <ScenePanelLabel title="Assignee">
+                <IssueAssigneeSelect
+                    assignee={issue.assignee}
+                    onChange={updateAssignee}
+                    disabled={issue.status != 'active'}
+                />
+            </ScenePanelLabel>
             <IssueExternalReference />
             {hasIssueSplitting && <IssueFingerprints />}
             {hasTasks && (
@@ -64,49 +68,6 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
                     <SimilarIssuesList />
                 </ScenePanelLabel>
             )}
-        </div>
-    ) : null
-}
-
-export const ErrorTrackingIssueScenePanelV2 = (): JSX.Element | null => {
-    const { issue } = useValues(errorTrackingIssueSceneLogic)
-    const { updateName, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
-    const hasTasks = useFeatureFlag('TASKS')
-    const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
-
-    return issue ? (
-        <div className="flex flex-col gap-y-2 @container">
-            <SceneTextInput
-                name="name"
-                defaultValue={issue.name ?? ''}
-                onSave={updateName}
-                dataAttrKey={RESOURCE_TYPE}
-            />
-
-            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-            <IssueAssigneeSelect
-                assignee={issue.assignee}
-                onChange={updateAssignee}
-                disabled={issue.status != 'active'}
-            />
-            <IssueExternalReference />
-
-            {hasTasks || hasSimilarIssues ? (
-                <>
-                    <ScenePanelDivider />
-                    <ScenePanelActionsSection>
-                        <ScenePanelLabel title="Actions">
-                            {hasTasks && <IssueTasks />}
-                            {hasSimilarIssues && (
-                                <ButtonPrimitive menuItem>
-                                    <IconSearch />
-                                    Merge similar issues
-                                </ButtonPrimitive>
-                            )}
-                        </ScenePanelLabel>
-                    </ScenePanelActionsSection>
-                </>
-            ) : null}
         </div>
     ) : null
 }

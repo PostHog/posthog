@@ -289,11 +289,6 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         ],
         issueId: [(_, p) => [p.id], (id: string) => id],
 
-        isViewingException: [
-            (s) => [s.category, s.exceptionsCategory],
-            (category, exceptionsCategory) => category === 'exceptions' && exceptionsCategory === 'exception',
-        ],
-
         firstSeen: [
             (s) => [s.issue],
             (issue: ErrorTrackingRelationalIssue | null) => (issue ? dayjs(issue.first_seen) : null),
