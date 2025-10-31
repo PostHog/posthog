@@ -697,3 +697,45 @@ export const createCohort = async (
     })
     return id
 }
+
+// Build an inline filters JSON string for cohorts with embedded bytecode and conditionHash
+export const buildInlineFiltersForCohorts = ({
+    bytecode,
+    conditionHash,
+    type = 'behavioral',
+    key = '$test_event',
+    extra,
+}: {
+    bytecode: any[]
+    conditionHash: string
+    type?: string
+    key?: string
+    extra?: Record<string, any>
+}): string => {
+    const filter: any = {
+        key,
+        type,
+        bytecode,
+        conditionHash,
+        ...(extra || {}),
+    }
+
+    if (type === 'behavioral') {
+        filter.value = 'performed_event'
+        filter.event_type = 'events'
+    } else if (type === 'person') {
+        filter.operator = 'is_set'
+    }
+
+    return JSON.stringify({
+        properties: {
+            type: 'OR',
+            values: [
+                {
+                    type: 'OR',
+                    values: [filter],
+                },
+            ],
+        },
+    })
+}
