@@ -7,13 +7,12 @@ export interface RealtimeSupportedFilter {
     bytecode: any // HogQL bytecode for execution
     team_id: number
     cohort_id: number // For tracking which cohort this filter belongs to
-    filter_path: string // e.g., "properties.values[0]"
 }
 
 interface CohortRow {
     cohort_id: number
     team_id: number
-    compiled_bytecode: any
+    filters: any | null // JSON object (PostgreSQL deserializes JSON/JSONB columns automatically)
 }
 
 export class RealtimeSupportedFilterManagerCDP {
@@ -53,11 +52,11 @@ export class RealtimeSupportedFilterManagerCDP {
             `SELECT 
                 id as cohort_id,
                 team_id,
-                compiled_bytecode
+                filters
             FROM posthog_cohort 
             WHERE team_id = ANY($1) 
               AND deleted = FALSE 
-              AND compiled_bytecode IS NOT NULL
+              AND filters IS NOT NULL
               AND cohort_type = 'realtime'
             ORDER BY team_id, created_at DESC`,
             [teamIdNumbers],
@@ -70,7 +69,7 @@ export class RealtimeSupportedFilterManagerCDP {
             resultRecord[teamId] = []
         }
 
-        // Process compiled_bytecode from each cohort and deduplicate by conditionHash per team
+        // Process filters from each cohort and deduplicate by conditionHash per team
         const seenConditionHashesByTeam = new Map<string, Set<string>>()
 
         result.rows.forEach((cohortRow) => {
@@ -84,31 +83,36 @@ export class RealtimeSupportedFilterManagerCDP {
                 seenConditionHashesByTeam.set(teamIdStr, new Set<string>())
             }
 
-            // Parse compiled_bytecode JSON array
-            let compiledBytecode: any[]
-            try {
-                compiledBytecode = Array.isArray(cohortRow.compiled_bytecode)
-                    ? cohortRow.compiled_bytecode
-                    : parseJSON(cohortRow.compiled_bytecode || '[]')
-            } catch (error) {
-                console.warn(`Failed to parse compiled_bytecode for cohort ${cohortRow.cohort_id}:`, error)
-                return
-            }
+            // PostgreSQL automatically deserializes JSON/JSONB columns, so filters is already an object
+            const filtersJson = cohortRow.filters || {}
 
             const teamSeenHashes = seenConditionHashesByTeam.get(teamIdStr)!
 
-            // Extract filters from compiled_bytecode array
-            compiledBytecode.forEach((bytecodeEntry) => {
-                if (!bytecodeEntry?.conditionHash || !bytecodeEntry?.bytecode || !bytecodeEntry?.filter_path) {
-                    return // Skip invalid entries
-                }
-
-                // Skip person property entries explicitly
-                if (bytecodeEntry.filter_type === 'person') {
+            // Recursively traverse filter tree to extract inline bytecode from leaf nodes
+            const traverse = (node: any) => {
+                if (!node) {
                     return
                 }
 
-                const conditionHash = bytecodeEntry.conditionHash
+                // If it's a group node (OR/AND), recurse into values
+                if (node.type === 'OR' || node.type === 'AND') {
+                    if (Array.isArray(node.values)) {
+                        node.values.forEach((value: any) => traverse(value))
+                    }
+                    return
+                }
+
+                // It's a leaf filter node - check if it has bytecode
+                if (!node.conditionHash || !node.bytecode) {
+                    return // Skip nodes without bytecode
+                }
+
+                // Skip person property entries explicitly
+                if (node.type === 'person') {
+                    return
+                }
+
+                const conditionHash = node.conditionHash
 
                 // Deduplicate: only add if we haven't seen this conditionHash for this team before
                 if (!teamSeenHashes.has(conditionHash)) {
@@ -116,15 +120,19 @@ export class RealtimeSupportedFilterManagerCDP {
 
                     const filter: RealtimeSupportedFilter = {
                         conditionHash,
-                        bytecode: bytecodeEntry.bytecode,
+                        bytecode: node.bytecode,
                         team_id: cohortRow.team_id,
                         cohort_id: cohortRow.cohort_id,
-                        filter_path: bytecodeEntry.filter_path,
                     }
 
                     resultRecord[teamIdStr].push(filter)
                 }
-            })
+            }
+
+            // Start traversal from properties root
+            if (filtersJson.properties) {
+                traverse(filtersJson.properties)
+            }
         })
 
         return resultRecord

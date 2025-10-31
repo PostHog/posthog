@@ -661,7 +661,7 @@ export const createCohort = async (
     pg: PostgresRouter,
     teamId: number,
     name: string,
-    compiledBytecode: any[] | null = null,
+    filters: string | null = null,
     cohortSettings?: Record<string, any>
 ): Promise<number> => {
     // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
@@ -672,12 +672,14 @@ export const createCohort = async (
         description: `Test cohort: ${name}`,
         team_id: teamId,
         deleted: false,
-        filters: JSON.stringify({
-            properties: {
-                type: 'AND',
-                values: [],
-            },
-        }),
+        filters:
+            filters ||
+            JSON.stringify({
+                properties: {
+                    type: 'AND',
+                    values: [],
+                },
+            }),
         query: null,
         version: null,
         pending_version: null,
@@ -688,7 +690,6 @@ export const createCohort = async (
         last_error_at: null,
         is_static: false,
         cohort_type: 'realtime',
-        compiled_bytecode: compiledBytecode ? JSON.stringify(compiledBytecode) : null,
         created_at: new Date().toISOString(),
         created_by_id: commonUserId,
         groups: JSON.stringify([]),

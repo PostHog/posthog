@@ -87,19 +87,37 @@ const TEST_FILTERS = {
     ],
 }
 
-// Helper function to create compiled_bytecode array from bytecode
-const createCompiledBytecode = (
+// Helper function to create inline filters structure with bytecode
+const buildInlineFilters = (
     bytecode: any[],
     conditionHash: string,
-    filterPath: string = 'properties.values[0]'
-) => {
-    return [
-        {
-            filter_path: filterPath,
-            bytecode: bytecode,
-            conditionHash: conditionHash,
+    type: string = 'behavioral',
+    key: string = '$pageview'
+): string => {
+    const filter: any = {
+        key,
+        type,
+        bytecode,
+        conditionHash,
+    }
+
+    // Add default fields based on type
+    if (type === 'behavioral') {
+        filter.value = 'performed_event'
+        filter.event_type = 'events'
+    }
+
+    return JSON.stringify({
+        properties: {
+            type: 'OR',
+            values: [
+                {
+                    type: 'OR',
+                    values: [filter],
+                },
+            ],
         },
-    ]
+    })
 }
 
 describe('CdpBehaviouralEventsConsumer', () => {
@@ -127,10 +145,36 @@ describe('CdpBehaviouralEventsConsumer', () => {
 
     describe('cohort filter matching and Kafka publishing', () => {
         it('should publish pre-calculated events to Kafka when cohort filter matches', async () => {
-            // Create a cohort with Chrome + pageview filter
+            // Create a cohort with complex behavioral filter: pageview with browser event filter
             const conditionHash = 'test_hash_001'
-            const compiledBytecode = createCompiledBytecode(TEST_FILTERS.chromePageview, conditionHash)
-            await createCohort(hub.postgres, team.id, 'Test cohort', compiledBytecode)
+            const filters = JSON.stringify({
+                properties: {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$pageview',
+                                    type: 'behavioral',
+                                    value: 'performed_event_multiple',
+                                    bytecode: TEST_FILTERS.chromePageview,
+                                    negation: false,
+                                    operator: 'gte',
+                                    event_type: 'events',
+                                    conditionHash: conditionHash,
+                                    event_filters: [
+                                        { key: '$browser', type: 'event', value: 'Chrome', operator: 'exact' },
+                                    ],
+                                    operator_value: 5,
+                                    explicit_datetime: '-30d',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+            await createCohort(hub.postgres, team.id, 'Test cohort', filters)
 
             // Create a matching event
             const personId = '550e8400-e29b-41d4-a716-446655440000'
@@ -189,8 +233,8 @@ describe('CdpBehaviouralEventsConsumer', () => {
         it('should not publish to Kafka when cohort filter does not match', async () => {
             // Create a cohort with Chrome + pageview filter
             const conditionHash = 'test_hash_002'
-            const compiledBytecode = createCompiledBytecode(TEST_FILTERS.chromePageview, conditionHash)
-            await createCohort(hub.postgres, team.id, 'Test cohort', compiledBytecode)
+            const filters = buildInlineFilters(TEST_FILTERS.chromePageview, conditionHash, 'behavioral', '$pageview')
+            await createCohort(hub.postgres, team.id, 'Test cohort', filters)
 
             // Create a non-matching event (Firefox instead of Chrome)
             const personId = '550e8400-e29b-41d4-a716-446655440000'
@@ -228,12 +272,12 @@ describe('CdpBehaviouralEventsConsumer', () => {
         it('should deduplicate filters with same conditionHash for a team', async () => {
             // Create two cohorts with the same filter (same conditionHash)
             const conditionHash = 'dedup_test_hash_001'
-            const compiledBytecode = createCompiledBytecode(TEST_FILTERS.pageview, conditionHash)
+            const filters = buildInlineFilters(TEST_FILTERS.pageview, conditionHash)
 
             // Create first cohort
-            await createCohort(hub.postgres, team.id, 'First cohort', compiledBytecode)
+            await createCohort(hub.postgres, team.id, 'First cohort', filters)
             // Create second cohort with same filter
-            await createCohort(hub.postgres, team.id, 'Second cohort', compiledBytecode)
+            await createCohort(hub.postgres, team.id, 'Second cohort', filters)
 
             // Create a matching event
             const personId = '550e8400-e29b-41d4-a716-446655440000'
@@ -268,17 +312,67 @@ describe('CdpBehaviouralEventsConsumer', () => {
         })
 
         it('should emit separate events for different cohorts with different conditionHashes', async () => {
-            // Create two cohorts with different filters
+            // Create two cohorts with different complex filters
             const conditionHash1 = 'multi_cohort_hash_001'
             const conditionHash2 = 'multi_cohort_hash_002'
 
-            const compiledBytecode1 = createCompiledBytecode(TEST_FILTERS.pageview, conditionHash1)
-            const compiledBytecode2 = createCompiledBytecode(TEST_FILTERS.chromePageview, conditionHash2)
+            // First cohort: simple pageview behavioral filter
+            const filters1 = JSON.stringify({
+                properties: {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'OR',
+                            values: [
+                                {
+                                    key: '$pageview',
+                                    type: 'behavioral',
+                                    value: 'performed_event',
+                                    bytecode: TEST_FILTERS.pageview,
+                                    negation: false,
+                                    event_type: 'events',
+                                    conditionHash: conditionHash1,
+                                    explicit_datetime: '-30d',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            // Second cohort: complex behavioral filter with event_filters (AND structure)
+            const filters2 = JSON.stringify({
+                properties: {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: '$pageview',
+                                    type: 'behavioral',
+                                    value: 'performed_event_multiple',
+                                    bytecode: TEST_FILTERS.chromePageview,
+                                    negation: false,
+                                    operator: 'gte',
+                                    event_type: 'events',
+                                    conditionHash: conditionHash2,
+                                    event_filters: [
+                                        { key: '$browser', type: 'event', value: 'Chrome', operator: 'exact' },
+                                    ],
+                                    operator_value: 5,
+                                    explicit_datetime: '-30d',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
 
             // Create first cohort (pageview only)
-            await createCohort(hub.postgres, team.id, 'Pageview cohort', compiledBytecode1)
-            // Create second cohort (Chrome + pageview)
-            await createCohort(hub.postgres, team.id, 'Chrome pageview cohort', compiledBytecode2)
+            await createCohort(hub.postgres, team.id, 'Pageview cohort', filters1)
+            // Create second cohort (Chrome + pageview with event filters)
+            await createCohort(hub.postgres, team.id, 'Chrome pageview cohort', filters2)
 
             // Create an event that matches both filters
             const personId = '550e8400-e29b-41d4-a716-446655440000'

@@ -91,7 +91,6 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
             logger.error('Error executing realtime supported filter bytecode', {
                 conditionHash: filter.conditionHash,
                 cohortId: filter.cohort_id,
-                filterPath: filter.filter_path,
                 error,
             })
             return false
