@@ -9,6 +9,7 @@ import { SessionBatchManager } from './sessions/session-batch-manager'
 import { createApplyDropRestrictionsStep } from './steps/apply-drop-restrictions'
 import { createApplyOverflowRestrictionsStep } from './steps/apply-overflow-restrictions'
 import { createCollectBatchMetricsStep } from './steps/collect-batch-metrics'
+import { createMaybeFlushBatchStep } from './steps/maybe-flush-batch'
 import { createObtainBatchStep } from './steps/obtain-batch'
 import { createParseHeadersStep } from './steps/parse-headers'
 import { createParseKafkaMessageStep } from './steps/parse-kafka-message'
@@ -74,19 +75,21 @@ export function createSessionRecordingPipeline(
                 },
             }))
 
-            // Steps 5-6: Team-aware processing
+            // Step 5: Obtain batch recorder (batch-level, no gather needed since we're already gathered from filterOk)
+            .pipeBatch(createObtainBatchStep(config.sessionBatchManager))
+
+            // Step 6: Record to batch using batch recorder (sequential, team-aware)
             .messageAware((builder) =>
                 builder.teamAware((b) =>
-                    b
-                        .gather()
-                        // Step 5: Obtain batch recorder (batch-level)
-                        .pipeBatch(createObtainBatchStep(config.sessionBatchManager))
-                        // Step 6: Record to batch using batch recorder (sequential)
-                        .sequentially((seq) => seq.pipe(createRecordSessionEventStep(config.isDebugLoggingEnabled)))
+                    b.sequentially((seq) => seq.pipe(createRecordSessionEventStep(config.isDebugLoggingEnabled)))
                 )
             )
             .handleResults(config)
             .handleSideEffects(config.promiseScheduler, { await: false })
+
+            // Step 7: Maybe flush batch (after side effects are handled)
+            .gather()
+            .pipeBatch(createMaybeFlushBatchStep(config.sessionBatchManager))
 
             .build()
     )

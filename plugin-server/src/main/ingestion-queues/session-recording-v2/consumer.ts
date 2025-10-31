@@ -179,17 +179,10 @@ export class SessionRecordingIngester {
                 const batch = createBatch(messages.map((message) => ({ message })))
                 this.pipeline.feed(batch)
 
-                // Process pipeline (recording happens inside)
+                // Process pipeline (recording and flushing happens inside)
                 await this.pipeline.next()
 
                 this.kafkaConsumer.heartbeat()
-
-                // Flush batch if needed
-                if (this.sessionBatchManager.shouldFlush()) {
-                    await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
-                        this.sessionBatchManager.flush()
-                    )
-                }
             }
         )
     }
