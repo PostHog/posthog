@@ -414,6 +414,15 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 )
             )
 
+        if self.query.groupKey and self.query.groupTypeIndex is not None:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[f"$group_{self.query.groupTypeIndex}"]),
+                    right=ast.Constant(value=self.query.groupKey),
+                )
+            )
+
         return ast.And(exprs=exprs)
 
     def _get_properties_filter(self) -> ast.Expr | None:
