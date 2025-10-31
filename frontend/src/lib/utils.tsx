@@ -303,9 +303,9 @@ export const featureFlagOperatorMap: Record<string, string> = {
 }
 
 export const stickinessOperatorMap: Record<string, string> = {
-    exact: '= Exactly',
-    gte: '≥ At least',
-    lte: '≤ At most (but at least once)',
+    exact: '= exactly',
+    gte: '≥ at least',
+    lte: '≤ at most (but at least once)',
 }
 
 export const cleanedPathOperatorMap: Record<string, string> = {
