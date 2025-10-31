@@ -29,8 +29,8 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message }[]`
 - **Output**: `{ message: Message }[]`
 - **Operations**:
-  - Call `kafkaConsumer.heartbeat()` to keep connection alive
-  - Pass through all messages unchanged
+    - Call `kafkaConsumer.heartbeat()` to keep connection alive
+    - Pass through all messages unchanged
 - **Note**: Ensures Kafka doesn't think we've died during long batch processing
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/send-heartbeat.ts`
@@ -41,12 +41,12 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message }[]`
 - **Output**: `{ message: Message }[]`
 - **Operations**:
-  - Calculate batch size (number of messages)
-  - Calculate batch size in KB
-  - Call `SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)`
-  - Call `SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)`
-  - Aggregate per-partition message counts
-  - Call `SessionRecordingIngesterMetrics.incrementMessageReceived(partition, count)` for each partition
+    - Calculate batch size (number of messages)
+    - Calculate batch size in KB
+    - Call `SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)`
+    - Call `SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)`
+    - Aggregate per-partition message counts
+    - Call `SessionRecordingIngesterMetrics.incrementMessageReceived(partition, count)` for each partition
 - **Note**: Metrics are NOT treated as side effects. Both batch-level and per-message metrics are collected in this single step.
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/collect-batch-metrics.ts`
@@ -57,8 +57,8 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message }`
 - **Output**: `{ message: Message, headers: EventHeaders }`
 - **Operations**:
-  - Parse headers from message to extract token/distinct_id
-  - Call `parseEventHeaders(message.headers)`
+    - Parse headers from message to extract token/distinct_id
+    - Call `parseEventHeaders(message.headers)`
 - **Note**: Required before applying restrictions since we need token/distinct_id
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/parse-headers.ts`
@@ -69,8 +69,8 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message, headers: EventHeaders }`
 - **Output**: `{ message: Message, headers: EventHeaders }`
 - **Operations**:
-  - **Step 2a**: Drop if `shouldDropEvent(token, distinct_id)` - `apply-drop-restrictions.ts`
-  - **Step 2b**: Redirect to overflow if `shouldForceOverflow(token, distinct_id)` - `apply-overflow-restrictions.ts`
+    - **Step 2a**: Drop if `shouldDropEvent(token, distinct_id)` - `apply-drop-restrictions.ts`
+    - **Step 2b**: Redirect to overflow if `shouldForceOverflow(token, distinct_id)` - `apply-overflow-restrictions.ts`
 - **Result types**: `ok`, `drop`, `redirect`
 - **Note**: Split into two separate steps for cleaner separation of concerns
 - **Status**: ✅ Implemented and tested
@@ -82,12 +82,12 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message, headers: EventHeaders }`
 - **Output**: `{ message: Message, headers: EventHeaders, parsedMessage: ParsedMessageData }`
 - **Operations**:
-  - Call `kafkaParser.parseMessage(message)` which:
-    - Checks if gzipped and decompresses
-    - Parses JSON payload
-    - Validates against schemas (`RawEventMessageSchema`, `EventSchema`, `SnapshotEventSchema`)
-    - Extracts snapshot items and validates timestamps
-  - **Redirect to DLQ if parse fails**
+    - Call `kafkaParser.parseMessage(message)` which:
+        - Checks if gzipped and decompresses
+        - Parses JSON payload
+        - Validates against schemas (`RawEventMessageSchema`, `EventSchema`, `SnapshotEventSchema`)
+        - Extracts snapshot items and validates timestamps
+    - **Redirect to DLQ if parse fails**
 - **Result types**: `ok`, `dlq`
 - **Note**: Uses existing `KafkaMessageParser.parseMessage()` method, made public for pipeline use
 - **Status**: ✅ Implemented and tested
@@ -99,11 +99,11 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message, headers: EventHeaders, parsedMessage: ParsedMessageData }`
 - **Output**: `MessageWithTeam`
 - **Operations**:
-  - Extract token from headers
-  - Call `teamService.getTeamByToken(token)`
-  - Validate team exists and is enabled
-  - Get retention period via `teamService.getRetentionPeriodByTeamId()`
-  - Drop if team missing or no retention period
+    - Extract token from headers
+    - Call `teamService.getTeamByToken(token)`
+    - Validate team exists and is enabled
+    - Get retention period via `teamService.getRetentionPeriodByTeamId()`
+    - Drop if team missing or no retention period
 - **Result types**: `ok`, `drop`
 - **File**: `steps/resolve-team.ts`
 
@@ -113,8 +113,8 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `MessageWithTeam[]`
 - **Output**: `MessageWithTeam & { batchRecorder: SessionBatchRecorder }[]`
 - **Operations**:
-  - Call `sessionBatchManager.getCurrentBatch()` once for entire batch
-  - Attach batch recorder to each message
+    - Call `sessionBatchManager.getCurrentBatch()` once for entire batch
+    - Attach batch recorder to each message
 - **Note**: No gather needed before this step since we're already gathered from filterOk
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/obtain-batch.ts`
@@ -125,10 +125,10 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `MessageWithTeam & { batchRecorder: SessionBatchRecorder }`
 - **Output**: `void`
 - **Operations**:
-  - Reset sessions revoked metric
-  - Log debug info if enabled
-  - Observe session info metrics
-  - Call `batchRecorder.record(message)`
+    - Reset sessions revoked metric
+    - Log debug info if enabled
+    - Observe session info metrics
+    - Call `batchRecorder.record(message)`
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/record-session-event.ts`
 
@@ -138,8 +138,8 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `void[]` (generic - accepts any type)
 - **Output**: `void[]` (passes through input unchanged)
 - **Operations**:
-  - Call `kafkaConsumer.heartbeat()` to keep connection alive
-  - Pass through all messages unchanged
+    - Call `kafkaConsumer.heartbeat()` to keep connection alive
+    - Pass through all messages unchanged
 - **Note**: Ensures Kafka doesn't time out during potentially slow flush operations
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/send-heartbeat.ts`
@@ -150,9 +150,9 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `void[]` (generic - accepts any type)
 - **Output**: `void[]` (passes through input unchanged)
 - **Operations**:
-  - Check if `sessionBatchManager.shouldFlush()`
-  - If true, call `sessionBatchManager.flush()`
-  - Pass through input unchanged
+    - Check if `sessionBatchManager.shouldFlush()`
+    - If true, call `sessionBatchManager.flush()`
+    - Pass through input unchanged
 - **Note**: Requires `.gather()` before this step to collect all processed messages
 - **Status**: ✅ Implemented and tested
 - **File**: `steps/maybe-flush-batch.ts`
