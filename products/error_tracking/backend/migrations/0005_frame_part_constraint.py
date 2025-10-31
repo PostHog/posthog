@@ -11,6 +11,10 @@ class Migration(migrations.Migration):
     operations = [
         migrations.SeparateDatabaseAndState(
             state_operations=[
+                migrations.RemoveIndex(
+                    model_name="errortrackingstackframe",
+                    name="idx_team_id_raw_id_part",
+                ),
                 migrations.AddConstraint(
                     model_name="errortrackingstackframe",
                     constraint=models.UniqueConstraint(
