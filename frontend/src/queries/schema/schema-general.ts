@@ -35,6 +35,7 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     LogEntryPropertyFilter,
+    MatchedRecordingEvent,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -464,6 +465,10 @@ export const VALID_RECORDING_ORDERS = [
     'activity_score',
     'recording_ttl',
 ] as const
+
+export interface MatchingEventsResponse {
+    results: MatchedRecordingEvent[]
+}
 
 export type RecordingOrder = (typeof VALID_RECORDING_ORDERS)[number]
 
@@ -2848,6 +2853,7 @@ export interface SessionData {
     person_id: string
     session_id: string
     event_uuid: string
+    timestamp: string
 }
 
 export interface ExperimentStatsBase {
