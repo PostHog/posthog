@@ -23,6 +23,7 @@ logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 DEFAULT_MAX_ASSET_COUNT = 6
+MAX_SCREENSHOT_HEIGHT_PIXELS = 10000
 
 
 def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscription, SharingConfiguration]) -> dict:
@@ -187,7 +188,9 @@ async def generate_assets_async(
                     subscription_id=getattr(resource, "id", None),
                     team_id=resource.team_id,
                 )
-                await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(asset)
+                await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
+                    asset, limit=MAX_SCREENSHOT_HEIGHT_PIXELS
+                )
                 logger.info(
                     "generate_assets_async.asset_exported",
                     asset_id=asset.id,

@@ -107,7 +107,7 @@ def export_asset_direct(exported_asset: ExportedAsset, limit: Optional[int] = No
             csv_exporter.export_tabular(exported_asset, limit=limit)
             EXPORT_QUEUED_COUNTER.labels(type="csv").inc()
         else:
-            image_exporter.export_image(exported_asset)
+            image_exporter.export_image(exported_asset, max_height_pixels=limit)
             EXPORT_QUEUED_COUNTER.labels(type="image").inc()
 
         logger.info(
