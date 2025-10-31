@@ -45,7 +45,6 @@ from posthog.models import Action
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.remote_config import RemoteConfig
 from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, ensure_question_ids, surveys_hypercache
 from posthog.models.surveys.util import (
     SurveyEventName,
