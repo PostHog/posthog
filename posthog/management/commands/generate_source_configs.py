@@ -67,7 +67,7 @@ class SourceConfigGenerator:
         self.imports.update(
             [
                 "from posthog.temporal.data_imports.sources.common import config",
-                "from posthog.warehouse.types import ExternalDataSourceType",
+                "from products.data_warehouse.backend.types import ExternalDataSourceType",
             ]
         )
 
@@ -318,7 +318,7 @@ class SourceConfigGenerator:
     def _process_ssh_tunnel_field(self, field: SourceFieldSSHTunnelConfig) -> str:
         """Process a SSH tunnel field by referencing the existing SSHTunnelConfig."""
 
-        self.imports.add("from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig")
+        self.imports.add("from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig")
 
         python_field_name, should_alias = self._make_python_identifier(field.name)
 
