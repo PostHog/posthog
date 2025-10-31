@@ -23,7 +23,6 @@ import { EventIngestionRestrictionManager } from '../../../utils/event-ingestion
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { PromiseScheduler } from '../../../utils/promise-scheduler'
-import { captureIngestionWarning } from '../../../worker/ingestion/utils'
 import { parseSessionRecordingV2MetadataSwitchoverDate } from '../../utils'
 import {
     KAFKA_CONSUMER_GROUP_ID,
@@ -45,8 +44,6 @@ import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionMetadataStore } from './sessions/session-metadata-store'
 import { TeamService } from './teams/team-service'
 import { MessageWithTeam, TeamForReplay } from './teams/types'
-import { CaptureIngestionWarningFn } from './types'
-import { LibVersionMonitor } from './versions/lib-version-monitor'
 
 export class SessionRecordingIngester {
     kafkaConsumer: KafkaConsumer
@@ -59,7 +56,6 @@ export class SessionRecordingIngester {
     private readonly promiseScheduler: PromiseScheduler
     private readonly sessionBatchManager: SessionBatchManager
     private readonly redisPool: RedisPool
-    private readonly libVersionMonitor?: LibVersionMonitor
     private readonly fileStorage: SessionBatchFileStorage
     private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private kafkaOverflowProducer?: KafkaProducerWrapper
@@ -75,8 +71,7 @@ export class SessionRecordingIngester {
         private hub: Hub,
         private consumeOverflow: boolean,
         postgres: PostgresRouter,
-        producer: KafkaProducerWrapper,
-        ingestionWarningProducer?: KafkaProducerWrapper
+        producer: KafkaProducerWrapper
     ) {
         this.topic = consumeOverflow
             ? KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW
@@ -128,13 +123,6 @@ export class SessionRecordingIngester {
         this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(this.hub, {
             pipeline: 'session_recordings',
         })
-
-        if (ingestionWarningProducer) {
-            const captureWarning: CaptureIngestionWarningFn = async (teamId, type, details, debounce) => {
-                await captureIngestionWarning(ingestionWarningProducer, teamId, type, details, debounce)
-            }
-            this.libVersionMonitor = new LibVersionMonitor(captureWarning)
-        }
 
         const retentionService = new RetentionService(this.redisPool, this.teamService)
 
@@ -226,21 +214,10 @@ export class SessionRecordingIngester {
             message: result.parsedMessage,
         }))
 
-        const processedMessages = await instrumentFn(
-            `recordingingesterv2.handleEachBatch.processLibVersions`,
-            async () => {
-                const processedMessages = this.libVersionMonitor
-                    ? await this.libVersionMonitor.processBatch(messagesWithTeam)
-                    : messagesWithTeam
-
-                return processedMessages
-            }
-        )
-
         this.kafkaConsumer.heartbeat()
 
         await instrumentFn(`recordingingesterv2.handleEachBatch.processMessages`, async () =>
-            this.processMessages(processedMessages)
+            this.processMessages(messagesWithTeam)
         )
 
         this.kafkaConsumer.heartbeat()
