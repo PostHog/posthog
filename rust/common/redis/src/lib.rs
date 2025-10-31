@@ -123,6 +123,11 @@ impl Default for RedisValueFormat {
     }
 }
 
+// Error messages for consistent handling of RawBytes format
+const ERR_RAWBYTES_GET: &str = "Use get_raw_bytes() for RawBytes format";
+const ERR_RAWBYTES_SET: &str =
+    "RawBytes format not supported in set_with_format, use set_raw_bytes instead";
+
 #[async_trait]
 pub trait Client {
     async fn zrangebyscore(
@@ -171,33 +176,72 @@ pub trait Client {
 pub struct RedisClient {
     connection: MultiplexedConnection,
     compression: CompressionConfig,
+    format: RedisValueFormat,
 }
 
 impl RedisClient {
-    /// Create a new RedisClient with default compression settings
+    /// Create a new RedisClient with default settings
     ///
-    /// Default compression matches Django behavior:
-    /// - Enabled by default
-    /// - Threshold: 512 bytes
-    /// - Level: 0 (default preset)
+    /// Defaults:
+    /// - Format: Pickle (Django-compatible)
+    /// - Compression: Enabled, 512-byte threshold, level 0 (Django-compatible)
     pub async fn new(addr: String) -> Result<RedisClient, CustomRedisError> {
-        Self::with_compression(addr, CompressionConfig::default()).await
+        Self::with_config(
+            addr,
+            CompressionConfig::default(),
+            RedisValueFormat::default(),
+        )
+        .await
     }
 
-    /// Create a new RedisClient with custom compression configuration
+    /// Create a new RedisClient with full configuration control
     ///
     /// # Arguments
     /// * `addr` - Redis connection string
     /// * `compression` - Compression configuration (see CompressionConfig)
-    pub async fn with_compression(
+    /// * `format` - Serialization format for values (see RedisValueFormat)
+    ///
+    /// # Examples
+    /// ```no_run
+    /// use common_redis::{RedisClient, CompressionConfig, RedisValueFormat};
+    ///
+    /// # async fn example() {
+    /// // Default settings
+    /// let client = RedisClient::new("redis://localhost:6379".to_string()).await.unwrap();
+    ///
+    /// // Custom compression only
+    /// let client = RedisClient::with_config(
+    ///     "redis://localhost:6379".to_string(),
+    ///     CompressionConfig::new(true, 1024, 3),
+    ///     RedisValueFormat::default(),
+    /// ).await.unwrap();
+    ///
+    /// // Custom format only
+    /// let client = RedisClient::with_config(
+    ///     "redis://localhost:6379".to_string(),
+    ///     CompressionConfig::default(),
+    ///     RedisValueFormat::Utf8,
+    /// ).await.unwrap();
+    ///
+    /// // Full custom configuration
+    /// let client = RedisClient::with_config(
+    ///     "redis://localhost:6379".to_string(),
+    ///     CompressionConfig::new(true, 1024, 3),
+    ///     RedisValueFormat::Utf8,
+    /// ).await.unwrap();
+    /// # }
+    /// ```
+    pub async fn with_config(
         addr: String,
         compression: CompressionConfig,
+        format: RedisValueFormat,
     ) -> Result<RedisClient, CustomRedisError> {
         let client = redis::Client::open(addr)?;
         let connection = client.get_multiplexed_async_connection().await?;
         Ok(RedisClient {
             connection,
             compression,
+            format,
         })
     }
 
@@ -226,6 +270,29 @@ impl RedisClient {
         } else {
             Ok(data)
         }
+    }
+
+    /// Serialize a string value according to the format and apply compression if configured
+    ///
+    /// This helper consolidates the common pattern of:
+    /// 1. Serializing a string value based on the format (Pickle, Utf8, or error for RawBytes)
+    /// 2. Applying compression if enabled and above threshold
+    ///
+    /// Returns an error if RawBytes format is used (should use set_raw_bytes instead)
+    fn serialize_and_compress(
+        &self,
+        value: String,
+        format: RedisValueFormat,
+    ) -> Result<Vec<u8>, CustomRedisError> {
+        let bytes = match format {
+            RedisValueFormat::Pickle => serde_pickle::to_vec(&value, Default::default())?,
+            RedisValueFormat::Utf8 => value.into_bytes(),
+            RedisValueFormat::RawBytes => {
+                return Err(CustomRedisError::ParseError(ERR_RAWBYTES_SET.to_string()))
+            }
+        };
+
+        Self::maybe_compress(bytes, &self.compression)
     }
 }
 
@@ -257,7 +324,7 @@ impl Client for RedisClient {
     }
 
     async fn get(&self, k: String) -> Result<String, CustomRedisError> {
-        self.get_with_format(k, RedisValueFormat::Pickle).await
+        self.get_with_format(k, self.format).await
     }
 
     async fn get_with_format(
@@ -294,9 +361,9 @@ impl Client for RedisClient {
                 let string_response = String::from_utf8(decompressed)?;
                 Ok(string_response)
             }
-            RedisValueFormat::RawBytes => Err(CustomRedisError::ParseError(
-                "Use get_raw_bytes() for RawBytes format".to_string(),
-            )),
+            RedisValueFormat::RawBytes => {
+                Err(CustomRedisError::ParseError(ERR_RAWBYTES_GET.to_string()))
+            }
         }
     }
 
@@ -315,7 +382,7 @@ impl Client for RedisClient {
     }
 
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError> {
-        self.set_with_format(k, v, RedisValueFormat::Pickle).await
+        self.set_with_format(k, v, self.format).await
     }
 
     async fn set_with_format(
@@ -324,18 +391,7 @@ impl Client for RedisClient {
         v: String,
         format: RedisValueFormat,
     ) -> Result<(), CustomRedisError> {
-        let bytes = match format {
-            RedisValueFormat::Pickle => serde_pickle::to_vec(&v, Default::default())?,
-            RedisValueFormat::Utf8 => v.into_bytes(),
-            RedisValueFormat::RawBytes => {
-                return Err(CustomRedisError::ParseError(
-                    "RawBytes format not supported for setting strings".to_string(),
-                ))
-            }
-        };
-
-        // Compress if enabled and above threshold
-        let final_bytes = Self::maybe_compress(bytes, &self.compression)?;
+        let final_bytes = self.serialize_and_compress(v, format)?;
 
         let mut conn = self.connection.clone();
         let results = conn.set(k, final_bytes);
@@ -344,9 +400,10 @@ impl Client for RedisClient {
     }
 
     async fn setex(&self, k: String, v: String, seconds: u64) -> Result<(), CustomRedisError> {
-        let bytes = serde_pickle::to_vec(&v, Default::default())?;
+        let final_bytes = self.serialize_and_compress(v, self.format)?;
+
         let mut conn = self.connection.clone();
-        let results = conn.set_ex(k, bytes, seconds);
+        let results = conn.set_ex(k, final_bytes, seconds);
         let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
         Ok(fut?)
     }
@@ -357,8 +414,7 @@ impl Client for RedisClient {
         v: String,
         seconds: u64,
     ) -> Result<bool, CustomRedisError> {
-        self.set_nx_ex_with_format(k, v, seconds, RedisValueFormat::Pickle)
-            .await
+        self.set_nx_ex_with_format(k, v, seconds, self.format).await
     }
 
     async fn set_nx_ex_with_format(
@@ -368,18 +424,7 @@ impl Client for RedisClient {
         seconds: u64,
         format: RedisValueFormat,
     ) -> Result<bool, CustomRedisError> {
-        let bytes = match format {
-            RedisValueFormat::Pickle => serde_pickle::to_vec(&v, Default::default())?,
-            RedisValueFormat::Utf8 => v.into_bytes(),
-            RedisValueFormat::RawBytes => {
-                return Err(CustomRedisError::ParseError(
-                    "RawBytes format not supported for setting strings".to_string(),
-                ))
-            }
-        };
-
-        // Compress if enabled and above threshold
-        let final_bytes = Self::maybe_compress(bytes, &self.compression)?;
+        let final_bytes = self.serialize_and_compress(v, format)?;
 
         let mut conn = self.connection.clone();
         let seconds_usize = seconds as usize;
@@ -444,8 +489,6 @@ pub struct MockRedisClient {
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
     scard_ret: HashMap<String, Result<u64, CustomRedisError>>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
-    #[allow(dead_code)]
-    compression: CompressionConfig,
 }
 
 impl Default for MockRedisClient {
@@ -461,7 +504,6 @@ impl Default for MockRedisClient {
             hget_ret: HashMap::new(),
             scard_ret: HashMap::new(),
             calls: Arc::new(Mutex::new(Vec::new())),
-            compression: CompressionConfig::default(),
         }
     }
 }
@@ -787,146 +829,295 @@ impl Client for MockRedisClient {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_compression_config_default() {
-        let config = CompressionConfig::default();
-        assert!(config.enabled);
-        assert_eq!(config.threshold, 512);
-        assert_eq!(config.level, 0);
+    // Test helper functions to reduce duplication
+    mod helpers {
+        use super::*;
+
+        pub(super) fn serialize_value(value: &str, format: RedisValueFormat) -> Vec<u8> {
+            match format {
+                RedisValueFormat::Pickle => {
+                    serde_pickle::to_vec(&value, Default::default()).unwrap()
+                }
+                RedisValueFormat::Utf8 => value.as_bytes().to_vec(),
+                RedisValueFormat::RawBytes => {
+                    panic!("RawBytes not supported for string serialization")
+                }
+            }
+        }
+
+        pub(super) fn deserialize_value(bytes: &[u8], format: RedisValueFormat) -> String {
+            match format {
+                RedisValueFormat::Pickle => {
+                    serde_pickle::from_slice(bytes, Default::default()).unwrap()
+                }
+                RedisValueFormat::Utf8 => String::from_utf8(bytes.to_vec()).unwrap(),
+                RedisValueFormat::RawBytes => {
+                    panic!("RawBytes not supported for string deserialization")
+                }
+            }
+        }
+
+        pub(super) fn assert_compression_applied(
+            original: &[u8],
+            processed: &[u8],
+            config: &CompressionConfig,
+        ) {
+            if config.enabled && original.len() > config.threshold {
+                assert!(
+                    processed.len() < original.len(),
+                    "Expected compression for {} bytes (threshold: {})",
+                    original.len(),
+                    config.threshold
+                );
+                let decompressed = RedisClient::try_decompress(processed.to_vec());
+                assert_eq!(decompressed, original);
+            } else {
+                assert_eq!(processed, original, "Expected no compression");
+            }
+        }
     }
 
-    #[test]
-    fn test_compression_config_disabled() {
-        let config = CompressionConfig::disabled();
-        assert!(!config.enabled);
-        assert_eq!(config.threshold, 0);
-        assert_eq!(config.level, 0);
+    mod compression_config {
+        use super::*;
+
+        #[test]
+        fn test_default() {
+            let config = CompressionConfig::default();
+            assert!(config.enabled);
+            assert_eq!(config.threshold, 512);
+            assert_eq!(config.level, 0);
+        }
+
+        #[test]
+        fn test_disabled() {
+            let config = CompressionConfig::disabled();
+            assert!(!config.enabled);
+            assert_eq!(config.threshold, 0);
+            assert_eq!(config.level, 0);
+        }
+
+        #[test]
+        fn test_new() {
+            let config = CompressionConfig::new(true, 1024, 3);
+            assert!(config.enabled);
+            assert_eq!(config.threshold, 1024);
+            assert_eq!(config.level, 3);
+        }
     }
 
-    #[test]
-    fn test_compression_config_new() {
-        let config = CompressionConfig::new(true, 1024, 3);
-        assert!(config.enabled);
-        assert_eq!(config.threshold, 1024);
-        assert_eq!(config.level, 3);
+    mod compression_behavior {
+        use super::*;
+
+        #[test]
+        fn test_try_decompress_uncompressed() {
+            let original = b"Hello, World!".to_vec();
+            let result = RedisClient::try_decompress(original.clone());
+            assert_eq!(result, original);
+        }
+
+        #[test]
+        fn test_try_decompress_compressed() {
+            let original = b"Hello, World!".to_vec();
+            let compressed = zstd::encode_all(&original[..], 0).unwrap();
+            let result = RedisClient::try_decompress(compressed);
+            assert_eq!(result, original);
+        }
+
+        #[test]
+        fn test_disabled() {
+            let data = vec![0u8; 1000];
+            let config = CompressionConfig::disabled();
+            let result = RedisClient::maybe_compress(data.clone(), &config).unwrap();
+            assert_eq!(result, data);
+        }
+
+        #[test]
+        fn test_below_threshold() {
+            let data = vec![0u8; 100];
+            let config = CompressionConfig::default();
+            let result = RedisClient::maybe_compress(data.clone(), &config).unwrap();
+            assert_eq!(result, data);
+        }
+
+        #[test]
+        fn test_above_threshold() {
+            let data = vec![0u8; 1000];
+            let config = CompressionConfig::default();
+            let result = RedisClient::maybe_compress(data.clone(), &config).unwrap();
+            helpers::assert_compression_applied(&data, &result, &config);
+        }
+
+        #[test]
+        fn test_exactly_at_threshold() {
+            let data = vec![0u8; 512];
+            let config = CompressionConfig::default();
+            let result = RedisClient::maybe_compress(data.clone(), &config).unwrap();
+            assert_eq!(result, data); // Should NOT compress (> threshold, not >=)
+        }
+
+        #[test]
+        fn test_one_byte_over_threshold() {
+            let data = vec![0u8; 513];
+            let config = CompressionConfig::default();
+            let result = RedisClient::maybe_compress(data.clone(), &config).unwrap();
+            helpers::assert_compression_applied(&data, &result, &config);
+        }
+
+        #[test]
+        fn test_roundtrip() {
+            let data = vec![42u8; 1000];
+            let config = CompressionConfig::default();
+            let compressed = RedisClient::maybe_compress(data.clone(), &config).unwrap();
+            let decompressed = RedisClient::try_decompress(compressed);
+            assert_eq!(decompressed, data);
+        }
+
+        #[test]
+        fn test_custom_threshold() {
+            let data = vec![0u8; 256];
+            let config = CompressionConfig::new(true, 128, 0);
+            let result = RedisClient::maybe_compress(data.clone(), &config).unwrap();
+            helpers::assert_compression_applied(&data, &result, &config);
+        }
+
+        #[test]
+        fn test_custom_level() {
+            let data = vec![42u8; 1000];
+            let config_level1 = CompressionConfig::new(true, 512, 1);
+            let config_level10 = CompressionConfig::new(true, 512, 10);
+
+            let compressed_level1 =
+                RedisClient::maybe_compress(data.clone(), &config_level1).unwrap();
+            let compressed_level10 =
+                RedisClient::maybe_compress(data.clone(), &config_level10).unwrap();
+
+            // Higher level should compress better
+            assert!(compressed_level10.len() <= compressed_level1.len());
+
+            // Both should decompress correctly
+            let decompressed1 = RedisClient::try_decompress(compressed_level1);
+            let decompressed10 = RedisClient::try_decompress(compressed_level10);
+            assert_eq!(decompressed1, data);
+            assert_eq!(decompressed10, data);
+        }
     }
 
-    #[test]
-    fn test_try_decompress_uncompressed() {
-        let original = b"Hello, World!".to_vec();
-        let result = RedisClient::try_decompress(original.clone());
-        assert_eq!(result, original);
-    }
+    mod serialization_formats {
+        use super::*;
 
-    #[test]
-    fn test_try_decompress_compressed() {
-        let original = b"Hello, World!".to_vec();
-        let compressed = zstd::encode_all(&original[..], 0).unwrap();
+        #[test]
+        fn test_default_format() {
+            let format = RedisValueFormat::default();
+            assert_eq!(format, RedisValueFormat::Pickle);
+        }
 
-        let result = RedisClient::try_decompress(compressed);
-        assert_eq!(result, original);
-    }
+        #[test]
+        fn test_pickle_without_compression() {
+            let test_value = "test_string";
+            let config = CompressionConfig::disabled();
 
-    #[test]
-    fn test_maybe_compress_disabled() {
-        let data = vec![0u8; 1000];
-        let config = CompressionConfig::disabled();
+            let serialized = helpers::serialize_value(test_value, RedisValueFormat::Pickle);
+            let processed = RedisClient::maybe_compress(serialized.clone(), &config).unwrap();
 
-        let result = RedisClient::maybe_compress(data.clone(), &config).unwrap();
-        assert_eq!(result, data);
-    }
+            helpers::assert_compression_applied(&serialized, &processed, &config);
 
-    #[test]
-    fn test_maybe_compress_below_threshold() {
-        let data = vec![0u8; 100];
-        let config = CompressionConfig::default();
+            let decompressed = RedisClient::try_decompress(processed);
+            let deserialized = helpers::deserialize_value(&decompressed, RedisValueFormat::Pickle);
+            assert_eq!(deserialized, test_value);
+        }
 
-        let result = RedisClient::maybe_compress(data.clone(), &config).unwrap();
-        assert_eq!(result, data);
-    }
+        #[test]
+        fn test_pickle_with_compression() {
+            let test_value = "x".repeat(600); // Above 512 threshold
+            let config = CompressionConfig::default();
 
-    #[test]
-    fn test_maybe_compress_above_threshold() {
-        let data = vec![0u8; 1000];
-        let config = CompressionConfig::default();
+            let serialized = helpers::serialize_value(&test_value, RedisValueFormat::Pickle);
+            let processed = RedisClient::maybe_compress(serialized.clone(), &config).unwrap();
 
-        let result = RedisClient::maybe_compress(data.clone(), &config).unwrap();
-        assert_ne!(result, data);
-        assert!(result.len() < data.len());
+            helpers::assert_compression_applied(&serialized, &processed, &config);
 
-        let decompressed = zstd::decode_all(&result[..]).unwrap();
-        assert_eq!(decompressed, data);
-    }
+            let decompressed = RedisClient::try_decompress(processed);
+            let deserialized = helpers::deserialize_value(&decompressed, RedisValueFormat::Pickle);
+            assert_eq!(deserialized, test_value);
+        }
 
-    #[test]
-    fn test_maybe_compress_exactly_at_threshold() {
-        let data = vec![0u8; 512];
-        let config = CompressionConfig::default();
+        #[test]
+        fn test_utf8_without_compression() {
+            let test_value = "test_string";
+            let config = CompressionConfig::disabled();
 
-        let result = RedisClient::maybe_compress(data.clone(), &config).unwrap();
-        assert_eq!(result, data);
-    }
+            let serialized = helpers::serialize_value(test_value, RedisValueFormat::Utf8);
+            let processed = RedisClient::maybe_compress(serialized.clone(), &config).unwrap();
 
-    #[test]
-    fn test_maybe_compress_one_byte_over_threshold() {
-        let data = vec![0u8; 513];
-        let config = CompressionConfig::default();
+            helpers::assert_compression_applied(&serialized, &processed, &config);
 
-        let result = RedisClient::maybe_compress(data.clone(), &config).unwrap();
-        assert_ne!(result, data);
+            let decompressed = RedisClient::try_decompress(processed);
+            let deserialized = helpers::deserialize_value(&decompressed, RedisValueFormat::Utf8);
+            assert_eq!(deserialized, test_value);
+        }
 
-        let decompressed = zstd::decode_all(&result[..]).unwrap();
-        assert_eq!(decompressed, data);
-    }
+        #[test]
+        fn test_utf8_with_compression() {
+            let test_value = "x".repeat(600); // Above 512 threshold
+            let config = CompressionConfig::default();
 
-    #[test]
-    fn test_compression_roundtrip() {
-        let data = vec![42u8; 1000];
-        let config = CompressionConfig::default();
+            let serialized = helpers::serialize_value(&test_value, RedisValueFormat::Utf8);
+            let processed = RedisClient::maybe_compress(serialized.clone(), &config).unwrap();
 
-        let compressed = RedisClient::maybe_compress(data.clone(), &config).unwrap();
-        assert!(compressed.len() < data.len());
+            helpers::assert_compression_applied(&serialized, &processed, &config);
 
-        let decompressed = RedisClient::try_decompress(compressed);
-        assert_eq!(decompressed, data);
-    }
+            let decompressed = RedisClient::try_decompress(processed);
+            let deserialized = helpers::deserialize_value(&decompressed, RedisValueFormat::Utf8);
+            assert_eq!(deserialized, test_value);
+        }
 
-    #[test]
-    fn test_compression_with_custom_threshold() {
-        let data = vec![0u8; 256];
-        let config = CompressionConfig::new(true, 128, 0);
+        #[test]
+        fn test_pickle_vs_utf8_different_output() {
+            let test_value = "test";
 
-        let result = RedisClient::maybe_compress(data.clone(), &config).unwrap();
-        assert_ne!(result, data);
+            let pickle_bytes = helpers::serialize_value(test_value, RedisValueFormat::Pickle);
+            let utf8_bytes = helpers::serialize_value(test_value, RedisValueFormat::Utf8);
 
-        let decompressed = RedisClient::try_decompress(result);
-        assert_eq!(decompressed, data);
-    }
+            // Formats should produce different byte representations
+            assert_ne!(pickle_bytes, utf8_bytes);
 
-    #[test]
-    fn test_compression_with_custom_level() {
-        let data = vec![42u8; 1000];
+            // Both should deserialize correctly
+            let pickle_result = helpers::deserialize_value(&pickle_bytes, RedisValueFormat::Pickle);
+            let utf8_result = helpers::deserialize_value(&utf8_bytes, RedisValueFormat::Utf8);
 
-        let config_level1 = CompressionConfig::new(true, 512, 1);
-        let config_level10 = CompressionConfig::new(true, 512, 10);
+            assert_eq!(pickle_result, test_value);
+            assert_eq!(utf8_result, test_value);
+        }
 
-        let compressed_level1 = RedisClient::maybe_compress(data.clone(), &config_level1).unwrap();
-        let compressed_level10 =
-            RedisClient::maybe_compress(data.clone(), &config_level10).unwrap();
+        #[test]
+        fn test_compression_applied_to_both_formats() {
+            let large_value = "x".repeat(1000);
+            let config = CompressionConfig::default();
 
-        assert!(compressed_level10.len() <= compressed_level1.len());
+            // Test Pickle format with compression
+            let pickle_serialized =
+                helpers::serialize_value(&large_value, RedisValueFormat::Pickle);
+            let pickle_compressed =
+                RedisClient::maybe_compress(pickle_serialized.clone(), &config).unwrap();
+            helpers::assert_compression_applied(&pickle_serialized, &pickle_compressed, &config);
 
-        let decompressed1 = RedisClient::try_decompress(compressed_level1);
-        let decompressed10 = RedisClient::try_decompress(compressed_level10);
-        assert_eq!(decompressed1, data);
-        assert_eq!(decompressed10, data);
-    }
+            // Test Utf8 format with compression
+            let utf8_serialized = helpers::serialize_value(&large_value, RedisValueFormat::Utf8);
+            let utf8_compressed =
+                RedisClient::maybe_compress(utf8_serialized.clone(), &config).unwrap();
+            helpers::assert_compression_applied(&utf8_serialized, &utf8_compressed, &config);
 
-    #[test]
-    fn test_mock_redis_client_default_has_compression() {
-        let client = MockRedisClient::default();
-        assert!(client.compression.enabled);
-        assert_eq!(client.compression.threshold, 512);
-        assert_eq!(client.compression.level, 0);
+            // Both should decompress back to original value
+            let pickle_decompressed = RedisClient::try_decompress(pickle_compressed);
+            let pickle_result =
+                helpers::deserialize_value(&pickle_decompressed, RedisValueFormat::Pickle);
+
+            let utf8_decompressed = RedisClient::try_decompress(utf8_compressed);
+            let utf8_result =
+                helpers::deserialize_value(&utf8_decompressed, RedisValueFormat::Utf8);
+
+            assert_eq!(pickle_result, large_value);
+            assert_eq!(utf8_result, large_value);
+        }
     }
 }
