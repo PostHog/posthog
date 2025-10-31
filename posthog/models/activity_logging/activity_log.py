@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, U
 from uuid import UUID
 
 from django.conf import settings
+from django.contrib.auth.models import AnonymousUser
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import Paginator
@@ -852,10 +853,16 @@ def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: in
     )
 
 
-def apply_activity_visibility_restrictions(queryset: QuerySet, user: "User") -> QuerySet:
+def apply_activity_visibility_restrictions(queryset: QuerySet, user: Union["User", AnonymousUser, None]) -> QuerySet:
     """
     Apply visibility restrictions to activity log queryset based on user permissions.
     """
+    # Allow if no user, anonymous user, or if user is staff
+    if not user or isinstance(user, AnonymousUser):
+        return queryset
+    if hasattr(user, "is_staff") and user.is_staff:
+        return queryset
+
     exclusion_queries = []
     for scope, restrictions in activity_visibility_restrictions.items():
         if restrictions.get("requires_staff"):

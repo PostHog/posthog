@@ -37,7 +37,7 @@ def _get_original_user_from_session(request):
         signer = TimestampSigner()
         original_session = request.session.get(la_settings.USER_SESSION_FLAG)
         original_user_pk = signer.unsign(
-            original_session, max_age=timedelta(days=la_settings.USER_SESSION_DAYS_TIMESTAMP).total_seconds()
+            original_session, max_age=timedelta(days=la_settings.USER_SESSION_DAYS_TIMESTAMP)
         )
         User = get_user_model()
         return User.objects.get(pk=original_user_pk)
@@ -83,7 +83,7 @@ def _detect_impersonation_for_login(user, request):
         try:
             original_user_pk = TimestampSigner().unsign(
                 request.session.get(la_settings.USER_SESSION_FLAG),
-                max_age=timedelta(days=la_settings.USER_SESSION_DAYS_TIMESTAMP).total_seconds(),
+                max_age=timedelta(days=la_settings.USER_SESSION_DAYS_TIMESTAMP),
             )
             User = get_user_model()
             admin_user = User.objects.get(pk=original_user_pk)
