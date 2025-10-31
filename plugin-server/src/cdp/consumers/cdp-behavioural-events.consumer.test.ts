@@ -2,7 +2,7 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { resetKafka } from '~/tests/helpers/kafka'
 
-import { createCohort, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { buildInlineFiltersForCohorts, createCohort, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -85,39 +85,6 @@ const TEST_FILTERS = {
         4,
         2,
     ],
-}
-
-// Helper function to create inline filters structure with bytecode
-const buildInlineFilters = (
-    bytecode: any[],
-    conditionHash: string,
-    type: string = 'behavioral',
-    key: string = '$pageview'
-): string => {
-    const filter: any = {
-        key,
-        type,
-        bytecode,
-        conditionHash,
-    }
-
-    // Add default fields based on type
-    if (type === 'behavioral') {
-        filter.value = 'performed_event'
-        filter.event_type = 'events'
-    }
-
-    return JSON.stringify({
-        properties: {
-            type: 'OR',
-            values: [
-                {
-                    type: 'OR',
-                    values: [filter],
-                },
-            ],
-        },
-    })
 }
 
 describe('CdpBehaviouralEventsConsumer', () => {
@@ -233,7 +200,12 @@ describe('CdpBehaviouralEventsConsumer', () => {
         it('should not publish to Kafka when cohort filter does not match', async () => {
             // Create a cohort with Chrome + pageview filter
             const conditionHash = 'test_hash_002'
-            const filters = buildInlineFilters(TEST_FILTERS.chromePageview, conditionHash, 'behavioral', '$pageview')
+            const filters = buildInlineFiltersForCohorts({
+                bytecode: TEST_FILTERS.chromePageview,
+                conditionHash,
+                type: 'behavioral',
+                key: '$pageview',
+            })
             await createCohort(hub.postgres, team.id, 'Test cohort', filters)
 
             // Create a non-matching event (Firefox instead of Chrome)
@@ -272,7 +244,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
         it('should deduplicate filters with same conditionHash for a team', async () => {
             // Create two cohorts with the same filter (same conditionHash)
             const conditionHash = 'dedup_test_hash_001'
-            const filters = buildInlineFilters(TEST_FILTERS.pageview, conditionHash)
+            const filters = buildInlineFiltersForCohorts({ bytecode: TEST_FILTERS.pageview, conditionHash })
 
             // Create first cohort
             await createCohort(hub.postgres, team.id, 'First cohort', filters)

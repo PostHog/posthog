@@ -1,4 +1,10 @@
-import { createCohort, createTeam, getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
+import {
+    buildInlineFiltersForCohorts,
+    createCohort,
+    createTeam,
+    getFirstTeam,
+    resetTestDatabase,
+} from '../../tests/helpers/sql'
 import { defaultConfig } from '../config/config'
 import { Hub, Team } from '../types'
 import { closeHub, createHub } from './db/hub'
@@ -33,43 +39,6 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
         await closeHub(hub)
     })
 
-    // Helper function to create inline filters structure with bytecode
-    const buildInlineFilters = (
-        bytecode: any[],
-        conditionHash: string,
-        type: string = 'behavioral',
-        key: string = '$test_event',
-        extra?: Record<string, any>
-    ): string => {
-        const filter: any = {
-            key,
-            type,
-            bytecode,
-            conditionHash,
-            ...(extra || {}),
-        }
-
-        // Add default fields based on type
-        if (type === 'behavioral') {
-            filter.value = 'performed_event'
-            filter.event_type = 'events'
-        } else if (type === 'person') {
-            filter.operator = 'is_set'
-        }
-
-        return JSON.stringify({
-            properties: {
-                type: 'OR',
-                values: [
-                    {
-                        type: 'OR',
-                        values: [filter],
-                    },
-                ],
-            },
-        })
-    }
-
     describe('getRealtimeSupportedFiltersForTeam()', () => {
         it('returns empty array if no realtime cohorts exist', async () => {
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
@@ -79,7 +48,7 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
         it('returns realtime supported filters for a team', async () => {
             const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
             const conditionHash = 'test_hash_001'
-            const filters = buildInlineFilters(bytecode, conditionHash, 'event', '$browser')
+            const filters = buildInlineFiltersForCohorts({ bytecode, conditionHash, type: 'event', key: '$browser' })
 
             // Create a realtime cohort
             const cohortId = await createCohort(postgres, teamId, 'Test Cohort', filters)
@@ -96,7 +65,12 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
 
         it('filters out deleted cohorts', async () => {
             const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
-            const filters = buildInlineFilters(bytecode, 'test_hash_001', 'event', '$browser')
+            const filters = buildInlineFiltersForCohorts({
+                bytecode,
+                conditionHash: 'test_hash_001',
+                type: 'event',
+                key: '$browser',
+            })
 
             // Create active cohort
             await createCohort(postgres, teamId, 'Active Cohort', filters)
@@ -119,7 +93,7 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
 
         it('filters out non-realtime cohorts', async () => {
             const bytecode = ['_H', 1, 32, 'test']
-            const filters = buildInlineFilters(bytecode, 'test_hash_001')
+            const filters = buildInlineFiltersForCohorts({ bytecode, conditionHash: 'test_hash_001' })
 
             // Create behavioral cohort (not realtime)
             await createCohort(postgres, teamId, 'Behavioral Cohort', filters, { cohort_type: 'behavioral' })
@@ -442,7 +416,7 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
 
         it('handles malformed filters gracefully', async () => {
             const validBytecode = ['_H', 1, 32, 'test']
-            const validFilters = buildInlineFilters(validBytecode, 'valid_hash')
+            const validFilters = buildInlineFiltersForCohorts({ bytecode: validBytecode, conditionHash: 'valid_hash' })
 
             // Create cohort with valid filters
             await createCohort(postgres, teamId, 'Valid Cohort', validFilters)
@@ -474,7 +448,12 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
 
         it('caches filters for subsequent calls', async () => {
             const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
-            const filters = buildInlineFilters(bytecode, 'cached_hash', 'event', '$browser')
+            const filters = buildInlineFiltersForCohorts({
+                bytecode,
+                conditionHash: 'cached_hash',
+                type: 'event',
+                key: '$browser',
+            })
 
             await createCohort(postgres, teamId, 'Cached Cohort', filters)
 
@@ -498,8 +477,18 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
     describe('getRealtimeSupportedFiltersForTeams()', () => {
         it('returns filters for multiple teams', async () => {
             const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
-            const filters1 = buildInlineFilters(bytecode, 'team1_hash', 'event', '$browser')
-            const filters2 = buildInlineFilters(bytecode, 'team2_hash', 'event', '$browser')
+            const filters1 = buildInlineFiltersForCohorts({
+                bytecode,
+                conditionHash: 'team1_hash',
+                type: 'event',
+                key: '$browser',
+            })
+            const filters2 = buildInlineFiltersForCohorts({
+                bytecode,
+                conditionHash: 'team2_hash',
+                type: 'event',
+                key: '$browser',
+            })
 
             // Create another team
             const team = await hub.teamManager.getTeam(teamId)
@@ -524,7 +513,12 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
 
         it('efficiently loads multiple teams with single database call', async () => {
             const bytecode = ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 1, 2, 11]
-            const filters = buildInlineFilters(bytecode, 'test_hash', 'event', '$browser')
+            const filters = buildInlineFiltersForCohorts({
+                bytecode,
+                conditionHash: 'test_hash',
+                type: 'event',
+                key: '$browser',
+            })
 
             await createCohort(postgres, teamId, 'Test Cohort', filters)
 
@@ -544,7 +538,7 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
         it('deduplicates filters across multiple teams', async () => {
             const bytecode = ['_H', 1, 32, 'shared', 32, 'filter']
             const sharedHash = 'shared_condition_hash'
-            const filters = buildInlineFilters(bytecode, sharedHash)
+            const filters = buildInlineFiltersForCohorts({ bytecode, conditionHash: sharedHash })
 
             // Create another team
             const team = await hub.teamManager.getTeam(teamId)
@@ -585,8 +579,8 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const olderTime = new Date(Date.now() - 3600000).toISOString() // 1 hour ago
             const newerTime = new Date().toISOString()
 
-            const olderFilters = buildInlineFilters(bytecode, 'older_hash')
-            const newerFilters = buildInlineFilters(bytecode, 'newer_hash')
+            const olderFilters = buildInlineFiltersForCohorts({ bytecode, conditionHash: 'older_hash' })
+            const newerFilters = buildInlineFiltersForCohorts({ bytecode, conditionHash: 'newer_hash' })
 
             await createCohort(postgres, teamId, 'Older Cohort', olderFilters, {
                 created_at: olderTime,
