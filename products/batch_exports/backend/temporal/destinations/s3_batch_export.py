@@ -514,6 +514,9 @@ class ConcurrentS3Consumer(Consumer):
         self.file_format = file_format
         self.compression = compression
         self.encryption = encryption
+        # This is only needed to obtain a file key. It's very easy to confuse it with
+        # the transformer's `max_file_size_bytes` which actually does the file splitting.
+        # TODO: Remove this from here, figure out a different way to obtain an S3 key.
         self.max_file_size_mb = max_file_size_mb
 
         self.aws_access_key_id = aws_access_key_id
@@ -579,6 +582,10 @@ class ConcurrentS3Consumer(Consumer):
             config: dict[str, typing.Any] = {
                 "max_pool_connections": self.max_concurrent_uploads
                 * 5,  # Increase connection pool, so to ensure we're not limited by this
+                # Set checksum calculation to 'when_required' for compatibility with S3-compatible
+                # services like GCS that don't support AWS's newer checksum features
+                "request_checksum_calculation": "when_required",
+                "response_checksum_validation": "when_required",
             }
             if self.use_virtual_style_addressing:
                 config["s3"] = {"addressing_style": "virtual"}

@@ -2,9 +2,6 @@ import logging
 import traceback
 from typing import cast
 
-from django.db import transaction
-from django.db.models import OuterRef, Subquery
-
 from drf_spectacular.utils import OpenApiExample, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -13,27 +10,20 @@ from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
 from .agents import get_agent_dict_by_id, get_all_agents
-from .models import Task, TaskRun, TaskWorkflow, WorkflowStage
+from .models import Task, TaskRun
 from .serializers import (
     AgentDefinitionSerializer,
     AgentListResponseSerializer,
     ErrorResponseSerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunDetailSerializer,
-    TaskRunProgressRequestSerializer,
     TaskSerializer,
     TaskUpdatePositionRequestSerializer,
-    TaskUpdateStageRequestSerializer,
-    TaskWorkflowSerializer,
-    WorkflowDeactivateResponseSerializer,
-    WorkflowStageArchiveResponseSerializer,
-    WorkflowStageSerializer,
 )
 from .temporal.client import execute_task_processing_workflow
 
@@ -43,11 +33,11 @@ logger = logging.getLogger(__name__)
 @extend_schema(tags=["tasks"])
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
-    API for managing tasks within a project. Tasks represent units of work that can be tracked through workflow stages.
+    API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
     """
 
     serializer_class = TaskSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "task"
     queryset = Task.objects.all()
@@ -76,15 +66,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if origin_product:
             qs = qs.filter(origin_product=origin_product)
 
-        # Filter by workflow id
-        workflow_id = params.get("workflow")
-        if workflow_id:
-            qs = qs.filter(workflow_id=workflow_id)
-
-        stage_id = params.get("current_stage")
-        if stage_id:
-            latest_run = TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at").values("current_stage")[:1]
-            qs = qs.annotate(latest_stage=Subquery(latest_run)).filter(latest_stage=stage_id)
+        stage = params.get("stage")
+        if stage:
+            qs = qs.filter(runs__stage=stage)
 
         # Filter by repository or organization inside repository_config JSON
         organization = params.get("organization")
@@ -125,7 +109,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _trigger_workflow(self, task: Task) -> None:
         try:
-            logger.info(f"Attempting to trigger workflow for task {task.id}")
+            logger.info(f"Attempting to trigger task processing workflow for task {task.id}")
             execute_task_processing_workflow(
                 task_id=str(task.id),
                 team_id=task.team.id,
@@ -133,7 +117,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
             logger.info(f"Workflow trigger completed for task {task.id}")
         except Exception as e:
-            logger.exception(f"Failed to trigger workflow for task {task.id}: {e}")
+            logger.exception(f"Failed to trigger task processing workflow for task {task.id}: {e}")
 
             logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
 
@@ -175,19 +159,12 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=None,
         responses={
             200: OpenApiResponse(response=TaskSerializer, description="Workflow started for task"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Task has no workflow configured"),
             404: OpenApiResponse(description="Task not found"),
         },
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
         task = cast(Task, self.get_object())
-
-        if not task.effective_workflow:
-            return Response(
-                ErrorResponseSerializer({"error": "Task has no workflow configured"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
         logger.info(f"Triggering workflow for task {task.id}")
 
@@ -196,161 +173,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskSerializer(task, context=self.get_serializer_context()).data)
 
 
-@extend_schema(tags=["workflows"])
-class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """
-    API for managing task workflows. Workflows define the stages and automation rules that tasks move through.
-    """
-
-    serializer_class = TaskWorkflowSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    scope_object = "task"
-    queryset = TaskWorkflow.objects.all()
-    posthog_feature_flag = {
-        "tasks": [
-            "list",
-            "retrieve",
-            "create",
-            "update",
-            "partial_update",
-            "destroy",
-            "set_default",
-            "deactivate",
-            "create_default",
-        ]
-    }
-
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(team=self.team, is_active=True)
-
-    def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
-
-    @extend_schema(
-        summary="Set default workflow",
-        description="Set this workflow as the team's default workflow. All new tasks will use this workflow unless specified otherwise.",
-        request=None,
-        responses={
-            200: OpenApiResponse(response=TaskWorkflowSerializer, description="Updated workflow"),
-            404: OpenApiResponse(description="Workflow not found"),
-        },
-    )
-    @action(detail=True, methods=["post"], required_scopes=["task:write"])
-    def set_default(self, request, pk=None, **kwargs):
-        workflow = self.get_object()
-
-        with transaction.atomic():
-            # Unset current default
-            TaskWorkflow.objects.filter(team=self.team, is_default=True).update(is_default=False)
-
-            # Set new default
-            workflow.is_default = True
-            workflow.save(update_fields=["is_default"])
-
-        return Response(TaskWorkflowSerializer(workflow, context=self.get_serializer_context()).data)
-
-    @extend_schema(
-        summary="Deactivate workflow",
-        description="Deactivate a workflow and move its tasks to the team's default workflow. Cannot deactivate the default workflow.",
-        request=None,
-        responses={
-            200: OpenApiResponse(
-                response=WorkflowDeactivateResponseSerializer, description="Workflow deactivated successfully"
-            ),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Cannot deactivate default workflow"),
-            404: OpenApiResponse(description="Workflow not found"),
-        },
-    )
-    @action(detail=True, methods=["post"], required_scopes=["task:write"])
-    def deactivate(self, request, pk=None, **kwargs):
-        workflow = cast(TaskWorkflow, self.get_object())
-
-        try:
-            workflow.deactivate_safely()
-            return Response(WorkflowDeactivateResponseSerializer({"message": "Workflow deactivated successfully"}).data)
-        except ValueError:
-            return Response(
-                ErrorResponseSerializer({"error": "Cannot deactivate the default workflow"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-    @extend_schema(
-        summary="Create default workflow",
-        description="Create a default workflow for the team if none exists. This creates a standard workflow with common stages.",
-        request=None,
-        responses={
-            200: OpenApiResponse(response=TaskWorkflowSerializer, description="Created default workflow"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Team already has a default workflow"),
-        },
-    )
-    @action(detail=False, methods=["post"], required_scopes=["task:write"])
-    def create_default(self, request, **kwargs):
-        existing_default = TaskWorkflow.objects.filter(team=self.team, is_default=True).first()
-
-        if existing_default:
-            return Response(
-                ErrorResponseSerializer({"error": "Team already has a default workflow"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        workflow = TaskWorkflow.create_default_workflow(self.team)
-
-        return Response(TaskWorkflowSerializer(workflow, context=self.get_serializer_context()).data)
-
-
-@extend_schema(tags=["workflow-stages"])
-class WorkflowStageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """
-    API for managing workflow stages. Stages represent the different states a task can be in within a workflow.
-    """
-
-    serializer_class = WorkflowStageSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
-    scope_object = "task"
-    queryset = WorkflowStage.objects.all()
-    posthog_feature_flag = {"tasks": ["list", "retrieve", "create", "update", "partial_update", "destroy", "archive"]}
-    filter_rewrite_rules = {"team_id": "workflow__team_id"}
-
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(is_archived=False)
-
-    def perform_create(self, serializer):
-        workflow_id = self.kwargs.get("parent_lookup_workflow_id")
-
-        if workflow_id:
-            if not TaskWorkflow.objects.filter(id=workflow_id, team=self.team).exists():
-                raise NotFound("Workflow not found")
-
-        serializer.save()
-
-    @extend_schema(
-        summary="Archive workflow stage",
-        description="Archive a workflow stage instead of deleting it. Archived stages are hidden from UI but preserve task associations.",
-        request=None,
-        responses={
-            200: OpenApiResponse(
-                response=WorkflowStageArchiveResponseSerializer, description="Stage archived successfully"
-            ),
-            404: OpenApiResponse(description="Stage not found"),
-        },
-    )
-    @action(detail=True, methods=["post"], required_scopes=["task:write"])
-    def archive(self, request, pk=None, **kwargs):
-        stage = self.get_object()
-        stage.archive()
-        return Response(WorkflowStageArchiveResponseSerializer({"message": "Stage archived successfully"}).data)
-
-
 @extend_schema(tags=["task-runs"])
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
-    API for managing task runs. Each run represents an execution of a task through workflow stages.
+    API for managing task runs. Each run represents an execution of a task.
     """
 
     serializer_class = TaskRunDetailSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     scope_object = "task"
     queryset = TaskRun.objects.select_related("task").all()
@@ -361,7 +191,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "create",
             "update",
             "partial_update",
-            "update_stage",
             "progress_run",
             "set_output",
             "append_log",
@@ -391,113 +220,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise NotFound("Task ID is required")
         task = Task.objects.get(id=task_id, team=self.team)
         serializer.save(team=self.team, task=task)
-
-    def perform_update(self, serializer):
-        task_run = cast(TaskRun, serializer.instance)
-
-        previous_stage = task_run.current_stage.key if task_run.current_stage else None
-        logger.info(f"perform_update called for run {task_run.id} with validated_data: {serializer.validated_data}")
-
-        serializer.save()
-
-        new_stage = serializer.validated_data.get("current_stage")
-        new_stage_key = new_stage.key if new_stage else None
-        if new_stage_key != previous_stage:
-            logger.info(f"Run {task_run.id} stage changed from {previous_stage} to {new_stage_key}")
-        else:
-            logger.info(f"Run {task_run.id} updated successfully")
-
-    @extend_schema(
-        summary="Update run stage",
-        description="Move a task run to a different workflow stage.",
-        request=TaskUpdateStageRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with updated stage"),
-            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid stage or validation error"),
-            404: OpenApiResponse(description="Run not found"),
-        },
-    )
-    @action(detail=True, methods=["patch"], required_scopes=["task:write"])
-    def update_stage(self, request, pk=None, **kwargs):
-        logger.info(f"update_stage called for run {pk} with data: {request.data}")
-
-        task_run = cast(TaskRun, self.get_object())
-        new_stage_id = request.data.get("current_stage")
-
-        if not new_stage_id:
-            return Response(
-                ErrorResponseSerializer({"error": "Stage is required"}).data, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            new_stage = WorkflowStage.objects.get(id=new_stage_id)
-        except WorkflowStage.DoesNotExist:
-            logger.warning(f"Invalid stage '{new_stage_id}' for run {pk}")
-            return Response(
-                ErrorResponseSerializer({"error": "Invalid stage"}).data, status=status.HTTP_400_BAD_REQUEST
-            )
-
-        previous_stage = task_run.current_stage.key if task_run.current_stage else None
-        task_run.current_stage = new_stage
-        task_run.save(update_fields=["current_stage", "updated_at"])
-
-        new_stage_key = task_run.current_stage.key if task_run.current_stage else None
-        logger.info(f"Run {task_run.id} stage updated from {previous_stage} to {new_stage_key}")
-
-        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
-
-    @validated_request(
-        request_serializer=TaskRunProgressRequestSerializer,
-        summary="Progress run to next stage",
-        description=(
-            "Advance a task run to the next workflow stage, or to a specified stage. "
-            "If 'next_stage_id' is provided, the run will move to that stage. "
-            "Otherwise, the run will be moved to the next stage in its workflow."
-        ),
-        responses={
-            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run progressed to next stage"),
-            400: OpenApiResponse(
-                response=ErrorResponseSerializer, description="No next stage available or invalid stage"
-            ),
-            404: OpenApiResponse(description="Run not found"),
-        },
-    )
-    @action(detail=True, methods=["post"], required_scopes=["task:write"])
-    def progress_run(self, request, pk=None, **kwargs):
-        task_run = cast(TaskRun, self.get_object())
-
-        provided_stage_id = request.validated_data.get("next_stage_id")
-
-        new_stage = None
-        if provided_stage_id:
-            try:
-                candidate = WorkflowStage.objects.get(id=provided_stage_id)
-            except WorkflowStage.DoesNotExist:
-                return Response(
-                    ErrorResponseSerializer({"error": "Invalid next_stage_id"}).data,
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            if candidate.is_archived:
-                return Response(
-                    ErrorResponseSerializer({"error": "Stage is archived"}).data,
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            new_stage = candidate
-        else:
-            new_stage = task_run.get_next_stage()
-
-        if not new_stage:
-            return Response(
-                ErrorResponseSerializer({"error": "No next stage available for this run"}).data,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        task_run.current_stage = new_stage
-        task_run.save(update_fields=["current_stage", "updated_at"])
-
-        return Response(TaskRunDetailSerializer(task_run, context=self.get_serializer_context()).data)
 
     @extend_schema(
         summary="Set run output",
@@ -551,18 +273,18 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 @extend_schema(tags=["agents"])
 class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
-    API for retrieving agent definitions. Agents are automation services that can be assigned to workflow stages to process tasks.
+    API for retrieving agent definitions. Agents are automation services that can be assigned to tasks to process them.
     """
 
     serializer_class = AgentDefinitionSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     queryset = None  # No model queryset since we're using hardcoded agents
     scope_object = "task"
     posthog_feature_flag = {"tasks": ["list", "retrieve"]}
 
     @extend_schema(
         summary="List agent definitions",
-        description="Get a list of available agent definitions that can be assigned to workflow stages.",
+        description="Get a list of available agent definitions that can be assigned to tasks.",
         responses={
             200: OpenApiResponse(
                 response=AgentListResponseSerializer,

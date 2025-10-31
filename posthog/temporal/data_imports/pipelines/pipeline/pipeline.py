@@ -107,7 +107,7 @@ class PipelineNonDLT:
                 increment_rows(self._job.team_id, self._schema.id, self._resource.rows_to_sync)
 
                 # Check billing limits against incoming rows
-                if will_hit_billing_limit(team_id=self._job.team_id, logger=self._logger):
+                if will_hit_billing_limit(team_id=self._job.team_id, source=self._schema.source, logger=self._logger):
                     raise BillingLimitsWillBeReachedException(
                         f"Your account will hit your Data Warehouse billing limits syncing {self._resource.name} with {self._resource.rows_to_sync} rows"
                     )

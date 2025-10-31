@@ -162,7 +162,11 @@ export function IssuesList(): JSX.Element {
 
 const CurrencyColumn = ({ record }: { record: unknown }): JSX.Element => {
     const { baseCurrency } = useValues(teamLogic)
-    const revenue = (record as ErrorTrackingIssue).revenue!
+    const revenue = (record as ErrorTrackingIssue).revenue
+
+    if (!revenue) {
+        return <>-</>
+    }
 
     return <LemonTableLink to={urls.revenueAnalytics()} title={formatCurrency(revenue, baseCurrency)} />
 }

@@ -3,7 +3,7 @@ import equal from 'fast-deep-equal'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconArrowRight, IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
+import { IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -18,7 +18,6 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { TimestampFormatToLabel } from 'scenes/session-recordings/utils'
 
@@ -184,11 +183,7 @@ export const RecordingsUniversalFiltersEmbed = ({
     allowReplayGroupsFilters?: boolean
 }): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
-    const { askSidePanelMax } = useActions(maxGlobalLogic)
-
     const [savedFilterName, setSavedFilterName] = useState('')
-    const { featureFlags } = useValues(featureFlagLogic)
-    const [searchQuery, setSearchQuery] = useState('')
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -240,11 +235,6 @@ export const RecordingsUniversalFiltersEmbed = ({
         const f = await updatePlaylist(appliedSavedFilter.short_id, { filters, type: 'filters' }, false)
         loadSavedFilters()
         setAppliedSavedFilter(f)
-    }
-
-    const handleMaxOpen = (): void => {
-        askSidePanelMax(searchQuery)
-        setSearchQuery('')
     }
 
     const closeSaveFiltersModal = (): void => {
@@ -301,39 +291,6 @@ export const RecordingsUniversalFiltersEmbed = ({
             label: <div className="px-2">Filters</div>,
             content: (
                 <div className={clsx('relative bg-surface-primary w-full ', className)}>
-                    {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_IN_PLAYLIST_MAX_AI] && (
-                        <>
-                            <div className="px-2 py-2 text-center mt-4">
-                                <h2 className="text-xl @md/max-welcome:text-2xl font-bold mb-2 text-balance">
-                                    Ask Max AI
-                                </h2>
-                                <p className="text-secondary text-sm">
-                                    Ask Max AI to help you find recordings that match your criteria.
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-2 px-2 max-w-2xl mx-auto">
-                                <LemonInput
-                                    placeholder="Show me recordings of people who ..."
-                                    size="small"
-                                    fullWidth
-                                    onChange={setSearchQuery}
-                                    onPressEnter={handleMaxOpen}
-                                />
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    disabledReason={searchQuery.length === 0 ? 'Enter a search query' : undefined}
-                                    icon={<IconArrowRight />}
-                                    onClick={handleMaxOpen}
-                                />
-                            </div>
-                            <div className="px-2 py-2 font-medium flex items-center justify-center gap-2 text-secondary text-xs my-4">
-                                <div className="h-px bg-border flex-1" />
-                                <span>Or set filters manually</span>
-                                <div className="h-px bg-border flex-1" />
-                            </div>
-                        </>
-                    )}
                     <div className="flex items-center py-2 justify-between">
                         <AndOrFilterSelect
                             value={filters.filter_group.type}

@@ -100,7 +100,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         if (
             hogFlow &&
             hogFlow.status === 'active' &&
-            (hogFlow.trigger?.type === 'webhook' || hogFlow.trigger?.type === 'tracking_pixel')
+            (hogFlow.trigger?.type === 'webhook' ||
+                hogFlow.trigger?.type === 'tracking_pixel' ||
+                hogFlow.trigger?.type === 'manual')
         ) {
             const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, hogFlow.trigger)
 
@@ -307,7 +309,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
             if (hogFunctionState?.state === HogWatcherState.degraded) {
                 // Degraded functions are not executed immediately
-                invocation.queue = 'hog_overflow'
+                invocation.queue = 'hogoverflow'
                 await this.cyclotronJobQueue.queueInvocations([invocation])
 
                 result = createInvocationResult<CyclotronJobInvocationHogFunction>(

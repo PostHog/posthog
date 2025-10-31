@@ -635,6 +635,18 @@ class CohortSerializer(serializers.ModelSerializer):
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
+            if deleted_state:
+                flags_using_cohort = FeatureFlag.objects.filter(
+                    team__project_id=cohort.team.project_id, active=True, deleted=False
+                )
+                flags_with_cohort = [flag for flag in flags_using_cohort if cohort.id in flag.get_cohort_ids()]
+                if flags_with_cohort:
+                    flag_names = [flag.name or flag.key for flag in flags_with_cohort]
+                    raise ValidationError(
+                        f"This cohort is used in {len(flags_with_cohort)} active feature flag(s): {', '.join(flag_names)}. "
+                        "Please remove the cohort from these feature flags before deleting it."
+                    )
+
             relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("id", flat=True)
             cohort.deleted = deleted_state
             if deleted_state:
@@ -794,28 +806,33 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return graph, behavioral_cohorts
 
-    @extend_schema(summary="Duplicate as static cohort", description="Create a static copy of a dynamic cohort")
+    @extend_schema(summary="Duplicate as static cohort", description="Create a static copy of a cohort")
     @action(methods=["GET"], detail=True, required_scopes=["cohort:write"])
     def duplicate_as_static_cohort(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
         team = self.team
 
+        serializer_data = {
+            "name": f"{cohort.name} (static copy)",
+            "is_static": True,
+        }
+        serializer_context = {
+            "request": request,
+            "team_id": team.pk,
+            "get_team": lambda: team,
+        }
+
+        # For static cohorts, copy people directly instead of using the insight filter path
         if cohort.is_static:
-            raise ValidationError("Cannot duplicate a static cohort as a static cohort.")
+            from posthog.models.cohort.cohort import CohortPeople
 
-        cohort_serializer = CohortSerializer(
-            data={
-                "name": f"{cohort.name} (static copy)",
-                "is_static": True,
-            },
-            context={
-                "request": request,
-                "from_cohort_id": cohort.pk,
-                "team_id": team.pk,
-                "get_team": lambda: team,
-            },
-        )
+            person_uuids = CohortPeople.objects.filter(cohort_id=cohort.pk).values_list("person__uuid", flat=True)
+            serializer_data["_create_static_person_ids"] = [str(uuid) for uuid in person_uuids]
+        else:
+            # For dynamic cohorts, use the existing insight filter path
+            serializer_context["from_cohort_id"] = cohort.pk
 
+        cohort_serializer = CohortSerializer(data=serializer_data, context=serializer_context)
         cohort_serializer.is_valid(raise_exception=True)
         cohort_serializer.save()
 

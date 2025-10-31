@@ -38,7 +38,7 @@ pub async fn insert_new_team_in_redis(
         project_id: i64::from(id),
         name: "team".to_string(),
         api_token: token,
-        cookieless_server_hash_mode: 0,
+        cookieless_server_hash_mode: Some(0),
         timezone: "UTC".to_string(),
         ..Default::default()
     };
@@ -321,7 +321,7 @@ pub async fn insert_new_team_in_pg(
         project_id: id as i64,
         name: "Test Team".to_string(),
         api_token: token.clone(),
-        cookieless_server_hash_mode: 0,
+        cookieless_server_hash_mode: Some(0),
         timezone: "UTC".to_string(),
         ..Default::default()
     };
@@ -348,7 +348,7 @@ pub async fn insert_new_team_in_pg(
         r#"INSERT INTO posthog_team
         (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES
         ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD', '30d', false)"#
-    ).bind(team.id).bind(uuid).bind(org_id).bind(team.project_id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode).execute(&mut *non_persons_conn).await?;
+    ).bind(team.id).bind(uuid).bind(org_id).bind(team.project_id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode.unwrap_or(0)).execute(&mut *non_persons_conn).await?;
     assert_eq!(res.rows_affected(), 1);
 
     // Insert group type mappings
@@ -1123,7 +1123,7 @@ impl TestContext {
             project_id: id as i64,
             name: "Test Team".to_string(),
             api_token: public_token.clone(),
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
             ..Default::default()
         };
@@ -1179,7 +1179,7 @@ impl TestContext {
 
         query = query
             .bind(&team.name)
-            .bind(team.cookieless_server_hash_mode);
+            .bind(team.cookieless_server_hash_mode.unwrap_or(0));
 
         let res = query.execute(&mut *conn).await?;
         assert_eq!(res.rows_affected(), 1);
@@ -1190,9 +1190,9 @@ impl TestContext {
         Ok((team, secret_token, backup_secret_token))
     }
 
-    /// Populates the HyperCache with flag definitions for local_evaluation endpoint
+    /// Populates the HyperCache with flag definitions for flag_definitions endpoint
     /// Uses the same cache key format that Django's cache warming uses
-    pub async fn populate_local_evaluation_cache(
+    pub async fn populate_flag_definitions_cache(
         &self,
         redis: Arc<dyn RedisClientTrait + Send + Sync>,
         team_id: i32,
@@ -1233,7 +1233,7 @@ impl TestContext {
     /// Handles Redis client setup internally
     pub async fn populate_cache_for_team(&self, team_id: i32) -> Result<(), Error> {
         let redis_client = setup_redis_client(Some(self.config.redis_url.clone())).await;
-        self.populate_local_evaluation_cache(redis_client, team_id)
+        self.populate_flag_definitions_cache(redis_client, team_id)
             .await
     }
 

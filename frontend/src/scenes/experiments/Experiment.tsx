@@ -2,7 +2,9 @@ import { useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import type { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentForm } from './ExperimentForm'
 import { ExperimentView } from './ExperimentView/ExperimentView'
@@ -19,14 +21,22 @@ export const scene: SceneExport<ExperimentLogicProps> = {
 }
 
 export function Experiment(): JSX.Element {
-    const { formMode, experimentMissing } = useValues(experimentLogic)
-    const isUnifiedCreateFormEnabled = useFeatureFlag('EXPERIMENTS_UNIFIED_CREATE_FORM', 'test')
+    const { formMode, experimentMissing, experimentId } = useValues(experimentLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const isCreateFormEnabled = useFeatureFlag('EXPERIMENTS_CREATE_FORM', 'test')
+
+    useFileSystemLogView({
+        type: 'experiment',
+        ref: experimentId,
+        enabled: Boolean(currentTeamId && !experimentMissing && typeof experimentId === 'number'),
+        deps: [currentTeamId, experimentId, experimentMissing],
+    })
 
     if (experimentMissing) {
         return <NotFound object="experiment" />
     }
 
-    if (isUnifiedCreateFormEnabled && formMode === FORM_MODES.create) {
+    if (isCreateFormEnabled && formMode === FORM_MODES.create) {
         return <CreateExperiment />
     }
 

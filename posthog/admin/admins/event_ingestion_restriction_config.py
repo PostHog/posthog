@@ -1,22 +1,33 @@
+from django import forms
 from django.contrib import admin
 
-from posthog.models.event_ingestion_restriction_config import RestrictionType
+from posthog.models.event_ingestion_restriction_config import (
+    INGESTION_PIPELINES,
+    EventIngestionRestrictionConfig,
+    RestrictionType,
+)
+
+
+class EventIngestionRestrictionConfigForm(forms.ModelForm):
+    # Multi-select field for pipelines with checkboxes
+    pipelines = forms.MultipleChoiceField(
+        required=True,
+        widget=forms.CheckboxSelectMultiple,
+        choices=[(p["value"], p["label"]) for p in INGESTION_PIPELINES],
+        help_text="Select which ingestion pipelines this restriction applies to (at least one required)",
+        error_messages={"required": "Please select at least one pipeline"},
+    )
+
+    class Meta:
+        model = EventIngestionRestrictionConfig
+        fields = ["token", "restriction_type", "note", "pipelines", "distinct_ids"]
 
 
 class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
-    list_display = ("id", "token", "restriction_type", "has_distinct_ids")
+    form = EventIngestionRestrictionConfigForm
+    list_display = ("id", "token", "restriction_type", "pipelines", "has_distinct_ids")
     list_filter = ("restriction_type",)
     search_fields = ("token", "distinct_ids")
-    fieldsets = (
-        (None, {"fields": ("token", "restriction_type", "note")}),
-        (
-            "Distinct IDs",
-            {
-                "fields": ("distinct_ids",),
-                "description": "Optional list of distinct IDs. If not provided, the token itself will be used.",
-            },
-        ),
-    )
 
     @admin.display(boolean=True, description="Has Distinct IDs")
     def has_distinct_ids(self, obj):

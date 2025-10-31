@@ -1,11 +1,11 @@
 use crate::{
     api::{
-        errors::FlagError,
+        errors::{ClientFacingError, FlagError},
         types::{
             ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
         },
     },
-    handler::{process_request, RequestContext},
+    handler::{decoding, process_request, RequestContext},
     router,
 };
 // TODO: stream this instead
@@ -275,12 +275,31 @@ pub async fn flags(
 
     let context = RequestContext {
         request_id,
-        state,
+        state: state.clone(),
         ip,
         headers: headers.clone(),
         meta: modified_query_params,
         body,
     };
+
+    // Rate limiting strategy (order matters for security):
+    // 1. IP-based rate limiting first - prevents DDoS with rotating tokens
+    // 2. Token-based rate limiting second - enforces per-project limits
+    //
+    // This order ensures that an attacker cannot bypass rate limiting by
+    // simply rotating through fake tokens from the same IP address.
+
+    // Check IP-based rate limit first
+    if !state.ip_rate_limiter.allow_request(&ip.to_string()) {
+        return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
+    }
+
+    // Check token-based rate limit
+    // Extract token from body, use IP as fallback if extraction fails
+    let rate_limit_key = decoding::extract_token(&context.body).unwrap_or_else(|| ip.to_string());
+    if !state.flags_rate_limiter.allow_request(&rate_limit_key) {
+        return Err(FlagError::ClientFacing(ClientFacingError::RateLimited));
+    }
 
     // Parse version from query params
     let query_version = context

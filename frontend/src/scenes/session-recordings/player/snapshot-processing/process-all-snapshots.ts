@@ -11,7 +11,10 @@ import {
 } from 'scenes/session-recordings/player/snapshot-processing/chrome-extension-stripping'
 import { chunkMutationSnapshot } from 'scenes/session-recordings/player/snapshot-processing/chunk-large-mutations'
 import { decompressEvent } from 'scenes/session-recordings/player/snapshot-processing/decompress'
-import { ViewportResolution } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
+import {
+    ViewportResolution,
+    extractDimensionsFromMobileSnapshot,
+} from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { throttleCapture } from 'scenes/session-recordings/player/snapshot-processing/throttle-capturing'
 
@@ -26,33 +29,65 @@ import { PostHogEE } from '../../../../../@posthog/ee/types'
 
 export type ProcessingCache = Record<SourceKey, RecordingSnapshot[]>
 
-function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
+function extractImgNodeFromMobileIncremental(snapshot: RecordingSnapshot): any | undefined {
     if (snapshot.type !== EventType.IncrementalSnapshot) {
-        return false
+        return undefined
     }
     const data: any = (snapshot as any).data
-    // Detect React Native wireframe incremental format
-    return !!(data && Array.isArray(data.updates) && data.updates.some((u: any) => u && 'wireframe' in u))
+
+    if (data?.source !== 0 || !Array.isArray(data.adds)) {
+        return undefined
+    }
+
+    const checksLimit = Math.min(data.adds.length, 3)
+    for (let i = 0; i < checksLimit; i++) {
+        const node = data.adds[i]?.node
+        if (
+            node &&
+            node.type === 2 &&
+            node.tagName === 'img' &&
+            node.attributes?.['data-rrweb-id'] &&
+            node.attributes?.width &&
+            node.attributes?.height
+        ) {
+            return node
+        }
+    }
+
+    return undefined
 }
 
-function createMinimalFullSnapshot(windowId: string | undefined, timestamp: number): RecordingSnapshot {
+function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
+    return extractImgNodeFromMobileIncremental(snapshot) !== undefined
+}
+
+function createMinimalFullSnapshot(windowId: string | undefined, timestamp: number, imgNode?: any): RecordingSnapshot {
     // Create a minimal rrweb full document snapshot structure sufficient for playback
+    // For mobile screenshots, include the img node in body so dimension extraction works
+    const bodyChildNodes = imgNode ? [imgNode] : []
+
     const htmlNode = {
-        type: 1, // NodeType.Element
+        type: 2, // Element node
         tagName: 'html',
-        attributes: {},
+        attributes: {
+            'data-rrweb-id': 'minimal-html',
+        },
         childNodes: [
             {
-                type: 1,
+                type: 2, // Element node
                 tagName: 'head',
-                attributes: {},
+                attributes: {
+                    'data-rrweb-id': 'minimal-head',
+                },
                 childNodes: [],
             },
             {
-                type: 1,
+                type: 2, // Element node
                 tagName: 'body',
-                attributes: {},
-                childNodes: [],
+                attributes: {
+                    'data-rrweb-id': 5, // Match mobile transformer body id
+                },
+                childNodes: bodyChildNodes,
             },
         ],
     }
@@ -123,11 +158,22 @@ export function processAllSnapshots(
         let seenHashes = new Set<number>()
 
         // Helper to inject a Meta event before a full snapshot when missing
-        const pushPatchedMeta = (ts: number, winId?: string): boolean => {
+        const pushPatchedMeta = (ts: number, winId?: string, fullSnapshot?: RecordingSnapshot): boolean => {
             if (hasSeenMeta) {
                 return false
             }
-            const viewport = viewportForTimestamp(ts)
+
+            // First try to extract dimensions from mobile snapshot data if available
+            let viewport: ViewportResolution | undefined
+            if (fullSnapshot) {
+                viewport = extractDimensionsFromMobileSnapshot(fullSnapshot)
+            }
+
+            // Fallback to event-based viewport lookup
+            if (!viewport) {
+                viewport = viewportForTimestamp(ts)
+            }
+
             if (viewport && viewport.width && viewport.height) {
                 const metaEvent: RecordingSnapshot = {
                     type: EventType.Meta,
@@ -202,16 +248,14 @@ export function processAllSnapshots(
                 !hasSeenFullForWindow &&
                 isLikelyMobileScreenshot(snapshot)
             ) {
-                // Inject a synthetic full snapshot (and meta if needed) immediately before the first incremental
                 const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
+                const imgNode = extractImgNodeFromMobileIncremental(snapshot)
+                const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp, imgNode)
+                const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId, syntheticFull)
 
-                const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId)
-
-                const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp)
                 result.push(syntheticFull)
                 sourceResult.push(syntheticFull)
                 seenFullByWindow[windowId] = true
-                // mark meta as seen only if we actually inserted it; otherwise allow next full to patch
                 hasSeenMeta = hasSeenMeta || metaInserted
             }
 
@@ -220,7 +264,7 @@ export function processAllSnapshots(
                 seenFullByWindow[snapshot.windowId] = true
 
                 // Ensure meta before this full snapshot if missing
-                pushPatchedMeta(snapshot.timestamp, snapshot.windowId)
+                pushPatchedMeta(snapshot.timestamp, snapshot.windowId, snapshot)
 
                 // Reset for next potential full snapshot
                 hasSeenMeta = false
@@ -306,6 +350,76 @@ function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWit
     return postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) ?? (currentEvent as eventWithTime)
 }
 
+function isLengthPrefixedSnappy(uint8Data: Uint8Array): boolean {
+    if (uint8Data.byteLength < 4) {
+        return false
+    }
+
+    const firstLength = ((uint8Data[0] << 24) | (uint8Data[1] << 16) | (uint8Data[2] << 8) | uint8Data[3]) >>> 0
+
+    if (firstLength === 0 || firstLength > uint8Data.byteLength) {
+        return false
+    }
+
+    if (4 + firstLength > uint8Data.byteLength) {
+        return false
+    }
+
+    return true
+}
+
+const lengthPrefixedSnappyDecompress = async (uint8Data: Uint8Array): Promise<string> => {
+    const workerManager = getDecompressionWorkerManager()
+    const decompressedParts: string[] = []
+    let offset = 0
+
+    // Parse length-prefixed blocks: [4 bytes length][compressed block][4 bytes length][compressed block]...
+    while (offset < uint8Data.byteLength) {
+        // Read 4-byte length prefix (big-endian unsigned int)
+        if (offset + 4 > uint8Data.byteLength) {
+            console.error('Incomplete length prefix at offset', offset)
+            break
+        }
+
+        const length =
+            ((uint8Data[offset] << 24) |
+                (uint8Data[offset + 1] << 16) |
+                (uint8Data[offset + 2] << 8) |
+                uint8Data[offset + 3]) >>>
+            0
+        offset += 4
+
+        // Read compressed block
+        if (offset + length > uint8Data.byteLength) {
+            console.error(
+                `Incomplete block at offset ${offset}, expected ${length} bytes, available ${uint8Data.byteLength - offset}`
+            )
+            break
+        }
+
+        const compressedBlock = uint8Data.slice(offset, offset + length)
+        offset += length
+
+        const decompressedData = await workerManager.decompress(compressedBlock)
+
+        // Convert bytes to string
+        const textDecoder = new TextDecoder('utf-8')
+        const decompressedText = textDecoder.decode(decompressedData)
+        decompressedParts.push(decompressedText)
+    }
+
+    return decompressedParts.join('\n')
+}
+
+const rawSnappyDecompress = async (uint8Data: Uint8Array): Promise<string> => {
+    const workerManager = getDecompressionWorkerManager()
+
+    const decompressedData = await workerManager.decompress(uint8Data)
+
+    const textDecoder = new TextDecoder('utf-8')
+    return textDecoder.decode(decompressedData)
+}
+
 export const parseEncodedSnapshots = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
     sessionId: string
@@ -314,63 +428,49 @@ export const parseEncodedSnapshots = async (
         postHogEEModule = await posthogEE()
     }
 
-    // Check if we received compressed binary data (ArrayBuffer or Uint8Array)
+    // Check if we received binary data (ArrayBuffer or Uint8Array)
     if (items instanceof ArrayBuffer || items instanceof Uint8Array) {
-        try {
-            const uint8Data = items instanceof Uint8Array ? items : new Uint8Array(items)
-            const workerManager = getDecompressionWorkerManager()
-            const decompressedParts: string[] = []
-            let offset = 0
+        const uint8Data = items instanceof Uint8Array ? items : new Uint8Array(items)
 
-            // Parse length-prefixed blocks: [4 bytes length][compressed block][4 bytes length][compressed block]...
-            while (offset < uint8Data.byteLength) {
-                // Read 4-byte length prefix (big-endian unsigned int)
-                if (offset + 4 > uint8Data.byteLength) {
-                    console.error('Incomplete length prefix at offset', offset)
-                    break
-                }
+        if (isLengthPrefixedSnappy(uint8Data)) {
+            try {
+                const combinedText = await lengthPrefixedSnappyDecompress(uint8Data)
 
-                const length =
-                    (uint8Data[offset] << 24) |
-                    (uint8Data[offset + 1] << 16) |
-                    (uint8Data[offset + 2] << 8) |
-                    uint8Data[offset + 3]
-                offset += 4
-
-                // Read compressed block
-                if (offset + length > uint8Data.byteLength) {
-                    console.error(
-                        `Incomplete block at offset ${offset}, expected ${length} bytes, available ${uint8Data.byteLength - offset}`
-                    )
-                    break
-                }
-
-                const compressedBlock = uint8Data.slice(offset, offset + length)
-                offset += length
-
-                // Decompress this block
-                const decompressedData = await workerManager.decompress(compressedBlock)
-
-                // Convert bytes to string
-                const textDecoder = new TextDecoder('utf-8')
-                const decompressedText = textDecoder.decode(decompressedData)
-                decompressedParts.push(decompressedText)
+                const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
+                return parseEncodedSnapshots(lines, sessionId)
+            } catch (error) {
+                console.error('Length-prefixed Snappy decompression failed:', error)
+                posthog.captureException(new Error('Failed to decompress length-prefixed snapshot data'), {
+                    sessionId,
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                    feature: 'session-recording-client-side-decompression',
+                })
+                return []
             }
+        }
 
-            // Join all decompressed blocks with newlines
-            const combinedText = decompressedParts.join('\n')
+        try {
+            const combinedText = await rawSnappyDecompress(uint8Data)
 
-            // Split into lines and parse as JSON
             const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
             return parseEncodedSnapshots(lines, sessionId)
         } catch (error) {
-            console.error('Decompression failed:', error)
-            posthog.captureException(new Error('Failed to decompress snapshot data'), {
-                sessionId,
-                error: error instanceof Error ? error.message : 'Unknown error',
-                feature: 'session-recording-client-side-decompression',
-            })
-            return []
+            try {
+                const textDecoder = new TextDecoder('utf-8')
+                const combinedText = textDecoder.decode(uint8Data)
+
+                const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
+                return parseEncodedSnapshots(lines, sessionId)
+            } catch (decodeError) {
+                console.error('Failed to decompress or decode binary data:', error, decodeError)
+                posthog.captureException(new Error('Failed to process snapshot data'), {
+                    sessionId,
+                    decompressionError: error instanceof Error ? error.message : 'Unknown error',
+                    decodeError: decodeError instanceof Error ? decodeError.message : 'Unknown error',
+                    feature: 'session-recording-client-side-decompression',
+                })
+                return []
+            }
         }
     }
 

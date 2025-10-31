@@ -190,7 +190,10 @@ const customFilterFunction = (template: HogFunctionTemplateType): boolean => {
 }
 
 function HogFunctionTemplatesChooser(): JSX.Element {
-    const logic = hogFunctionTemplateListLogic({ type: 'destination', customFilterFunction })
+    const logic = hogFunctionTemplateListLogic({
+        type: 'destination',
+        customFilterFunction,
+    })
 
     const { loading, filteredTemplates, filters } = useValues(logic)
     const { loadHogFunctionTemplates, setFilters } = useActions(logic)

@@ -74,24 +74,28 @@ export function WebVitals(props: {
                         value={INP}
                         isActive={webVitalsTab === 'INP'}
                         setTab={() => setWebVitalsTab('INP')}
+                        isLoading={responseLoading}
                     />
                     <WebVitalsTab
                         metric="LCP"
                         value={LCP}
                         isActive={webVitalsTab === 'LCP'}
                         setTab={() => setWebVitalsTab('LCP')}
+                        isLoading={responseLoading}
                     />
                     <WebVitalsTab
                         metric="FCP"
                         value={FCP}
                         isActive={webVitalsTab === 'FCP'}
                         setTab={() => setWebVitalsTab('FCP')}
+                        isLoading={responseLoading}
                     />
                     <WebVitalsTab
                         metric="CLS"
                         value={CLS}
                         isActive={webVitalsTab === 'CLS'}
                         setTab={() => setWebVitalsTab('CLS')}
+                        isLoading={responseLoading}
                     />
                 </div>
                 <span className="text-xs text-text-tertiary self-center sm:self-end">
@@ -103,7 +107,7 @@ export function WebVitals(props: {
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">
-                <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} />
+                <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} isLoading={responseLoading} />
                 <div className="flex flex-col flex-1 bg-surface-primary rounded border p-4">
                     <Query
                         query={webVitalsMetricQuery}

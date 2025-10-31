@@ -18,7 +18,8 @@ from posthog.settings import CLOUD_DEPLOYMENT
 PROJECT_ORG_USER_CONTEXT_PROMPT = """
 You are currently in project {{{project_name}}}, which is part of the {{{organization_name}}} organization.
 The user's name appears to be {{{user_full_name}}} ({{{user_email}}}). Feel free to use their first name when greeting. DO NOT use this name if it appears possibly fake.
-The user is accessing the PostHog App from the "{{{deployment_region}}}" region, therefore all PostHog App URLs should be prefixed with the region, e.g. https://{{{deployment_region}}}.posthog.com
+All PostHog app URLs (known by domains us.posthog.com, eu.posthog.com, app.posthog.com) must use absolute paths without a domain, and omitting the `/project/:id/` prefix.
+Use Markdown, for example "Find cohorts [in the Cohorts view](/cohorts)".
 Current time in the project's timezone, {{{project_timezone}}}: {{{project_datetime}}}.
 """.strip()
 

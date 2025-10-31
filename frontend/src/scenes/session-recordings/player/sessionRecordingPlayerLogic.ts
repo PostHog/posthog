@@ -29,7 +29,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import { ReplayIframeData } from 'scenes/heatmaps/heatmapsBrowserLogic'
+import { ReplayIframeData } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import {
     SessionRecordingDataCoordinatorLogicProps,
@@ -43,6 +43,7 @@ import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, 
 
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { getTestWorkerManager, terminateTestWorker } from './TestWorkerManager'
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -50,7 +51,7 @@ import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, make
 import { AudioMuteReplayerPlugin } from './rrweb/audio/audio-mute-plugin'
 import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
-import { snapshotDataLogic } from './snapshotDataLogic'
+import { DEFAULT_LOADING_BUFFER, snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording } from './utils/playerUtils'
 import { SessionRecordingPlayerExplorerProps } from './view-explorer/SessionRecordingPlayerExplorer'
 
@@ -336,7 +337,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             snapshotDataLogic(props),
-            ['snapshotsLoaded', 'snapshotsLoading'],
+            ['snapshotsLoaded', 'snapshotsLoading', 'snapshotSources'],
             sessionRecordingDataCoordinatorLogic(props),
             [
                 'urls',
@@ -356,10 +357,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ['preflight'],
             featureFlagLogic,
             ['featureFlags'],
+            exportsLogic,
+            ['hasReachedExportFullVideoLimit'],
         ],
         actions: [
             snapshotDataLogic(props),
-            ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure'],
+            ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure', 'loadUntilTimestamp'],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
             playerSettingsLogic,
@@ -1006,6 +1009,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return isHovering
             },
         ],
+
+        // Target timestamp to buffer ahead to (current position + 15 minutes)
+        targetBufferTimestamp: [
+            (s) => [s.currentTimestamp],
+            (currentTimestamp): number | null => {
+                if (!currentTimestamp) {
+                    return null
+                }
+
+                return currentTimestamp + DEFAULT_LOADING_BUFFER
+            },
+        ],
     }),
     listeners(({ props, values, actions, cache }) => ({
         caughtAssetErrorFromIframe: ({ errorDetails }) => {
@@ -1337,6 +1352,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.snapshotsLoaded) {
                 actions.loadSnapshots()
             }
+
             actions.stopAnimation()
             actions.restartIframePlayback()
             actions.syncPlayerSpeed() // hotfix: speed changes on player state change
@@ -1432,6 +1448,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.player?.replayer?.pause()
                     actions.startBuffer()
                     actions.clearPlayerError()
+                    // the target buffer timestamp won't have been updated yet, so we calculate it directly
+                    actions.loadUntilTimestamp(timestamp + DEFAULT_LOADING_BUFFER)
                 }
             }
 
@@ -1501,6 +1519,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     newTimestamp = values.currentTimestamp + values.roughAnimationFPS
                 }
             }
+
+            // Tell the data logic what timestamp we want buffered to
+            // It will decide if it needs to load more data
+            actions.loadUntilTimestamp(values.targetBufferTimestamp)
 
             // If we're beyond buffered position, set to buffering
             if (values.currentSegment?.kind === 'buffer') {
@@ -1588,6 +1610,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             const doExport = async (): Promise<void> => {
+                actions.setPause()
+
+                const endTime = values.sessionPlayerData.end?.valueOf()
+                if (endTime) {
+                    actions.loadUntilTimestamp(endTime)
+                }
+
                 const delayTime = 1000
                 let maxWaitTime = 30000
                 while (!values.sessionPlayerData.fullyLoaded) {
@@ -1703,7 +1732,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 url: values.currentURL,
             }
             localStorage.setItem(key, JSON.stringify(data))
-            router.actions.push(urls.heatmaps(`iframeStorage=${key}`))
+            router.actions.push(urls.heatmapRecording(`iframeStorage=${key}`))
         },
 
         setIsFullScreen: async ({ isFullScreen }) => {
@@ -1790,6 +1819,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
 
+        try {
+            terminateTestWorker()
+        } catch (error) {
+            console.warn('[SessionRecordingPlayerLogic] Failed to terminate test worker:', error)
+        }
+
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
@@ -1825,6 +1860,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             document.addEventListener('fullscreenchange', fullScreenListener)
             return () => document.removeEventListener('fullscreenchange', fullScreenListener)
         }, 'fullscreenListener')
+
+        try {
+            const testWorker = getTestWorkerManager()
+            void testWorker.initialize()
+        } catch (error) {
+            console.warn('[SessionRecordingPlayerLogic] Failed to initialize test worker:', error)
+        }
 
         if (props.sessionRecordingId) {
             actions.loadRecordingData()

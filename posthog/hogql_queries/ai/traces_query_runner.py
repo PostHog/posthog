@@ -185,6 +185,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             """
             SELECT
                 properties.$ai_trace_id AS id,
+                any(properties.$ai_session_id) AS ai_session_id,
                 min(timestamp) AS first_timestamp,
                 tuple(
                     argMin(person.id, timestamp),
@@ -330,6 +331,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
     def _map_trace(self, result: dict[str, Any], created_at: datetime) -> LLMTrace:
         TRACE_FIELDS_MAPPING = {
             "id": "id",
+            "ai_session_id": "aiSessionId",
             "created_at": "createdAt",
             "person": "person",
             "total_latency": "totalLatency",
@@ -409,6 +411,15 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(chain=["person_id"]),
                     right=ast.Constant(value=self.query.personId),
+                )
+            )
+
+        if self.query.groupKey and self.query.groupTypeIndex is not None:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[f"$group_{self.query.groupTypeIndex}"]),
+                    right=ast.Constant(value=self.query.groupKey),
                 )
             )
 

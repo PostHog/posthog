@@ -14,6 +14,13 @@ from posthog.hogql.database.models import (
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr
 
+FIELDS: dict[str, FieldOrTable] = {
+    "team_id": IntegerDatabaseField(name="team_id"),
+    "group_key": StringDatabaseField(name="group_key"),
+    "revenue": DecimalDatabaseField(name="revenue", nullable=False),
+    "revenue_last_30_days": DecimalDatabaseField(name="revenue_last_30_days", nullable=False),
+}
+
 
 def join_with_groups_revenue_analytics_table(
     join_to_add: LazyJoinToAdd,
@@ -45,15 +52,13 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
         RevenueAnalyticsRevenueItemView,
     )
 
-    columns = ["group_key", "revenue", "revenue_last_30_days"]
-
     if not context.database:
-        return ast.SelectQuery.empty(columns=columns)
+        return ast.SelectQuery.empty(columns=FIELDS)
 
     # Get all customer/revenue item pairs from the existing views making sure we ignore `all`
     # since the `group` join is in the child view
     all_views: dict[str, dict[type[RevenueAnalyticsBaseView], RevenueAnalyticsBaseView]] = defaultdict(defaultdict)
-    for view_name in context.database.get_views():
+    for view_name in context.database.get_view_names():
         view = context.database.get_table(view_name)
 
         if isinstance(view, RevenueAnalyticsBaseView) and not view.union_all:
@@ -167,7 +172,7 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
             queries.append(query)
 
     if not queries:
-        return ast.SelectQuery.empty(columns=columns)
+        return ast.SelectQuery.empty(columns=FIELDS)
     elif len(queries) == 1:
         return queries[0]
     else:
@@ -175,12 +180,7 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
 
 
 class GroupsRevenueAnalyticsTable(LazyTable):
-    fields: dict[str, FieldOrTable] = {
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "group_key": StringDatabaseField(name="group_key"),
-        "revenue": DecimalDatabaseField(name="revenue", nullable=False),
-        "revenue_last_30_days": DecimalDatabaseField(name="revenue_last_30_days", nullable=False),
-    }
+    fields: dict[str, FieldOrTable] = FIELDS
 
     def lazy_select(
         self,

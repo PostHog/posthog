@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from langchain_core import messages
 
@@ -16,7 +16,7 @@ def convert_context_message_to_openai_message(message: ContextMessage) -> messag
 
 
 def convert_assistant_message_to_openai_message(
-    message: AssistantMessage, tool_result_map: dict[str, AssistantToolCallMessage]
+    message: AssistantMessage, tool_result_map: Mapping[str, AssistantToolCallMessage]
 ) -> list[messages.BaseMessage]:
     history: list[messages.BaseMessage] = []
 
@@ -41,7 +41,7 @@ def convert_failure_message_to_openai_message(message: FailureMessage) -> messag
 
 
 def convert_to_openai_message(
-    message: AssistantMessageUnion, tool_result_map: dict[str, AssistantToolCallMessage]
+    message: AssistantMessageUnion, tool_result_map: Mapping[str, AssistantToolCallMessage]
 ) -> list[messages.BaseMessage]:
     if isinstance(message, HumanMessage):
         return [convert_human_message_to_openai_message(message)]
@@ -56,7 +56,7 @@ def convert_to_openai_message(
 
 def convert_to_openai_messages(
     conversation: Sequence[AssistantMessageUnion],
-    tool_result_map: dict[str, AssistantToolCallMessage],
+    tool_result_map: Mapping[str, AssistantToolCallMessage],
 ) -> list[messages.BaseMessage]:
     history: list[messages.BaseMessage] = []
     for message in conversation:
