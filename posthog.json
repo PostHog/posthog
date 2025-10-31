@@ -1,8 +1,10 @@
 {
-    "schema_version": 1761820209328,
-    "updated_at": "2025-10-30T10:30:09.328868+00:00",
-    "event_count": 31,
-    "output_paths": {
-        "typescript": "frontend/src/lib/posthog-typed.ts"
+    "languages": {
+        "typescript": {
+            "output_path": "frontend/src/lib/posthog-typed.ts",
+            "schema_hash": "f7e9ba57e5cb4df9",
+            "updated_at": "2025-10-31T05:59:01.809697+00:00",
+            "event_count": 31
+        }
     }
 }
