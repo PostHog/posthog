@@ -184,11 +184,13 @@ impl RedisClient {
     ///
     /// Defaults:
     /// - Format: Pickle (Django-compatible)
-    /// - Compression: Enabled, 512-byte threshold, level 0 (Django-compatible)
+    /// - Compression: Disabled
+    ///
+    /// For Django-compatible compression, use `with_config()` with `CompressionConfig::default()`
     pub async fn new(addr: String) -> Result<RedisClient, CustomRedisError> {
         Self::with_config(
             addr,
-            CompressionConfig::default(),
+            CompressionConfig::disabled(),
             RedisValueFormat::default(),
         )
         .await
@@ -874,6 +876,34 @@ mod tests {
             } else {
                 assert_eq!(processed, original, "Expected no compression");
             }
+        }
+    }
+
+    mod redis_client_config {
+        use super::*;
+
+        #[test]
+        fn test_default_configuration_is_backwards_compatible() {
+            // Verify that RedisClient::new() defaults are backwards compatible
+            // This test documents the default behavior and prevents accidental changes
+
+            // Default compression should be DISABLED for backwards compatibility
+            let default_compression = CompressionConfig::disabled();
+            assert!(!default_compression.enabled);
+
+            // Default format should be Pickle (existing behavior)
+            let default_format = RedisValueFormat::default();
+            assert_eq!(default_format, RedisValueFormat::Pickle);
+        }
+
+        #[test]
+        fn test_compression_config_default_is_django_compatible() {
+            // CompressionConfig::default() provides Django-compatible settings
+            // This is used when explicitly opting into compression via with_config()
+            let config = CompressionConfig::default();
+            assert!(config.enabled);
+            assert_eq!(config.threshold, 512); // Match Django's ZstdCompressor.min_length
+            assert_eq!(config.level, 0); // Match Django's zstd_preset default
         }
     }
 
