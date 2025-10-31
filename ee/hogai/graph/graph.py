@@ -368,13 +368,13 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         )
         return self
 
-    def add_session_summarization(self, end_node: AssistantNodeName = AssistantNodeName.END):
+    def add_session_summarization(self):
         session_summarization_node = SessionSummarizationNode(self._team, self._user)
         self.add_node(AssistantNodeName.SESSION_SUMMARIZATION, session_summarization_node)
         self._graph.add_edge(AssistantNodeName.SESSION_SUMMARIZATION, AssistantNodeName.ROOT)
         return self
 
-    def add_dashboard_creation(self, end_node: AssistantNodeName = AssistantNodeName.END):
+    def add_dashboard_creation(self):
         builder = self._graph
         dashboard_creation_node = DashboardCreationNode(self._team, self._user)
         builder.add_node(AssistantNodeName.DASHBOARD_CREATION, dashboard_creation_node)
