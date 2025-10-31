@@ -1644,7 +1644,7 @@ def surveys(request: Request):
     response = None
 
     if settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS and (
-        settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS == "*" or token in settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS
+        "*" in settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS or token in settings.SURVEYS_API_USE_REMOTE_CONFIG_TOKENS
     ):
         try:
             config = RemoteConfig.get_config_via_token(token, request=request)
