@@ -1,12 +1,12 @@
 use std::time::Duration;
 
+use common_types::error_tracking::RawFrameId;
 use moka::sync::{Cache, CacheBuilder};
 use sqlx::PgPool;
 
 use crate::{
     config::Config,
     error::UnhandledError,
-    frames::FrameId,
     metric_consts::{
         FRAME_CACHE_HITS, FRAME_CACHE_MISSES, FRAME_DB_HITS, FRAME_DB_MISSES,
         SUSPICIOUS_FRAMES_DETECTED,
@@ -17,7 +17,7 @@ use crate::{
 use super::{records::ErrorTrackingStackFrame, releases::ReleaseRecord, Frame, RawFrame};
 
 pub struct Resolver {
-    cache: Cache<FrameId, ErrorTrackingStackFrame>,
+    cache: Cache<RawFrameId, Vec<ErrorTrackingStackFrame>>,
     result_ttl: chrono::Duration,
 }
 
@@ -38,28 +38,27 @@ impl Resolver {
         team_id: i32,
         pool: &PgPool,
         catalog: &Catalog,
-    ) -> Result<Frame, UnhandledError> {
-        if let Some(result) = self.cache.get(&frame.frame_id(team_id)) {
+    ) -> Result<Vec<Frame>, UnhandledError> {
+        let raw_id = frame.raw_id(team_id);
+
+        if let Some(result) = self.cache.get(&raw_id) {
             metrics::counter!(FRAME_CACHE_HITS).increment(1);
-            return Ok(result.contents);
+            return Ok(result.into_iter().map(|f| f.contents).collect());
         }
         metrics::counter!(FRAME_CACHE_MISSES).increment(1);
 
-        if let Some(mut result) =
-            ErrorTrackingStackFrame::load(pool, &frame.frame_id(team_id), self.result_ttl).await?
-        {
-            // We don't serialise release information on the frame, so we have to reload it if we fetched
-            // the saved result from the DB
-            result.contents = add_release_info(pool, result.contents, frame, team_id).await?;
-            self.cache.insert(frame.frame_id(team_id), result.clone());
+        let loaded = ErrorTrackingStackFrame::load_all(pool, &raw_id, self.result_ttl).await?;
+
+        if !loaded.is_empty() {
+            self.cache.insert(raw_id.clone().into(), loaded.clone());
             metrics::counter!(FRAME_DB_HITS).increment(1);
-            return Ok(result.contents);
+            return Ok(loaded.into_iter().map(|f| f.contents).collect());
         }
 
         metrics::counter!(FRAME_DB_MISSES).increment(1);
 
         let resolved = frame.resolve(team_id, catalog).await?;
-        let resolved = add_release_info(pool, resolved, frame, team_id).await?;
+        let resolved = add_release_info(pool, resolved[0], frame).await?;
 
         let set = if let Some(set_ref) = frame.symbol_set_ref() {
             SymbolSetRecord::load(pool, team_id, &set_ref).await?
@@ -94,8 +93,8 @@ async fn add_release_info(
     pool: &PgPool,
     mut resolved: Frame,
     raw: &RawFrame,
-    team_id: i32,
 ) -> Result<Frame, UnhandledError> {
+    let ream_id = resolved.raw_id.team_id
     if let Some(set_ref) = raw.symbol_set_ref() {
         resolved.release = ReleaseRecord::for_symbol_set(pool, set_ref, team_id).await?;
     }

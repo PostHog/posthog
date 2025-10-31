@@ -150,6 +150,8 @@ pub enum ProguardError {
     MissingMap(String),
     #[error("No map ID sent with frame")]
     NoMapId,
+    #[error("No original frames could be derived from this raw frame")]
+    NoOriginalFrames,
 }
 
 #[derive(Debug, Error, Clone)]

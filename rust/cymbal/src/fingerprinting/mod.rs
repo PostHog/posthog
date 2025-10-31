@@ -128,7 +128,7 @@ mod test {
 
         let mut resolved_frames = vec![
             Frame {
-                raw_id: FrameId::new(String::new(), team_id),
+                raw_id: FrameId::new(String::new(), team_id, 0),
                 mangled_name: "foo".to_string(),
                 line: Some(10),
                 column: Some(5),
@@ -146,7 +146,7 @@ mod test {
                 module: None,
             },
             Frame {
-                raw_id: FrameId::new(String::new(), team_id),
+                raw_id: FrameId::new(String::new(), team_id, 0),
                 mangled_name: "bar".to_string(),
                 line: Some(20),
                 column: Some(15),
@@ -166,7 +166,7 @@ mod test {
         ];
 
         let unresolved_frame = Frame {
-            raw_id: FrameId::new(String::new(), team_id),
+            raw_id: FrameId::new(String::new(), team_id, 0),
             mangled_name: "xyz".to_string(),
             line: Some(30),
             column: Some(25),
@@ -216,7 +216,7 @@ mod test {
 
         let resolved_frames = vec![
             Frame {
-                raw_id: FrameId::new(String::new(), 1),
+                raw_id: FrameId::new(String::new(), 1, 0),
                 mangled_name: "foo".to_string(),
                 line: Some(10),
                 column: Some(5),
@@ -234,7 +234,7 @@ mod test {
                 module: None,
             },
             Frame {
-                raw_id: FrameId::new(String::new(), 1),
+                raw_id: FrameId::new(String::new(), 1, 0),
                 mangled_name: "bar".to_string(),
                 line: Some(20),
                 column: Some(15),
@@ -252,7 +252,7 @@ mod test {
                 module: None,
             },
             Frame {
-                raw_id: FrameId::new(String::new(), 1),
+                raw_id: FrameId::new(String::new(), 1, 0),
                 mangled_name: "xyz".to_string(),
                 line: Some(30),
                 column: Some(25),
@@ -296,7 +296,7 @@ mod test {
         };
 
         let mut resolved_frames = vec![Frame {
-            raw_id: FrameId::new(String::new(), 1),
+            raw_id: FrameId::new(String::new(), 1, 0),
             mangled_name: "foo".to_string(),
             line: Some(10),
             column: Some(5),
@@ -315,7 +315,7 @@ mod test {
         }];
 
         let non_app_frame = Frame {
-            raw_id: FrameId::new(String::new(), 1),
+            raw_id: FrameId::new(String::new(), 1, 0),
             mangled_name: "bar".to_string(),
             line: Some(20),
             column: Some(15),

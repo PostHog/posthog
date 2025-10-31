@@ -56,6 +56,12 @@ impl FetchedMapping {
         }
         Ok(Self { inner })
     }
+
+    pub fn get_mapper<'a>(&'a self) -> proguard::ProguardMapper<'a> {
+        let mapping = proguard::ProguardMapping::new(self.inner.content.as_bytes());
+        let mapper = proguard::ProguardMapper::new(mapping);
+        mapper
+    }
 }
 
 impl Display for ProguardRef {
