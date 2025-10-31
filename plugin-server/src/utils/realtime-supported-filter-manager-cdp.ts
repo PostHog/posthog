@@ -1,5 +1,4 @@
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { parseJSON } from './json-parse'
 import { LazyLoader } from './lazy-loader'
 
 export interface RealtimeSupportedFilter {
@@ -83,58 +82,71 @@ export class RealtimeSupportedFilterManagerCDP {
                 seenConditionHashesByTeam.set(teamIdStr, new Set<string>())
             }
 
-            // PostgreSQL automatically deserializes JSON/JSONB columns, so filters is already an object
+            const teamSeenHashes = seenConditionHashesByTeam.get(teamIdStr)!
             const filtersJson = cohortRow.filters || {}
 
-            const teamSeenHashes = seenConditionHashesByTeam.get(teamIdStr)!
-
-            // Recursively traverse filter tree to extract inline bytecode from leaf nodes
-            const traverse = (node: any) => {
-                if (!node) {
-                    return
-                }
-
-                // If it's a group node (OR/AND), recurse into values
-                if (node.type === 'OR' || node.type === 'AND') {
-                    if (Array.isArray(node.values)) {
-                        node.values.forEach((value: any) => traverse(value))
-                    }
-                    return
-                }
-
-                // It's a leaf filter node - check if it has bytecode
-                if (!node.conditionHash || !node.bytecode) {
-                    return // Skip nodes without bytecode
-                }
-
-                // Skip person property entries explicitly
-                if (node.type === 'person') {
-                    return
-                }
-
-                const conditionHash = node.conditionHash
-
-                // Deduplicate: only add if we haven't seen this conditionHash for this team before
-                if (!teamSeenHashes.has(conditionHash)) {
-                    teamSeenHashes.add(conditionHash)
-
-                    const filter: RealtimeSupportedFilter = {
-                        conditionHash,
-                        bytecode: node.bytecode,
-                        team_id: cohortRow.team_id,
-                        cohort_id: cohortRow.cohort_id,
-                    }
-
-                    resultRecord[teamIdStr].push(filter)
-                }
-            }
-
-            // Start traversal from properties root
-            if (filtersJson.properties) {
-                traverse(filtersJson.properties)
+            const extracted = this.extractRealtimeFiltersFromFiltersJson(filtersJson, cohortRow, teamSeenHashes)
+            if (extracted.length > 0) {
+                resultRecord[teamIdStr].push(...extracted)
             }
         })
 
         return resultRecord
+    }
+
+    // Extracts realtime-executable filters from a cohort's filters JSON
+    private extractRealtimeFiltersFromFiltersJson(
+        filtersJson: any,
+        cohortRow: CohortRow,
+        teamSeenHashes: Set<string>
+    ): RealtimeSupportedFilter[] {
+        const collected: RealtimeSupportedFilter[] = []
+
+        const visitLeaf = (node: any) => {
+            // Only accept leaf nodes that have inline bytecode and conditionHash
+            if (!node || !node.conditionHash || !node.bytecode) {
+                return
+            }
+            // Skip person property entries
+            if (node.type === 'person') {
+                return
+            }
+
+            const conditionHash = node.conditionHash as string
+            if (teamSeenHashes.has(conditionHash)) {
+                return
+            }
+            teamSeenHashes.add(conditionHash)
+
+            collected.push({
+                conditionHash,
+                bytecode: node.bytecode,
+                team_id: cohortRow.team_id,
+                cohort_id: cohortRow.cohort_id,
+            })
+        }
+
+        if (filtersJson && filtersJson.properties) {
+            this.traverseFilterTree(filtersJson.properties, visitLeaf)
+        }
+
+        return collected
+    }
+
+    // Generic DFS over the filter tree; calls visit on every leaf node
+    private traverseFilterTree(node: any, visit: (leaf: any) => void): void {
+        if (!node) {
+            return
+        }
+        const isGroup = node.type === 'OR' || node.type === 'AND'
+        if (isGroup) {
+            if (Array.isArray(node.values)) {
+                for (const child of node.values) {
+                    this.traverseFilterTree(child, visit)
+                }
+            }
+            return
+        }
+        visit(node)
     }
 }
