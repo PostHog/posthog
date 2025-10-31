@@ -5065,6 +5065,19 @@
         }
     },
     {
+        "model": "openai/text-embedding-3-large",
+        "cost": {
+            "default": {
+                "prompt_token": 1.3e-7,
+                "completion_token": 0
+            },
+            "openai": {
+                "prompt_token": 1.3e-7,
+                "completion_token": 0
+            }
+        }
+    },
+    {
         "model": "opengvlab/internvl3-78b",
         "cost": {
             "default": {
@@ -5130,6 +5143,21 @@
                 "prompt_token": 0.000003,
                 "completion_token": 0.000015,
                 "web_search": 0.005
+            }
+        }
+    },
+    {
+        "model": "perplexity/sonar-pro-search",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000003,
+                "completion_token": 0.000015,
+                "request": 0.018
+            },
+            "perplexity": {
+                "prompt_token": 0.000003,
+                "completion_token": 0.000015,
+                "request": 0.018
             }
         }
     },
@@ -6989,7 +7017,7 @@
                 "completion_token": 0.00000175
             },
             "deepinfra-fp4": {
-                "prompt_token": 6e-7,
+                "prompt_token": 4.5e-7,
                 "completion_token": 0.0000019,
                 "cache_read_token": 1.1e-7
             },
@@ -7002,7 +7030,7 @@
                 "completion_token": 0.000002
             },
             "mancer-fp8": {
-                "prompt_token": 5e-7,
+                "prompt_token": 4.5e-7,
                 "completion_token": 0.000002
             },
             "novita-bf16": {
@@ -7029,11 +7057,11 @@
         "model": "z-ai/glm-4.6:exacto",
         "cost": {
             "default": {
-                "prompt_token": 6e-7,
+                "prompt_token": 4.5e-7,
                 "completion_token": 0.0000019
             },
-            "deepinfra-fp8": {
-                "prompt_token": 6e-7,
+            "deepinfra-fp4": {
+                "prompt_token": 4.5e-7,
                 "completion_token": 0.0000019
             },
             "novita-bf16": {
