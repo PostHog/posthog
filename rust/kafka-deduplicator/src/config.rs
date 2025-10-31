@@ -89,7 +89,7 @@ pub struct Config {
     #[envconfig(default = "1000")] // 1000 messages
     pub kafka_consumer_batch_size: usize,
 
-    #[envconfig(default = "1000")] // 1 second
+    #[envconfig(default = "500")] // 1/2 second
     pub kafka_consumer_batch_timeout_ms: u64,
 
     #[envconfig(default = "120")] // 120 seconds (2 minutes)
@@ -239,6 +239,11 @@ impl Config {
     /// Get commit interval as Duration
     pub fn commit_interval(&self) -> Duration {
         Duration::from_secs(self.commit_interval_secs)
+    }
+
+    /// Get kafka consumer batch timeout as Duration
+    pub fn kafka_consumer_batch_timeout(&self) -> Duration {
+        Duration::from_millis(self.kafka_consumer_batch_timeout_ms)
     }
 
     /// Get flush interval as Duration

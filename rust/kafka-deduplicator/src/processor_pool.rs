@@ -1,5 +1,5 @@
-use crate::kafka::message::MessageProcessor;
 use crate::kafka::batch_message::{Batch, KafkaMessage};
+use crate::kafka::message::MessageProcessor;
 use common_types::CapturedEvent;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -27,7 +27,10 @@ pub struct ProcessorPool<P: MessageProcessor> {
 
 impl<P: MessageProcessor + Clone + 'static> ProcessorPool<P> {
     /// Create a new processor pool with the specified number of workers
-    pub fn new(processor: P, num_workers: usize) -> (mpsc::UnboundedSender<Batch<CapturedEvent>>, Self) {
+    pub fn new(
+        processor: P,
+        num_workers: usize,
+    ) -> (mpsc::UnboundedSender<Batch<CapturedEvent>>, Self) {
         let (sender, receiver) = mpsc::unbounded_channel();
 
         // Clone processor for each worker
@@ -154,6 +157,7 @@ mod tests {
     use crate::kafka::message::MessageProcessor;
     use crate::kafka::types::Partition;
     use async_trait::async_trait;
+    use rdkafka::message::{Header, OwnedHeaders};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -219,7 +223,10 @@ mod tests {
 
     #[async_trait]
     impl MessageProcessor for TestProcessor {
-        async fn process_message(&self, message: KafkaMessage<CapturedEvent>) -> anyhow::Result<()> {
+        async fn process_message(
+            &self,
+            message: KafkaMessage<CapturedEvent>,
+        ) -> anyhow::Result<()> {
             let current = self.concurrent_count.fetch_add(1, Ordering::SeqCst) + 1;
 
             loop {
@@ -270,7 +277,10 @@ mod tests {
 
     #[async_trait]
     impl MessageProcessor for FailingProcessor {
-        async fn process_message(&self, message: KafkaMessage<CapturedEvent>) -> anyhow::Result<()> {
+        async fn process_message(
+            &self,
+            message: KafkaMessage<CapturedEvent>,
+        ) -> anyhow::Result<()> {
             let offset = message.get_offset();
 
             if let Some(fail_offset) = self.fail_on_offset {
@@ -286,8 +296,13 @@ mod tests {
     }
 
     async fn create_test_message(key: Option<&[u8]>, offset: i64) -> KafkaMessage<CapturedEvent> {
+        let original_headers = OwnedHeaders::new().insert(Header {
+            key: "header1",
+            value: Some(b"value1"),
+        });
+
         KafkaMessage::new(
-    Partition::new("test-topic".to_string(), 0),
+            Partition::new("test-topic".to_string(), 0),
             offset,
             key.map(|k| k.to_vec()),
             Some(CapturedEvent {
@@ -301,7 +316,8 @@ mod tests {
                 is_cookieless_mode: false,
             }),
             std::time::SystemTime::now(),
-            None,
+            Some(original_headers),
+            Some(Vec::new()), // stub value for testing
         )
     }
 
@@ -361,7 +377,6 @@ mod tests {
                 batch.push_message(msg);
             }
             sender.send(batch).unwrap();
-
         }
 
         sleep(Duration::from_secs(1)).await;
@@ -470,7 +485,10 @@ mod tests {
 
     #[async_trait]
     impl MessageProcessor for SlowKeyProcessor {
-        async fn process_message(&self, message: KafkaMessage<CapturedEvent>) -> anyhow::Result<()> {
+        async fn process_message(
+            &self,
+            message: KafkaMessage<CapturedEvent>,
+        ) -> anyhow::Result<()> {
             let key = message.key.unwrap_or_default();
 
             // Record when we started processing
@@ -503,7 +521,10 @@ mod tests {
 
     #[async_trait]
     impl MessageProcessor for OrderCheckProcessor {
-        async fn process_message(&self, message: KafkaMessage<CapturedEvent>) -> anyhow::Result<()> {
+        async fn process_message(
+            &self,
+            message: KafkaMessage<CapturedEvent>,
+        ) -> anyhow::Result<()> {
             if let Some(key) = message.key.as_ref() {
                 let offset = message.get_offset();
 
@@ -684,7 +705,10 @@ mod tests {
 
         #[async_trait]
         impl MessageProcessor for PanickingProcessor {
-            async fn process_message(&self, message: KafkaMessage<CapturedEvent>) -> anyhow::Result<()> {
+            async fn process_message(
+                &self,
+                message: KafkaMessage<CapturedEvent>,
+            ) -> anyhow::Result<()> {
                 let offset = message.get_offset();
                 if offset == self.panic_on_offset {
                     panic!("Intentional panic for testing at offset {offset}");
@@ -711,7 +735,7 @@ mod tests {
             let msg = create_test_message(None, i).await;
             batch.push_message(msg);
         }
-        sender.send(    batch).unwrap();
+        sender.send(batch).unwrap();
 
         // Wait for processing
         sleep(Duration::from_millis(100)).await;
@@ -799,7 +823,10 @@ mod tests {
 
         #[async_trait]
         impl MessageProcessor for AlwaysPanicProcessor {
-            async fn process_message(&self, _message: KafkaMessage<CapturedEvent>) -> anyhow::Result<()> {
+            async fn process_message(
+                &self,
+                _message: KafkaMessage<CapturedEvent>,
+            ) -> anyhow::Result<()> {
                 panic!("Always panic for testing");
             }
         }
@@ -821,7 +848,10 @@ mod tests {
 
         #[async_trait]
         impl MessageProcessor for TrackingProcessor {
-            async fn process_message(&self, message: KafkaMessage<CapturedEvent>) -> anyhow::Result<()> {
+            async fn process_message(
+                &self,
+                message: KafkaMessage<CapturedEvent>,
+            ) -> anyhow::Result<()> {
                 self.messages_seen.fetch_add(1, Ordering::SeqCst);
                 // This will panic
                 self.inner.process_message(message).await
@@ -900,7 +930,10 @@ mod tests {
 
         #[async_trait]
         impl MessageProcessor for MessageTrackingProcessor {
-            async fn process_message(&self, message: KafkaMessage<CapturedEvent>) -> anyhow::Result<()> {
+            async fn process_message(
+                &self,
+                message: KafkaMessage<CapturedEvent>,
+            ) -> anyhow::Result<()> {
                 let offset = message.get_offset();
 
                 // Record that we started processing this message

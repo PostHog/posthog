@@ -4,11 +4,10 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use common_kafka::config::KafkaConfig;
-use common_types::CapturedEvent;
 use common_kafka::kafka_producer::create_kafka_producer;
+use common_types::CapturedEvent;
 
 use health::{HealthHandle, HealthRegistry};
-use rdkafka::consumer::Consumer;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -342,10 +341,10 @@ impl KafkaDeduplicatorService {
             &consumer_config,
             rebalance_handler,
             message_sender,
-            self.health_task_cancellation.child_token(),
+            shutdown_rx,
             &self.config.kafka_consumer_topic,
             self.config.kafka_consumer_batch_size,
-            self.config.batch_timeout(),
+            self.config.kafka_consumer_batch_timeout(),
             self.config.commit_interval(),
         )
         .with_context(|| {
