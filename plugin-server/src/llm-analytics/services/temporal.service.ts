@@ -1,5 +1,7 @@
-import { Client, Connection, TLSConfig, WorkflowHandle } from '@temporalio/client'
+import * as grpc from '@grpc/grpc-js'
+import { Client, Connection, WorkflowHandle } from '@temporalio/client'
 import { Counter } from 'prom-client'
+import * as tls from 'tls'
 
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
@@ -35,34 +37,36 @@ export class TemporalService {
     }
 
     private async createClient(): Promise<Client> {
-        // Configure TLS if certificates are provided (for production)
-        let tls: TLSConfig | boolean = false
-        if (this.hub.TEMPORAL_CLIENT_ROOT_CA && this.hub.TEMPORAL_CLIENT_CERT && this.hub.TEMPORAL_CLIENT_KEY) {
-            tls = {
-                serverRootCACertificate: Buffer.from(this.hub.TEMPORAL_CLIENT_ROOT_CA),
-                clientCertPair: {
-                    crt: Buffer.from(this.hub.TEMPORAL_CLIENT_CERT),
-                    key: Buffer.from(this.hub.TEMPORAL_CLIENT_KEY),
-                },
-            }
-        }
-
         const port = this.hub.TEMPORAL_PORT || '7233'
         const address = `${this.hub.TEMPORAL_HOST}:${port}`
 
-        // Create connection first
-        const connection = await Connection.connect({ address, tls })
+        let credentials: grpc.ChannelCredentials | undefined
+        if (this.hub.TEMPORAL_CLIENT_ROOT_CA && this.hub.TEMPORAL_CLIENT_CERT && this.hub.TEMPORAL_CLIENT_KEY) {
+            const secureContext = tls.createSecureContext({
+                ca: Buffer.from(this.hub.TEMPORAL_CLIENT_ROOT_CA),
+                cert: Buffer.from(this.hub.TEMPORAL_CLIENT_CERT),
+                key: Buffer.from(this.hub.TEMPORAL_CLIENT_KEY),
+                allowPartialTrustChain: true,
+            })
 
-        // Then create client with connection
+            credentials = grpc.credentials.createFromSecureContext(secureContext)
+        }
+
+        const connection = await Connection.connect({
+            address,
+            ...(credentials ? { credentials } : { tls: false }),
+        })
+
         const client = new Client({
             connection,
             namespace: this.hub.TEMPORAL_NAMESPACE || 'default',
         })
 
+        const tlsEnabled: boolean = credentials !== undefined
         logger.info('✅ Connected to Temporal', {
             address,
             namespace: this.hub.TEMPORAL_NAMESPACE,
-            tlsEnabled: tls !== false,
+            tlsEnabled,
         })
 
         return client

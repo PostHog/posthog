@@ -148,6 +148,53 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         assert len(goals) == 1
         assert goals[0] == conversion_goal
 
+    def test_all_events_conversion_goal_filtered_out(self):
+        """Test that conversion goals with 'All Events' are filtered out and warnings are returned"""
+        self.team.marketing_analytics_config.conversion_goals = [
+            {
+                "kind": NodeKind.EVENTS_NODE,
+                "event": "purchase",
+                "conversion_goal_id": "valid_goal",
+                "conversion_goal_name": "Valid Purchase Goal",
+                "name": "purchase",
+                "math": BaseMathType.TOTAL,
+                "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+            },
+            {
+                "kind": NodeKind.EVENTS_NODE,
+                "event": "",
+                "conversion_goal_id": "invalid_goal",
+                "conversion_goal_name": "Invalid All Events Goal",
+                "name": "All events",
+                "math": BaseMathType.TOTAL,
+                "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+            },
+            {
+                "kind": NodeKind.EVENTS_NODE,
+                "event": None,
+                "conversion_goal_id": "invalid_goal_null",
+                "conversion_goal_name": "Invalid Null Events Goal",
+                "name": "All events",
+                "math": BaseMathType.TOTAL,
+                "schema_map": {"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+            },
+        ]
+        self.team.save()
+
+        runner = self._create_query_runner()
+
+        all_goals = runner._get_team_conversion_goals()
+        assert len(all_goals) == 3  # 1 valid + 2 invalid
+
+        valid_goals = runner._filter_invalid_conversion_goals(all_goals)
+        assert len(valid_goals) == 1  # Only the valid goal remains
+        assert valid_goals[0].conversion_goal_name == "Valid Purchase Goal"
+
+        with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
+            mock_get_adapters.return_value = []
+            query = runner.to_query()
+            assert query is not None
+
     def test_to_query_basic(self):
         with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
             mock_get_adapters.return_value = []
