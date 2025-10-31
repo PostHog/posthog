@@ -182,13 +182,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         help_text="Type of cohort based on filter complexity",
     )
 
-    # Compiled bytecode for realtime evaluation
-    compiled_bytecode = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="Array of compiled bytecode objects for filters that support realtime evaluation.",
-    )
-
     # deprecated in favor of filters
     groups = models.JSONField(default=list)
 
