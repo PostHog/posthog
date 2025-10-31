@@ -3,20 +3,18 @@ import { Message } from 'node-rdkafka'
 import { BatchPipeline } from '../../../ingestion/pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from '../../../ingestion/pipelines/builders'
 import { PipelineConfig } from '../../../ingestion/pipelines/result-handling-pipeline'
-import { EventHeaders } from '../../../types'
+import { ValueMatcher } from '../../../types'
 import { EventIngestionRestrictionManager } from '../../../utils/event-ingestion-restriction-manager'
-import { ParsedMessageData } from './kafka/types'
 import { SessionBatchManager } from './sessions/session-batch-manager'
-import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { createApplyDropRestrictionsStep } from './steps/apply-drop-restrictions'
 import { createApplyOverflowRestrictionsStep } from './steps/apply-overflow-restrictions'
 import { createCollectBatchMetricsStep } from './steps/collect-batch-metrics'
 import { createObtainBatchStep } from './steps/obtain-batch'
 import { createParseHeadersStep } from './steps/parse-headers'
 import { createParseKafkaMessageStep } from './steps/parse-kafka-message'
+import { createRecordSessionEventStep } from './steps/record-session-event'
 import { createResolveTeamStep } from './steps/resolve-team'
 import { TeamService } from './teams/team-service'
-import { TeamForReplay } from './teams/types'
 
 export interface SessionRecordingPipelineConfig extends PipelineConfig {
     restrictionManager: EventIngestionRestrictionManager
@@ -24,19 +22,12 @@ export interface SessionRecordingPipelineConfig extends PipelineConfig {
     consumeOverflow: boolean
     teamService: TeamService
     sessionBatchManager: SessionBatchManager
+    isDebugLoggingEnabled: ValueMatcher<number>
 }
 
-export function createSessionRecordingPipeline(config: SessionRecordingPipelineConfig): BatchPipeline<
-    { message: Message },
-    {
-        message: Message
-        headers: EventHeaders
-        parsedMessage: ParsedMessageData
-        team: TeamForReplay
-        batchRecorder: SessionBatchRecorder
-    },
-    { message: Message }
-> {
+export function createSessionRecordingPipeline(
+    config: SessionRecordingPipelineConfig
+): BatchPipeline<{ message: Message }, void, { message: Message }> {
     return (
         newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
             // Step 0: Collect batch metrics (batch-level)
@@ -83,9 +74,16 @@ export function createSessionRecordingPipeline(config: SessionRecordingPipelineC
                 },
             }))
 
-            // Step 5: Obtain batch recorder (batch-level within team context)
+            // Steps 5-6: Team-aware processing
             .messageAware((builder) =>
-                builder.teamAware((b) => b.gather().pipeBatch(createObtainBatchStep(config.sessionBatchManager)))
+                builder.teamAware((b) =>
+                    b
+                        .gather()
+                        // Step 5: Obtain batch recorder (batch-level)
+                        .pipeBatch(createObtainBatchStep(config.sessionBatchManager))
+                        // Step 6: Record to batch using batch recorder (sequential)
+                        .sequentially((seq) => seq.pipe(createRecordSessionEventStep(config.isDebugLoggingEnabled)))
+                )
             )
             .handleResults(config)
             .handleSideEffects(config.promiseScheduler, { await: false })

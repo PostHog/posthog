@@ -9,7 +9,6 @@ import { createBatch, createUnwrapper } from '../../../ingestion/pipelines/helpe
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import {
-    EventHeaders,
     HealthCheckResult,
     Hub,
     PluginServerService,
@@ -31,7 +30,6 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from './constants'
 import { KafkaOffsetManager } from './kafka/offset-manager'
-import { ParsedMessageData } from './kafka/types'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { SessionRecordingPipelineConfig, createSessionRecordingPipeline } from './pipeline'
 import { RetentionAwareStorage } from './retention/retention-aware-batch-writer'
@@ -39,11 +37,9 @@ import { RetentionService } from './retention/retention-service'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
 import { SessionBatchFileStorage } from './sessions/session-batch-file-storage'
 import { SessionBatchManager } from './sessions/session-batch-manager'
-import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 import { SessionConsoleLogStore } from './sessions/session-console-log-store'
 import { SessionMetadataStore } from './sessions/session-metadata-store'
 import { TeamService } from './teams/team-service'
-import { MessageWithTeam, TeamForReplay } from './teams/types'
 
 export class SessionRecordingIngester {
     kafkaConsumer: KafkaConsumer
@@ -60,17 +56,7 @@ export class SessionRecordingIngester {
     private readonly eventIngestionRestrictionManager: EventIngestionRestrictionManager
     private kafkaOverflowProducer?: KafkaProducerWrapper
     private readonly overflowTopic: string
-    private pipeline!: BatchPipelineUnwrapper<
-        { message: Message },
-        {
-            message: Message
-            headers: EventHeaders
-            parsedMessage: ParsedMessageData
-            team: TeamForReplay
-            batchRecorder: SessionBatchRecorder
-        },
-        { message: Message }
-    >
+    private pipeline!: BatchPipelineUnwrapper<{ message: Message }, void, { message: Message }>
     private readonly teamService: TeamService
 
     constructor(
@@ -193,78 +179,19 @@ export class SessionRecordingIngester {
                 const batch = createBatch(messages.map((message) => ({ message })))
                 this.pipeline.feed(batch)
 
-                // Get results from pipeline
-                const pipelineResults = await this.pipeline.next()
+                // Process pipeline (recording happens inside)
+                await this.pipeline.next()
 
-                if (pipelineResults === null) {
-                    return
+                this.kafkaConsumer.heartbeat()
+
+                // Flush batch if needed
+                if (this.sessionBatchManager.shouldFlush()) {
+                    await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
+                        this.sessionBatchManager.flush()
+                    )
                 }
-
-                // Continue with old flow using unwrapped pipeline results
-                await this.processBatchMessages(pipelineResults)
             }
         )
-    }
-
-    private async processBatchMessages(
-        pipelineResults: Array<{
-            message: Message
-            headers: EventHeaders
-            parsedMessage: ParsedMessageData
-            team: TeamForReplay
-            batchRecorder: SessionBatchRecorder
-        }>
-    ): Promise<void> {
-        this.kafkaConsumer.heartbeat()
-
-        await instrumentFn(`recordingingesterv2.handleEachBatch.processMessages`, async () => {
-            for (const result of pipelineResults) {
-                const message: MessageWithTeam = {
-                    team: result.team,
-                    message: result.parsedMessage,
-                }
-                await this.consume(message, result.batchRecorder)
-            }
-        })
-
-        this.kafkaConsumer.heartbeat()
-
-        if (this.sessionBatchManager.shouldFlush()) {
-            await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
-                this.sessionBatchManager.flush()
-            )
-        }
-    }
-
-    private async consume(message: MessageWithTeam, batch: SessionBatchRecorder) {
-        // we have to reset this counter once we're consuming messages since then we know we're not re-balancing
-        // otherwise the consumer continues to report however many sessions were revoked at the last re-balance forever
-        SessionRecordingIngesterMetrics.resetSessionsRevoked()
-        const { team, message: parsedMessage } = message
-        const debugEnabled = this.isDebugLoggingEnabled(parsedMessage.metadata.partition)
-
-        if (debugEnabled) {
-            logger.debug('🔄', 'processing_session_recording', {
-                partition: parsedMessage.metadata.partition,
-                offset: parsedMessage.metadata.offset,
-                distinct_id: parsedMessage.distinct_id,
-                session_id: parsedMessage.session_id,
-                raw_size: parsedMessage.metadata.rawSize,
-            })
-        }
-
-        const { partition } = parsedMessage.metadata
-        const isDebug = this.isDebugLoggingEnabled(partition)
-        if (isDebug) {
-            logger.info('🔁', '[blob_ingester_consumer_v2] - [PARTITION DEBUG] - consuming event', {
-                ...parsedMessage.metadata,
-                team_id: team.teamId,
-                session_id: parsedMessage.session_id,
-            })
-        }
-
-        SessionRecordingIngesterMetrics.observeSessionInfo(parsedMessage.metadata.rawSize)
-        await batch.record(message)
     }
 
     private initializePipeline(): void {
@@ -277,6 +204,7 @@ export class SessionRecordingIngester {
             consumeOverflow: this.consumeOverflow,
             teamService: this.teamService,
             sessionBatchManager: this.sessionBatchManager,
+            isDebugLoggingEnabled: this.isDebugLoggingEnabled,
         }
 
         const pipeline = createSessionRecordingPipeline(pipelineConfig)
