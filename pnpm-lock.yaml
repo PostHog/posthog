@@ -486,6 +486,9 @@ importers:
       '@posthog/products-links':
         specifier: workspace:*
         version: link:../products/links
+      '@posthog/products-live-debugger':
+        specifier: workspace:*
+        version: link:../products/live_debugger
       '@posthog/products-llm-analytics':
         specifier: workspace:*
         version: link:../products/llm_analytics
@@ -976,7 +979,7 @@ importers:
         version: 5.16.5
       '@testing-library/react':
         specifier: ^13.4.0
-        version: 13.4.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 13.4.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@testing-library/user-event':
         specifier: ^13.5.0
         version: 13.5.0(@testing-library/dom@8.19.0)
@@ -1962,6 +1965,43 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
+
+  products/live_debugger:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      '@types/react-dom':
+        specifier: '*'
+        version: 18.3.7(@types/react@17.0.52)
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: ^6.6.2
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.7(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+      react-dom:
+        specifier: '*'
+        version: 18.2.0(react@18.2.0)
+    devDependencies:
+      kea-test-utils:
+        specifier: ^0.2.4
+        version: 0.2.4(kea@3.1.7(react@18.2.0))
 
   products/llm_analytics:
     dependencies:
@@ -28691,13 +28731,15 @@ snapshots:
       lodash: 4.17.21
       redent: 3.0.0
 
-  '@testing-library/react@13.4.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@testing-library/react@13.4.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       '@babel/runtime': 7.24.0
       '@testing-library/dom': 8.19.0
-      '@types/react-dom': 18.2.14
+      '@types/react-dom': 18.3.7(@types/react@17.0.52)
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
+    transitivePeerDependencies:
+      - '@types/react'
 
   '@testing-library/user-event@13.5.0(@testing-library/dom@8.19.0)':
     dependencies:

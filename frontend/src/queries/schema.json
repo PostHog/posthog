@@ -13530,6 +13530,7 @@
                 "data_warehouse",
                 "task",
                 "link",
+                "live_debugger",
                 "logs",
                 "workflows",
                 "notebook",
