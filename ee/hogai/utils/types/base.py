@@ -444,7 +444,7 @@ class NodeStartAction(BaseModel):
 
 class NodeEndAction(Generic[PartialStateType], BaseModel):
     type: Literal["NODE_END"] = "NODE_END"
-    state: PartialStateType
+    state: PartialStateType | None = None
 
 
 AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction

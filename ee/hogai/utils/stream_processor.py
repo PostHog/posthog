@@ -93,7 +93,6 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         to specialized handlers based on action type and message characteristics.
         """
         action = event.action
-        node_name = event.node_path
 
         if isinstance(action, NodeStartAction):
             self._chunks[event.node_run_id] = AIMessageChunk(content="")
@@ -104,9 +103,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
                 del self._chunks[event.node_run_id]
             return self._handle_node_end(event, action)
 
-        if isinstance(action, MessageChunkAction) and (
-            result := self._handle_message_stream(action.message, cast(MaxNodeName, node_name), event.node_run_id)
-        ):
+        if isinstance(action, MessageChunkAction) and (result := self._handle_message_stream(event, action.message)):
             return [result]
 
         if isinstance(action, MessageAction):
@@ -209,7 +206,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         raise ValueError(f"Unhandled special message type: {type(message).__name__}")
 
     def _handle_message_stream(
-        self, message: AIMessageChunk, node_name: MaxNodeName, run_id: str
+        self, event: AssistantDispatcherEvent, message: AIMessageChunk
     ) -> AssistantResultUnion | None:
         """
         Process LLM chunks from "messages" stream mode.
@@ -217,6 +214,9 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         With dispatch pattern, complete messages are dispatched by nodes.
         This handles AIMessageChunk for ephemeral streaming (responsiveness).
         """
+        node_name = cast(MaxNodeName, event.node_name)
+        run_id = event.node_run_id
+
         if node_name not in self._streaming_nodes:
             return None
         if run_id not in self._chunks:
