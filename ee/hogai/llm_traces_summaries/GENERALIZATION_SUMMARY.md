@@ -33,11 +33,12 @@ Instead of one hardcoded "user issues" clustering, we introduce **Analysis Theme
 
 **Shipped Themes** (out of the box):
 
-1. **Unhappy Users**: Focus on frustration and pain points expressed across all traces - identifies where users are struggling
-2. **Errors and Failures**: Traces with errors or failures - surfaces technical issues and failure modes
-3. **Feature Gaps**: Where users ask for unsupported capabilities - drives product roadmap from real needs
-4. **Performance/Cost Hotspots**: High latency or expensive traces - identifies optimization opportunities
-5. **Happy Users**: Success patterns and satisfaction signals - validates what's working well
+1. **General Usage Patterns**: Discover common workflows and interaction patterns across all traces - understand how users actually use the system
+2. **Unhappy Users**: Focus on frustration and pain points expressed across all traces - identifies where users are struggling
+3. **Errors and Failures**: Traces with errors or failures - surfaces technical issues and failure modes
+4. **Feature Gaps**: Where users ask for unsupported capabilities - drives product roadmap from real needs
+5. **Performance/Cost Hotspots**: High latency or expensive traces - identifies optimization opportunities
+6. **Happy Users**: Success patterns and satisfaction signals - validates what's working well
 
 **Custom Themes**: Users can define their own filters + prompts for domain-specific analysis
 
@@ -46,13 +47,15 @@ Instead of one hardcoded "user issues" clustering, we introduce **Analysis Theme
 ```mermaid
 flowchart TD
     A[Raw Traces] --> B[Theme Filters]
+    B --> C0[General Usage Patterns]
     B --> C1[Unhappy Users]
     B --> C2[Errors & Failures]
     B --> C3[Feature Gaps]
     B --> C4[Performance/Cost]
     B --> C5[Happy Users]
 
-    C1 --> D[Stringify → Summarize → Embed]
+    C0 --> D[Stringify → Summarize → Embed]
+    C1 --> D
     C2 --> D
     C3 --> D
     C4 --> D

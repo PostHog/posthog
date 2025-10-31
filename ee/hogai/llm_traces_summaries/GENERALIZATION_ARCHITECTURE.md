@@ -212,7 +212,7 @@ flowchart TD
 **Naive Approach** (collect all, analyze all):
 
 ```text
-10,000 traces × 5 themes = 50,000 LLM calls + embeddings = $500
+10,000 traces × 6 themes = 60,000 LLM calls + embeddings = $600
 ```
 
 **Theme-Filtered Approach (with theme_relevance)**:
@@ -343,8 +343,41 @@ class AnalysisTheme:
     max_traces: int | None = None      # Limit for testing
     batch_size: int = 100              # LLM batch size
 
-# Built-in themes shipped with PostHog (5 core themes)
+# Built-in themes shipped with PostHog (6 core themes)
 BUILTIN_THEMES = {
+    "general_usage_patterns": AnalysisTheme(
+        theme_id="general_usage_patterns",
+        name="General Usage Patterns",
+        description="Discover common workflows, interaction patterns, and how users actually use the system",
+        base_filters=[],  # Apply to all traces
+        theme_filters=[],  # No filters - broad discovery across all usage
+        date_range=DateRange(date_from="-7d"),
+        sample_rate=1.0,
+        max_traces=10000,  # Large sample for pattern discovery
+        filter_by_relevance=True,
+        prompt="""
+Analyze this trace to identify the primary usage pattern or workflow.
+
+Focus on:
+- What task or goal is the user trying to accomplish?
+- What workflow or interaction pattern are they following?
+- What features or capabilities are they using?
+- Is this a common, everyday usage or something specialized?
+- How are they navigating through the system?
+
+Return ONLY valid JSON with no additional text:
+{
+  "theme_relevant": true/false,
+  "summary": "description of usage pattern OR 'Not relevant to General Usage Patterns'"
+}
+
+Set theme_relevant=true for traces that show clear, identifiable usage patterns or workflows.
+Set theme_relevant=false for incomplete traces, test data, or system noise.
+If theme_relevant=false, summary should be exactly: "Not relevant to General Usage Patterns"
+If theme_relevant=true, describe the usage pattern in maximum 10 sentences - focus on WHAT they're doing, not evaluating success/failure.
+"""
+    ),
+
     "unhappy_users": AnalysisTheme(
         theme_id="unhappy_users",
         name="Unhappy Users",
@@ -2197,7 +2230,7 @@ ORDER BY (team_id, trace_id, summary_type)
 
 **Approach: Django Migration + Feature Flag**
 
-When the generalization feature launches, all teams automatically receive the 5 built-in themes via a Django migration. Access is controlled by a feature flag for gradual rollout.
+When the generalization feature launches, all teams automatically receive the 6 built-in themes via a Django migration. Access is controlled by a feature flag for gradual rollout.
 
 **Migration: Create Built-in Themes**
 
@@ -2208,6 +2241,24 @@ from django.db import migrations
 from ee.models.llm_traces_analysis_themes import AnalysisThemeConfig
 
 BUILTIN_THEMES = [
+    {
+        "theme_id": "general_usage_patterns",
+        "name": "General Usage Patterns",
+        "description": "Discover common workflows, interaction patterns, and how users actually use the system",
+        "config": {
+            "base_filters": [],
+            "theme_filters": [],
+            "date_range": {"date_from": "-7d"},
+            "sample_rate": 1.0,
+            "max_traces": 10000,
+            "filter_by_relevance": True,
+            "prompt": """Analyze this trace to identify the primary usage pattern or workflow.
+Focus on what task the user is accomplishing and how they're navigating.
+Return ONLY valid JSON:
+{"theme_relevant": true/false, "summary": "..."}"""
+        },
+        "schedule": "0 3 * * *",  # Daily at 3 AM UTC
+    },
     {
         "theme_id": "unhappy_users",
         "name": "Unhappy Users",

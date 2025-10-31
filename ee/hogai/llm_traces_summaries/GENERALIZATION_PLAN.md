@@ -113,10 +113,10 @@ DocsUXTheme:
 
 Per-theme collection dramatically reduces costs:
 
-| Approach                        | Traces Collected               | LLM Calls | Embeddings | Cost                   |
-| ------------------------------- | ------------------------------ | --------- | ---------- | ---------------------- |
-| Naive (all traces × all themes) | 10K × 5 themes                 | 50K       | 50K        | $500                   |
-| **Theme-filtered**              | 3K + 2K + 1.5K + 500 + 2K = 9K | 9K        | 9K         | **$140 (72% savings)** |
+| Approach                        | Traces Collected                     | LLM Calls | Embeddings | Cost                   |
+| ------------------------------- | ------------------------------------ | --------- | ---------- | ---------------------- |
+| Naive (all traces × all themes) | 10K × 6 themes                       | 60K       | 60K        | $600                   |
+| **Theme-filtered**              | 7K + 3K + 2K + 1.5K + 500 + 2K = 16K | 16K       | 16K        | **$250 (58% savings)** |
 
 ### Generalization Strategy
 
