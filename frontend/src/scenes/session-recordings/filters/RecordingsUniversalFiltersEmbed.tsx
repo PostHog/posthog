@@ -280,6 +280,7 @@ export const RecordingsUniversalFiltersEmbed = ({
 }): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
     const [savedFilterName, setSavedFilterName] = useState('')
+    const [isPopoverVisible, setIsPopoverVisible] = useState(false)
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -478,93 +479,115 @@ export const RecordingsUniversalFiltersEmbed = ({
                         </div>
                     </div>
 
-                    {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] && (
-                        <div className="flex items-center gap-2 px-2 mt-2">
-                            <span className="font-medium">Quick add filters:</span>
-                            <QuickFilterButton
-                                filterKey="email"
-                                label="Email"
-                                propertyType={PropertyFilterType.Person}
-                                filters={filters}
-                                setFilters={setFilters}
-                            />
-                            <QuickFilterButton
-                                filterKey="$user_id"
-                                label="User ID"
-                                propertyType={PropertyFilterType.Person}
-                                filters={filters}
-                                setFilters={setFilters}
-                            />
-                            <QuickFilterButton
-                                filterKey="$pathname"
-                                label="Path name"
-                                propertyType={PropertyFilterType.Event}
-                                filters={filters}
-                                setFilters={setFilters}
-                            />
-                            <QuickFilterButton
-                                filterKey="$current_url"
-                                label="Current URL"
-                                propertyType={PropertyFilterType.Event}
-                                filters={filters}
-                                setFilters={setFilters}
-                            />
-                        </div>
-                    )}
+                    <UniversalFilters
+                        rootKey="session-recordings"
+                        group={filters.filter_group}
+                        taxonomicGroupTypes={taxonomicGroupTypes}
+                        onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
+                    >
+                        {featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN] && (
+                            <div className="flex items-center gap-2 px-2 mt-2">
+                                <span className="font-medium">Add filters:</span>
+                                <QuickFilterButton
+                                    filterKey="email"
+                                    label="Email"
+                                    propertyType={PropertyFilterType.Person}
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                />
+                                <QuickFilterButton
+                                    filterKey="$user_id"
+                                    label="User ID"
+                                    propertyType={PropertyFilterType.Person}
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                />
+                                <QuickFilterButton
+                                    filterKey="$pathname"
+                                    label="Path name"
+                                    propertyType={PropertyFilterType.Event}
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                />
+                                <QuickFilterButton
+                                    filterKey="$current_url"
+                                    label="Current URL"
+                                    propertyType={PropertyFilterType.Event}
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                />
+                                <Popover
+                                    overlay={
+                                        <UniversalFilters.PureTaxonomicFilter
+                                            fullWidth={false}
+                                            onChange={() => setIsPopoverVisible(false)}
+                                        />
+                                    }
+                                    placement="bottom"
+                                    visible={isPopoverVisible}
+                                    onClickOutside={() => setIsPopoverVisible(false)}
+                                >
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        icon={<IconPlus />}
+                                        onClick={() => setIsPopoverVisible(!isPopoverVisible)}
+                                    >
+                                        Add filter
+                                    </LemonButton>
+                                </Popover>
+                            </div>
+                        )}
 
-                    <div className="flex justify-between flex-wrap gap-2 px-2 mt-2">
-                        <div className="flex flex-wrap gap-2 items-center">
-                            <div className="py-2 font-medium">Applied filters:</div>
-                            <DateFilter
-                                dateFrom={filters.date_from ?? '-3d'}
-                                dateTo={filters.date_to}
-                                onChange={(changedDateFrom, changedDateTo) => {
-                                    setFilters({
-                                        date_from: changedDateFrom,
-                                        date_to: changedDateTo,
-                                    })
-                                }}
-                                dateOptions={[
-                                    { key: 'Custom', values: [] },
-                                    { key: 'Last 24 hours', values: ['-24h'] },
-                                    { key: 'Last 3 days', values: ['-3d'] },
-                                    { key: 'Last 7 days', values: ['-7d'] },
-                                    { key: 'Last 30 days', values: ['-30d'] },
-                                    { key: 'All time', values: ['-90d'] },
-                                ]}
-                                dropdownPlacement="bottom-start"
-                                size="small"
-                                // we always want to include the time in the date when setting it
-                                allowTimePrecision={true}
-                                // we always want to present the time control
-                                forceGranularity="minute"
-                            />
-                            <DurationFilter
-                                onChange={(newRecordingDurationFilter, newDurationType) => {
-                                    setFilters({
-                                        duration: [
-                                            {
-                                                ...newRecordingDurationFilter,
-                                                key: newDurationType,
-                                            },
-                                        ],
-                                    })
-                                }}
-                                recordingDurationFilter={durationFilter}
-                                durationTypeFilter={durationFilter.key}
-                                pageKey="session-recordings"
-                                size="small"
-                            />
-                            <UniversalFilters
-                                rootKey="session-recordings"
-                                group={filters.filter_group}
-                                taxonomicGroupTypes={taxonomicGroupTypes}
-                                onChange={(filterGroup) => setFilters({ filter_group: filterGroup })}
-                            >
-                                <RecordingsUniversalFilterGroup />
-                            </UniversalFilters>
+                        <div className="flex justify-between flex-wrap gap-2 px-2 mt-2">
+                            <div className="flex flex-wrap gap-2 items-center">
+                                <div className="py-2 font-medium">Applied filters:</div>
+                                <DateFilter
+                                    dateFrom={filters.date_from ?? '-3d'}
+                                    dateTo={filters.date_to}
+                                    onChange={(changedDateFrom, changedDateTo) => {
+                                        setFilters({
+                                            date_from: changedDateFrom,
+                                            date_to: changedDateTo,
+                                        })
+                                    }}
+                                    dateOptions={[
+                                        { key: 'Custom', values: [] },
+                                        { key: 'Last 24 hours', values: ['-24h'] },
+                                        { key: 'Last 3 days', values: ['-3d'] },
+                                        { key: 'Last 7 days', values: ['-7d'] },
+                                        { key: 'Last 30 days', values: ['-30d'] },
+                                        { key: 'All time', values: ['-90d'] },
+                                    ]}
+                                    dropdownPlacement="bottom-start"
+                                    size="small"
+                                    // we always want to include the time in the date when setting it
+                                    allowTimePrecision={true}
+                                    // we always want to present the time control
+                                    forceGranularity="minute"
+                                />
+                                <DurationFilter
+                                    onChange={(newRecordingDurationFilter, newDurationType) => {
+                                        setFilters({
+                                            duration: [
+                                                {
+                                                    ...newRecordingDurationFilter,
+                                                    key: newDurationType,
+                                                },
+                                            ],
+                                        })
+                                    }}
+                                    recordingDurationFilter={durationFilter}
+                                    durationTypeFilter={durationFilter.key}
+                                    pageKey="session-recordings"
+                                    size="small"
+                                />
+                                <RecordingsUniversalFilterGroup
+                                    hideAddFilterButton={!!featureFlags[FEATURE_FLAGS.REPLAY_FILTERS_REDESIGN]}
+                                />
+                            </div>
                         </div>
-                    </div>
+                    </UniversalFilters>
 
                     <div className="flex items-center pt-4 justify-end px-2 gap-2 border-t mt-8">
                         <LemonButton
@@ -783,7 +806,11 @@ export const RecordingsUniversalFiltersEmbed = ({
     )
 }
 
-const RecordingsUniversalFilterGroup = (): JSX.Element => {
+const RecordingsUniversalFilterGroup = ({
+    hideAddFilterButton = false,
+}: {
+    hideAddFilterButton?: boolean
+}): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState(false)
@@ -795,28 +822,30 @@ const RecordingsUniversalFilterGroup = (): JSX.Element => {
             {filterGroup.values.map((filterOrGroup, index) => {
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                        <RecordingsUniversalFilterGroup />
+                        <RecordingsUniversalFilterGroup hideAddFilterButton={hideAddFilterButton} />
 
-                        <Popover
-                            overlay={
-                                <UniversalFilters.PureTaxonomicFilter
-                                    fullWidth={false}
-                                    onChange={() => setIsPopoverVisible(false)}
-                                />
-                            }
-                            placement="bottom"
-                            visible={isPopoverVisible}
-                            onClickOutside={() => setIsPopoverVisible(false)}
-                        >
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconPlus />}
-                                onClick={() => setIsPopoverVisible(!isPopoverVisible)}
+                        {!hideAddFilterButton && (
+                            <Popover
+                                overlay={
+                                    <UniversalFilters.PureTaxonomicFilter
+                                        fullWidth={false}
+                                        onChange={() => setIsPopoverVisible(false)}
+                                    />
+                                }
+                                placement="bottom"
+                                visible={isPopoverVisible}
+                                onClickOutside={() => setIsPopoverVisible(false)}
                             >
-                                Add filter
-                            </LemonButton>
-                        </Popover>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconPlus />}
+                                    onClick={() => setIsPopoverVisible(!isPopoverVisible)}
+                                >
+                                    Add filter
+                                </LemonButton>
+                            </Popover>
+                        )}
                     </UniversalFilters.Group>
                 ) : (
                     <UniversalFilters.Value
