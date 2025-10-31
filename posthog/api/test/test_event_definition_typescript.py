@@ -100,7 +100,18 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
             # Generate TypeScript
             ts_content = self._generate_typescript()
 
-            # Write generated types (using real posthog-js)
+            # Symlink to the project's node_modules (assumes posthog-js is already installed)
+            project_node_modules = Path(__file__).parent.parent.parent.parent / "frontend" / "node_modules"
+            if not project_node_modules.exists():
+                self.fail(
+                    f"Frontend node_modules not found at {project_node_modules}. "
+                    f"Run 'pnpm install' in the frontend directory first."
+                )
+
+            # Create symlink to node_modules
+            (tmpdir_path / "node_modules").symlink_to(project_node_modules)
+
+            # Write generated types (using real posthog-js from project)
             types_file = tmpdir_path / "posthog-typed.ts"
             types_file.write_text(ts_content)
 
@@ -237,27 +248,7 @@ posthog.captureRaw(stringVar, { any: 'data' })
 """
             )
 
-            # Create package.json to install TypeScript and posthog-js
-            package_json = tmpdir_path / "package.json"
-            package_json.write_text('{"dependencies": {"typescript": "^5.0.0", "posthog-js": "^1.0.0"}}')
-
-            # Install TypeScript and posthog-js
-            install_result = subprocess.run(
-                ["npm", "install", "--silent"],
-                cwd=str(tmpdir_path),
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-
-            if install_result.returncode != 0:
-                self.fail(
-                    f"Failed to install dependencies:\n"
-                    f"STDOUT: {install_result.stdout}\n"
-                    f"STDERR: {install_result.stderr}"
-                )
-
-            # Run TypeScript compiler
+            # Run TypeScript compiler (uses symlinked node_modules)
             result = subprocess.run(
                 ["npx", "tsc", "--noEmit", "--project", str(tsconfig_file)],
                 cwd=str(tmpdir_path),
