@@ -4185,6 +4185,7 @@ export interface SourceConfig {
 }
 
 export const externalDataSources = [
+    'Github',
     'Stripe',
     'Hubspot',
     'Postgres',
