@@ -4,15 +4,15 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from posthog.api.cohort import extract_bytecode_from_filters
+from posthog.api.cohort import compute_realtime_support_and_inline_bytecode
 from posthog.models.cohort.cohort import Cohort
 
 
 class Command(BaseCommand):
     help = (
-        "Regenerate compiled_bytecode and cohort_type for cohorts. "
+        "Regenerate inline bytecode (in filters) and cohort_type for cohorts. "
         "If --team-id is provided, only that team's cohorts are processed; otherwise all cohorts are processed. "
-        "Always processes in paginated batches to avoid large memory usage."
+        "Always processes in paginated batches to avoid large memory usage. "
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -73,17 +73,14 @@ class Command(BaseCommand):
                     if not cohort.filters:
                         continue
 
-                    # Compute the new clean filters, type and bytecode from current filters
-                    clean_filters, computed_type, compiled_bytecode = extract_bytecode_from_filters(
+                    # Compute the new filters with inline bytecode and cohort_type
+                    clean_filters, computed_type, _ = compute_realtime_support_and_inline_bytecode(
                         cohort.filters, cohort.team, current_cohort_type=cohort.cohort_type
                     )
 
                     # Decide if there is any change worth persisting/reporting
-                    will_change = (
-                        clean_filters != cohort.filters
-                        or computed_type != cohort.cohort_type
-                        or (compiled_bytecode or None) != (cohort.compiled_bytecode or None)
-                    )
+                    # Bytecode is now inline in filters
+                    will_change = clean_filters != cohort.filters or computed_type != cohort.cohort_type
 
                     # Track summary stats for dry-run (no per-cohort logging)
                     if computed_type == "realtime":
@@ -97,8 +94,7 @@ class Command(BaseCommand):
                     if will_change:
                         cohort.filters = clean_filters
                         cohort.cohort_type = computed_type
-                        cohort.compiled_bytecode = compiled_bytecode
-                        cohort.save(update_fields=["filters", "cohort_type", "compiled_bytecode"])  # no enqueue
+                        cohort.save(update_fields=["filters", "cohort_type"])
                         changed += 1
                 except Exception as err:
                     errors += 1

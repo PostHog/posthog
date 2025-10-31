@@ -9,6 +9,18 @@ from django.core.management import call_command
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.team.team import Team
 
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
+
+
+def _has_condition_hash(obj: Any) -> bool:
+    if isinstance(obj, dict):
+        if "conditionHash" in obj:
+            return True
+        return any(_has_condition_hash(v) for v in obj.values())
+    if isinstance(obj, list):
+        return any(_has_condition_hash(v) for v in obj)
+    return False
+
 
 def _make_realtime_filters(email: str = "test@example.com") -> dict[str, Any]:
     return {
@@ -91,10 +103,10 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
             ),
         ]
 
-        # Ensure initial state has no compiled bytecode
+        # Ensure initial state has no cohort_type (and no inline bytecode yet)
         for c in cohorts:
-            assert c.compiled_bytecode is None
             assert c.cohort_type is None
+            assert not _has_condition_hash(c.filters)
 
         # Run command for this team
         call_command("resave_cohorts", team_id=team.id)
@@ -104,24 +116,43 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
 
         # realtime-capable
         assert updated[cohorts[0].id].cohort_type == "realtime"
-        assert updated[cohorts[0].id].compiled_bytecode is not None
+        assert _has_condition_hash(updated[cohorts[0].id].filters)
+        # Assert behavioral('purchase') bytecode
+        behavioral_filter_0 = updated[cohorts[0].id].filters["properties"]["values"][1]
+        assert behavioral_filter_0["type"] == "behavioral"
+        assert behavioral_filter_0["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 32, "purchase", 32, "event", 1, 1, 11]
+        assert behavioral_filter_0["conditionHash"] is not None
 
-        # unsupported stays None
+        # unsupported stays None (but supported sub-filters may still emit inline bytecode)
         assert updated[cohorts[1].id].cohort_type is None
-        # some supported filters in there still produce bytecode entries
-        assert updated[cohorts[1].id].compiled_bytecode is not None
+        assert _has_condition_hash(updated[cohorts[1].id].filters)
+        # Unsupported behavioral value should not emit behavioral bytecode
+        behavioral_filter_1 = updated[cohorts[1].id].filters["properties"]["values"][1]
+        assert behavioral_filter_1["type"] == "behavioral"
+        assert "bytecode" not in behavioral_filter_1 or behavioral_filter_1.get("bytecode") is None
 
         # person-only is realtime-capable
         assert updated[cohorts[2].id].cohort_type == "realtime"
-        assert updated[cohorts[2].id].compiled_bytecode is not None
+        assert _has_condition_hash(updated[cohorts[2].id].filters)
+        # Person property should have bytecode
+        person_filter_2 = updated[cohorts[2].id].filters["properties"]["values"][0]
+        assert person_filter_2["type"] == "person"
+        assert "bytecode" in person_filter_2
+        assert person_filter_2["bytecode"] is not None
+        assert person_filter_2["conditionHash"] is not None
 
         # cohort filter is realtime-capable
         assert updated[cohorts[3].id].cohort_type == "realtime"
-        assert updated[cohorts[3].id].compiled_bytecode is not None
+        assert _has_condition_hash(updated[cohorts[3].id].filters)
 
         # simple behavioral realtime
         assert updated[cohorts[4].id].cohort_type == "realtime"
-        assert updated[cohorts[4].id].compiled_bytecode is not None
+        assert _has_condition_hash(updated[cohorts[4].id].filters)
+        # Assert behavioral('page_view') bytecode
+        behavioral_filter_4 = updated[cohorts[4].id].filters["properties"]["values"][0]
+        assert behavioral_filter_4["type"] == "behavioral"
+        assert behavioral_filter_4["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 32, "page_view", 32, "event", 1, 1, 11]
+        assert behavioral_filter_4["conditionHash"] is not None
 
 
 class TestResaveCohortsCommandTwoTeams(BaseTest):
@@ -187,12 +218,12 @@ class TestResaveCohortsCommandTwoTeams(BaseTest):
         assert cohorts_a[3].cohort_type == "realtime"
         assert cohorts_a[4].cohort_type == "realtime"
 
-        # Team B untouched
-        assert cohorts_b[0].compiled_bytecode is None
-        assert cohorts_b[1].compiled_bytecode is None
-        assert cohorts_b[2].compiled_bytecode is None
-        assert cohorts_b[3].compiled_bytecode is None
-        assert cohorts_b[4].compiled_bytecode is None
+        # Team B untouched (no inline bytecode yet)
+        assert not _has_condition_hash(cohorts_b[0].filters)
+        assert not _has_condition_hash(cohorts_b[1].filters)
+        assert not _has_condition_hash(cohorts_b[2].filters)
+        assert not _has_condition_hash(cohorts_b[3].filters)
+        assert not _has_condition_hash(cohorts_b[4].filters)
 
         # Now run for all
         call_command("resave_cohorts", batch_size=200, dry_run=False, team_id=None)  # will default to all
