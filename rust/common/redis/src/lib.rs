@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use thiserror::Error;
 use tokio::time::timeout;
+use tracing::warn;
 
 const DEFAULT_REDIS_TIMEOUT_MILLISECS: u64 = 100;
 
@@ -253,8 +254,25 @@ impl RedisClient {
     /// - Try to decompress with zstd
     /// - If decompression fails, return original data unchanged
     /// - This allows graceful handling of both compressed and uncompressed data
+    ///
+    /// Logs a warning if decompression fails and data starts with zstd magic bytes,
+    /// which indicates potential corruption rather than uncompressed data.
     fn try_decompress(data: Vec<u8>) -> Vec<u8> {
-        zstd::decode_all(&data[..]).unwrap_or(data)
+        match zstd::decode_all(&data[..]) {
+            Ok(decompressed) => decompressed,
+            Err(e) => {
+                // Check if data starts with zstd magic bytes (0x28, 0xB5, 0x2F, 0xFD)
+                // If so, this is likely corruption rather than uncompressed data
+                if data.len() >= 4 && data[0..4] == [0x28, 0xB5, 0x2F, 0xFD] {
+                    warn!(
+                        error = %e,
+                        data_len = data.len(),
+                        "Failed to decompress data with zstd magic bytes - possible corruption"
+                    );
+                }
+                data
+            }
+        }
     }
 
     /// Compress data if it exceeds the configured threshold
@@ -346,12 +364,9 @@ impl Client for RedisClient {
 
         let raw_bytes = fut?;
 
-        // Decompress if compression is enabled (graceful fallback if not compressed)
-        let decompressed = if self.compression.enabled {
-            Self::try_decompress(raw_bytes)
-        } else {
-            raw_bytes
-        };
+        // Always attempt decompression - handles both compressed and uncompressed data gracefully
+        // This ensures clients can read data regardless of compression settings used when writing
+        let decompressed = Self::try_decompress(raw_bytes);
 
         match format {
             RedisValueFormat::Pickle => {
@@ -380,7 +395,11 @@ impl Client for RedisClient {
             return Err(CustomRedisError::NotFound);
         }
 
-        Ok(fut?)
+        let raw_bytes = fut?;
+
+        // Always attempt decompression - handles both compressed and uncompressed data gracefully
+        // This ensures clients can read data regardless of compression settings used when writing
+        Ok(Self::try_decompress(raw_bytes))
     }
 
     async fn set(&self, k: String, v: String) -> Result<(), CustomRedisError> {
@@ -1148,6 +1167,42 @@ mod tests {
 
             assert_eq!(pickle_result, large_value);
             assert_eq!(utf8_result, large_value);
+        }
+
+        #[test]
+        fn test_try_decompress_handles_both_compressed_and_uncompressed() {
+            // Test that try_decompress gracefully handles uncompressed data
+            let uncompressed = b"hello world".to_vec();
+            let result = RedisClient::try_decompress(uncompressed.clone());
+            assert_eq!(result, uncompressed);
+
+            // Test that try_decompress successfully decompresses compressed data
+            let large_data = "x".repeat(1000);
+            let compressed = zstd::encode_all(large_data.as_bytes(), 0).unwrap();
+            let decompressed = RedisClient::try_decompress(compressed);
+            assert_eq!(decompressed, large_data.as_bytes());
+        }
+
+        #[test]
+        fn test_cross_compression_compatibility() {
+            // Verify that data written with compression can be read without compression enabled
+            // This is the key feature that makes compression settings flexible
+
+            let test_value = "x".repeat(1000); // Large enough to trigger compression
+
+            // Simulate writing with compression enabled
+            let compressed_config = CompressionConfig::default();
+            let serialized = helpers::serialize_value(&test_value, RedisValueFormat::Pickle);
+            let compressed = RedisClient::maybe_compress(serialized, &compressed_config).unwrap();
+
+            // Verify data is actually compressed
+            assert!(compressed.len() < test_value.len());
+
+            // Simulate reading with try_decompress (which always runs regardless of config)
+            let decompressed = RedisClient::try_decompress(compressed);
+            let result = helpers::deserialize_value(&decompressed, RedisValueFormat::Pickle);
+
+            assert_eq!(result, test_value);
         }
     }
 }
