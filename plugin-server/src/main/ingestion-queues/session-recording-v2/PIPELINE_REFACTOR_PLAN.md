@@ -70,13 +70,16 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 - **Input**: `{ message: Message, headers: EventHeaders }`
 - **Output**: `{ message: Message, headers: EventHeaders, parsedMessage: ParsedMessageData }`
 - **Operations**:
-    - Check if gzipped and decompress
-    - Parse JSON payload
-    - Validate against schemas (`RawEventMessageSchema`, `EventSchema`, `SnapshotEventSchema`)
-    - Extract snapshot items and validate timestamps
+    - Call `kafkaParser.parseMessage(message)` which:
+        - Checks if gzipped and decompresses
+        - Parses JSON payload
+        - Validates against schemas (`RawEventMessageSchema`, `EventSchema`, `SnapshotEventSchema`)
+        - Extracts snapshot items and validates timestamps
     - **Redirect to DLQ if parse fails**
 - **Result types**: `ok`, `dlq`
-- **File**: `steps/parse-session-recording-message.ts`
+- **Note**: Uses existing `KafkaMessageParser.parseMessage()` method, made public for pipeline use
+- **Status**: ✅ Implemented and tested
+- **File**: `steps/parse-kafka-message.ts`
 
 ### Step 4: Resolve Team
 

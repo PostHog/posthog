@@ -31,8 +31,8 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
 } from './constants'
-import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
+import { ParsedMessageData } from './kafka/types'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { SessionRecordingPipelineConfig, createSessionRecordingPipeline } from './pipeline'
 import { RetentionAwareStorage } from './retention/retention-aware-batch-writer'
@@ -60,7 +60,6 @@ export class SessionRecordingIngester {
     private isDebugLoggingEnabled: ValueMatcher<number>
     private readonly promiseScheduler: PromiseScheduler
     private readonly sessionBatchManager: SessionBatchManager
-    private readonly kafkaParser: KafkaMessageParser
     private readonly redisPool: RedisPool
     private readonly teamFilter: TeamFilter
     private readonly libVersionMonitor?: LibVersionMonitor
@@ -71,7 +70,7 @@ export class SessionRecordingIngester {
     private readonly overflowTopic: string
     private pipeline!: BatchPipelineUnwrapper<
         { message: Message },
-        { message: Message; headers: EventHeaders },
+        { message: Message; headers: EventHeaders; parsedMessage: ParsedMessageData },
         { message: Message }
     >
 
@@ -124,8 +123,6 @@ export class SessionRecordingIngester {
 
             s3Client = new S3Client(s3Config)
         }
-
-        this.kafkaParser = new KafkaMessageParser()
 
         this.redisPool = createRedisPool(this.hub, 'session-recording')
 
@@ -220,19 +217,12 @@ export class SessionRecordingIngester {
     }
 
     private async processBatchMessages(
-        pipelineResults: Array<{ message: Message; headers: EventHeaders }>
+        pipelineResults: Array<{ message: Message; headers: EventHeaders; parsedMessage: ParsedMessageData }>
     ): Promise<void> {
-        // Extract messages from pipeline results for legacy processing
-        const messages = pipelineResults.map((result) => result.message)
+        // Extract parsed messages from pipeline results for legacy processing
+        const parsedMessages = pipelineResults.map((result) => result.parsedMessage)
 
-        // Apply event ingestion restrictions before parsing
-        const messagesToProcess = await instrumentFn(
-            `recordingingesterv2.handleEachBatch.applyRestrictions`,
-            async () => Promise.resolve(this.restrictionHandler!.applyRestrictions(messages))
-        )
-
-        const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.parseBatch`, async () => {
-            const parsedMessages = await this.kafkaParser.parseBatch(messagesToProcess)
+        const processedMessages = await instrumentFn(`recordingingesterv2.handleEachBatch.filterBatch`, async () => {
             const messagesWithTeam = await this.teamFilter.filterBatch(parsedMessages)
             const processedMessages = this.libVersionMonitor
                 ? await this.libVersionMonitor.processBatch(messagesWithTeam)

@@ -3,14 +3,28 @@ import { Message } from 'node-rdkafka'
 import { promisify } from 'node:util'
 import { gunzip } from 'zlib'
 
+import { PipelineResult, dlq, ok } from '../../../../ingestion/pipelines/results'
+import { ProcessingStep } from '../../../../ingestion/pipelines/steps'
+import { EventHeaders } from '../../../../types'
 import { parseJSON } from '../../../../utils/json-parse'
-import { logger } from '../../../../utils/logger'
-import { KafkaMetrics } from './metrics'
-import { EventSchema, ParsedMessageData, RawEventMessageSchema, SnapshotEvent, SnapshotEventSchema } from './types'
+import {
+    EventSchema,
+    ParsedMessageData,
+    RawEventMessageSchema,
+    SnapshotEvent,
+    SnapshotEventSchema,
+} from '../kafka/types'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 const decompressWithGzip = promisify(gunzip)
+
+type Input = { message: Message; headers: EventHeaders }
+type Output = { message: Message; headers: EventHeaders; parsedMessage: ParsedMessageData }
+
+function isGzipped(buffer: Buffer): boolean {
+    return buffer.slice(0, GZIP_HEADER.length).equals(GZIP_HEADER)
+}
 
 function getValidEvents(events: unknown[]): {
     validEvents: SnapshotEvent[]
@@ -53,82 +67,67 @@ function getValidEvents(events: unknown[]): {
     }
 }
 
-export class KafkaMessageParser {
-    public async parseBatch(messages: Message[]): Promise<ParsedMessageData[]> {
-        const parsedMessages = await Promise.all(messages.map((message) => this.parseMessage(message)))
-        return parsedMessages.filter((msg): msg is ParsedMessageData => msg !== null)
-    }
-
-    private async parseMessage(message: Message): Promise<ParsedMessageData | null> {
-        const dropMessage = (reason: string, extra?: Record<string, any>) => {
-            KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion_v2', reason)
-
-            logger.warn('⚠️', 'invalid_message', {
-                reason,
-                partition: message.partition,
-                offset: message.offset,
-                ...(extra || {}),
-            })
-            return null
-        }
+export function createParseKafkaMessageStep(): ProcessingStep<Input, Output> {
+    return async function parseKafkaMessageStep(input: Input): Promise<PipelineResult<Output>> {
+        const { message, headers } = input
 
         if (!message.value || !message.timestamp) {
-            return dropMessage('message_value_or_timestamp_is_empty')
+            return dlq('message_value_or_timestamp_is_empty')
         }
 
         let messageUnzipped = message.value
         try {
-            if (this.isGzipped(message.value)) {
+            if (isGzipped(message.value)) {
                 // The type definition for gunzip is missing the Buffer type
                 // https://nodejs.org/api/zlib.html#zlibgunzipbuffer-options-callback
                 messageUnzipped = await decompressWithGzip(message.value as any)
             }
         } catch (error) {
-            return dropMessage('invalid_gzip_data', { error })
+            return dlq('invalid_gzip_data')
         }
 
         let rawPayload: unknown
         try {
             rawPayload = parseJSON(messageUnzipped.toString())
         } catch (error) {
-            return dropMessage('invalid_json', { error })
+            return dlq('invalid_json')
         }
 
         const messageResult = RawEventMessageSchema.safeParse(rawPayload)
         if (!messageResult.success) {
-            return dropMessage('invalid_message_payload', { error: messageResult.error })
+            return dlq('invalid_message_payload')
         }
 
         let eventData: unknown
         try {
             eventData = parseJSON(messageResult.data.data)
         } catch (error) {
-            return dropMessage('received_non_snapshot_message', { error })
+            return dlq('received_non_snapshot_message')
         }
         const eventResult = EventSchema.safeParse(eventData)
         if (!eventResult.success) {
-            return dropMessage('received_non_snapshot_message', { error: eventResult.error })
+            return dlq('received_non_snapshot_message')
         }
 
         const { $snapshot_items, $session_id, $window_id, $snapshot_source, $lib } = eventResult.data.properties
 
         if (eventResult.data.event !== '$snapshot_items' || !$snapshot_items || !$session_id) {
-            return dropMessage('received_non_snapshot_message')
+            return dlq('received_non_snapshot_message')
         }
 
         const result = getValidEvents($snapshot_items)
         if (!result) {
-            return dropMessage('message_contained_no_valid_rrweb_events')
+            return dlq('message_contained_no_valid_rrweb_events')
         }
         const { validEvents, startDateTime, endDateTime } = result
 
         const startDiff = Math.abs(startDateTime.diffNow('day').days)
         const endDiff = Math.abs(endDateTime.diffNow('day').days)
         if (startDiff >= MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS || endDiff >= MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS) {
-            return dropMessage('message_timestamp_diff_too_large')
+            return dlq('message_timestamp_diff_too_large')
         }
 
-        return {
+        const parsedMessage: ParsedMessageData = {
             metadata: {
                 partition: message.partition,
                 topic: message.topic,
@@ -149,9 +148,11 @@ export class KafkaMessageParser {
             snapshot_source: $snapshot_source ?? null,
             snapshot_library: $lib ?? null,
         }
-    }
 
-    private isGzipped(buffer: Buffer): boolean {
-        return buffer.slice(0, GZIP_HEADER.length).equals(GZIP_HEADER)
+        return ok({
+            message,
+            headers,
+            parsedMessage,
+        })
     }
 }
