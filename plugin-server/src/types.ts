@@ -1393,7 +1393,6 @@ export interface EventHeaders {
 
 export interface IncomingEvent {
     event: PipelineEvent
-    headers?: EventHeaders
 }
 
 export interface IncomingEventWithTeam {
