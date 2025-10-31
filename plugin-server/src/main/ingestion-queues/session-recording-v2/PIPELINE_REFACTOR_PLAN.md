@@ -108,16 +108,10 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 
 ### Step 6: Track Lib Version
 
-- **Type**: Per-message, sequential (team-aware)
-- **Input**: `MessageWithTeam & { batchRecorder: SessionBatchRecorder }`
-- **Output**: `MessageWithTeam & { batchRecorder: SessionBatchRecorder }`
-- **Operations**:
-    - Call `libVersionMonitor.processSingle(input)`
-    - Add warnings to context for `handleIngestionWarnings`
-- **Note**: Requires **team-aware pipeline** to handle warnings
-- **File**: `steps/track-lib-version.ts`
+- **Status**: ❌ Removed - Not implemented
+- **Reason**: We don't publish the lib version header, so this step would not have any data to track. The original implementation didn't track lib versions either.
 
-### Step 7: Record Session Event
+### Step 7: Record Session Event (renumbered to Step 6)
 
 - **Type**: Per-message, sequential (team-aware)
 - **Input**: `MessageWithTeam & { batchRecorder: SessionBatchRecorder }`
@@ -129,7 +123,7 @@ The session recording consumer currently processes messages in `consumer.ts:199-
     - Call `batchRecorder.record(message)`
 - **File**: `steps/record-session-event.ts`
 
-### Step 8: Flush Batch
+### Step 7: Flush Batch (renumbered from Step 8)
 
 - **Type**: Batch-level operation
 - **Input**: `void[]`
@@ -196,7 +190,7 @@ private initializePipeline(): void {
             },
         }))
 
-        // Steps 5-7: Team-aware processing with ingestion warnings
+        // Steps 5-6: Team-aware processing
         .messageAware((builder) =>
             builder
                 .teamAware((b) =>
@@ -207,18 +201,11 @@ private initializePipeline(): void {
                         // Step 5: Obtain batch recorder (batch-level)
                         .pipeBatch(createObtainBatchStep(this.sessionBatchManager))
 
-                        // Steps 6-7: Process each message sequentially
+                        // Step 6: Record to batch using batch recorder (sequential)
                         .sequentially((seq) =>
-                            seq
-                                // Step 6: Track lib versions (adds warnings to context)
-                                .pipe(createTrackLibVersionStep(this.libVersionMonitor))
-
-                                // Step 7: Record to batch using batch recorder
-                                .pipe(createRecordSessionEventStep(this.isDebugLoggingEnabled))
+                            seq.pipe(createRecordSessionEventStep(this.isDebugLoggingEnabled))
                         )
                 )
-                // Handle ingestion warnings from lib version monitor
-                .handleIngestionWarnings(this.kafkaProducer!)
         )
         .handleResults(pipelineConfig)
         .handleSideEffects(this.promiseScheduler, { await: false })
@@ -226,7 +213,7 @@ private initializePipeline(): void {
         // Gather all processed messages before flushing
         .gather()
 
-        // Step 8: Flush batch if needed (batch-level)
+        // Step 7: Flush batch if needed (batch-level)
         .pipeBatch(createFlushBatchStep(this.sessionBatchManager))
 
         .build()
