@@ -11,8 +11,14 @@ from pydantic import BaseModel, Field
 
 from ee.hogai.graph.insights.nodes import InsightSearchNode, NoInsightsException
 from ee.hogai.graph.root.tools.full_text_search.tool import EntitySearchTool, FTSKind
-from ee.hogai.tool import MaxSubtool, MaxTool, MaxToolArgs, ToolMessagesArtifact
-from ee.hogai.utils.prompt import format_prompt_string
+from ee.hogai.tool import (
+    MaxSubtool,
+    MaxTool,
+    MaxToolArgs,
+    MaxToolFatalError,
+    MaxToolRetryableError,
+    ToolMessagesArtifact,
+)
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 SEARCH_TOOL_PROMPT = """
@@ -106,7 +112,10 @@ class SearchTool(MaxTool):
     async def _arun_impl(self, kind: str, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
         if kind == "docs":
             if not settings.INKEEP_API_KEY:
-                return "This tool is not available in this environment.", None
+                raise MaxToolFatalError(
+                    "Documentation search is not available: INKEEP_API_KEY environment variable is not configured. "
+                    "This feature requires administrator setup. Contact your PostHog administrator to enable documentation search."
+                )
             docs_tool = InkeepDocsSearchTool(self._team, self._user, self._state, self._context_manager)
             return await docs_tool.execute(query, tool_call_id)
 
@@ -115,7 +124,7 @@ class SearchTool(MaxTool):
             return await insights_tool.execute(query, tool_call_id)
 
         if kind not in self._fts_entities:
-            return format_prompt_string(INVALID_ENTITY_KIND_PROMPT, kind=kind), None
+            raise MaxToolRetryableError(INVALID_ENTITY_KIND_PROMPT.format(kind=kind))
 
         entity_search_toolkit = EntitySearchTool(self._team, self._user, self._state, self._context_manager)
         response = await entity_search_toolkit.execute(query, FTSKind(kind))
@@ -243,4 +252,7 @@ class InsightSearchTool(MaxSubtool):
             result = await chain.ainvoke(copied_state)
             return "", ToolMessagesArtifact(messages=result.messages) if result else None
         except NoInsightsException:
-            return EMPTY_DATABASE_ERROR_MESSAGE, None
+            raise MaxToolFatalError(
+                "No insights available: The team has not created any insights yet. "
+                "Insights must be created before they can be searched. You can create insights using the query generation tools."
+            )

@@ -9,7 +9,7 @@ from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.tool import MaxSubtool
+from ee.hogai.tool import MaxSubtool, MaxToolFatalError
 from ee.hogai.utils.types import AssistantState
 
 from .prompts import BILLING_CONTEXT_PROMPT
@@ -275,7 +275,11 @@ class ReadBillingTool(MaxSubtool):
                     breakdown_value=None,
                 )
             else:
-                raise ValueError(f"Unknown item type: {type(first_item)}")
+                raise MaxToolFatalError(
+                    f"Unexpected billing history item type: Received {type(first_item).__name__} but expected either "
+                    f"UsageHistoryItem or SpendHistoryItem. This indicates a data structure mismatch in the billing system. "
+                    f"Please contact support."
+                )
             aggregated_items.append(aggregated_item)
 
         return aggregated_items

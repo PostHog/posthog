@@ -14,11 +14,11 @@ from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.root.tools.search import (
     DOC_ITEM_TEMPLATE,
     DOCS_SEARCH_RESULTS_TEMPLATE,
-    EMPTY_DATABASE_ERROR_MESSAGE,
     InkeepDocsSearchTool,
     InsightSearchTool,
     SearchTool,
 )
+from ee.hogai.tool import MaxToolFatalError, MaxToolRetryableError
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
@@ -41,11 +41,10 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_run_docs_search_without_api_key(self):
         with patch("ee.hogai.graph.root.tools.search.settings") as mock_settings:
             mock_settings.INKEEP_API_KEY = None
-            result, artifact = await self.tool._arun_impl(
-                kind="docs", query="How to use feature flags?", tool_call_id="test-id"
-            )
-            self.assertEqual(result, "This tool is not available in this environment.")
-            self.assertIsNone(artifact)
+            with self.assertRaises(MaxToolFatalError) as context:
+                await self.tool._arun_impl(kind="docs", query="How to use feature flags?", tool_call_id="test-id")
+
+            self.assertIn("INKEEP_API_KEY", str(context.exception))
 
     async def test_run_docs_search_with_api_key(self):
         mock_docs_tool = MagicMock()
@@ -76,53 +75,10 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertIsNotNone(artifact)
 
     async def test_run_unknown_kind(self):
-        result, artifact = await self.tool._arun_impl(kind="unknown", query="test", tool_call_id="test-id")
-        self.assertEqual(result, "Invalid entity kind: unknown. Please provide a valid entity kind for the tool.")
-        self.assertIsNone(artifact)
+        with self.assertRaises(MaxToolRetryableError) as context:
+            await self.tool._arun_impl(kind="unknown", query="test", tool_call_id="test-id")
 
-    @patch("ee.hogai.graph.root.tools.search.EntitySearchTool.execute")
-    async def test_arun_impl_error_tracking_issues_returns_routing_data(self, mock_execute):
-        mock_execute.return_value = "Search results for error tracking issues"
-
-        result, artifact = await self.tool._arun_impl(
-            kind="error_tracking_issues", query="test error tracking issue query", tool_call_id="test-id"
-        )
-
-        self.assertEqual(result, "Search results for error tracking issues")
-        self.assertIsNone(artifact)
-        mock_execute.assert_called_once_with("test error tracking issue query", "error_tracking_issues")
-
-    @patch("ee.hogai.graph.root.tools.search.EntitySearchTool.execute")
-    @patch("ee.hogai.graph.root.tools.search.SearchTool._has_insights_fts_search_feature_flag")
-    async def test_arun_impl_insight_with_feature_flag_disabled(
-        self, mock_has_insights_fts_search_feature_flag, mock_execute
-    ):
-        mock_has_insights_fts_search_feature_flag.return_value = False
-        mock_execute.return_value = "Search results for insights"
-
-        result, artifact = await self.tool._arun_impl(
-            kind="insights", query="test insight query", tool_call_id="test-id"
-        )
-
-        self.assertEqual(result, "The user doesn't have any insights created yet.")
-        self.assertIsNone(artifact)
-        mock_execute.assert_not_called()
-
-    @patch("ee.hogai.graph.root.tools.search.EntitySearchTool.execute")
-    @patch("ee.hogai.graph.root.tools.search.SearchTool._has_insights_fts_search_feature_flag")
-    async def test_arun_impl_insight_with_feature_flag_enabled(
-        self, mock_has_insights_fts_search_feature_flag, mock_execute
-    ):
-        mock_has_insights_fts_search_feature_flag.return_value = True
-        mock_execute.return_value = "Search results for insights"
-
-        result, artifact = await self.tool._arun_impl(
-            kind="insights", query="test insight query", tool_call_id="test-id"
-        )
-
-        self.assertEqual(result, "Search results for insights")
-        self.assertIsNone(artifact)
-        mock_execute.assert_called_once_with("test insight query", "insights")
+        self.assertIn("Invalid entity kind", str(context.exception))
 
 
 class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -276,10 +232,10 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         from ee.hogai.graph.insights.nodes import NoInsightsException
 
         with patch("ee.hogai.graph.insights.nodes.InsightSearchNode", side_effect=NoInsightsException()):
-            result, artifact = await self.tool.execute("user signups", "test-tool-call-id")
+            with self.assertRaises(MaxToolFatalError) as context:
+                await self.tool.execute("user signups", "test-tool-call-id")
 
-            self.assertEqual(result, EMPTY_DATABASE_ERROR_MESSAGE)
-            self.assertIsNone(artifact)
+            self.assertIn("No insights available", str(context.exception))
 
     async def test_execute_returns_none_artifact_when_result_is_none(self):
         async def mock_ainvoke(state):
