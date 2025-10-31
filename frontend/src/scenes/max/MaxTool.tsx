@@ -54,11 +54,11 @@ export function MaxTool({
                         !isMaxOpen ? (
                             <>
                                 <IconSparkles className="mr-1.5" />
-                                {definition.name} with PostHog AI
+                                {definition.name} with Intelligence
                             </>
                         ) : (
                             <>
-                                PostHog AI can use this tool
+                                Intelligence can use this tool
                                 <br />
                                 {definition.icon || <IconWrench />}
                                 <i className="ml-1.5">{definition.name}</i>

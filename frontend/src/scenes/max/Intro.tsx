@@ -40,7 +40,7 @@ export function Intro(): JSX.Element {
                             }
                         >
                             <span className="inline-block cursor-help">
-                                Max is now PostHog AI – a core part of PostHog.
+                                Max is now PostHog Intelligence – a core part of PostHog.
                             </span>
                         </Tooltip>
                     ) : (

@@ -264,7 +264,7 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                         Turn off deep research to add context
                     </LemonButton>
                 ) : (
-                    <Tooltip title="Add context to help PostHog AI answer your question">
+                    <Tooltip title="Add context to help Intelligence answer your question">
                         <TaxonomicPopover
                             size="xxsmall"
                             type="tertiary"

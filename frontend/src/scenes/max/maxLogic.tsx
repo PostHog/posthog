@@ -613,7 +613,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'How can I capture an exception?',
             },
         ],
-        tooltip: 'PostHog AI has access to PostHog docs and can help you get the most out of PostHog.',
+        tooltip: 'Intelligence has access to PostHog docs and can help you get the most out of PostHog.',
     },
 ]
 

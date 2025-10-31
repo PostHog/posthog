@@ -20,8 +20,8 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
 
     const tip =
         !coreMemoryLoading && !coreMemory?.text
-            ? 'Tip: Run /init to initialize PostHog AI in this project'
-            : 'Try PostHog AI for…'
+            ? 'Tip: Run /init to initialize Intelligence in this project'
+            : 'Try Intelligence for…'
 
     return (
         <DismissableLayer
@@ -47,7 +47,7 @@ export function SidebarQuestionInputWithSuggestions(): JSX.Element {
                             size="xsmall"
                             type="secondary"
                             icon={<IconGear />}
-                            tooltip="Edit PostHog AI memory"
+                            tooltip="Edit Intelligence memory"
                         />,
                     ]}
                 />

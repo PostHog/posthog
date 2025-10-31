@@ -1,4 +1,4 @@
-# PostHog AI SDK Integration Example
+# Intelligence SDK Integration Example
 
 This example demonstrates how to use PostHog tools with the AI SDK using the `@posthog/agent-toolkit` package.
 

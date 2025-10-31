@@ -130,17 +130,17 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
             <div ref={ref} className="flex flex-col h-full">
                 <div className="flex-1 overflow-y-auto p-3 deprecated-space-y-4 [overflow-anchor:none]">
                     <div className="bg-surface-primary dark:bg-transparent rounded p-1">
-                        <h4 className="mb-2">Tips for using PostHog AI through chat:</h4>
+                        <h4 className="mb-2">Tips for using Intelligence through chat:</h4>
                         <ul className="list-disc pl-4 deprecated-space-y-2 text-secondary">
-                            <li>PostHog AI can't handle files or images (yet.)</li>
+                            <li>Intelligence can't handle files or images (yet.)</li>
                             <li>Replies can take up to 3 mins due to rate-limiting.</li>
-                            <li>PostHog AI can make mistakes. Please double-check responses.</li>
+                            <li>Intelligence can make mistakes. Please double-check responses.</li>
                         </ul>
                     </div>
 
                     {displayMessages.length === 0 ? (
                         <div className="flex items-center gap-2 text-secondary">
-                            <span>PostHog AI is thinking...</span>
+                            <span>Intelligence is thinking...</span>
                             <Spinner className="text-lg" />
                         </div>
                     ) : (
@@ -202,7 +202,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                                                                 key: 'analysis',
                                                                                 header: (
                                                                                     <span className="text-secondary">
-                                                                                        What was PostHog AI thinking?
+                                                                                        What was Intelligence thinking?
                                                                                     </span>
                                                                                 ),
                                                                                 content: (

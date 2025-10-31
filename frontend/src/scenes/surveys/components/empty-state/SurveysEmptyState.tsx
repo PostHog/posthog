@@ -135,7 +135,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     icon={<IconSparkles />}
                                     onClick={() => openSidePanel(SidePanelTab.Max, 'Create a survey to collect ')}
                                 >
-                                    Create your own custom survey with PostHog AI
+                                    Create your own custom survey with Intelligence
                                 </LemonButton>
                             </MaxTool>
                         )}

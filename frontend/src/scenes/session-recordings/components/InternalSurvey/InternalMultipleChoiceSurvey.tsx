@@ -246,7 +246,7 @@ export function InternalMultipleChoiceSurvey({ surveyId }: InternalSurveyProps):
                                                     )
                                                 }}
                                             >
-                                                Ask PostHog AI for help
+                                                Ask Intelligence for help
                                             </LemonButton>
                                         )}
                                     </div>
