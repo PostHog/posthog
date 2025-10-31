@@ -2,7 +2,7 @@
     "languages": {
         "typescript": {
             "output_path": "frontend/src/lib/posthog-typed.ts",
-            "schema_hash": "f7e9ba57e5cb4df92cf6bf2f9b6beba4",
+            "schema_hash": "f7e9ba57e5cb4df92cf6bf2f9b6beba5",
             "updated_at": "2025-10-31T07:49:54.114125+00:00",
             "event_count": 31
         }

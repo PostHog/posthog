@@ -349,7 +349,7 @@ class EventDefinitionViewSet(
         output.append("")
 
         # Generate event schemas
-        output.append("// Define event schemas")
+        output.append("// Define event schemas with their required and optional fields")
         output.append("interface EventSchemas {")
 
         for event_def in event_definitions:
@@ -377,7 +377,8 @@ class EventDefinitionViewSet(
         output.append("export type EventName = keyof EventSchemas")
         output.append("")
         output.append("// Type helper to get properties for a specific event")
-        output.append("export type EventProperties<K extends EventName> = EventSchemas[K]")
+        output.append("// Intersects the schema with Record<string, any> to allow additional properties")
+        output.append("export type EventProperties<K extends EventName> = EventSchemas[K] & Record<string, any>")
         output.append("")
         output.append("// Helper type to check if a type has required properties")
         output.append("type HasRequiredProperties<K extends EventName> = {} extends EventSchemas[K] ? false : true")
