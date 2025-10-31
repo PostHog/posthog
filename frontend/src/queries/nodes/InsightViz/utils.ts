@@ -134,6 +134,10 @@ export const getDefaultQuery = (
         } else if (insightType === InsightType.HOG) {
             return examples.Hoggonacci as HogQuery
         }
+    } else if (insightType === InsightType.WEB_ANALYTICS) {
+        // Web Analytics insights should always come from Web Analytics tiles with a pre-configured query
+        // This is a fallback that should rarely be used
+        throw new Error('Web Analytics insights must be created from Web Analytics tiles')
     } else {
         if (insightType === InsightType.TRENDS) {
             return queryFromKind(NodeKind.TrendsQuery, filterTestAccountsDefault)

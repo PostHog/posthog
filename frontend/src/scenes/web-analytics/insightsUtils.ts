@@ -19,6 +19,17 @@ export const getNewInsightUrlFactory = (tiles: WebAnalyticsTile[]) => {
                     hidePersonsModal: undefined,
                 }
             }
+            // Extract source from DataTableNode if present
+            if (query.kind === NodeKind.DataTableNode && 'source' in query) {
+                const source = query.source
+                if (isWebAnalyticsInsightQuery(source)) {
+                    return {
+                        kind: NodeKind.InsightVizNode,
+                        source: source,
+                    } as InsightVizNode
+                }
+                return source
+            }
             // Wrap Web Analytics queries in InsightVizNode so they can be used as insights
             if (isWebAnalyticsInsightQuery(query)) {
                 return {
