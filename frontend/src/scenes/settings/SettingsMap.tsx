@@ -32,7 +32,11 @@ import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/a
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
-import { ActivityLogSettings } from './environment/ActivityLogSettings'
+import {
+    ActivityLogNotifications,
+    ActivityLogOrgLevelSettings,
+    ActivityLogSettings,
+} from './environment/ActivityLogSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
@@ -576,8 +580,20 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'activity-log-settings',
-                title: 'Activity logs',
+                title: 'Logs',
                 component: <ActivityLogSettings />,
+            },
+            {
+                id: 'activity-log-org-level-settings',
+                title: 'Settings',
+                component: <ActivityLogOrgLevelSettings />,
+                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
+            },
+            {
+                id: 'activity-log-notifications',
+                title: 'Notifications',
+                component: <ActivityLogNotifications />,
+                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
             },
         ],
     },

@@ -153,6 +153,8 @@ export type SettingId =
     | 'marketing-settings'
     | 'mcp-server-configure'
     | 'activity-log-settings'
+    | 'activity-log-org-level-settings'
+    | 'activity-log-notifications'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
