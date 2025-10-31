@@ -10,7 +10,7 @@ use crate::{
 
 #[derive(clap::Args, Clone)]
 pub struct Args {
-    /// The location of the file to upload
+    /// The location of the proguard mapping file to upload.
     #[arg(short, long)]
     pub path: PathBuf,
 
