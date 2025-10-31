@@ -30,6 +30,7 @@ ratatui = "0.29.0"
 crossterm = "0.28.1"
 tui-textarea = "0.7.0"
 sourcemap = "9.1.2"
+proguard = "5.6.2"
 magic_string = "0.3.4"
 miette = { version = "7.5.0", features = ["fancy"] }
 serde_json = "1.0.140"
