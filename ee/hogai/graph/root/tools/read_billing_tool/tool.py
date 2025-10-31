@@ -1,6 +1,7 @@
 from typing import Any
 
 from langchain_core.prompts import PromptTemplate
+from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import MaxBillingContext, SpendHistoryItem, UsageHistoryItem
 
@@ -11,6 +12,7 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxSubtool
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import NodePath
 
 from .prompts import BILLING_CONTEXT_PROMPT
 
@@ -33,8 +35,19 @@ USAGE_TYPES = [
 
 
 class ReadBillingTool(MaxSubtool):
-    def __init__(self, team: Team, user: User, state: AssistantState, context_manager: AssistantContextManager):
-        super().__init__(team, user, state, context_manager)
+    def __init__(
+        self,
+        *,
+        team: Team,
+        user: User,
+        node_path: tuple[NodePath, ...],
+        state: AssistantState,
+        config: RunnableConfig,
+        context_manager: AssistantContextManager,
+    ):
+        super().__init__(
+            team=team, user=user, node_path=node_path, state=state, config=config, context_manager=context_manager
+        )
         self._teams_map: dict[int, str] = {}
 
     async def execute(self) -> str:

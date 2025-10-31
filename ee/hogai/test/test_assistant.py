@@ -1225,45 +1225,21 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertConversationEqual(
             output,
             [
-                (
-                    "message",
-                    HumanMessage(
-                        content="How do I use feature flags?",
-                        id="d93b3d57-2ff3-4c63-8635-8349955b16f0",
-                        parent_tool_call_id=None,
-                        type="human",
-                        ui_context=None,
-                    ),
-                ),
+                ("message", HumanMessage(content="How do I use feature flags?")),
                 (
                     "message",
                     AssistantMessage(
                         content="",
-                        id="ea1f4faf-85b4-4d98-b044-842b7092ba5d",
-                        meta=None,
-                        parent_tool_call_id=None,
                         tool_calls=[
                             AssistantToolCall(
                                 args={"kind": "docs", "query": "test"}, id="1", name="search", type="tool_call"
                             )
                         ],
-                        type="ai",
                     ),
-                ),
-                (
-                    "update",
-                    AssistantUpdateEvent(id="message_2", tool_call_id="1", content="Checking PostHog documentation..."),
                 ),
                 (
                     "message",
-                    AssistantToolCallMessage(
-                        content="Checking PostHog documentation...",
-                        id="00149847-0bcd-4b7c-a514-bab176312ae8",
-                        parent_tool_call_id=None,
-                        tool_call_id="1",
-                        type="tool",
-                        ui_payload=None,
-                    ),
+                    AssistantToolCallMessage(content="Checking PostHog documentation...", tool_call_id="1"),
                 ),
                 (
                     "message",
@@ -1823,8 +1799,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         config = assistant._get_config()
         self.assertEqual(config["configurable"]["billing_context"], billing_context)
 
+    @patch("ee.hogai.context.context.AssistantContextManager.check_user_has_billing_access", return_value=True)
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
-    async def test_billing_tool_execution(self, root_mock):
+    async def test_billing_tool_execution(self, root_mock, access_mock):
         """Test that the billing tool can be called and returns formatted billing information."""
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,

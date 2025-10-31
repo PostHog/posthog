@@ -29,6 +29,7 @@ from ee.hogai.utils.types.base import (
     NodeEndAction,
     NodePath,
     NodeStartAction,
+    UpdateAction,
 )
 from ee.hogai.utils.types.composed import MaxNodeName
 
@@ -142,11 +143,8 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         produced_message: AssistantResultUnion | None = None
 
         # Output all messages from the top-level graph.
-        if not self._is_message_from_nested_graph(action.node_path or ()):
+        if not self._is_message_from_nested_node_or_graph(action.node_path or ()):
             produced_message = self._handle_root_message(message, node_name)
-        # AssistantMessage with parent creates AssistantUpdateEvent
-        elif isinstance(message, AssistantMessage):
-            return self._handle_update_message(action, message)
         # Other message types with parents (viz, notebook, failure, tool call)
         else:
             produced_message = self._handle_special_child_message(message, node_name)
@@ -160,11 +158,13 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
 
         return produced_message
 
-    def _is_message_from_nested_graph(self, node_path: tuple[NodePath, ...]) -> bool:
+    def _is_message_from_nested_node_or_graph(self, node_path: tuple[NodePath, ...]) -> bool:
         if not node_path:
             return False
         # The first path is always the top-level graph.
-        if next((path for path in node_path[1:] if path.name in AssistantGraphName), None):
+        # The second path is always the top-level node.
+        # If the path is longer than 2, it's a MaxTool or nested graphs.
+        if len(node_path) > 2 and next((path for path in node_path[1:] if path.name in AssistantGraphName), None):
             return True
         return False
 
@@ -177,12 +177,13 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         return message
 
     def _handle_update_message(
-        self, event: AssistantDispatcherEvent, message: AssistantMessage
+        self, event: AssistantDispatcherEvent, action: UpdateAction
     ) -> AssistantUpdateEvent | None:
         """Handle AssistantMessage that has a parent, creating an AssistantUpdateEvent."""
-        if not event.node_path or not message.content:
+        if not event.node_path or not action.update:
             return None
 
+        # Find the closest tool call id to the update.
         parent_path = next((path for path in reversed(event.node_path) if path.tool_call_id), None)
         # Updates from the top-level graph nodes are not supported.
         if not parent_path:
@@ -193,7 +194,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         if not message_id or not tool_call_id:
             return None
 
-        return AssistantUpdateEvent(id=message_id, tool_call_id=tool_call_id, content=message.content)
+        return AssistantUpdateEvent(id=message_id, tool_call_id=tool_call_id, content=action.content)
 
     def _handle_special_child_message(
         self, message: AssistantMessageUnion, node_name: MaxNodeName

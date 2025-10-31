@@ -11,6 +11,7 @@ from ee.hogai.utils.types.base import (
     AssistantMessageUnion,
     MessageAction,
     NodePath,
+    UpdateAction,
 )
 
 
@@ -74,11 +75,9 @@ class AssistantDispatcher:
         """
         self.dispatch(MessageAction(message=message))
 
-    def set_as_root(self) -> None:
-        """
-        Set the dispatcher as the root.
-        """
-        self._node_path = ()
+    def update(self, content: str):
+        """Dispatch an update to the stream that will be associated with a tool call."""
+        self.dispatch(UpdateAction(content=content))
 
 
 def create_dispatcher_from_config(config: RunnableConfig, node_path: tuple[NodePath, ...]) -> AssistantDispatcher:

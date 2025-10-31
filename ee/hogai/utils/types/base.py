@@ -454,7 +454,12 @@ class NodeEndAction(BaseModel, Generic[PartialStateType]):
     state: PartialStateType | None = None
 
 
-AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction
+class UpdateAction(BaseModel):
+    type: Literal["UPDATE"] = "UPDATE"
+    content: str
+
+
+AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction
 
 
 class NodePath(BaseModel):

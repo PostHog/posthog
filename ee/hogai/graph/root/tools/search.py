@@ -107,17 +107,38 @@ class SearchTool(MaxTool):
         if kind == "docs":
             if not settings.INKEEP_API_KEY:
                 return "This tool is not available in this environment.", None
-            docs_tool = InkeepDocsSearchTool(self._team, self._user, self._state, self._context_manager)
+            docs_tool = InkeepDocsSearchTool(
+                team=self._team,
+                user=self._user,
+                node_path=self._node_path,
+                state=self._state,
+                config=self._config,
+                context_manager=self._context_manager,
+            )
             return await docs_tool.execute(query, tool_call_id)
 
         if kind == "insights" and not self._has_insights_fts_search_feature_flag():
-            insights_tool = InsightSearchTool(self._team, self._user, self._state, self._context_manager)
+            insights_tool = InsightSearchTool(
+                team=self._team,
+                user=self._user,
+                node_path=self._node_path,
+                state=self._state,
+                config=self._config,
+                context_manager=self._context_manager,
+            )
             return await insights_tool.execute(query, tool_call_id)
 
         if kind not in self._fts_entities:
             return format_prompt_string(INVALID_ENTITY_KIND_PROMPT, kind=kind), None
 
-        entity_search_toolkit = EntitySearchTool(self._team, self._user, self._state, self._context_manager)
+        entity_search_toolkit = EntitySearchTool(
+            team=self._team,
+            user=self._user,
+            node_path=self._node_path,
+            state=self._state,
+            config=self._config,
+            context_manager=self._context_manager,
+        )
         response = await entity_search_toolkit.execute(query, FTSKind(kind))
         return response, None
 
@@ -175,7 +196,7 @@ class InkeepDocsSearchTool(MaxSubtool):
         from ee.hogai.graph.inkeep_docs.nodes import InkeepDocsNode
 
         # Init the graph
-        node = InkeepDocsNode(self._team, self._user)
+        node = InkeepDocsNode(self._team, self._user, self._node_path)
         chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
         copied_state = self._state.model_copy(deep=True, update={"root_tool_call_id": tool_call_id})
         result = await chain.ainvoke(copied_state)
@@ -235,7 +256,7 @@ The user doesn't have any insights created yet.
 class InsightSearchTool(MaxSubtool):
     async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
         try:
-            node = InsightSearchNode(self._team, self._user)
+            node = InsightSearchNode(self._team, self._user, self._node_path)
             copied_state = self._state.model_copy(
                 deep=True, update={"search_insights_query": query, "root_tool_call_id": tool_call_id}
             )

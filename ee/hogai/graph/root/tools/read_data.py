@@ -100,7 +100,14 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 if not has_access:
                     return BILLING_INSUFFICIENT_ACCESS_PROMPT, None
                 # used for routing
-                billing_tool = ReadBillingTool(self._team, self._user, self._state, self._context_manager)
+                billing_tool = ReadBillingTool(
+                    team=self._team,
+                    user=self._user,
+                    node_path=self._node_path,
+                    state=self._state,
+                    config=self._config,
+                    context_manager=self._context_manager,
+                )
                 result = await billing_tool.execute()
                 return result, None
             case "datawarehouse_schema":

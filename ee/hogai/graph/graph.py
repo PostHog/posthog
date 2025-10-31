@@ -51,7 +51,11 @@ class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
         self._graph.add_conditional_edges(
             AssistantNodeName.ROOT, router or cast(Callable[[AssistantState], AssistantNodeName], root_node.router)
         )
-        self._graph.add_edge(AssistantNodeName.ROOT_TOOLS, AssistantNodeName.ROOT)
+        self._graph.add_conditional_edges(
+            AssistantNodeName.ROOT_TOOLS,
+            root_node_tools.router,
+            path_map={"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END},
+        )
         return self
 
     def add_memory_onboarding(

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import override_settings
 
 from langchain_core import messages
+from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage
 
@@ -136,7 +137,9 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.tool = InkeepDocsSearchTool(
             team=self.team,
             user=self.user,
+            node_path=(),
             state=self.state,
+            config=RunnableConfig(configurable={}),
             context_manager=self.context_manager,
         )
 
@@ -234,7 +237,9 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.tool = InsightSearchTool(
             team=self.team,
             user=self.user,
+            node_path=(),
             state=self.state,
+            config=RunnableConfig(configurable={}),
             context_manager=self.context_manager,
         )
 

@@ -174,12 +174,24 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         )
 
 
-class MaxSubtool(ABC):
-    def __init__(self, team: Team, user: User, state: AssistantState, context_manager: AssistantContextManager):
+class MaxSubtool(AssistantDispatcherMixin, ABC):
+    _config: RunnableConfig
+
+    def __init__(
+        self,
+        *,
+        team: Team,
+        user: User,
+        node_path: tuple[NodePath, ...],
+        state: AssistantState,
+        config: RunnableConfig,
+        context_manager: AssistantContextManager,
+    ):
         self._team = team
         self._user = user
         self._state = state
         self._context_manager = context_manager
+        self._node_path = node_path
 
     @abstractmethod
     async def execute(self, *args, **kwargs) -> Any:

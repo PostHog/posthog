@@ -68,14 +68,6 @@ if TYPE_CHECKING:
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
 
-RouteName = Literal[
-    "root",
-    "end",
-    "memory_onboarding",
-    "session_summarization",
-    "create_dashboard",
-]
-
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
@@ -477,7 +469,8 @@ class RootNodeTools(AssistantNode):
             messages=[tool_message],
         )
 
-    def router(self, state: AssistantState) -> RouteName:
+    # This is only for the Inkeep node. Remove when inkeep_docs is removed.
+    def router(self, state: AssistantState) -> Literal["root", "end"]:
         last_message = state.messages[-1]
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result
