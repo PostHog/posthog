@@ -1,4 +1,4 @@
-import { Link } from '@posthog/lemon-ui'
+import { Link } from 'lib/lemon-ui/Link'
 
 interface DocumentationLinkProps {
     provider?: string
@@ -9,7 +9,7 @@ interface DocumentationLinkProps {
 export function DocumentationLink({
     provider,
     path,
-    text = 'View full documentation →',
+    text = 'View full documentation ↗',
 }: DocumentationLinkProps): JSX.Element {
     const url = path
         ? `https://posthog.com/docs/${path}`
@@ -17,7 +17,7 @@ export function DocumentationLink({
 
     return (
         <p className="mt-4">
-            <Link to={url} target="_blank">
+            <Link to={url} target="_blank" targetBlankIcon disableDocsPanel>
                 {text}
             </Link>
         </p>

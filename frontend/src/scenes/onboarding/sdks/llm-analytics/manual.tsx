@@ -4,12 +4,33 @@ import { useState } from 'react'
 import { LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { Link } from 'lib/lemon-ui/Link'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SDKKey } from '~/types'
 
 import { DocumentationLink } from './DocumentationLink'
+
+function PropertiesInfoBanner(): JSX.Element {
+    return (
+        <LemonBanner type="info">
+            <div>
+                The <code>$ai_generation</code> event captures LLM call metadata including input/output, tokens,
+                latency, and model information.{' '}
+                <Link
+                    to="https://posthog.com/docs/llm-analytics/manual-capture"
+                    target="_blank"
+                    targetBlankIcon
+                    disableDocsPanel
+                >
+                    Learn about all available properties
+                </Link>
+            </div>
+        </LemonBanner>
+    )
+}
 
 export function LLMManualCaptureInstructions(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -27,7 +48,9 @@ export function LLMManualCaptureInstructions(): JSX.Element {
     return (
         <>
             <h3>Manual $ai_generation Event Capture</h3>
-            <p>For server-side SDKs, you can manually capture LLM events using the $ai_generation event.</p>
+            <p>
+                For server-side SDKs, you can manually capture LLM events using the <code>$ai_generation</code> event.
+            </p>
 
             <LemonTabs
                 activeKey={language}
@@ -48,6 +71,9 @@ const client = new PostHog('${currentTeam?.api_token}', {
 })`}</CodeSnippet>
 
                     <h3>3. Capture $ai_generation Event</h3>
+
+                    <PropertiesInfoBanner />
+
                     <CodeSnippet language={Language.JavaScript}>{`// After your LLM call
 client.capture({
     distinctId: 'user_123',
@@ -79,6 +105,9 @@ client.shutdown()`}</CodeSnippet>
 posthog = Posthog("${currentTeam?.api_token}", host="${apiHostOrigin()}")`}</CodeSnippet>
 
                     <h3>3. Capture $ai_generation Event</h3>
+
+                    <PropertiesInfoBanner />
+
                     <CodeSnippet language={Language.Python}>{`# After your LLM call
 posthog.capture(
     distinct_id='user_123',
@@ -111,6 +140,9 @@ client, _ := posthog.NewWithConfig("${currentTeam?.api_token}", posthog.Config{
 defer client.Close()`}</CodeSnippet>
 
                     <h3>3. Capture $ai_generation Event</h3>
+
+                    <PropertiesInfoBanner />
+
                     <CodeSnippet language={Language.Go}>{`// After your LLM call
 client.Enqueue(posthog.Capture{
     DistinctId: "user_123",
@@ -141,6 +173,9 @@ posthog = PostHog::Client.new({
 })`}</CodeSnippet>
 
                     <h3>3. Capture $ai_generation Event</h3>
+
+                    <PropertiesInfoBanner />
+
                     <CodeSnippet language={Language.Ruby}>{`# After your LLM call
 posthog.capture({
   distinct_id: 'user_123',
@@ -172,6 +207,9 @@ PostHog::init('${currentTeam?.api_token}', [
 ]);`}</CodeSnippet>
 
                     <h3>3. Capture $ai_generation Event</h3>
+
+                    <PropertiesInfoBanner />
+
                     <CodeSnippet language={Language.PHP}>{`// After your LLM call
 PostHog::capture([
     'distinctId' => 'user_123',
@@ -191,6 +229,9 @@ PostHog::capture([
             {language === SDKKey.API && (
                 <>
                     <h3>Capture via API</h3>
+
+                    <PropertiesInfoBanner />
+
                     <CodeSnippet language={Language.Bash}>{`curl -X POST "${apiHostOrigin()}/i/v0/e/" \\
      -H "Content-Type: application/json" \\
      -d '{
@@ -211,7 +252,7 @@ PostHog::capture([
                 </>
             )}
 
-            <DocumentationLink path="llm-analytics/manual-capture" text="View full manual capture documentation →" />
+            <DocumentationLink path="llm-analytics/manual-capture" text="View full manual capture documentation ↗" />
         </>
     )
 }
