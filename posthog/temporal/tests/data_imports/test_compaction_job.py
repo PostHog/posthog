@@ -22,7 +22,8 @@ from posthog.models.team.team import Team
 from posthog.temporal.data_imports.deltalake_compaction_job import DeltalakeCompactionJobWorkflowInputs
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.settings import ACTIVITIES, DeltalakeCompactionJobWorkflow
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()

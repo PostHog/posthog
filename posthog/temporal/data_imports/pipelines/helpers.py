@@ -4,21 +4,22 @@ from zoneinfo import ZoneInfo
 from django.db.models import F
 
 from posthog.sync import database_sync_to_async
-from posthog.warehouse.types import IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 initial_datetime = datetime(1970, 1, 1, 0, 0, 0, 0, tzinfo=ZoneInfo("UTC"))
 
 
 @database_sync_to_async
 def aget_external_data_job(team_id, job_id):
-    from posthog.warehouse.models import ExternalDataJob
+    from products.data_warehouse.backend.models import ExternalDataJob
 
     return ExternalDataJob.objects.get(id=job_id, team_id=team_id)
 
 
 @database_sync_to_async
 def aupdate_job_count(job_id: str, team_id: int, count: int):
-    from posthog.warehouse.models import ExternalDataJob
+    from products.data_warehouse.backend.models import ExternalDataJob
 
     ExternalDataJob.objects.filter(id=job_id, team_id=team_id).update(rows_synced=F("rows_synced") + count)
 

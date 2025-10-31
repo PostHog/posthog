@@ -6,7 +6,8 @@ from unittest import mock
 
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+
+from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 
 from .data import BALANCE_TRANSACTIONS
 

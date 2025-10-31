@@ -20,7 +20,8 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 
 LOGGER = get_logger(__name__)
 

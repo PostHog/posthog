@@ -22,7 +22,8 @@ from posthog.temporal.data_imports.sources.common import config
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
 from posthog.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
-from posthog.warehouse.types import IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 
 def _clean_customer_id(s: str | None) -> str | None:

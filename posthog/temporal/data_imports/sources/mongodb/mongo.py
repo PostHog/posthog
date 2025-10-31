@@ -19,7 +19,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUN
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
 from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
-from posthog.warehouse.types import IncrementalFieldType, PartitionSettings
+
+from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 
 def _process_nested_value(value: Any) -> Any:

@@ -17,7 +17,8 @@ from posthog.temporal.data_imports.sources.generated_configs import HubspotSourc
 from posthog.temporal.data_imports.sources.hubspot.auth import hubspot_refresh_access_token
 from posthog.temporal.data_imports.sources.hubspot.hubspot import hubspot
 from posthog.temporal.data_imports.sources.hubspot.settings import ENDPOINTS as HUBSPOT_ENDPOINTS
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @config.config

@@ -22,7 +22,8 @@ from posthog.temporal.data_imports.sources.mssql.mssql import (
     get_schemas as get_mssql_schemas,
     mssql_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
+
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 MSSQLErrors = {
     "Login failed for user": "Login failed for database",

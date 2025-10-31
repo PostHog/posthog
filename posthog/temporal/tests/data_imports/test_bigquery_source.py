@@ -19,12 +19,13 @@ from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
 )
-from posthog.warehouse.models.credential import DataWarehouseCredential
-from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.warehouse.types import ExternalDataSourceType, IncrementalFieldType
+
+from products.data_warehouse.backend.models.credential import DataWarehouseCredential
+from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
 SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.skipif(
     "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ,

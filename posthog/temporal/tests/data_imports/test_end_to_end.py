@@ -69,10 +69,11 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from posthog.temporal.utils import ExternalDataWorkflowInputs
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
-from posthog.warehouse.models.external_table_definitions import external_tables
-from posthog.warehouse.models.join import DataWarehouseJoin
+
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
+from products.data_warehouse.backend.models.external_table_definitions import external_tables
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()

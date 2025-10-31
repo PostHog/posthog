@@ -6,9 +6,9 @@ from posthog.schema import IntervalType, RevenueAnalyticsGrossRevenueQuery
 
 from posthog.constants import AvailableFeature
 from posthog.rbac.user_access_control import UserAccessControlError
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
-from posthog.warehouse.types import ExternalDataSourceType
 
+from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
 try:

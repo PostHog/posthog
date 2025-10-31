@@ -8,9 +8,10 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
-from posthog.warehouse.data_load.service import delete_external_data_schedule
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSource
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+
+from products.data_warehouse.backend.data_load.service import delete_external_data_schedule
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
 

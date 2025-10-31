@@ -38,11 +38,12 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.join import DataWarehouseJoin
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestDatabase(BaseTest, QueryMatchingTest):

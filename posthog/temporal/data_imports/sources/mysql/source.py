@@ -25,7 +25,8 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     get_schemas as get_mysql_schemas,
     mysql_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
+
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 
 @SourceRegistry.register

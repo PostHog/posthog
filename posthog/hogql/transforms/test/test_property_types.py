@@ -14,7 +14,8 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.models import PropertyDefinition
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
+
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
 
 
 class TestPropertyTypes(BaseTest):

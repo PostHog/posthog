@@ -24,7 +24,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KE
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
 if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataSchema
+    from products.data_warehouse.backend.models import ExternalDataSchema
 
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),

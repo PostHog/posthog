@@ -11,13 +11,14 @@ from posthog.models.team.team import Team
 from posthog.tasks.test.test_usage_report import freeze_time
 from posthog.temporal.data_imports.settings import import_data_activity_sync
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
-from posthog.warehouse.models.credential import DataWarehouseCredential
-from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.models.ssh_tunnel import SSHTunnel
-from posthog.warehouse.models.table import DataWarehouseTable
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.models.credential import DataWarehouseCredential
+from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnel
+from products.data_warehouse.backend.models.table import DataWarehouseTable
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:

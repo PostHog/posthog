@@ -8,7 +8,16 @@ from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.api import (
+
+import products.logs.backend.api as logs
+import products.links.backend.api as link
+import products.tasks.backend.api as tasks
+import products.endpoints.backend.api as endpoints
+import products.live_debugger.backend.api as live_debugger
+import products.revenue_analytics.backend.api as revenue_analytics
+import products.early_access_features.backend.api as early_access_feature
+import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.data_warehouse.backend.api import (
     data_modeling_job,
     data_warehouse,
     external_data_schema,
@@ -21,16 +30,7 @@ from posthog.warehouse.api import (
     table,
     view_link,
 )
-from posthog.warehouse.api.lineage import LineageViewSet
-
-import products.logs.backend.api as logs
-import products.links.backend.api as link
-import products.tasks.backend.api as tasks
-import products.endpoints.backend.api as endpoints
-import products.live_debugger.backend.api as live_debugger
-import products.revenue_analytics.backend.api as revenue_analytics
-import products.early_access_features.backend.api as early_access_feature
-import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,

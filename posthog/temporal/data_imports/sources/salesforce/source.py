@@ -16,7 +16,8 @@ from posthog.temporal.data_imports.sources.generated_configs import SalesforceSo
 from posthog.temporal.data_imports.sources.salesforce.auth import salesforce_refresh_access_token
 from posthog.temporal.data_imports.sources.salesforce.salesforce import salesforce_source
 from posthog.temporal.data_imports.sources.salesforce.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register

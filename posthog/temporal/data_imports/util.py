@@ -10,7 +10,8 @@ from structlog.types import FilteringBoundLogger
 from posthog.settings.utils import get_from_env
 from posthog.temporal.data_imports.deltalake_compaction_job import capture_exception
 from posthog.utils import str_to_bool
-from posthog.warehouse.s3 import get_s3_client
+
+from products.data_warehouse.backend.s3 import get_s3_client
 
 # 10 mins buffer to avoid deleting files Clickhouse may be reading
 S3_DELETE_TIME_BUFFER = 600
