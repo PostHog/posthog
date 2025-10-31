@@ -529,6 +529,29 @@ describe('sendMessageToDLQ', () => {
             extra: { originalMessage: mockMessage, error: dlqError },
         })
     })
+
+    it('should log warning and not send message when DLQ topic is empty', async () => {
+        const error = new Error('Test error')
+        const stepName = 'test-step'
+        const dlqTopic = ''
+
+        await sendMessageToDLQ(mockKafkaProducer, mockMessage, error, stepName, dlqTopic)
+
+        expect(mockLogger.warn).toHaveBeenCalledWith(
+            'DLQ topic not configured - message would be sent to DLQ but no topic specified',
+            {
+                step: stepName,
+                team_id: '42',
+                uuid: 'test-uuid-123',
+                distinct_id: 'test-user',
+                event: 'pageview',
+                error: 'Test error',
+            }
+        )
+
+        expect(mockKafkaProducer.produce).not.toHaveBeenCalled()
+        expect(mockCaptureIngestionWarning).not.toHaveBeenCalled()
+    })
 })
 
 describe('redirectMessageToTopic', () => {
