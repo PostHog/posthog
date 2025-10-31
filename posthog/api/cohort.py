@@ -673,7 +673,13 @@ class CohortSerializer(serializers.ModelSerializer):
                 insights_using_cohort = Insight.objects.filter(
                     team_id=cohort.team_id,
                     deleted=False,
-                ).filter(Q(query__icontains=f'"type": "cohort", "value": {cohort.id}'))
+                ).filter(
+                    Q(query__icontains=f'"type": "cohort", "value": {cohort.id}')
+                    | (
+                        Q(query__source__breakdownFilter__breakdown_type="cohort")
+                        & Q(query__source__breakdownFilter__breakdown__contains=cohort.id)
+                    )
+                )
 
                 if insights_using_cohort.exists():
                     count = insights_using_cohort.count()
