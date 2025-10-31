@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.db import IntegrityError, models
-from django.db.models import FilteredRelation, Max, Q, QuerySet
+from django.db.models import F, FilteredRelation, Q, QuerySet
 from django.utils import timezone
 
 from posthog.models.file_system.file_system import FileSystem
@@ -85,7 +85,7 @@ def annotate_file_system_with_view_logs(
         )
     )
 
-    return base_qs.annotate(last_viewed_at=Max("matching_view_logs__viewed_at"))
+    return base_qs.annotate(last_viewed_at=F("matching_view_logs__viewed_at"))
 
 
 def get_recent_file_system_items(*, team_id: int, user_id: int, limit: Optional[int] = None) -> QuerySet[FileSystem]:

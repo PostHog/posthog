@@ -22,10 +22,10 @@
         "schema:build:python": "bash bin/build-schema-python.sh",
         "taxonomy:build": "pnpm run taxonomy:build:json",
         "taxonomy:build:json": "python bin/build-taxonomy-json.py",
-        "grammar:build": "bin/hogli build:grammar",
+        "grammar:build": "pnpm grammar:build:python && pnpm grammar:build:cpp",
         "grammar:build:python": "cd posthog/hogql/grammar && cat HogQLLexer.python.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 |sed s/isOpeningTag/self.isOpeningTag/ >> HogQLLexer.g4 && antlr -Dlanguage=Python3 HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
         "grammar:build:cpp": "cd posthog/hogql/grammar && cat HogQLLexer.cpp.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 >> HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
-        "generate:source-configs": "DEBUG=1 python manage.py generate_source-configs",
+        "generate:source-configs": "DEBUG=1 python manage.py generate_source_configs",
         "// DEPRECATED - use hogli migrations:run instead": "",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "// DEPRECATED - use hogli migrations:run instead ": "",
@@ -72,7 +72,7 @@
         "overrides": {
             "playwright": "1.45.0",
             "typescript": "5.2.2",
-            "@posthog/icons": "0.33.0"
+            "@posthog/icons": "0.35.0"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",

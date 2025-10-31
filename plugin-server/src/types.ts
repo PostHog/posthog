@@ -352,6 +352,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string
     TEMPORAL_HOST: string
+    TEMPORAL_PORT: string | undefined
     TEMPORAL_NAMESPACE: string
     TEMPORAL_CLIENT_ROOT_CA: string | undefined
     TEMPORAL_CLIENT_CERT: string | undefined

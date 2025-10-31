@@ -77,11 +77,14 @@ class CachingTeamSerializer(serializers.ModelSerializer):
     Has all parameters needed for a successful decide request.
     """
 
+    organization_id = serializers.UUIDField(read_only=True)
+
     class Meta:
         model = Team
         fields = [
             "id",
             "project_id",
+            "organization_id",
             "uuid",
             "name",
             "api_token",

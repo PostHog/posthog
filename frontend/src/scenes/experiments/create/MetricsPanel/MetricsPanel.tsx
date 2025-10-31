@@ -99,6 +99,7 @@ export const MetricsPanel = ({
             <MetricSourceModal />
             <ExperimentMetricModal
                 experiment={experiment}
+                exposureCriteria={experiment.exposure_criteria}
                 onSave={(metric, context) => {
                     onSaveMetric(metric, context)
                     closeExperimentMetricModal()
