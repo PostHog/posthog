@@ -445,8 +445,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 return AssistantNodeName.ROOT
 
             async def arun(self, state, config):
-                self.dispatcher.message(AssistantMessage(content="Hello"))
-                return PartialAssistantState()
+                return PartialAssistantState(messages=[AssistantMessage(content="Hello", id=str(uuid4()))])
 
         test_node = TestNode(self.team, self.user)
         graph = (
@@ -480,8 +479,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 return AssistantNodeName.ROOT
 
             async def arun(self, state, config):
-                self.dispatcher.message(AssistantMessage(content="bar"))
-                return PartialAssistantState()
+                return PartialAssistantState(messages=[AssistantMessage(content="bar", id=str(uuid4()))])
 
         test_node = TestNode(self.team, self.user)
         graph = (
@@ -1238,6 +1236,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     ),
                 ),
                 (
+                    "update",
+                    AssistantUpdateEvent(content="Checking PostHog documentation...", id="1", tool_call_id="1"),
+                ),
+                (
                     "message",
                     AssistantToolCallMessage(content="Checking PostHog documentation...", tool_call_id="1"),
                 ),
@@ -1251,7 +1253,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.nodes.query_executor.nodes.QueryExecutorNode")
+    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode")
     async def test_insights_tool_mode_flow(
         self, query_executor_mock, planner_mock, generator_mock, title_generator_mock
     ):
@@ -1441,8 +1443,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     return AssistantNodeName.ROOT
 
                 async def arun(self, state, config):
-                    self.dispatcher.message(self.message_to_return)
-                    return PartialAssistantState()
+                    return PartialAssistantState(messages=[self.message_to_return])
 
             # Create a graph with our test node
             node = MessageFilteringNode(self.team, self.user, test_message)
@@ -1729,8 +1730,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 return AssistantNodeName.ROOT
 
             async def arun(self, state, config):
-                self.dispatcher.message(AssistantMessage(content="Response"))
-                return PartialAssistantState()
+                return PartialAssistantState(messages=[AssistantMessage(content="Response", id=str(uuid4()))])
 
         test_node = TestNode(self.team, self.user)
         graph = (

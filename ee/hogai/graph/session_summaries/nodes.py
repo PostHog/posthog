@@ -10,7 +10,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
-    AssistantMessage,
     AssistantToolCallMessage,
     MaxRecordingUniversalFilters,
     NotebookUpdateMessage,
@@ -69,11 +68,7 @@ class SessionSummarizationNode(AssistantNode):
         """Push summarization progress as reasoning messages"""
         content = prepare_reasoning_progress_message(progress_message)
         if content:
-            self.dispatcher.message(
-                AssistantMessage(
-                    content=content,
-                )
-            )
+            self.dispatcher.update(content)
 
     async def _stream_notebook_content(self, content: dict, state: AssistantState, partial: bool = True) -> None:
         """Stream TipTap content directly to a notebook if notebook_id is present in state."""

@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, CurrencyCode
+from posthog.schema import CurrencyCode
 
 from posthog.event_usage import groups
 from posthog.models import Team
@@ -194,7 +194,7 @@ class TaxonomyUpdateDispatcherNodeMixin:
         content = "Picking relevant events and properties"
         if substeps:
             content = substeps[-1]
-        self.dispatcher.message(AssistantMessage(content=content))
+        self.dispatcher.update(content)
 
 
 class AssistantDispatcherMixin:

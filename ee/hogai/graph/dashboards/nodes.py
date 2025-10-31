@@ -89,13 +89,6 @@ class DashboardCreationNode(AssistantNode):
     def _get_found_insight_count(self, queries_metadata: dict[str, QueryMetadata]) -> int:
         return sum(len(query.found_insight_ids) for query in queries_metadata.values())
 
-    def _dispatch_update_message(self, content: str) -> None:
-        self.dispatcher.message(
-            AssistantMessage(
-                content=content,
-            )
-        )
-
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         dashboard_name = (
             state.dashboard_name[:50] if state.dashboard_name else "Analytics Dashboard"
@@ -117,18 +110,18 @@ class DashboardCreationNode(AssistantNode):
                 for i, query in enumerate(state.search_insights_queries)
             }
 
-            self._dispatch_update_message(f"Searching for {pluralize(len(state.search_insights_queries), 'insight')}")
+            self.dispatcher.update(f"Searching for {pluralize(len(state.search_insights_queries), 'insight')}")
 
             result = await self._search_insights(result, config)
 
-            self._dispatch_update_message(f"Found {pluralize(self._get_found_insight_count(result), 'insight')}")
+            self.dispatcher.update(f"Found {pluralize(self._get_found_insight_count(result), 'insight')}")
 
             left_to_create = {
                 query_id: result[query_id].query for query_id in result.keys() if not result[query_id].found_insight_ids
             }
 
             if left_to_create:
-                self._dispatch_update_message(f"Will create {pluralize(len(left_to_create), 'insight')}")
+                self.dispatcher.update(f"Will create {pluralize(len(left_to_create), 'insight')}")
 
                 result = await self._create_insights(left_to_create, result, config)
 
@@ -307,7 +300,7 @@ class DashboardCreationNode(AssistantNode):
         self, dashboard_name: str, insights: set[int], dashboard_id: int | None = None
     ) -> tuple[Dashboard, list[Insight]]:
         """Create a dashboard and add the insights to it."""
-        self._dispatch_update_message("Saving your dashboard")
+        self.dispatcher.update("Saving your dashboard")
 
         @database_sync_to_async
         @transaction.atomic

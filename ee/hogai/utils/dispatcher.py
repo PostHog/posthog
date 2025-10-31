@@ -76,7 +76,7 @@ class AssistantDispatcher:
         self.dispatch(MessageAction(message=message))
 
     def update(self, content: str):
-        """Dispatch an update to the stream that will be associated with a tool call."""
+        """Dispatch a transient update message to the stream that will be associated with a tool call in the UI."""
         self.dispatch(UpdateAction(content=content))
 
 

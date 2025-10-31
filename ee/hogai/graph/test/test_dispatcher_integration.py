@@ -41,8 +41,8 @@ class MockAssistantNode(BaseAssistantNode):
         self.arun_called = True
 
         # Simulate dispatching messages during execution
-        self.dispatcher.message(AssistantMessage(content="Processing..."))
-        self.dispatcher.message(AssistantMessage(content="Done!"))
+        self.dispatcher.update("Processing...")
+        self.dispatcher.update("Done!")
 
         return PartialAssistantState(messages=[AssistantMessage(content="Final result")])
 
@@ -136,7 +136,7 @@ class TestDispatcherIntegration(BaseTest):
 
             async def arun(self, state, config: RunnableConfig) -> PartialAssistantState:
                 # Dispatch message - should inherit parent_tool_call_id from state
-                self.dispatcher.message(AssistantMessage(content="Child message"))
+                self.dispatcher.update("Child message")
                 return PartialAssistantState(messages=[])
 
         node = NodeWithParent(self.mock_team, self.mock_user)
@@ -173,7 +173,7 @@ class TestDispatcherIntegration(BaseTest):
 
             async def arun(self, state, config: RunnableConfig) -> PartialAssistantState:
                 # Try to dispatch - if writer fails, should handle gracefully
-                self.dispatcher.message(AssistantMessage(content="Test"))
+                self.dispatcher.update("Test")
                 return PartialAssistantState(messages=[AssistantMessage(content="Result")])
 
         node = FailingDispatcherNode(self.mock_team, self.mock_user)
@@ -236,7 +236,7 @@ class TestDispatcherIntegration(BaseTest):
 
             async def arun(self, state, config: RunnableConfig) -> None:
                 # Dispatch a message but return None state
-                self.dispatcher.message(AssistantMessage(content="Test"))
+                self.dispatcher.update("Test")
                 return None
 
         node = NoneStateNode(self.mock_team, self.mock_user)

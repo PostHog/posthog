@@ -113,6 +113,9 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
             if result := self._handle_message(event, message):
                 return [result]
 
+        if isinstance(action, UpdateAction) and (update_event := self._handle_update_message(event, action)):
+            return [update_event]
+
         return None
 
     def process_langgraph_update(self, event: LangGraphUpdateEvent) -> list[AssistantResultUnion] | None:
@@ -180,7 +183,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         self, event: AssistantDispatcherEvent, action: UpdateAction
     ) -> AssistantUpdateEvent | None:
         """Handle AssistantMessage that has a parent, creating an AssistantUpdateEvent."""
-        if not event.node_path or not action.update:
+        if not event.node_path or not action.content:
             return None
 
         # Find the closest tool call id to the update.
