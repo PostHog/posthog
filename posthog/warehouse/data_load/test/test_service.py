@@ -12,7 +12,7 @@ from temporalio.service import RPCError
 
 from posthog.models import Organization, Team
 from posthog.temporal.common.client import sync_connect
-from posthog.warehouse.data_load.service import get_sync_schedule
+from posthog.warehouse.data_load.service import _jitter_timedelta, get_sync_schedule
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 
 pytestmark = [
@@ -198,3 +198,53 @@ async def test_get_sync_schedule(external_data_source, team, sync_frequency_inte
                 assert actual > expected - jitter
             else:
                 assert actual == expected
+
+
+def test_jitter_timedelta():
+    max_jitter = dt.timedelta(days=1)
+    for _ in range(100):
+        hours, minutes = _jitter_timedelta(max_jitter)
+        assert 0 <= hours <= 24
+        if hours == 24:
+            assert minutes == 0
+        else:
+            assert 0 <= minutes < 60
+
+    max_jitter = dt.timedelta(hours=12)
+    for _ in range(100):
+        hours, minutes = _jitter_timedelta(max_jitter)
+        assert 0 <= hours <= 12
+        if hours == 12:
+            assert minutes == 0
+        else:
+            assert 0 <= minutes < 60
+
+    max_jitter = dt.timedelta(hours=6)
+    for _ in range(100):
+        hours, minutes = _jitter_timedelta(max_jitter)
+        assert 0 <= hours <= 6
+        if hours == 6:
+            assert minutes == 0
+        else:
+            assert 0 <= minutes < 60
+
+    max_jitter = dt.timedelta(hours=1)
+    for _ in range(100):
+        hours, minutes = _jitter_timedelta(max_jitter)
+        assert 0 <= hours <= 1
+        if hours == 1:
+            assert minutes == 0
+        else:
+            assert 0 <= minutes < 60
+
+    max_jitter = dt.timedelta(minutes=30)
+    for _ in range(100):
+        hours, minutes = _jitter_timedelta(max_jitter)
+        assert hours == 0
+        assert 0 <= minutes <= 30
+
+    max_jitter = dt.timedelta(minutes=5)
+    for _ in range(100):
+        hours, minutes = _jitter_timedelta(max_jitter)
+        assert hours == 0
+        assert 0 <= minutes <= 5

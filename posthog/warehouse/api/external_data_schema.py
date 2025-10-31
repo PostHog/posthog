@@ -185,6 +185,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                 was_sync_time_of_day_updated = True
                 validated_data["sync_time_of_day"] = sync_time_of_day
                 instance.sync_time_of_day = sync_time_of_day
+        else:
+            if sync_time_of_day != instance.sync_time_of_day:
+                was_sync_time_of_day_updated = True
+                validated_data["sync_time_of_day"] = None
+                instance.sync_time_of_day = None
 
         if should_sync is True and sync_type is None and instance.sync_type is None:
             raise ValidationError("Sync type must be set up first before enabling schema")
