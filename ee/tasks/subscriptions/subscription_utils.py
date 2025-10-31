@@ -23,7 +23,7 @@ logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 DEFAULT_MAX_ASSET_COUNT = 6
-MAX_SCREENSHOT_HEIGHT_PIXELS = 10000
+MAX_SCREENSHOT_HEIGHT_PIXELS = 5000
 
 
 def _get_failed_asset_info(assets: list[ExportedAsset], resource: Union[Subscription, SharingConfiguration]) -> dict:

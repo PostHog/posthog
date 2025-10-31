@@ -241,7 +241,6 @@ def _screenshot_asset(
         """
         )
 
-        # Cap height if max_height_pixels is specified
         if max_height_pixels and height > max_height_pixels:
             logger.warning(
                 "screenshot_height_capped",
@@ -293,7 +292,6 @@ def _screenshot_asset(
         """
         )
 
-        # Cap final height if max_height_pixels is specified
         if max_height_pixels and final_height > max_height_pixels:
             logger.warning(
                 "screenshot_final_height_capped",
