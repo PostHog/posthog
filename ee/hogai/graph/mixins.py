@@ -15,7 +15,7 @@ from posthog.models.action.action import Action
 from posthog.models.user import User
 
 from ee.hogai.utils.dispatcher import AssistantDispatcher
-from ee.hogai.utils.types.base import BaseStateWithIntermediateSteps
+from ee.hogai.utils.types.base import BaseStateWithIntermediateSteps, NodePath
 from ee.models import Conversation, CoreMemory
 
 
@@ -195,3 +195,16 @@ class TaxonomyUpdateDispatcherNodeMixin:
         if substeps:
             content = substeps[-1]
         self.dispatcher.message(AssistantMessage(content=content))
+
+
+class NodePathMixin:
+    _node_path: tuple[NodePath, ...]
+
+    @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        return self._node_path
+
+    @property
+    def tool_call_id(self) -> str | None:
+        parent_tool_call_id = next((path.tool_call_id for path in reversed(self._node_path) if path.tool_call_id), None)
+        return parent_tool_call_id

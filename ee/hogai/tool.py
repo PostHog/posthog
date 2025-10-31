@@ -18,7 +18,7 @@ from posthog.models import Team, User
 import products
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.mixins import AssistantContextMixin
+from ee.hogai.graph.mixins import AssistantContextMixin, NodePathMixin
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
@@ -58,7 +58,7 @@ class MaxToolArgs(BaseModel):
     tool_call_id: Annotated[str, InjectedToolCallId, SkipJsonSchema]
 
 
-class MaxTool(AssistantContextMixin, BaseTool):
+class MaxTool(AssistantContextMixin, NodePathMixin, BaseTool):
     # LangChain's default is just "content", but we always want to return the tool call artifact too
     # - it becomes the `ui_payload`
     response_format: Literal["content_and_artifact"] = "content_and_artifact"
@@ -146,15 +146,6 @@ class MaxTool(AssistantContextMixin, BaseTool):
     @property
     def context(self) -> dict:
         return self._context_manager.get_contextual_tools().get(self.get_name(), {})
-
-    @property
-    def tool_call_id(self) -> str:
-        if not self._node_path:
-            raise ValueError("Node path is empty")
-        tool_call_id = self._node_path[-1].tool_call_id
-        if tool_call_id is None:
-            raise ValueError("Tool call id is not set")
-        return tool_call_id
 
     def format_context_prompt_injection(self, context: dict[str, Any]) -> str:
         formatted_context = {

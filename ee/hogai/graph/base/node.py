@@ -1,5 +1,4 @@
 from abc import ABC
-from collections.abc import Sequence
 from typing import Generic
 from uuid import UUID
 
@@ -7,18 +6,17 @@ from django.conf import settings
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
+from posthog.schema import HumanMessage
 
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.graph.mixins import AssistantContextMixin
+from ee.hogai.graph.mixins import AssistantContextMixin, NodePathMixin
 from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types.base import (
-    AssistantMessageUnion,
     AssistantState,
     NodeEndAction,
     NodePath,
@@ -30,11 +28,10 @@ from ee.hogai.utils.types.base import (
 from ee.models import Conversation
 
 
-class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, ABC):
+class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, NodePathMixin, ABC):
     _config: RunnableConfig | None = None
     _context_manager: AssistantContextManager | None = None
     _dispatcher: AssistantDispatcher | None = None
-    _node_path: tuple[NodePath, ...]
 
     def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
         self._team = team
@@ -94,24 +91,11 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         self._dispatcher = create_dispatcher_from_config(self._config or {}, self._node_path)
         return self._dispatcher
 
-    @property
-    def node_path(self) -> tuple[NodePath, ...]:
-        return self._node_path
-
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)
         if not conversation:
             raise ValueError(f"Conversation {conversation_id} not found")
         return conversation.status == Conversation.Status.CANCELING
-
-    def _get_tool_call(self, messages: Sequence[AssistantMessageUnion], tool_call_id: str) -> AssistantToolCall:
-        for message in reversed(messages):
-            if not isinstance(message, AssistantMessage) or not message.tool_calls:
-                continue
-            for tool_call in message.tool_calls:
-                if tool_call.id == tool_call_id:
-                    return tool_call
-        raise ValueError(f"Tool call {tool_call_id} not found in state")
 
     def _is_first_turn(self, state: AssistantState) -> bool:
         last_message = state.messages[-1]
