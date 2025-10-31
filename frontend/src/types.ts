@@ -143,6 +143,7 @@ export enum AvailableFeature {
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
+    SCIM = 'scim',
     SSO_ENFORCEMENT = 'sso_enforcement',
     WHITE_LABELLING = 'white_labelling',
     COMMUNITY_SUPPORT = 'community_support',
@@ -482,6 +483,9 @@ export interface OrganizationDomainType {
     saml_entity_id: string
     saml_acs_url: string
     saml_x509_cert: string
+    scim_enabled?: boolean
+    scim_base_url?: string
+    scim_bearer_token?: string
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -4554,6 +4558,7 @@ export type APIScopeObject =
     | 'hog_function'
     | 'insight'
     | 'integration'
+    | 'live_debugger'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -4570,10 +4575,10 @@ export type APIScopeObject =
     | 'survey'
     | 'task'
     | 'user'
+    | 'warehouse_table'
+    | 'warehouse_view'
     | 'web_analytics'
     | 'webhook'
-    | 'warehouse_view'
-    | 'warehouse_table'
 
 export type APIScopeAction = 'read' | 'write'
 

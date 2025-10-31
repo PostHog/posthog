@@ -582,6 +582,10 @@ class ConcurrentS3Consumer(Consumer):
             config: dict[str, typing.Any] = {
                 "max_pool_connections": self.max_concurrent_uploads
                 * 5,  # Increase connection pool, so to ensure we're not limited by this
+                # Set checksum calculation to 'when_required' for compatibility with S3-compatible
+                # services like GCS that don't support AWS's newer checksum features
+                "request_checksum_calculation": "when_required",
+                "response_checksum_validation": "when_required",
             }
             if self.use_virtual_style_addressing:
                 config["s3"] = {"addressing_style": "virtual"}

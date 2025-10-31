@@ -63,7 +63,7 @@ default_cookie_options = {
     "samesite": "Strict",
 }
 
-cookie_api_paths_to_ignore = {"decide", "api", "flags"}
+cookie_api_paths_to_ignore = {"decide", "api", "flags", "scim"}
 
 
 class AllowIPMiddleware:
