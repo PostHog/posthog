@@ -81,8 +81,8 @@ RUN apt-get update && \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "librdkafka-dev=2.10.1-1.cflt~deb12" \
-    "libssl-dev=3.0.17-1~deb12u2" \
-    "libssl3=3.0.17-1~deb12u2" \
+    "libssl-dev=3.0.17-1~deb12u3" \
+    "libssl3=3.0.17-1~deb12u3" \
     "zlib1g-dev" \
     && \
     rm -rf /var/lib/apt/lists/*
@@ -195,8 +195,7 @@ RUN apt-get update && \
 #
 # ---------------------------------------------------------
 #
-# NOTE: v1.32 is running bullseye, v1.33 is running bookworm
-FROM unit:1.33.0-python3.12
+FROM python:3.12-slim-bookworm
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
@@ -216,6 +215,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "chromium" \
     "chromium-driver" \
+    "curl" \
+    "xz-utils" \
     "libpq-dev" \
     "libxmlsec1" \
     "libxmlsec1-dev" \
@@ -224,13 +225,14 @@ RUN apt-get update && \
     "ffmpeg=7:5.1.7-0+deb12u1" \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
-    "libssl-dev=3.0.17-1~deb12u2" \
-    "libssl3=3.0.17-1~deb12u2" \
+    "libssl-dev=3.0.17-1~deb12u3" \
+    "libssl3=3.0.17-1~deb12u3" \
     && \
     rm -rf /var/lib/apt/lists/*
 
 # Install MS SQL dependencies
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc && \
+RUN apt-get update && \
+    curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc && \
     curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list && \
     apt-get update && \
     ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
@@ -326,8 +328,7 @@ COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/fro
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
 
-# Add in the Gunicorn config, custom bin files and Django deps.
-COPY --chown=posthog:posthog gunicorn.config.py ./
+# Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/
 COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
@@ -335,9 +336,6 @@ COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
 COPY --chown=posthog:posthog dags dags/
 COPY --chown=posthog:posthog products products/
-
-# Keep server command backwards compatible
-RUN cp ./bin/docker-server-unit ./bin/docker-server
 
 # Setup ENV.
 ENV NODE_ENV=production \
@@ -351,6 +349,5 @@ EXPOSE 8000
 
 # Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
-COPY unit.json.tpl /docker-entrypoint.d/unit.json.tpl
 USER root
 CMD ["./bin/docker"]
