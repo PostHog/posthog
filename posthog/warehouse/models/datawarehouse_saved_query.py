@@ -57,6 +57,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         FAILED = "Failed"
         RUNNING = "Running"
 
+    class Source(models.TextChoices):
+        """Possible sources of this SavedQuery."""
+
+        ROOT = "root"
+        ENDPOINT = "endpoint"
+        REVENUE_ANALYTICS = "revenue_analytics"
+
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     latest_error = models.TextField(default=None, null=True, blank=True)
@@ -91,6 +98,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         null=True,
         blank=True,
         related_name="saved_queries",
+    )
+
+    source = models.CharField(
+        choices=Source.choices, help_text="Where this SavedQuery is created.", default=None, null=True, blank=True
     )
 
     class Meta:

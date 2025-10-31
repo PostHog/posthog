@@ -157,6 +157,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
+        validated_data["source"] = DataWarehouseSavedQuery.Source.ROOT
         soft_update = validated_data.pop("soft_update", False)
         view = DataWarehouseSavedQuery(**validated_data)
 
