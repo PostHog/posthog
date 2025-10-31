@@ -281,6 +281,7 @@ class AssistantTool(StrEnum):
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
+    CREATE_EXPERIMENT = "create_experiment"
 
 
 class AssistantToolCall(BaseModel):

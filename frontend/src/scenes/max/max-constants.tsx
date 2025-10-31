@@ -370,6 +370,18 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Creating feature flag...'
         },
     },
+    create_experiment: {
+        name: 'Create an experiment',
+        description: 'Create an experiment in seconds',
+        product: Scene.Experiments,
+        icon: iconForType('experiment'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created experiment'
+            }
+            return 'Creating experiment...'
+        },
+    },
 }
 
 export const MAX_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [

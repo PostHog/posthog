@@ -288,6 +288,7 @@ export type AssistantTool =
     | 'todo_write'
     | 'filter_revenue_analytics'
     | 'create_feature_flag'
+    | 'create_experiment'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
