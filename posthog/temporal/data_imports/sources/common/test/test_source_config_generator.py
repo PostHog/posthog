@@ -394,7 +394,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         )
 
         output = self._run({ExternalDataSourceType.STRIPE: config})
-        assert "from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig" in output
+        assert "from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig" in output
         assert "ssh_tunnel: SSHTunnelConfig" in output
 
     def test_source_config_type_conversion(self):
