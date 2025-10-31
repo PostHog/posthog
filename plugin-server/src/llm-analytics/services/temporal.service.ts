@@ -1,7 +1,6 @@
-import * as grpc from '@grpc/grpc-js'
-import { Client, Connection, WorkflowHandle } from '@temporalio/client'
+import { Client, Connection, TLSConfig, WorkflowHandle } from '@temporalio/client'
+import fs from 'fs/promises'
 import { Counter } from 'prom-client'
-import * as tls from 'tls'
 
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
@@ -36,26 +35,48 @@ export class TemporalService {
         return this.client
     }
 
+    private async buildTLSConfig(): Promise<TLSConfig | false> {
+        const { TEMPORAL_CLIENT_ROOT_CA, TEMPORAL_CLIENT_CERT, TEMPORAL_CLIENT_KEY } = this.hub
+
+        if (!(TEMPORAL_CLIENT_ROOT_CA && TEMPORAL_CLIENT_CERT && TEMPORAL_CLIENT_KEY)) {
+            return false
+        }
+
+        let systemCAs = Buffer.alloc(0)
+        try {
+            const fileBuffer = await fs.readFile('/etc/ssl/certs/ca-certificates.crt')
+            systemCAs = Buffer.from(fileBuffer)
+        } catch (err: any) {
+            if (err.code !== 'ENOENT') {
+                logger.warn('⚠️ Failed to load system CA bundle', { err })
+            } else {
+                logger.debug('ℹ️ System CA bundle not found — using only provided root CA')
+            }
+        }
+
+        const combinedCA = Buffer.concat([systemCAs, Buffer.from(TEMPORAL_CLIENT_ROOT_CA)])
+
+        logger.debug('🔐 TLS configuration built', {
+            systemCABundle: systemCAs.length > 0,
+            combinedCABytes: combinedCA.length,
+        })
+
+        return {
+            serverRootCACertificate: combinedCA,
+            clientCertPair: {
+                crt: Buffer.from(TEMPORAL_CLIENT_CERT),
+                key: Buffer.from(TEMPORAL_CLIENT_KEY),
+            },
+        }
+    }
+
     private async createClient(): Promise<Client> {
+        const tls = await this.buildTLSConfig()
+
         const port = this.hub.TEMPORAL_PORT || '7233'
         const address = `${this.hub.TEMPORAL_HOST}:${port}`
 
-        let credentials: grpc.ChannelCredentials | undefined
-        if (this.hub.TEMPORAL_CLIENT_ROOT_CA && this.hub.TEMPORAL_CLIENT_CERT && this.hub.TEMPORAL_CLIENT_KEY) {
-            const secureContext = tls.createSecureContext({
-                ca: Buffer.from(this.hub.TEMPORAL_CLIENT_ROOT_CA),
-                cert: Buffer.from(this.hub.TEMPORAL_CLIENT_CERT),
-                key: Buffer.from(this.hub.TEMPORAL_CLIENT_KEY),
-                allowPartialTrustChain: true,
-            })
-
-            credentials = grpc.credentials.createFromSecureContext(secureContext)
-        }
-
-        const connection = await Connection.connect({
-            address,
-            ...(credentials ? { credentials } : { tls: false }),
-        })
+        const connection = await Connection.connect({ address, tls })
 
         const client = new Client({
             connection,
@@ -65,7 +86,7 @@ export class TemporalService {
         logger.info('✅ Connected to Temporal', {
             address,
             namespace: this.hub.TEMPORAL_NAMESPACE,
-            tlsEnabled: credentials !== undefined,
+            tlsEnabled: tls !== false,
         })
 
         return client

@@ -366,6 +366,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     actions.loadSummary()
                     actions.loadIssueFingerprints()
                 }
+                if (mutationName === 'createIssueCohort') {
+                    actions.loadIssue()
+                }
             },
         }
     }),

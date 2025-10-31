@@ -23,7 +23,7 @@ export const scene: SceneExport<ExperimentLogicProps> = {
 export function Experiment(): JSX.Element {
     const { formMode, experimentMissing, experimentId } = useValues(experimentLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const isCreateFormEnabled = useFeatureFlag('EXPERIMENTS_CREATE_FORM')
+    const isCreateFormEnabled = useFeatureFlag('EXPERIMENTS_CREATE_FORM', 'test')
 
     useFileSystemLogView({
         type: 'experiment',
