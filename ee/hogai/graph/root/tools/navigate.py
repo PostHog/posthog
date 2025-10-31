@@ -44,7 +44,6 @@ class NavigateTool(MaxTool):
         "You're currently on the {current_page} page. "
         "You can navigate around the PostHog app using the `navigate` tool."
     )
-    thinking_message: str = "Navigating"
     args_schema: type[BaseModel] = NavigateToolArgs
 
     def _run_impl(self, page_key: AssistantNavigateUrl) -> tuple[str, Any]:
@@ -58,15 +57,19 @@ class NavigateTool(MaxTool):
         *,
         team: Team,
         user: User,
+        tool_call_id: str,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
     ) -> Self:
-        context_manager = AssistantContextManager(team, user, config)
+        if context_manager is None:
+            context_manager = AssistantContextManager(team, user, config)
         tool_context = context_manager.get_contextual_tools().get("navigate", {})
         tool_description = format_prompt_string(NAVIGATION_TOOL_PROMPT, **tool_context)
         return cls(
             team=team,
             user=user,
+            tool_call_id=tool_call_id,
             state=state,
             config=config,
             context_manager=context_manager,

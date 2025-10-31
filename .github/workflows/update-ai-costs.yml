@@ -2,6 +2,10 @@ name: Update AI Costs
 
 on:
     workflow_dispatch: # Allow manual triggering
+    schedule:
+        # Run at 10am UTC and 8pm UTC on weekdays (Monday-Friday)
+        - cron: '0 10 * * 1-5' # 10am UTC
+        - cron: '0 20 * * 1-5' # 8pm UTC
 
 permissions:
     contents: read

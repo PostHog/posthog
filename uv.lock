@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = "==3.12.11"
 
 [[package]]
@@ -4005,19 +4005,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pdpyras"
-version = "5.4.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-    { name = "urllib3" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/1f/36/ced3d9fa692dfeab2fb9ac8cfa6ac44dd725417f6b71ee37f7964d1e6c4d/pdpyras-5.4.1.tar.gz", hash = "sha256:36021aff5979a79f1d87edc95e0c46e98ce8549292bc0cab3d9f33501795703b", size = 26201, upload-time = "2025-06-03T21:41:17.158Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/c4/a498be81c426eb0de3d34c3572f2f56b17083eeb40411b17bc63691f5a6d/pdpyras-5.4.1-py2.py3-none-any.whl", hash = "sha256:e16020cf57e4c916ab3dace7c7dffe21a2e7059ab7411ce3ddf1e620c54e9c89", size = 24927, upload-time = "2025-06-03T21:41:16.166Z" },
-]
-
-[[package]]
 name = "pendulum"
 version = "3.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4221,6 +4208,7 @@ dependencies = [
     { name = "fastavro" },
     { name = "free-email-domains" },
     { name = "geoip2" },
+    { name = "gitpython" },
     { name = "google-ads" },
     { name = "google-cloud-bigquery" },
     { name = "google-genai" },
@@ -4262,7 +4250,6 @@ dependencies = [
     { name = "orjson" },
     { name = "pandas" },
     { name = "paramiko" },
-    { name = "pdpyras" },
     { name = "phonenumberslite" },
     { name = "pillow" },
     { name = "playwright" },
@@ -4307,6 +4294,7 @@ dependencies = [
     { name = "structlog" },
     { name = "temporalio" },
     { name = "tenacity" },
+    { name = "textcase" },
     { name = "tiktoken" },
     { name = "token-bucket" },
     { name = "toronado" },
@@ -4462,6 +4450,7 @@ requires-dist = [
     { name = "fastavro", specifier = ">=1.12.0" },
     { name = "free-email-domains", specifier = ">=1.0.1" },
     { name = "geoip2", specifier = "==4.6.0" },
+    { name = "gitpython", specifier = ">=3.1.44" },
     { name = "google-ads", specifier = "==26.1.0" },
     { name = "google-cloud-bigquery", specifier = "==3.26" },
     { name = "google-genai", specifier = "==1.10.0" },
@@ -4503,7 +4492,6 @@ requires-dist = [
     { name = "orjson", specifier = "==3.10.15" },
     { name = "pandas", specifier = "~=2.2.2" },
     { name = "paramiko", specifier = "==3.4.0" },
-    { name = "pdpyras", specifier = "==5.4.1" },
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
     { name = "playwright", specifier = ">=1.54.0" },
@@ -4548,6 +4536,7 @@ requires-dist = [
     { name = "structlog", specifier = "==25.4.0" },
     { name = "temporalio", specifier = "==1.14.1" },
     { name = "tenacity", specifier = "==9.1.2" },
+    { name = "textcase", specifier = ">=0.4.5" },
     { name = "tiktoken", specifier = "==0.9.*" },
     { name = "token-bucket", specifier = "==0.3.0" },
     { name = "toronado", specifier = "==0.1.0" },
@@ -6237,6 +6226,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ab/e2/e9a00f0ccb71718418230718b3d900e71a5d16e701a3dae079a21e9cd8f8/text-unidecode-1.3.tar.gz", hash = "sha256:bad6603bb14d279193107714b288be206cac565dfa49aa5b105294dd5c4aab93", size = 76885, upload-time = "2019-08-30T21:36:45.405Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a6/a5/c0b6468d3824fe3fde30dbb5e1f687b291608f9473681bbf7dabbf5a87d7/text_unidecode-1.3-py2.py3-none-any.whl", hash = "sha256:1311f10e8b895935241623731c2ba64f4c455287888b18189350b67134a822e8", size = 78154, upload-time = "2019-08-30T21:37:03.543Z" },
+]
+
+[[package]]
+name = "textcase"
+version = "0.4.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c0/08/991940591c7a8de25505a4e43642d1c2b54f43c3ed76f8c90f1df6ee9525/textcase-0.4.5.tar.gz", hash = "sha256:97fd08754b7dba9bfa5daf4ace474645f6b66409fb00f483c5de729e730f8e52", size = 6988, upload-time = "2025-10-10T15:11:25.476Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/48/6ea42c749608cfca883d5d8fae03edbcde636090d2bc751fd5da9157b451/textcase-0.4.5-py3-none-any.whl", hash = "sha256:bd5d6aaf653b339e3ac60ad96cfc960a94219a97da464eddeed7084f41774937", size = 6503, upload-time = "2025-10-10T15:11:24.294Z" },
 ]
 
 [[package]]

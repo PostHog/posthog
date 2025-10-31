@@ -30,6 +30,7 @@ import {
     ExternalDataSourceType,
     FileSystemCount,
     FileSystemEntry,
+    FileSystemViewLogEntry,
     HogCompileResponse,
     HogQLQuery,
     HogQLQueryResponse,
@@ -75,6 +76,8 @@ import {
     DataColorThemeModel,
     DataModelingJob,
     DataWarehouseActivityRecord,
+    DataWarehouseJobStats,
+    DataWarehouseJobStatsRequestPayload,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
@@ -1817,6 +1820,13 @@ const api = {
     },
 
     fileSystemLogView: {
+        async list(params?: { type?: string; limit?: number }): Promise<FileSystemViewLogEntry[]> {
+            const request = new ApiRequest().fileSystemLogView()
+            if (params) {
+                request.withQueryString(params)
+            }
+            return await request.get()
+        },
         async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLogView().create({ data })
         },
@@ -3784,6 +3794,16 @@ const api = {
                 .dataWarehouse()
                 .withAction('recent_activity')
                 .withQueryString({ limit: options?.limit, offset: options?.offset })
+                .get(options)
+        },
+
+        async jobStats(
+            options?: ApiMethodOptions & DataWarehouseJobStatsRequestPayload
+        ): Promise<DataWarehouseJobStats> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('job_stats')
+                .withQueryString({ days: options?.days })
                 .get(options)
         },
     },

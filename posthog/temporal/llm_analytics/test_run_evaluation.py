@@ -19,7 +19,6 @@ from .run_evaluation import (
 
 
 @pytest.fixture
-@pytest.mark.django_db
 def setup_data(db):
     """Create test organization, team, and evaluation"""
     organization = Organization.objects.create(name="Test Org")
@@ -27,7 +26,10 @@ def setup_data(db):
     evaluation = Evaluation.objects.create(
         team=team,
         name="Test Evaluation",
-        prompt="Is this response factually accurate?",
+        evaluation_type="llm_judge",
+        evaluation_config={"prompt": "Is this response factually accurate?"},
+        output_type="boolean",
+        output_config={},
         enabled=True,
     )
     return {"organization": organization, "team": team, "evaluation": evaluation}
@@ -84,7 +86,10 @@ class TestRunEvaluationWorkflow:
             mock_evaluation = MagicMock()
             mock_evaluation.id = evaluation.id
             mock_evaluation.name = "Test Evaluation"
-            mock_evaluation.prompt = "Is this response factually accurate?"
+            mock_evaluation.evaluation_type = "llm_judge"
+            mock_evaluation.evaluation_config = {"prompt": "Is this response factually accurate?"}
+            mock_evaluation.output_type = "boolean"
+            mock_evaluation.output_config = {}
             mock_evaluation.team_id = team.id
             mock_get.return_value = mock_evaluation
 
@@ -92,7 +97,10 @@ class TestRunEvaluationWorkflow:
 
             assert result["id"] == str(evaluation.id)
             assert result["name"] == "Test Evaluation"
-            assert result["prompt"] == "Is this response factually accurate?"
+            assert result["evaluation_type"] == "llm_judge"
+            assert result["evaluation_config"] == {"prompt": "Is this response factually accurate?"}
+            assert result["output_type"] == "boolean"
+            assert result["output_config"] == {}
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -104,7 +112,10 @@ class TestRunEvaluationWorkflow:
         evaluation = {
             "id": str(evaluation_obj.id),
             "name": "Test Evaluation",
-            "prompt": "Is this response factually accurate?",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
             "team_id": team.id,
         }
 
