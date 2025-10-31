@@ -146,11 +146,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def to_queries(self) -> list[ast.SelectQuery | ast.SelectSetQuery]:
         queries = []
         with self.timings.measure("trends_to_query"):
-            # If user requests 'all' time, determine the true earliest timestamp
-            earliest_timestamp = None
-            if self.query.dateRange and self.query.dateRange.date_from == "all":
-                earliest_timestamp = self._earliest_timestamp
-
+            earliest_timestamp = self._earliest_timestamp
             for series in self.series:
                 if not series.is_previous_period_series:
                     query_date_range = self.query_date_range
@@ -672,11 +668,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
 
     @cached_property
-    def _earliest_timestamp(self) -> datetime:
-        return get_earliest_timestamp_from_series(
-            team=self.team,
-            series=[series.series for series in self.series],
-        )
+    def _earliest_timestamp(self) -> datetime | None:
+        if self.query.dateRange and self.query.dateRange.date_from == "all":
+            # Get earliest timestamp across all series in this insight
+            return get_earliest_timestamp_from_series(team=self.team, series=[series.series for series in self.series])
+
+        return None
 
     @cached_property
     def query_date_range(self):
