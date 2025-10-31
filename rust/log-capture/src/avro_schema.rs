@@ -125,22 +125,6 @@ pub const AVRO_SCHEMA: &str = r#"
         }
     }],
     "doc": "Map of custom timestamp-valued attributes."
-    },
-    {
-    "name": "attribute_keys",
-    "type": ["null", {
-        "type": "array",
-        "items": "string"
-    }],
-    "doc": "An ordered list of attribute keys."
-    },
-    {
-    "name": "attribute_values",
-    "type": ["null", {
-        "type": "array",
-        "items": "string"
-    }],
-    "doc": "An ordered list of attribute values, corresponding to attribute_keys."
     }
 ]
 }"#;

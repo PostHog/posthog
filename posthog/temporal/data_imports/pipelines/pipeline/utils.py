@@ -336,7 +336,12 @@ def setup_partitioning(
     if partition_result is not None:
         pa_table, partition_mode, partition_format, updated_partition_keys = partition_result
 
-        if not schema.partitioning_enabled:
+        if (
+            not schema.partitioning_enabled
+            or schema.partition_mode != partition_mode
+            or schema.partition_format != partition_format
+            or schema.partitioning_keys != updated_partition_keys
+        ):
             logger.debug(
                 f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}. partition_mode={partition_mode}. partition_format={partition_format}"
             )
@@ -434,7 +439,9 @@ def append_partition_key_to_table(
                 if partition_format is None:
                     partition_format = "month"
 
-                if partition_format == "day":
+                if partition_format == "hour":
+                    date_format = "%Y-%m-%dT%H"
+                elif partition_format == "day":
                     date_format = "%Y-%m-%d"
                 elif partition_format == "week":
                     date_format = "%G-w%V"

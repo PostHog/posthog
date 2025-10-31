@@ -4554,6 +4554,7 @@ export type APIScopeObject =
     | 'hog_function'
     | 'insight'
     | 'integration'
+    | 'live_debugger'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -4570,10 +4571,10 @@ export type APIScopeObject =
     | 'survey'
     | 'task'
     | 'user'
+    | 'warehouse_table'
+    | 'warehouse_view'
     | 'web_analytics'
     | 'webhook'
-    | 'warehouse_view'
-    | 'warehouse_table'
 
 export type APIScopeAction = 'read' | 'write'
 
