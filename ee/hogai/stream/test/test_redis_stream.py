@@ -8,12 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import redis.exceptions as redis_exceptions
 
-from posthog.schema import (
-    AssistantEventType,
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
-    AssistantMessage,
-)
+from posthog.schema import AssistantMessage
 
 from posthog.temporal.ai.conversation import CONVERSATION_STREAM_TIMEOUT
 
@@ -23,7 +18,7 @@ from ee.hogai.stream.redis_stream import (
     StreamError,
     StreamStatusEvent,
 )
-from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantOutput, MessageAction, NodeStartAction
+from ee.hogai.utils.types.base import AssistantDispatcherEvent, MessageAction, NodeStartAction
 
 
 class TestRedisStream(BaseTest):
@@ -72,25 +67,28 @@ class TestRedisStream(BaseTest):
                     # The function should timeout immediately without calling stream exists
                     self.assertEqual(mock_client.exists.call_count, 0)
 
-    # @pytest.mark.asyncio
-    # async def test_read_stream_with_data(self):
-    #     with patch.object(self.redis_stream, "_redis_client") as mock_client:
-    #         # Mock serialized data
-    #         import pickle
+    @pytest.mark.asyncio
+    async def test_read_stream_with_data(self):
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            # Mock serialized data
+            import pickle
 
-    #         test_event = StreamEvent(
-    #             event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="test"))
-    #         )
-    #         serialized_data = pickle.dumps(test_event)
-    #         mock_client.xread = AsyncMock(return_value=[(self.stream_key, [(b"1234-0", {b"data": serialized_data})])])
+            test_event = AssistantDispatcherEvent(
+                action=MessageAction(message=AssistantMessage(content="test")), node_name="test_node"
+            )
+            serialized_data = pickle.dumps(test_event)
+            mock_client.xread = AsyncMock(return_value=[(self.stream_key, [(b"1234-0", {b"data": serialized_data})])])
 
-    #         chunks = []
-    #         async for chunk in self.redis_stream.read_stream():
-    #             chunks.append(chunk)
-    #             break  # Only get first chunk
+            chunks = []
+            async for chunk in self.redis_stream.read_stream():
+                chunks.append(chunk)
+                break  # Only get first chunk
 
-    #         self.assertEqual(len(chunks), 1)
-    #         self.assertEqual(chunks[0].event.type, AssistantEventType.MESSAGE)
+            self.assertEqual(len(chunks), 1)
+            self.assertIsInstance(chunks[0], AssistantDispatcherEvent)
+            assert isinstance(chunks[0], AssistantDispatcherEvent)
+            self.assertEqual(chunks[0].node_name, "test_node")
+            self.assertIsInstance(chunks[0].action, MessageAction)
 
     @pytest.mark.asyncio
     async def test_read_stream_completion_status(self):
@@ -220,140 +218,148 @@ class TestRedisStream(BaseTest):
             result = await self.redis_stream.delete_stream()
             self.assertFalse(result)
 
-    # @pytest.mark.asyncio
-    # async def test_read_stream_no_messages_continue_polling(self):
-    #     with patch.object(self.redis_stream, "_redis_client") as mock_client:
-    #         # First call returns no messages, second call returns data
-    #         import pickle
+    @pytest.mark.asyncio
+    async def test_read_stream_no_messages_continue_polling(self):
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            # First call returns no messages, second call returns data
+            import pickle
 
-    #         test_event = StreamEvent(
-    #             event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="test chunk"))
-    #         )
-    #         serialized_data = pickle.dumps(test_event)
-    #         mock_client.xread = AsyncMock(
-    #             side_effect=[
-    #                 [],  # No messages
-    #                 [(self.stream_key, [(b"1234-0", {b"data": serialized_data})])],  # Data
-    #             ]
-    #         )
+            test_event = AssistantDispatcherEvent(
+                action=MessageAction(message=AssistantMessage(content="test chunk")), node_name="test_node"
+            )
+            serialized_data = pickle.dumps(test_event)
+            mock_client.xread = AsyncMock(
+                side_effect=[
+                    [],  # No messages
+                    [(self.stream_key, [(b"1234-0", {b"data": serialized_data})])],  # Data
+                ]
+            )
 
-    #         chunks = []
-    #         async for chunk in self.redis_stream.read_stream():
-    #             chunks.append(chunk)
-    #             break  # Only get first chunk
+            chunks = []
+            async for chunk in self.redis_stream.read_stream():
+                chunks.append(chunk)
+                break  # Only get first chunk
 
-    #         self.assertEqual(len(chunks), 1)
-    #         self.assertEqual(chunks[0].event.type, AssistantEventType.MESSAGE)
-    #         self.assertEqual(mock_client.xread.call_count, 2)
+            self.assertEqual(len(chunks), 1)
+            self.assertIsInstance(chunks[0], AssistantDispatcherEvent)
+            assert isinstance(chunks[0], AssistantDispatcherEvent)
+            self.assertEqual(chunks[0].node_name, "test_node")
+            self.assertEqual(mock_client.xread.call_count, 2)
 
-    # @pytest.mark.asyncio
-    # async def test_read_stream_multiple_messages(self):
-    #    with patch.object(self.redis_stream, "_redis_client") as mock_client:
-    #        # Mock xread to return multiple messages
-    #        import pickle
+    @pytest.mark.asyncio
+    async def test_read_stream_multiple_messages(self):
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            # Mock xread to return multiple messages
+            import pickle
 
-    #        test_event1 = StreamEvent(
-    #            event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="chunk 1"))
-    #        )
-    #        test_event2 = StreamEvent(
-    #            event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="chunk 2"))
-    #        )
-    #        complete_event = StreamStatusEvent(status="complete")
-    #        mock_client.xread = AsyncMock(
-    #            return_value=[
-    #                (
-    #                    self.stream_key,
-    #                    [
-    #                        (b"1234-0", {b"data": pickle.dumps(test_event1)}),
-    #                        (b"1234-1", {b"data": pickle.dumps(test_event2)}),
-    #                        (b"1234-2", {b"data": pickle.dumps(complete_event)}),
-    #                    ],
-    #                )
-    #            ]
-    #        )
+            test_event1 = AssistantDispatcherEvent(
+                action=MessageAction(message=AssistantMessage(content="chunk 1")), node_name="test_node"
+            )
+            test_event2 = AssistantDispatcherEvent(
+                action=MessageAction(message=AssistantMessage(content="chunk 2")), node_name="test_node"
+            )
+            complete_event = StreamStatusEvent(status="complete")
+            mock_client.xread = AsyncMock(
+                return_value=[
+                    (
+                        self.stream_key,
+                        [
+                            (b"1234-0", {b"data": pickle.dumps(test_event1)}),
+                            (b"1234-1", {b"data": pickle.dumps(test_event2)}),
+                            (b"1234-2", {b"data": pickle.dumps(complete_event)}),
+                        ],
+                    )
+                ]
+            )
 
-    #        chunks = []
-    #        async for chunk in self.redis_stream.read_stream():
-    #            chunks.append(chunk)
+            chunks = []
+            async for chunk in self.redis_stream.read_stream():
+                chunks.append(chunk)
 
-    #        self.assertEqual(len(chunks), 2)
-    #        self.assertEqual(chunks[0].event.type, AssistantEventType.MESSAGE)
-    #        self.assertEqual(chunks[1].event.type, AssistantEventType.MESSAGE)
+            self.assertEqual(len(chunks), 2)
+            self.assertIsInstance(chunks[0], AssistantDispatcherEvent)
+            self.assertIsInstance(chunks[1], AssistantDispatcherEvent)
 
-    # @pytest.mark.asyncio
-    # async def test_read_stream_invalid_data_skipped(self):
-    #    with patch.object(self.redis_stream, "_redis_client") as mock_client:
-    #        # Mock xread to return invalid serialized data
-    #        import pickle
+    @pytest.mark.asyncio
+    async def test_read_stream_invalid_data_skipped(self):
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            # Mock xread to return invalid serialized data
+            import pickle
 
-    #        valid_event = StreamEvent(
-    #            event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="valid chunk"))
-    #        )
-    #        complete_event = StreamStatusEvent(status="complete")
-    #        mock_client.xread = AsyncMock(
-    #            return_value=[
-    #                (
-    #                    self.stream_key,
-    #                    [
-    #                        (b"1234-0", {b"data": b"\xff\xfe"}),  # Invalid pickle data
-    #                        (b"1234-1", {b"data": pickle.dumps(valid_event)}),
-    #                        (b"1234-2", {b"data": pickle.dumps(complete_event)}),
-    #                    ],
-    #                )
-    #            ]
-    #        )
+            valid_event = AssistantDispatcherEvent(
+                action=MessageAction(message=AssistantMessage(content="valid chunk")), node_name="test_node"
+            )
+            complete_event = StreamStatusEvent(status="complete")
+            mock_client.xread = AsyncMock(
+                return_value=[
+                    (
+                        self.stream_key,
+                        [
+                            (b"1234-0", {b"data": b"\xff\xfe"}),  # Invalid pickle data
+                            (b"1234-1", {b"data": pickle.dumps(valid_event)}),
+                            (b"1234-2", {b"data": pickle.dumps(complete_event)}),
+                        ],
+                    )
+                ]
+            )
 
-    #        with self.assertRaises(Exception):  # Should raise exception on invalid data
-    #            chunks = []
-    #            async for chunk in self.redis_stream.read_stream():
-    #                chunks.append(chunk)
+            with self.assertRaises(Exception):  # Should raise exception on invalid data
+                chunks = []
+                async for chunk in self.redis_stream.read_stream():
+                    chunks.append(chunk)
 
-    # @pytest.mark.asyncio
-    # async def test_write_to_stream_success(self):
-    #    with patch.object(self.redis_stream, "_redis_client") as mock_client:
-    #        mock_client.xadd = AsyncMock()
-    #        mock_client.expire = AsyncMock()
+    @pytest.mark.asyncio
+    async def test_write_to_stream_success(self):
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.xadd = AsyncMock()
+            mock_client.expire = AsyncMock()
 
-    #        # Create a test generator
-    #        async def test_generator():
-    #            yield (AssistantEventType.MESSAGE, AssistantMessage(content="test message 1"))
-    #            yield (AssistantEventType.MESSAGE, AssistantMessage(content="test message 2"))
+            # Create a test generator
+            async def test_generator():
+                yield AssistantDispatcherEvent(
+                    action=MessageAction(message=AssistantMessage(content="test message 1")), node_name="test_node"
+                )
+                yield AssistantDispatcherEvent(
+                    action=MessageAction(message=AssistantMessage(content="test message 2")), node_name="test_node"
+                )
 
-    #        await self.redis_stream.write_to_stream(test_generator())
+            await self.redis_stream.write_to_stream(test_generator())
 
-    #        # Should call xadd 3 times: 2 data messages + 1 completion
-    #        self.assertEqual(mock_client.xadd.call_count, 3)
-    #        mock_client.expire.assert_called_once_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
+            # Should call xadd 3 times: 2 data messages + 1 completion
+            self.assertEqual(mock_client.xadd.call_count, 3)
+            mock_client.expire.assert_called_once_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
 
-    # @pytest.mark.asyncio
-    # async def test_write_to_stream_exception(self):
-    #    with patch.object(self.redis_stream, "_redis_client") as mock_client:
-    #        mock_client.expire = AsyncMock()  # Allow expire to succeed
-    #        mock_client.xadd = AsyncMock(side_effect=Exception("Redis error"))
+    @pytest.mark.asyncio
+    async def test_write_to_stream_exception(self):
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.expire = AsyncMock()  # Allow expire to succeed
+            mock_client.xadd = AsyncMock(side_effect=Exception("Redis error"))
 
-    #        async def test_generator():
-    #            yield (AssistantEventType.MESSAGE, AssistantMessage(content="test message"))
+            async def test_generator():
+                yield AssistantDispatcherEvent(
+                    action=MessageAction(message=AssistantMessage(content="test message")), node_name="test_node"
+                )
 
-    #        with self.assertRaises(Exception):
-    #            await self.redis_stream.write_to_stream(test_generator())
+            with self.assertRaises(Exception):
+                await self.redis_stream.write_to_stream(test_generator())
 
-    #        self.assertEqual(mock_client.xadd.call_count, 2)
+            self.assertEqual(mock_client.xadd.call_count, 2)
 
-    # @pytest.mark.asyncio
-    # async def test_write_to_stream_empty_generator(self):
-    #    with patch.object(self.redis_stream, "_redis_client") as mock_client:
-    #        mock_client.xadd = AsyncMock()
-    #        mock_client.expire = AsyncMock()
+    @pytest.mark.asyncio
+    async def test_write_to_stream_empty_generator(self):
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.xadd = AsyncMock()
+            mock_client.expire = AsyncMock()
 
-    #        async def empty_generator():
-    #            return
-    #            yield  # This will never be reached
+            async def empty_generator():
+                return
+                yield  # This will never be reached
 
-    #        await self.redis_stream.write_to_stream(empty_generator())
+            await self.redis_stream.write_to_stream(empty_generator())
 
-    #        # Should call xadd once for completion status
-    #        self.assertEqual(mock_client.xadd.call_count, 1)
-    #        mock_client.expire.assert_called_once_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
+            # Should call xadd once for completion status
+            self.assertEqual(mock_client.xadd.call_count, 1)
+            mock_client.expire.assert_called_once_with(self.stream_key, CONVERSATION_STREAM_TIMEOUT)
 
     @pytest.mark.asyncio
     async def test_serializer_integration(self):
@@ -364,7 +370,9 @@ class TestRedisStream(BaseTest):
 
             # Test with a real serializer
             async def test_generator():
-                yield (AssistantEventType.MESSAGE, AssistantMessage(content="test"))
+                yield AssistantDispatcherEvent(
+                    action=MessageAction(message=AssistantMessage(content="test")), node_name="test_node"
+                )
 
             await self.redis_stream.write_to_stream(test_generator())
 
@@ -400,125 +408,38 @@ class TestRedisStream(BaseTest):
             # delete should be called multiple times, but serialized by the lock
             self.assertEqual(mock_client.delete.call_count, 5)
 
-    # def test_serializer_message_serialization(self):
-    #    # Test RedisStreamSerializer with message data
-    #    serializer = ConversationStreamSerializer()
+    @pytest.mark.asyncio
+    async def test_write_to_stream_with_callback(self):
+        """Test that callback is invoked after each message is written."""
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.xadd = AsyncMock()
+            mock_client.expire = AsyncMock()
 
-    #    # Test message serialization with proper AssistantMessage format
-    #    message_data = AssistantMessage(content="test message")
-    #    event: AssistantOutput = (AssistantEventType.MESSAGE, message_data)
+            # Track callback invocations
+            callback_count = 0
 
-    #    serialized = serializer.dumps(event)
-    #    serialized = cast(dict[str, bytes], serialized)
-    #    self.assertIn("data", serialized)
-    #    self.assertIsInstance(serialized["data"], bytes)
+            def test_callback():
+                nonlocal callback_count
+                callback_count += 1
 
-    #    # Test deserialization - need to convert string keys to bytes
-    #    bytes_data = {bytes(k, "utf-8"): v for k, v in serialized.items()}
-    #    deserialized = serializer.deserialize(bytes_data)
-    #    self.assertEqual(deserialized.event.type, AssistantEventType.MESSAGE)
-    #    payload = cast(AssistantMessage, deserialized.event.payload)
-    #    self.assertEqual(payload.content, message_data.content)
-    #    self.assertEqual(payload.type, message_data.type)
+            # Create a test generator with multiple messages
+            async def test_generator():
+                yield AssistantDispatcherEvent(
+                    action=MessageAction(message=AssistantMessage(content="message 1")), node_name="test_node"
+                )
+                yield AssistantDispatcherEvent(
+                    action=MessageAction(message=AssistantMessage(content="message 2")), node_name="test_node"
+                )
+                yield AssistantDispatcherEvent(
+                    action=MessageAction(message=AssistantMessage(content="message 3")), node_name="test_node"
+                )
 
-    ##@pytest.mark.asyncio
-    ##async def test_write_to_stream_with_callback(self):
-    ##    """Test that callback is invoked after each message is written."""
-    ##    with patch.object(self.redis_stream, "_redis_client") as mock_client:
-    ##        mock_client.xadd = AsyncMock()
-    ##        mock_client.expire = AsyncMock()
+            await self.redis_stream.write_to_stream(test_generator(), test_callback)
 
-    ##        # Track callback invocations
-    ##        callback_count = 0
-
-    ##        def test_callback():
-    ##            nonlocal callback_count
-    ##            callback_count += 1
-
-    ##        # Create a test generator with multiple messages
-    ##        async def test_generator():
-    ##            yield (AssistantEventType.MESSAGE, AssistantMessage(content="message 1"))
-    ##            yield (AssistantEventType.MESSAGE, AssistantMessage(content="message 2"))
-    ##            yield (AssistantEventType.MESSAGE, AssistantMessage(content="message 3"))
-
-    ##        await self.redis_stream.write_to_stream(test_generator(), test_callback)
-
-    ##        # Callback should be called for each message
-    ##        self.assertEqual(callback_count, 3)
-    ##        # xadd should be called 4 times (3 messages + 1 completion)
-    ##        self.assertEqual(mock_client.xadd.call_count, 4)
-
-    # def test_serializer_ack_message_returns_none(self):
-    #     """Test that ACK messages are not serialized."""
-
-    #     serializer = ConversationStreamSerializer()
-
-    #     # Create an ACK message as a MESSAGE event (since STATUS is treated as MESSAGE)
-    #     ack_message = AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
-    #     event: AssistantOutput = (AssistantEventType.STATUS, ack_message)
-
-    #     # Should return None for ACK messages
-    #     result = serializer.dumps(event)
-    #     self.assertIsNone(result)
-
-    def test_serializer_non_ack_status_messages(self):
-        """Test that non-ACK status messages are serialized normally."""
-
-        serializer = ConversationStreamSerializer()
-
-        # Test with a non-ACK status message
-        status_message = AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-        event: AssistantOutput = (AssistantEventType.STATUS, status_message)
-
-        result = serializer.dumps(event)
-        self.assertIsNotNone(result)
-        result = cast(dict[str, bytes], result)
-        self.assertIn("data", result)
-        self.assertIsInstance(result["data"], bytes)
-
-    # @pytest.mark.asyncio
-    # async def test_write_to_stream_skips_ack_messages(self):
-    #    """Test that ACK messages are not written to the stream."""
-
-    #    with patch.object(self.redis_stream, "_redis_client") as mock_client:
-    #        mock_client.xadd = AsyncMock()
-    #        mock_client.expire = AsyncMock()
-
-    #        # Create a test generator with ACK message
-    #        async def test_generator():
-    #            yield (AssistantEventType.MESSAGE, AssistantMessage(content="regular message"))
-    #            yield (
-    #                AssistantEventType.STATUS,
-    #                AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK),
-    #            )
-    #            yield (AssistantEventType.MESSAGE, AssistantMessage(content="another message"))
-
-    #        await self.redis_stream.write_to_stream(test_generator())
-
-    #        # Check xadd calls - should only be called for non-ACK messages + completion
-    #        # 2 regular messages + 1 completion = 3 calls
-    #        self.assertEqual(mock_client.xadd.call_count, 3)
-
-    #        # Verify the ACK message was not written
-    #        calls = mock_client.xadd.call_args_list
-    #        for call in calls[:-1]:  # Exclude the completion message
-    #            data = call[0][1]
-    #            self.assertIn("data", data)
-
-    # def test_serializer_conversation_serialization(self):
-    #    serializer = ConversationStreamSerializer()
-    #    conversation = Conversation.objects.create(team=self.team, user=self.user)
-    #    event: AssistantOutput = (AssistantEventType.CONVERSATION, conversation)
-    #    serialized = serializer.dumps(event)
-    #    self.assertIsNotNone(serialized)
-    #    serialized = cast(dict[str, bytes], serialized)
-    #    self.assertIn("data", serialized)
-    #    self.assertIsInstance(serialized["data"], bytes)
-
-    #    bytes_data = {bytes(k, "utf-8"): v for k, v in serialized.items()}
-    #    deserialized = serializer.deserialize(bytes_data)
-    #    self.assertEqual(deserialized.event.type, AssistantEventType.CONVERSATION)
-    #    self.assertEqual(deserialized.event.payload, conversation.id)
+            # Callback should be called for each message
+            self.assertEqual(callback_count, 3)
+            # xadd should be called 4 times (3 messages + 1 completion)
+            self.assertEqual(mock_client.xadd.call_count, 4)
 
     def test_serializer_status_serialization(self):
         # Test RedisStreamSerializer with status data
@@ -536,6 +457,7 @@ class TestRedisStream(BaseTest):
         bytes_data = {bytes(k, "utf-8"): v for k, v in serialized.items()}
         deserialized = serializer.deserialize(bytes_data)
         self.assertIsInstance(deserialized, StreamStatusEvent)
+        assert isinstance(deserialized, StreamStatusEvent)  # Type narrowing for type checker
         self.assertEqual(deserialized.status, "complete")
         self.assertIsNone(deserialized.error)
 
@@ -555,20 +477,9 @@ class TestRedisStream(BaseTest):
         bytes_data = {bytes(k, "utf-8"): v for k, v in serialized.items()}
         deserialized = serializer.deserialize(bytes_data)
         self.assertIsInstance(deserialized, StreamStatusEvent)
+        assert isinstance(deserialized, StreamStatusEvent)  # Type narrowing for type checker
         self.assertEqual(deserialized.status, "error")
         self.assertEqual(deserialized.error, "Test error message")
-
-    # def test_serializer_unknown_event_type(self):
-    #     # Test RedisStreamSerializer with unknown event type
-    #     serializer = ConversationStreamSerializer()
-
-    #     # Test unknown event type
-    #     unknown_event = ("unknown_type", {"data": "test"})
-
-    #     with self.assertRaises(ValueError) as context:
-    #         serializer.dumps(unknown_event)  # type: ignore
-
-    #     self.assertIn("Unknown event type", str(context.exception))
 
     def test_serializer_raw_dispatcher_event(self):
         """Test serialization of raw dispatcher events."""
@@ -587,6 +498,7 @@ class TestRedisStream(BaseTest):
         bytes_data = {bytes(k, "utf-8"): v for k, v in serialized.items()}
         deserialized = serializer.deserialize(bytes_data)
         self.assertIsInstance(deserialized, AssistantDispatcherEvent)
+        assert isinstance(deserialized, AssistantDispatcherEvent)  # Type narrowing for type checker
         self.assertEqual(deserialized.node_name, "test_node")
         self.assertIsInstance(deserialized.action, MessageAction)
 
@@ -605,5 +517,6 @@ class TestRedisStream(BaseTest):
         bytes_data = {bytes(k, "utf-8"): v for k, v in serialized.items()}
         deserialized = serializer.deserialize(bytes_data)
         self.assertIsInstance(deserialized, AssistantDispatcherEvent)
+        assert isinstance(deserialized, AssistantDispatcherEvent)  # Type narrowing for type checker
         self.assertEqual(deserialized.node_name, "test_node")
         self.assertIsInstance(deserialized.action, NodeStartAction)

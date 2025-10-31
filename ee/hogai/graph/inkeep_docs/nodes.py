@@ -16,9 +16,8 @@ from posthog.schema import AssistantMessage, AssistantToolCallMessage, FailureMe
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.openai import convert_to_openai_messages
-from ee.hogai.utils.state import PartialAssistantState
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName, PartialAssistantState
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..root.nodes import RootNode

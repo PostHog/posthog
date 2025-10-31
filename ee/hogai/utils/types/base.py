@@ -13,9 +13,7 @@ from langgraph.graph import END, START
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
-    AssistantEventType,
     AssistantFunnelsQuery,
-    AssistantGenerationStatusEvent,
     AssistantHogQLQuery,
     AssistantMessage,
     AssistantRetentionQuery,
@@ -43,8 +41,6 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ee.models import Conversation
-
 AIMessageUnion = Union[
     AssistantMessage,
     VisualizationMessage,
@@ -56,14 +52,7 @@ AIMessageUnion = Union[
     TaskExecutionMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
-AssistantResultUnion = Union[AssistantMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent]
-
-AssistantOutput = (
-    tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
-    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]
-    | tuple[Literal[AssistantEventType.STATUS], AssistantGenerationStatusEvent]
-    | tuple[Literal[AssistantEventType.UPDATE], AssistantUpdateEvent]
-)
+AssistantResultUnion = Union[AssistantMessageUnion, AssistantUpdateEvent]
 
 AnyAssistantGeneratedQuery = (
     AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery

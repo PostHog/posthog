@@ -2,16 +2,14 @@ from collections.abc import AsyncGenerator
 from typing import Any, Optional
 from uuid import UUID
 
-from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog.models import Team, User
 
 from ee.hogai.assistant.base import BaseAssistant
-from ee.hogai.graph import DeepResearchAssistantGraph
-from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
-from ee.hogai.utils.types import AssistantMode, AssistantOutput
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
+from ee.hogai.graph.deep_research.types import DeepResearchState, PartialDeepResearchState
+from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMode, MessageAction
 from ee.models import Conversation
 
 
@@ -50,18 +48,6 @@ class DeepResearchAssistant(BaseAssistant):
             initial_state=initial_state,
         )
 
-    @property
-    def VISUALIZATION_NODES(self) -> dict[MaxNodeName, type[BaseAssistantNode]]:
-        return {}
-
-    @property
-    def STREAMING_NODES(self) -> set[MaxNodeName]:
-        return {
-            DeepResearchNodeName.ONBOARDING,
-            DeepResearchNodeName.PLANNER,
-            DeepResearchNodeName.TASK_EXECUTOR,
-        }
-
     def get_initial_state(self) -> DeepResearchState:
         if self._latest_message:
             return DeepResearchState(
@@ -79,24 +65,14 @@ class DeepResearchAssistant(BaseAssistant):
             return PartialDeepResearchState(messages=[])
         return PartialDeepResearchState(messages=[self._latest_message], graph_status="resumed")
 
-    async def astream(
-        self,
-        stream_message_chunks: bool = True,
-        stream_subgraphs: bool = True,
-        stream_first_message: bool = True,
-        stream_only_assistant_messages: bool = False,
-    ) -> AsyncGenerator[AssistantOutput, None]:
+    async def astream(self, stream_first_message: bool = True) -> AsyncGenerator[AssistantDispatcherEvent, None]:
         last_ai_message: AssistantMessage | None = None
-        async for stream_event in super().astream(
-            stream_message_chunks, stream_subgraphs, stream_first_message, stream_only_assistant_messages
-        ):
-            _, message = stream_event
-            if isinstance(message, VisualizationMessage):
-                # We don't want to send single visualization messages to the client in deep research mode
-                continue
-            if isinstance(message, AssistantMessage):
-                last_ai_message = message
-            yield stream_event
+        async for dispatcher_event in super().astream(stream_first_message=stream_first_message):
+            if isinstance(dispatcher_event.action, MessageAction):
+                message = dispatcher_event.action.message
+                if isinstance(message, AssistantMessage):
+                    last_ai_message = message
+            yield dispatcher_event
 
         await self._report_conversation_state(
             "deep research",

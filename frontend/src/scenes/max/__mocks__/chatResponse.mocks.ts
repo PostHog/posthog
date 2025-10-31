@@ -1,8 +1,7 @@
 import {
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
     AssistantMessage,
     AssistantMessageType,
+    FailureMessage,
     HumanMessage,
 } from '~/queries/schema/schema-assistant-messages'
 
@@ -64,9 +63,12 @@ export const chatMidwayResponseChunk = generateChunk([
     `data: ${JSON.stringify(reasoningMessage2)}`,
 ])
 
-const generationFailure: AssistantGenerationStatusEvent = { type: AssistantGenerationStatusType.GenerationError }
+const generationFailure: FailureMessage = {
+    type: AssistantMessageType.Failure,
+    content: 'Oops! It looks like I’m having trouble answering this. Could you please try again?',
+}
 
-export const generationFailureChunk = generateChunk(['event: status', `data: ${JSON.stringify(generationFailure)}`])
+export const generationFailureChunk = generateChunk(['event: message', `data: ${JSON.stringify(generationFailure)}`])
 
 export const failureChunk = generateChunk(['event: message', `data: ${JSON.stringify(failureMessage)}`])
 

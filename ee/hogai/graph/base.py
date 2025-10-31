@@ -19,7 +19,7 @@ from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.dispatcher import AssistantDispatcher
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_start_message
-from ee.hogai.utils.types import (
+from ee.hogai.utils.types.base import (
     AssistantMessageUnion,
     AssistantState,
     PartialAssistantState,

@@ -32,8 +32,6 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { openNotebook } from '~/models/notebooksModel'
 import {
     AssistantEventType,
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
     AssistantMessage,
     AssistantMessageType,
     AssistantUpdateEvent,
@@ -854,15 +852,6 @@ async function onEventImplementation(
                     status: !parsedResponse.id ? 'loading' : 'completed',
                 })
             }
-        }
-    } else if (event === AssistantEventType.Status) {
-        const parsedResponse = parseResponse<AssistantGenerationStatusEvent>(data)
-        if (!parsedResponse) {
-            return
-        }
-
-        if (parsedResponse.type === AssistantGenerationStatusType.GenerationError) {
-            actions.setMessageStatus(values.threadRaw.length - 1, 'error')
         }
     }
 }

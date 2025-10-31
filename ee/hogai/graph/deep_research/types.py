@@ -8,8 +8,14 @@ from pydantic import BaseModel, Field
 from posthog.schema import DeepResearchNotebook
 
 from ee.hogai.graph.root.tools.todo_write import TodoItem
-from ee.hogai.utils.types import AssistantMessageUnion, add_and_merge_messages
-from ee.hogai.utils.types.base import BaseStateWithMessages, BaseStateWithTasks, append, replace
+from ee.hogai.utils.types.base import (
+    AssistantMessageUnion,
+    BaseStateWithMessages,
+    BaseStateWithTasks,
+    add_and_merge_messages,
+    append,
+    replace,
+)
 
 NotebookInfo = DeepResearchNotebook
 
