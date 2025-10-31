@@ -2,7 +2,10 @@ import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { Action, ActionManagerCDP } from '~/utils/action-manager-cdp'
+import {
+    RealtimeSupportedFilter,
+    RealtimeSupportedFilterManagerCDP,
+} from '~/utils/realtime-supported-filter-manager-cdp'
 
 import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS, KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
@@ -39,12 +42,12 @@ export const histogramBatchProcessingSteps = new Histogram({
 export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpBehaviouralEventsConsumer'
     private kafkaConsumer: KafkaConsumer
-    private actionManager: ActionManagerCDP
+    private realtimeSupportedFilterManager: RealtimeSupportedFilterManagerCDP
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-behavioural-events-consumer') {
         super(hub)
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
-        this.actionManager = new ActionManagerCDP(hub.db.postgres)
+        this.realtimeSupportedFilterManager = new RealtimeSupportedFilterManagerCDP(hub.db.postgres)
     }
 
     @instrumented('cdpBehaviouralEventsConsumer.publishEvents')
@@ -69,24 +72,25 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
         }
     }
 
-    // Evaluate if event matches action using bytecode execution
-    private async evaluateEventAgainstAction(
+    // Evaluate if event matches realtime supported filter using bytecode execution
+    private async evaluateEventAgainstRealtimeSupportedFilter(
         filterGlobals: HogFunctionFilterGlobals,
-        action: Action
+        filter: RealtimeSupportedFilter
     ): Promise<boolean> {
-        if (!action.bytecode) {
+        if (!filter.bytecode) {
             return false
         }
 
         try {
-            const { execResult } = await execHog(action.bytecode, {
+            const { execResult } = await execHog(filter.bytecode, {
                 globals: filterGlobals,
             })
 
             return execResult?.result ?? false
         } catch (error) {
-            logger.error('Error executing action bytecode', {
-                actionId: action.id,
+            logger.error('Error executing realtime supported filter bytecode', {
+                conditionHash: filter.conditionHash,
+                cohortId: filter.cohort_id,
                 error,
             })
             return false
@@ -125,17 +129,17 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                 }
             }
 
-            // Step 2: Fetch all actions for all teams in one query
+            // Step 2: Fetch all realtime supported filters for all teams in one query
             const teamIds = Array.from(eventsByTeam.keys())
-            const actionsByTeam = await this.actionManager.getActionsForTeams(teamIds)
+            const filtersByTeam = await this.realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeams(teamIds)
 
-            // Step 3: Process each team's events with their actions
+            // Step 3: Process each team's events with their realtime supported filters
             for (const [teamId, teamEvents] of Array.from(eventsByTeam.entries())) {
                 try {
-                    const actions = actionsByTeam[String(teamId)] || []
+                    const filters = filtersByTeam[String(teamId)] || []
 
-                    if (actions.length === 0) {
-                        // Skip teams with no actions
+                    if (filters.length === 0) {
+                        // Skip teams with no realtime supported filters
                         continue
                     }
 
@@ -148,17 +152,20 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                             .replace('T', ' ')
                             .replace('Z', '')
 
-                        // Convert to filter globals for action evaluation
+                        // Convert to filter globals for filter evaluation
                         const filterGlobals = convertClickhouseRawEventToFilterGlobals(clickHouseEvent)
 
-                        // Evaluate event against each action for this team
-                        for (const action of actions) {
-                            const matches = await this.evaluateEventAgainstAction(filterGlobals, action)
+                        // Evaluate event against each realtime supported filter for this team
+                        for (const filter of filters) {
+                            const matches = await this.evaluateEventAgainstRealtimeSupportedFilter(
+                                filterGlobals,
+                                filter
+                            )
 
-                            // Only publish if event matches the action (don't publish non-matches)
+                            // Only publish if event matches the filter (don't publish non-matches)
                             if (matches) {
-                                // Hash the action bytecode/id as the condition identifier
-                                // This ensures consistent condition hashes for the same action
+                                // Use the filter's conditionHash as the condition identifier
+                                // This ensures consistent condition hashes across cohorts
 
                                 const preCalculatedEvent: ProducedEvent = {
                                     key: filterGlobals.distinct_id,
@@ -168,8 +175,8 @@ export class CdpBehaviouralEventsConsumer extends CdpConsumerBase {
                                         evaluation_timestamp: evaluationTimestamp,
                                         person_id: clickHouseEvent.person_id!,
                                         distinct_id: filterGlobals.distinct_id,
-                                        condition: String(action.id),
-                                        source: `action_${action.id}`,
+                                        condition: filter.conditionHash,
+                                        source: `cohort_filter_${filter.conditionHash}`,
                                     },
                                 }
 

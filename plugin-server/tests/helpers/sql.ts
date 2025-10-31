@@ -656,3 +656,86 @@ export async function resetBehavioralCohortsDatabase(db: PostgresRouter): Promis
         'reset-behavioral-cohorts-db'
     )
 }
+
+export const createCohort = async (
+    pg: PostgresRouter,
+    teamId: number,
+    name: string,
+    filters: string | null = null,
+    cohortSettings?: Record<string, any>
+): Promise<number> => {
+    // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
+    const id = Math.round(Math.random() * 1000000000)
+    await insertRow(pg, 'posthog_cohort', {
+        id,
+        name,
+        description: `Test cohort: ${name}`,
+        team_id: teamId,
+        deleted: false,
+        filters:
+            filters ||
+            JSON.stringify({
+                properties: {
+                    type: 'AND',
+                    values: [],
+                },
+            }),
+        query: null,
+        version: null,
+        pending_version: null,
+        count: null,
+        is_calculating: false,
+        last_calculation: null,
+        errors_calculating: 0,
+        last_error_at: null,
+        is_static: false,
+        cohort_type: 'realtime',
+        created_at: new Date().toISOString(),
+        created_by_id: commonUserId,
+        groups: JSON.stringify([]),
+        ...cohortSettings,
+    })
+    return id
+}
+
+// Build an inline filters JSON string for cohorts with embedded bytecode and conditionHash
+export const buildInlineFiltersForCohorts = ({
+    bytecode,
+    conditionHash,
+    type = 'behavioral',
+    key = '$test_event',
+    extra,
+}: {
+    bytecode: any[]
+    conditionHash: string
+    type?: string
+    key?: string
+    extra?: Record<string, any>
+}): string => {
+    const filter: any = {
+        key,
+        type,
+        bytecode,
+        conditionHash,
+        ...(extra || {}),
+    }
+
+    if (type === 'behavioral') {
+        filter.value = 'performed_event'
+        filter.event_type = 'events'
+    } else if (type === 'person') {
+        filter.operator = 'is_set'
+    }
+
+    return JSON.stringify({
+        properties: {
+            type: 'OR',
+            values: [
+                {
+                    type: 'OR',
+                    values: [filter],
+                },
+            ],
+        },
+    })
+}
