@@ -428,16 +428,16 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             expect(mockOnChange).toHaveBeenCalledWith({
                 parameters: expect.objectContaining({
-                    ensure_experience_continuity: false,
+                    ensure_experience_continuity: true,
                 }),
             })
         })
 
-        it('defaults to checked', () => {
+        it('defaults to unchecked', () => {
             renderComponent(defaultExperiment)
 
             const checkbox = screen.getByRole('checkbox') as HTMLInputElement
-            expect(checkbox.checked).toBe(true)
+            expect(checkbox.checked).toBe(false)
         })
     })
 

@@ -306,7 +306,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                 ) : null}
                                             </div>
                                             <div
-                                                className="SessionRecordingPlayer__body h-[350px] xl:min-h-[25rem] xl:grow"
+                                                className="SessionRecordingPlayer__body"
                                                 draggable={draggable}
                                                 {...elementProps}
                                             >

@@ -25,7 +25,7 @@ from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property.util import property_to_django_filter
 from posthog.utils import relative_date_parse
 
-from products.error_tracking.backend.api.error_tracking import ErrorTrackingIssueSerializer
+from products.error_tracking.backend.api.issues import ErrorTrackingIssueSerializer
 from products.error_tracking.backend.models import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
@@ -469,6 +469,15 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(chain=["person_id"]),
                     right=ast.Constant(value=self.query.personId),
+                )
+            )
+
+        if self.query.groupKey and self.query.groupTypeIndex is not None:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[f"$group_{self.query.groupTypeIndex}"]),
+                    right=ast.Constant(value=self.query.groupKey),
                 )
             )
 

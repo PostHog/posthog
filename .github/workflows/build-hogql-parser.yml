@@ -66,7 +66,7 @@ jobs:
 
             - uses: actions/setup-python@v5
               with:
-                  python-version: '3.12.11'
+                  python-version: '3.12.10'
 
             - name: Build sdist
               if: matrix.os == 'ubuntu-22.04' # Only build the sdist once

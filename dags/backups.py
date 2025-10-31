@@ -35,20 +35,21 @@ def get_max_backup_bandwidth() -> str:
 
     if cloud_deployment == "US":
         # i7ie.metal-48xl instances - can handle higher bandwidth
-        # 3000 MB/s = 24 Gbps (24% of 100 Gbps network)
-        # For 208TB: ~20 hour backup time
-        return "3000000000"  # 3000MB/s
+        # 2400 MB/s = 19.2 Gbps (19% of 100 Gbps network)
+        # For 208TB: ~24 hour backup time
+        return "2400000000"  # 2400MB/s
     elif cloud_deployment == "EU":
         # m8g.8xlarge instances - moderate bandwidth
-        # 700 MB/s = 5.6 Gbps (47% of 12 Gbps network)
-        # For 48TB: ~20 hour backup time
-        return "700000000"  # 700MB/s
+        # 450 MB/s = 3.6 Gbps (30% of 12 Gbps network)
+        # For 48TB: ~29 hour backup time
+        return "450000000"  # 450MB/s
     else:
         # DEV/self-hosted - conservative limits
         return "100000000"  # 100MB/s to prevent resource exhaustion
 
 
 SHARDED_TABLES = [
+    "sharded_events",
     "sharded_app_metrics",
     "sharded_app_metrics2",
     "sharded_heatmaps",
@@ -58,7 +59,6 @@ SHARDED_TABLES = [
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
     "sharded_sessions",
-    "sharded_events",
 ]
 
 NON_SHARDED_TABLES = [
@@ -141,6 +141,8 @@ class Backup:
         backup_settings = {
             "async": "1",
             "max_backup_bandwidth": get_max_backup_bandwidth(),
+            "s3_disable_checksum": "1",  # There is a CH issue that makes bandwith be half than what is configured: https://github.com/ClickHouse/ClickHouse/issues/78213
+            # According to CH docs, disabling this is safe enough as checksums are already made: https://clickhouse.com/docs/operations/settings/settings#s3_disable_checksum
         }
         if self.base_backup:
             backup_settings["base_backup"] = "S3('{bucket_base_path}/{path}')".format(

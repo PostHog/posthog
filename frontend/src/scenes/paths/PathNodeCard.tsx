@@ -7,16 +7,17 @@ import { InsightLogicProps } from '~/types'
 
 import { PathNodeCardButton } from './PathNodeCardButton'
 import { PathNodeCardMenu } from './PathNodeCardMenu'
-import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
-import { PathNodeData, isSelectedPathStartOrEnd, pageUrl } from './pathUtils'
+import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
+import { PathNodeData, calculatePathNodeCardTop, isSelectedPathStartOrEnd, pageUrl } from './pathUtils'
 import { pathsDataLogic } from './pathsDataLogic'
 
 export type PathNodeCardProps = {
     insightProps: InsightLogicProps
     node: PathNodeData
+    canvasHeight: number
 }
 
-export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Element | null {
+export function PathNodeCard({ insightProps, node, canvasHeight }: PathNodeCardProps): JSX.Element | null {
     const { pathsFilter: _pathsFilter, funnelPathsFilter: _funnelPathsFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter, openPersonsModal, viewPathToFunnel } = useActions(pathsDataLogic(insightProps))
 
@@ -64,10 +65,7 @@ export function PathNodeCard({ insightProps, node }: PathNodeCardProps): JSX.Ele
                     left: !isPathEnd
                         ? node.x0 + PATH_NODE_CARD_LEFT_OFFSET
                         : node.x0 + PATH_NODE_CARD_LEFT_OFFSET - PATH_NODE_CARD_WIDTH,
-                    top: !isPathEnd
-                        ? node.y0 + PATH_NODE_CARD_TOP_OFFSET
-                        : // use middle for end nodes
-                          node.y0 + (node.y1 - node.y0) / 2,
+                    top: calculatePathNodeCardTop(node, canvasHeight),
                     border: `1px solid ${
                         isSelectedPathStartOrEnd(pathsFilter, funnelPathsFilter, node)
                             ? 'purple'

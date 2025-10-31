@@ -27,10 +27,23 @@ import products.logs.backend.api as logs
 import products.links.backend.api as link
 import products.tasks.backend.api as tasks
 import products.endpoints.backend.api as endpoints
+import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
-from products.error_tracking.backend.api import error_tracking
+from products.desktop_recordings.backend.api import DesktopRecordingViewSet
+from products.error_tracking.backend.api import (
+    ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingExternalReferenceViewSet,
+    ErrorTrackingFingerprintViewSet,
+    ErrorTrackingGroupingRuleViewSet,
+    ErrorTrackingIssueViewSet,
+    ErrorTrackingReleaseViewSet,
+    ErrorTrackingStackFrameViewSet,
+    ErrorTrackingSuppressionRuleViewSet,
+    ErrorTrackingSymbolSetViewSet,
+    GitProviderFileLinksViewSet,
+)
 from products.llm_analytics.backend.api import (
     DatasetItemViewSet,
     DatasetViewSet,
@@ -504,6 +517,7 @@ organizations_router.register(
 router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet, "login_token")
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet, "login_precheck")
+router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email_mfa")
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
@@ -673,65 +687,79 @@ projects_router.register(
 
 environments_router.register(
     r"error_tracking/releases",
-    error_tracking.ErrorTrackingReleaseViewSet,
+    ErrorTrackingReleaseViewSet,
     "project_error_tracking_release",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/symbol_sets",
-    error_tracking.ErrorTrackingSymbolSetViewSet,
+    ErrorTrackingSymbolSetViewSet,
     "project_error_tracking_symbol_set",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/assignment_rules",
-    error_tracking.ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingAssignmentRuleViewSet,
     "project_error_tracking_assignment_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/grouping_rules",
-    error_tracking.ErrorTrackingGroupingRuleViewSet,
+    ErrorTrackingGroupingRuleViewSet,
     "project_error_tracking_grouping_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/suppression_rules",
-    error_tracking.ErrorTrackingSuppressionRuleViewSet,
+    ErrorTrackingSuppressionRuleViewSet,
     "project_error_tracking_suppression_rule",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/fingerprints",
-    error_tracking.ErrorTrackingFingerprintViewSet,
+    ErrorTrackingFingerprintViewSet,
     "project_error_tracking_fingerprint",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/issues",
-    error_tracking.ErrorTrackingIssueViewSet,
+    ErrorTrackingIssueViewSet,
     "project_error_tracking_issue",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/external_references",
-    error_tracking.ErrorTrackingExternalReferenceViewSet,
+    ErrorTrackingExternalReferenceViewSet,
     "project_error_tracking_external_references",
     ["team_id"],
 )
 
 environments_router.register(
     r"error_tracking/stack_frames",
-    error_tracking.ErrorTrackingStackFrameViewSet,
+    ErrorTrackingStackFrameViewSet,
     "project_error_tracking_stack_frames",
     ["team_id"],
+)
+
+environments_router.register(
+    r"error_tracking/git-provider-file-links",
+    GitProviderFileLinksViewSet,
+    "project_error_tracking_git_provider_file_links",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"live_debugger_breakpoints",
+    live_debugger.LiveDebuggerBreakpointViewSet,
+    "project_live_debugger_breakpoints",
+    ["project_id"],
 )
 
 projects_router.register(
@@ -855,6 +883,13 @@ environments_router.register(
     r"user_interviews",
     UserInterviewViewSet,
     "environment_user_interviews",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"desktop_recordings",
+    DesktopRecordingViewSet,
+    "environment_desktop_recordings",
     ["team_id"],
 )
 

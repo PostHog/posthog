@@ -15,6 +15,7 @@ class AvailableFeature(StrEnum):
     ENVIRONMENTS = "environments"
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
+    SCIM = "scim"
     SSO_ENFORCEMENT = "sso_enforcement"
     ADVANCED_PERMISSIONS = "advanced_permissions"  # TODO: Remove this once access_control is propagated
     ACCESS_CONTROL = "access_control"
@@ -326,6 +327,7 @@ VIDEO_EXPORT_TASK_QUEUE = "video-export-task-queue"
 MESSAGING_TASK_QUEUE = "messaging-task-queue"
 ANALYTICS_PLATFORM_TASK_QUEUE = "analytics-platform-task-queue"
 SESSION_REPLAY_TASK_QUEUE = "session-replay-task-queue"
+WEEKLY_DIGEST_TASK_QUEUE = "weekly-digest-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 

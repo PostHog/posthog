@@ -5,6 +5,7 @@ import { IconDashboard, IconGear, IconTrending } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
+import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { formatPercentage, humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
@@ -196,10 +197,12 @@ const OverviewItemCell = ({
     return (
         <Tooltip title={tooltip}>
             <div
-                className={clsx(compact ? OVERVIEW_ITEM_CELL_CLASSES_COMPACT : OVERVIEW_ITEM_CELL_CLASSES_DEFAULT, {
-                    'border border-dotted border-success': usedPreAggregatedTables,
-                })}
+                className={clsx(
+                    compact ? OVERVIEW_ITEM_CELL_CLASSES_COMPACT : OVERVIEW_ITEM_CELL_CLASSES_DEFAULT,
+                    'relative'
+                )}
             >
+                {usedPreAggregatedTables && <PreAggregatedBadge />}
                 <div className="flex flex-row w-full">
                     <div className="flex flex-row items-start justify-start flex-1">
                         {/* NOTE: If we ever decide to remove the beta tag, make sure we keep an empty div with flex-1 to keep the layout consistent */}

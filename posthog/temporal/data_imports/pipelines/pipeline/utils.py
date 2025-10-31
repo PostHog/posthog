@@ -334,9 +334,14 @@ def setup_partitioning(
     )
 
     if partition_result is not None:
-        pa_table, partition_mode, updated_partition_keys = partition_result
+        pa_table, partition_mode, partition_format, updated_partition_keys = partition_result
 
-        if not schema.partitioning_enabled:
+        if (
+            not schema.partitioning_enabled
+            or schema.partition_mode != partition_mode
+            or schema.partition_format != partition_format
+            or schema.partitioning_keys != updated_partition_keys
+        ):
             logger.debug(
                 f"Setting partitioning_enabled on schema with: partition_keys={partition_keys}. partition_count={partition_count}. partition_mode={partition_mode}. partition_format={partition_format}"
             )
@@ -355,7 +360,7 @@ def append_partition_key_to_table(
     partition_mode: PartitionMode | None,
     partition_format: PartitionFormat | None,
     logger: FilteringBoundLogger,
-) -> None | tuple[pa.Table, PartitionMode, list[str]]:
+) -> None | tuple[pa.Table, PartitionMode, PartitionFormat | None, list[str]]:
     """
     Partitions the pyarrow table via one of three methods:
     - md5: Hashes the primary keys into a fixed number of buckets, the least efficient method of partitioning
@@ -431,9 +436,16 @@ def append_partition_key_to_table(
                 key = normalized_partition_keys[0]
                 date = row[key]
 
-                if partition_format == "day":
+                if partition_format is None:
+                    partition_format = "month"
+
+                if partition_format == "hour":
+                    date_format = "%Y-%m-%dT%H"
+                elif partition_format == "day":
                     date_format = "%Y-%m-%d"
-                else:
+                elif partition_format == "week":
+                    date_format = "%G-w%V"
+                elif partition_format == "month":
                     date_format = "%Y-%m"
 
                 if isinstance(date, int):
@@ -454,7 +466,7 @@ def append_partition_key_to_table(
     new_column = pa.array(partition_array, type=pa.string())
     logger.debug(f"append_partition_key_to_table: Partition key added with mode={mode}")
 
-    return table.append_column(PARTITION_KEY, new_column), mode, normalized_partition_keys
+    return table.append_column(PARTITION_KEY, new_column), mode, partition_format, normalized_partition_keys
 
 
 def _convert_uuid_to_string(row: dict) -> dict:

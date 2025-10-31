@@ -1,9 +1,7 @@
-from collections.abc import Callable, Coroutine, Hashable
-from typing import Any, Generic, Literal, Optional, Protocol, cast, runtime_checkable
+from collections.abc import Hashable
+from typing import Any, Generic, Literal, Optional, cast
 
-from langgraph.graph.state import CompiledStateGraph, StateGraph
-
-from posthog.schema import ReasoningMessage
+from langgraph.graph.state import StateGraph
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -14,7 +12,6 @@ from ee.hogai.graph.query_planner.nodes import QueryPlannerNode, QueryPlannerToo
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, StateType
-from ee.hogai.utils.types.base import BaseState
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .dashboards.nodes import DashboardCreationNode
@@ -41,46 +38,18 @@ from .trends.nodes import TrendsGeneratorNode, TrendsGeneratorToolsNode
 global_checkpointer = DjangoCheckpointer()
 
 
-# Type alias for async reasoning message function, takes a state and an optional default message content and returns an optional reasoning message
-GetReasoningMessageAfunc = Callable[[BaseState, str | None], Coroutine[Any, Any, ReasoningMessage | None]]
-GetReasoningMessageMapType = dict[MaxNodeName, GetReasoningMessageAfunc]
-
-
-# Protocol to check if a node has a reasoning message function at runtime
-@runtime_checkable
-class HasReasoningMessage(Protocol):
-    get_reasoning_message: GetReasoningMessageAfunc
-
-
-class AssistantCompiledStateGraph(CompiledStateGraph):
-    """Wrapper around CompiledStateGraph that preserves reasoning message information.
-
-    Note: This uses __dict__ copying as a workaround since CompiledStateGraph
-    doesn't support standard inheritance. This is brittle and may break with
-    library updates.
-    """
-
-    def __init__(
-        self, compiled_graph: CompiledStateGraph, aget_reasoning_message_by_node_name: GetReasoningMessageMapType
-    ):
-        # Copy the internal state from the compiled graph without calling super().__init__
-        # This is a workaround since CompiledStateGraph doesn't support standard inheritance
-        self.__dict__.update(compiled_graph.__dict__)
-        self.aget_reasoning_message_by_node_name = aget_reasoning_message_by_node_name
-
-
 class BaseAssistantGraph(Generic[StateType]):
     _team: Team
     _user: User
     _graph: StateGraph
-    aget_reasoning_message_by_node_name: GetReasoningMessageMapType
+    _parent_tool_call_id: str | None
 
-    def __init__(self, team: Team, user: User, state_type: type[StateType]):
+    def __init__(self, team: Team, user: User, state_type: type[StateType], parent_tool_call_id: str | None = None):
         self._team = team
         self._user = user
         self._graph = StateGraph(state_type)
         self._has_start_node = False
-        self.aget_reasoning_message_by_node_name = {}
+        self._parent_tool_call_id = parent_tool_call_id
 
     def add_edge(self, from_node: MaxNodeName, to_node: MaxNodeName):
         if from_node == AssistantNodeName.START:
@@ -89,14 +58,9 @@ class BaseAssistantGraph(Generic[StateType]):
         return self
 
     def add_node(self, node: MaxNodeName, action: Any):
+        if self._parent_tool_call_id:
+            action._parent_tool_call_id = self._parent_tool_call_id
         self._graph.add_node(node, action)
-        if isinstance(action, HasReasoningMessage):
-            self.aget_reasoning_message_by_node_name[node] = action.get_reasoning_message
-        return self
-
-    def add_subgraph(self, node_name: MaxNodeName, subgraph: AssistantCompiledStateGraph):
-        self._graph.add_node(node_name, subgraph)
-        self.aget_reasoning_message_by_node_name.update(subgraph.aget_reasoning_message_by_node_name)
         return self
 
     def compile(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
@@ -106,23 +70,21 @@ class BaseAssistantGraph(Generic[StateType]):
         compiled_graph = self._graph.compile(
             checkpointer=checkpointer if checkpointer is not None else global_checkpointer
         )
-        return AssistantCompiledStateGraph(
-            compiled_graph, aget_reasoning_message_by_node_name=self.aget_reasoning_message_by_node_name
-        )
+        return compiled_graph
 
     def add_title_generator(self, end_node: MaxNodeName = AssistantNodeName.END):
         self._has_start_node = True
 
         title_generator = TitleGeneratorNode(self._team, self._user)
-        self._graph.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
+        self.add_node(AssistantNodeName.TITLE_GENERATOR, title_generator)
         self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.TITLE_GENERATOR)
         self._graph.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
 
 class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState)
+    def __init__(self, team: Team, user: User, tool_call_id: str | None = None):
+        super().__init__(team, user, AssistantState, tool_call_id)
 
     def add_rag_context(self):
         self._has_start_node = True
@@ -264,6 +226,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
     def add_root(
         self,
         path_map: Optional[dict[Hashable, AssistantNodeName]] = None,
+        tools_node: AssistantNodeName = AssistantNodeName.ROOT_TOOLS,
     ):
         path_map = path_map or {
             "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
@@ -279,7 +242,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self.add_node(AssistantNodeName.ROOT, root_node)
         root_node_tools = RootNodeTools(self._team, self._user)
         self.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
-        self._graph.add_edge(AssistantNodeName.ROOT, AssistantNodeName.ROOT_TOOLS)
+        self._graph.add_edge(AssistantNodeName.ROOT, tools_node)
         self._graph.add_conditional_edges(
             AssistantNodeName.ROOT_TOOLS, root_node_tools.router, path_map=cast(dict[Hashable, str], path_map)
         )
@@ -288,7 +251,7 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
     def add_insights(self, next_node: AssistantNodeName = AssistantNodeName.ROOT):
         insights_assistant_graph = InsightsAssistantGraph(self._team, self._user)
         compiled_graph = insights_assistant_graph.compile_full_graph()
-        self.add_subgraph(AssistantNodeName.INSIGHTS_SUBGRAPH, compiled_graph)
+        self.add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, compiled_graph)
         self._graph.add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, next_node)
         return self
 

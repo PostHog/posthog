@@ -1,5 +1,6 @@
 use crate::{
     api::errors::FlagError,
+    database::get_connection_with_metrics,
     team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
 };
 use common_database::PostgresReader;
@@ -32,30 +33,9 @@ where
 {
     // Try to get team from cache first
     match Team::from_redis(redis_reader.clone(), token).await {
-        Ok(team) if team.organization_id.is_some() => {
-            debug!(team_id = team.id, "Found complete team in Redis cache");
-            Ok(team)
-        }
         Ok(team) => {
-            debug!(
-                team_id = team.id,
-                "Team in cache missing organization_id, treating as cache miss"
-            );
-            // Treat as cache miss - fetch complete team from database
-            match db_lookup().await {
-                Ok(team) => {
-                    debug!(team_id = team.id, "Found team in PostgreSQL");
-                    // Update Redis cache with complete team
-                    if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
-                        warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
-                    }
-                    Ok(team)
-                }
-                Err(e) => {
-                    warn!(error = %e, "Team not found in PostgreSQL");
-                    Err(e)
-                }
-            }
+            debug!(team_id = team.id, "Found team in Redis cache");
+            Ok(team)
         }
         Err(e) => {
             debug!(error = %e, "Team not found in Redis cache");
@@ -191,7 +171,8 @@ impl Team {
     }
 
     pub async fn from_pg(client: PostgresReader, token: &str) -> Result<Team, FlagError> {
-        let mut conn = client.get_connection().await?;
+        let mut conn =
+            get_connection_with_metrics(&client, "non_persons_reader", "fetch_team").await?;
 
         let query = format!("SELECT {TEAM_COLUMNS} FROM posthog_team WHERE api_token = $1");
         let row = sqlx::query_as::<_, Team>(&query)
@@ -206,7 +187,9 @@ impl Team {
         client: PostgresReader,
         token: &str,
     ) -> Result<Team, FlagError> {
-        let mut conn = client.get_connection().await?;
+        let mut conn =
+            get_connection_with_metrics(&client, "non_persons_reader", "fetch_team_by_secret")
+                .await?;
 
         let query = format!(
             "SELECT {TEAM_COLUMNS} FROM posthog_team WHERE secret_api_token = $1 OR secret_api_token_backup = $1"
@@ -275,7 +258,7 @@ mod tests {
             project_id: i64::from(id) - 1,
             name: "team".to_string(),
             api_token: token,
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
             ..Default::default()
         };
@@ -285,7 +268,7 @@ mod tests {
         let client =
             redis::Client::open("redis://localhost:6379/").expect("Failed to create redis client");
         let mut conn = client
-            .get_async_connection()
+            .get_multiplexed_async_connection()
             .await
             .expect("Failed to get redis connection");
         conn.set::<String, String, ()>(
@@ -317,7 +300,7 @@ mod tests {
             project_id: 0,
             uuid: Uuid::nil(),
             session_recording_opt_in: false,
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
             ..Default::default()
         };
@@ -339,7 +322,7 @@ mod tests {
         assert_eq!(team_from_redis.api_token, target_token);
         assert_eq!(team_from_redis.id, 343);
         assert_eq!(team_from_redis.project_id, 343); // Same as `id`
-        assert_eq!(team_from_redis.cookieless_server_hash_mode, 0);
+        assert_eq!(team_from_redis.cookieless_server_hash_mode, Some(0));
     }
 
     #[tokio::test]
@@ -386,11 +369,13 @@ mod tests {
             .expect("Failed to insert team in pg");
 
         // Manually update the team to have NULL elements in session_recording_event_trigger_config
-        let mut conn = context
-            .non_persons_reader
-            .get_connection()
-            .await
-            .expect("Failed to get connection");
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_update_team",
+        )
+        .await
+        .expect("Failed to get connection");
 
         // Update with an array containing NULL elements: {NULL, 'valid_event', NULL, 'another_event'}
         sqlx::query(

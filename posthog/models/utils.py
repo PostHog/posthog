@@ -281,6 +281,14 @@ def generate_random_token_secret() -> str:
     return "phs_" + generate_random_token(35)  # "s" standing for "secret"
 
 
+def generate_random_oauth_access_token(_request) -> str:
+    return "pha_" + generate_random_token()  # "a" standing for "access"
+
+
+def generate_random_oauth_refresh_token(_request) -> str:
+    return "phr_" + generate_random_token()  # "r" standing for "refresh"
+
+
 def mask_key_value(value: str) -> str:
     """Turn 'phx_123456abcd' into 'phx_...abcd'."""
     if len(value) < 16:

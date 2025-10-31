@@ -90,6 +90,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "field_names": [
             "ad_id",
             "account_id",
+            "account_currency",
             "adset_id",
             "campaign_id",
             "date_start",
@@ -162,6 +163,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "field_names": [
             "adset_id",
             "account_id",
+            "account_currency",
             "campaign_id",
             "date_start",
             "date_stop",
@@ -224,6 +226,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "field_names": [
             "campaign_id",
             "account_id",
+            "account_currency",
             "date_start",
             "date_stop",
             "impressions",

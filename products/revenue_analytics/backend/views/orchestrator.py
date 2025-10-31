@@ -105,6 +105,8 @@ def build_all_revenue_analytics_views(
         views.extend(class_views)
 
         # Add all the views for this class PLUS an "all" view that UNIONs all of them
+        # This MUST be added after the views this view depends on to guarantee the paths are built properly
+        # when attempting to materialize all revenue analytics views
         selects = [
             ast.SelectQuery(
                 select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=ast.Field(chain=[view.name]))

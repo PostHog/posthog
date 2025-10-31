@@ -230,6 +230,11 @@
             "examples": ["https://api.openai.com/v1/chat/completions"],
             "label": "AI Request URL (LLM)"
         },
+        "$ai_session_id": {
+            "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
+            "examples": ["session-abc-123", "conv-user-456"],
+            "label": "AI Session ID (LLM)"
+        },
         "$ai_span_id": {
             "description": "The unique identifier for a LLM trace, generation, or span.",
             "examples": ["bdf42359-9364-4db7-8958-c001f28c9255"],
@@ -2171,6 +2176,11 @@
             "description": "The full URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/chat/completions"],
             "label": "AI Request URL (LLM)"
+        },
+        "$ai_session_id": {
+            "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
+            "examples": ["session-abc-123", "conv-user-456"],
+            "label": "AI Session ID (LLM)"
         },
         "$ai_span_id": {
             "description": "The unique identifier for a LLM trace, generation, or span.",

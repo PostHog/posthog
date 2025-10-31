@@ -205,6 +205,9 @@
 
         <!-- example of using a different storage policy for a system table -->
         <!-- storage_policy>local_ssd</storage_policy -->
+
+        <ttl>event_date + INTERVAL 12 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </query_log>
 
     <!-- Query thread log. Has information about all threads participated in query execution.
@@ -218,6 +221,9 @@
         <reserved_size_rows>8192</reserved_size_rows>
         <buffer_size_rows_flush_threshold>524288</buffer_size_rows_flush_threshold>
         <flush_on_crash>false</flush_on_crash>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </query_thread_log>
 
     <!-- Query views log. Has information about all dependent views associated with a query.
@@ -227,6 +233,9 @@
         <table>query_views_log</table>
         <partition_by>toYYYYMM(event_date)</partition_by>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </query_views_log>
 
 
@@ -235,6 +244,9 @@
         <table>text_log</table>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
         <level>trace</level>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </text_log>
 
     <!-- Metric log contains rows with current values of ProfileEvents, CurrentMetrics collected
@@ -244,6 +256,9 @@
         <table>metric_log</table>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
         <collect_interval_milliseconds>1000</collect_interval_milliseconds>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </metric_log>
 
     <!--
@@ -258,6 +273,9 @@
             no need to flush more often.
         -->
         <flush_interval_milliseconds>7000</flush_interval_milliseconds>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </asynchronous_metric_log>
 
     <!--
@@ -306,6 +324,9 @@
 
         <partition_by>toYYYYMM(event_date)</partition_by>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </session_log>
 
     <backup_log>
@@ -313,6 +334,9 @@
         <table>backup_log</table>
         <partition_by>toYYYYMM(event_date)</partition_by>
         <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+
+        <ttl>event_date + INTERVAL 5 DAY</ttl>
+        <ttl_only_drop_parts>1</ttl_only_drop_parts>
     </backup_log>
 
     <!-- Custom TLD lists.

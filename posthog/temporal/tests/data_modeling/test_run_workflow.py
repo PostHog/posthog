@@ -20,7 +20,7 @@ import temporalio.common
 import temporalio.worker
 from asgiref.sync import sync_to_async
 
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import constants
@@ -45,7 +45,7 @@ from posthog.temporal.data_modeling.run_workflow import (
     run_dag_activity,
     start_run_activity,
 )
-from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
+from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, truncate_table
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.modeling import DataWarehouseModelPath
@@ -57,12 +57,12 @@ TEST_TIME = dt.datetime.now(dt.UTC)
 
 
 @pytest_asyncio.fixture
-async def posthog_tables(ateam):
+async def posthog_table_names(ateam):
     team = await database_sync_to_async(Team.objects.get)(id=ateam.pk)
-    hogql_db = await database_sync_to_async(create_hogql_database)(team=team)
-    posthog_tables = hogql_db.get_posthog_tables()
+    hogql_db = await database_sync_to_async(Database.create_for)(team=team)
+    posthog_table_names = hogql_db.get_posthog_table_names()
 
-    return posthog_tables
+    return posthog_table_names
 
 
 @pytest.mark.parametrize(
@@ -83,10 +83,10 @@ async def posthog_tables(ateam):
         },
     ],
 )
-async def test_run_dag_activity_activity_materialize_mocked(activity_environment, ateam, dag, posthog_tables):
+async def test_run_dag_activity_activity_materialize_mocked(activity_environment, ateam, dag, posthog_table_names):
     """Test all models are completed with a mocked materialize."""
     for model_label in dag.keys():
-        if model_label not in posthog_tables:
+        if model_label not in posthog_table_names:
             await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
                 team=ateam,
                 name=model_label,
@@ -104,7 +104,7 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
         async with asyncio.timeout(10):
             results = await activity_environment.run(run_dag_activity, run_dag_activity_inputs)
 
-        models_materialized = [model for model in dag.keys() if model not in posthog_tables]
+        models_materialized = [model for model in dag.keys() if model not in posthog_table_names]
 
     calls = magic_mock.mock_calls
 
@@ -146,7 +146,7 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
     ],
 )
 async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
-    activity_environment, ateam, dag, make_fail, posthog_tables
+    activity_environment, ateam, dag, make_fail, posthog_table_names
 ):
     """Test some models are completed while some fail with a mocked materialize.
 
@@ -157,7 +157,7 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
     """
     # Create the necessary saved queries for the test
     for model_label in dag.keys():
-        if model_label not in posthog_tables:
+        if model_label not in posthog_table_names:
             await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
                 team=ateam,
                 name=model_label,
@@ -168,7 +168,7 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
         team=ateam,
     )
     run_dag_activity_inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag, job_id=job.id)
-    assert all(model not in posthog_tables for model in make_fail), "PostHog tables cannot fail"
+    assert all(model not in posthog_table_names for model in make_fail), "PostHog tables cannot fail"
 
     def raise_if_should_make_fail(model_label, *args, **kwargs):
         if model_label in make_fail:
@@ -197,7 +197,9 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
         async with asyncio.timeout(10):
             results = await activity_environment.run(run_dag_activity, run_dag_activity_inputs)
 
-        models_materialized = [model for model in expected_failed | expected_completed if model not in posthog_tables]
+        models_materialized = [
+            model for model in expected_failed | expected_completed if model not in posthog_table_names
+        ]
 
     calls = magic_mock.mock_calls
 
@@ -271,7 +273,12 @@ def mock_to_object_store_rs_credentials(class_self):
 
 
 @pytest_asyncio.fixture
-async def pageview_events(clickhouse_client, ateam):
+async def truncate_events_table(clickhouse_client):
+    await truncate_table(clickhouse_client, "sharded_events")
+
+
+@pytest_asyncio.fixture
+async def pageview_events(clickhouse_client, ateam, truncate_events_table):
     start_time, end_time = dt.datetime.now(dt.UTC) - dt.timedelta(days=1), dt.datetime.now(dt.UTC)
     events, _, events_from_other_team = await generate_test_events_in_clickhouse(
         clickhouse_client,
@@ -916,7 +923,7 @@ async def test_run_workflow_revert_materialization(
     workflow_id = str(uuid.uuid4())
     inputs = RunWorkflowInputs(team_id=ateam.pk)
 
-    async def mock_hogql_table(_query, _team, _logger):
+    def mock_hogql_table(_query, _team, _logger):
         raise Exception("Unknown table")
 
     with (
@@ -1295,7 +1302,7 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
         assert job.rows_expected == 6
 
 
-async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, minio_client, truncate_events_table):
     await sync_to_async(bulk_create_events)(
         [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T12:00:00"}]
     )
@@ -1344,7 +1351,7 @@ async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, mini
         assert job.status == DataModelingJob.Status.COMPLETED
 
 
-async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_client, truncate_events_table):
     await sync_to_async(bulk_create_events)(
         [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T00:00:00"}]
     )
@@ -1393,7 +1400,7 @@ async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_cl
         assert job.status == DataModelingJob.Status.COMPLETED
 
 
-async def test_materialize_model_with_date(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_date(ateam, bucket_name, minio_client, truncate_events_table):
     await sync_to_async(bulk_create_events)(
         [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T12:00:00"}]
     )
@@ -1442,7 +1449,7 @@ async def test_materialize_model_with_date(ateam, bucket_name, minio_client):
         assert job.status == DataModelingJob.Status.COMPLETED
 
 
-async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_client, truncate_events_table):
     await sync_to_async(bulk_create_events)(
         [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T12:00:00"}]
     )
