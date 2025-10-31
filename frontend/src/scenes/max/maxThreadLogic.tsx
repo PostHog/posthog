@@ -36,6 +36,7 @@ import {
     AssistantGenerationStatusType,
     AssistantMessage,
     AssistantMessageType,
+    AssistantTool,
     AssistantUpdateEvent,
     FailureMessage,
     HumanMessage,
@@ -48,6 +49,7 @@ import { maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
+import { RENDERABLE_UI_PAYLOAD_TOOLS } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import { isAssistantMessage, isAssistantToolCallMessage, isHumanMessage, isNotebookUpdateMessage } from './utils'
 import { getRandomThinkingMessage } from './utils/thinkingMessages'
@@ -517,12 +519,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 for (let i = 0; i < thread.length; i++) {
                     const currentMessage: ThreadMessage = thread[i]
-
-                    // Skip AssistantToolCallMessage - they're now merged into AssistantMessage tool_calls
-                    if (currentMessage.type === AssistantMessageType.ToolCall) {
+                    // Skip AssistantToolCallMessage that don't have a renderable UI payload
+                    if (
+                        currentMessage.type === AssistantMessageType.ToolCall &&
+                        !Object.keys(currentMessage.ui_payload || {}).some((toolName) =>
+                            RENDERABLE_UI_PAYLOAD_TOOLS.includes(toolName as AssistantTool)
+                        )
+                    ) {
                         continue
                     }
-
                     // Skip empty assistant messages with no content, tool calls, or thinking
                     if (
                         currentMessage.type === AssistantMessageType.Assistant &&
@@ -534,7 +539,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     ) {
                         continue
                     }
-
                     processedThread.push(currentMessage)
                 }
 
