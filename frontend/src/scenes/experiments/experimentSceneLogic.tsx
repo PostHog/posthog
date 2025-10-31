@@ -78,21 +78,53 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
     }),
     selectors({
         tabId: [() => [(_, props) => props.tabId], (tabId: string | undefined): string | undefined => tabId],
-        experimentLogicValues: [
+        experimentSelector: [
             (s) => [s.experimentLogicRef],
-            (experimentLogicRef): Record<string, any> | undefined => experimentLogicRef?.logic.values,
+            (experimentLogicRef) => experimentLogicRef?.logic.selectors.experiment,
         ],
         experiment: [
-            (s) => [s.experimentLogicValues],
-            (logicValues: Record<string, any> | undefined): Experiment => logicValues?.experiment ?? NEW_EXPERIMENT,
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.experimentSelector?.(state, props)?.(state, props)
+                    } catch {
+                        return null
+                    }
+                },
+            ],
+            (experiment): Experiment => (experiment ?? NEW_EXPERIMENT) as Experiment,
+        ],
+        experimentMissingSelector: [
+            (s) => [s.experimentLogicRef],
+            (experimentLogicRef) => experimentLogicRef?.logic.selectors.experimentMissing,
         ],
         experimentMissing: [
-            (s) => [s.experimentLogicValues],
-            (logicValues: Record<string, any> | undefined): boolean => logicValues?.experimentMissing ?? false,
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.experimentMissingSelector?.(state, props)?.(state, props)
+                    } catch {
+                        return false
+                    }
+                },
+            ],
+            (experimentMissing): boolean => experimentMissing ?? false,
+        ],
+        isExperimentRunningSelector: [
+            (s) => [s.experimentLogicRef],
+            (experimentLogicRef) => experimentLogicRef?.logic.selectors.isExperimentRunning,
         ],
         isExperimentRunning: [
-            (s) => [s.experimentLogicValues],
-            (logicValues: Record<string, any> | undefined): boolean => logicValues?.isExperimentRunning ?? false,
+            (s) => [
+                (state, props) => {
+                    try {
+                        return s.isExperimentRunningSelector?.(state, props)?.(state, props)
+                    } catch {
+                        return false
+                    }
+                },
+            ],
+            (isExperimentRunning): boolean => isExperimentRunning ?? false,
         ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
