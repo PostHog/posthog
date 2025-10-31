@@ -23,7 +23,7 @@ The session recording consumer currently processes messages in `consumer.ts:199-
 
 ## Pipeline Steps
 
-### Step 0: Collect Batch Metrics
+### Step 0: Collect Metrics
 
 - **Type**: Batch-level operation (first step)
 - **Input**: `{ message: Message }[]`
@@ -33,27 +33,29 @@ The session recording consumer currently processes messages in `consumer.ts:199-
     - Calculate batch size in KB
     - Call `SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)`
     - Call `SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)`
-- **Note**: Metrics are NOT treated as side effects
+    - Aggregate per-partition message counts
+    - Call `SessionRecordingIngesterMetrics.incrementMessageReceived(partition, count)` for each partition
+- **Note**: Metrics are NOT treated as side effects. Both batch-level and per-message metrics are collected in this single step.
+- **Status**: ✅ Implemented and tested
 - **File**: `steps/collect-batch-metrics.ts`
 
-### Step 1: Collect Metrics
-
-- **Type**: Per-message, sequential
-- **Input**: `{ message: Message }`
-- **Output**: `{ message: Message }`
-- **Operations**:
-    - Increment `SessionRecordingIngesterMetrics.incrementMessageReceived(partition)`
-    - Observe session info metrics
-- **Note**: Metrics are NOT treated as side effects
-- **File**: `steps/collect-metrics.ts`
-
-### Step 2: Apply Restrictions
+### Step 1: Parse Headers
 
 - **Type**: Per-message, sequential
 - **Input**: `{ message: Message }`
 - **Output**: `{ message: Message, headers: EventHeaders }`
 - **Operations**:
-    - Parse headers to extract token/distinct_id
+    - Parse headers from message to extract token/distinct_id
+    - Call `parseEventHeaders(message.headers)`
+- **Note**: Required before applying restrictions since we need token/distinct_id
+- **File**: `steps/parse-headers.ts`
+
+### Step 2: Apply Restrictions
+
+- **Type**: Per-message, sequential
+- **Input**: `{ message: Message, headers: EventHeaders }`
+- **Output**: `{ message: Message, headers: EventHeaders }`
+- **Operations**:
     - Drop if `shouldDropEvent(token, distinct_id)`
     - **Redirect to overflow** if `shouldForceOverflow(token, distinct_id)`
 - **Result types**: `ok`, `drop`, `redirect`
