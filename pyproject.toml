@@ -115,6 +115,7 @@ dependencies = [
     "snowflake-sqlalchemy==1.7.3",
     "social-auth-app-django~=5.4.0",
     "social-auth-core~=4.7.0",
+    "django-scim2==0.19.0",
     "sqlalchemy==2.0.38",
     "sqlalchemy-bigquery[bqstorage]==1.12.1",
     "sqlparse==0.4.4",
