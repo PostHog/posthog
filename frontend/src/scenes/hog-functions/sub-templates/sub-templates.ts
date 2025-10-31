@@ -204,28 +204,33 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['activity-log'],
             template_id: 'template-webhook',
-            name: 'HTTP Webhook on activity log',
-            description: 'Send a webhook when an activity log is created',
+            name: 'HTTP Webhook on team activity',
+            description: 'Send a webhook when a team activity occurs',
+            inputs: {
+                content: {
+                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`',
+                },
+            },
         },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['activity-log'],
             template_id: 'template-discord',
-            name: 'Post to Discord on activity log',
-            description: 'Posts a message to Discord when an activity log is created',
+            name: 'Post to Discord on team activity',
+            description: 'Posts a message to Discord when a team activity occurs',
             inputs: {
                 content: {
-                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`{event.properties.is_org_level ? " (Organization-level)" : ""}',
+                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`',
                 },
             },
         },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['activity-log'],
             template_id: 'template-microsoft-teams',
-            name: 'Post to Microsoft Teams on activity log',
-            description: 'Posts a message to Microsoft Teams when an activity log is created',
+            name: 'Post to Microsoft Teams on team activity',
+            description: 'Posts a message to Microsoft Teams when a team activity occurs',
             inputs: {
-                text: {
-                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`{event.properties.is_org_level ? " (Organization-level)" : ""}',
+                content: {
+                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`',
                 },
             },
         },
