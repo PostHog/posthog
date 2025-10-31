@@ -530,6 +530,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                                     <LemonButton
                                         type="secondary"
                                         size="small"
+                                        data-attr="replay-filters-add-filter-button"
                                         icon={<IconPlus />}
                                         onClick={() => setIsPopoverVisible(!isPopoverVisible)}
                                     >
@@ -839,6 +840,7 @@ const RecordingsUniversalFilterGroup = ({
                                 <LemonButton
                                     type="secondary"
                                     size="small"
+                                    data-attr="replay-filters-add-filter-button"
                                     icon={<IconPlus />}
                                     onClick={() => setIsPopoverVisible(!isPopoverVisible)}
                                 >
