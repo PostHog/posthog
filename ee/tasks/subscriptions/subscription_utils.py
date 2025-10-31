@@ -23,6 +23,8 @@ logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
 DEFAULT_MAX_ASSET_COUNT = 6
+# Maximum height for screenshots in pixels. This prevents Chrome from consuming excessive memory
+# when rendering very tall pages (e.g., tables with thousands of rows).
 MAX_SCREENSHOT_HEIGHT_PIXELS = 5000
 
 
