@@ -5,62 +5,8 @@ use crate::{
 };
 use common_database::PostgresReader;
 use common_redis::Client as RedisClient;
-use std::{future::Future, sync::Arc};
-use tracing::{debug, warn};
-
-/// Fetches a team from Redis cache with PostgreSQL fallback
-///
-/// This helper consolidates the common pattern of:
-/// 1. Try Redis cache first
-/// 2. On cache miss, fetch from PostgreSQL using the provided lookup function
-/// 3. Update Redis cache on successful database fetch
-/// 4. Return the team
-///
-/// # Arguments
-/// * `redis_reader` - Redis client for cache reads
-/// * `redis_writer` - Redis client for cache writes
-/// * `token` - Token to use for cache key lookup
-/// * `db_lookup` - Async function to fetch team from PostgreSQL on cache miss
-/// * `cache_ttl_seconds` - Optional TTL for Redis cache entries in seconds
-pub async fn fetch_team_from_redis_with_fallback<F, Fut>(
-    redis_reader: Arc<dyn RedisClient + Send + Sync>,
-    redis_writer: Arc<dyn RedisClient + Send + Sync>,
-    token: &str,
-    cache_ttl_seconds: Option<u64>,
-    db_lookup: F,
-) -> Result<Team, FlagError>
-where
-    F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<Team, FlagError>>,
-{
-    // Try to get team from cache first
-    match Team::from_redis(redis_reader.clone(), token).await {
-        Ok(team) => {
-            debug!(team_id = team.id, "Found team in Redis cache");
-            Ok(team)
-        }
-        Err(e) => {
-            debug!(error = %e, "Team not found in Redis cache");
-            // Fallback to database using provided lookup function
-            match db_lookup().await {
-                Ok(team) => {
-                    debug!(team_id = team.id, "Found team in PostgreSQL");
-                    // Update Redis cache for next time
-                    if let Err(e) =
-                        Team::update_redis_cache(redis_writer, &team, cache_ttl_seconds).await
-                    {
-                        warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
-                    }
-                    Ok(team)
-                }
-                Err(e) => {
-                    warn!(error = %e, "Team not found in PostgreSQL");
-                    Err(e)
-                }
-            }
-        }
-    }
-}
+use std::sync::Arc;
+use tracing::debug;
 
 /// SQL fragment for selecting all Team columns
 const TEAM_COLUMNS: &str = "
@@ -203,6 +149,11 @@ impl Team {
             .fetch_one(&mut *conn)
             .await?;
 
+        debug!(
+            "Successfully fetched team {} from PostgreSQL for token {}",
+            row.id, token
+        );
+
         Ok(row)
     }
 
@@ -221,6 +172,11 @@ impl Team {
             .bind(token)
             .fetch_one(&mut *conn)
             .await?;
+
+        debug!(
+            "Successfully fetched team {} from PostgreSQL for secret token {}",
+            row.id, token
+        );
 
         Ok(row)
     }
@@ -430,148 +386,5 @@ mod tests {
         assert_eq!(config[1], Some("valid_event".to_string()));
         assert_eq!(config[2], None);
         assert_eq!(config[3], Some("another_event".to_string()));
-    }
-
-    #[tokio::test]
-    async fn test_fetch_team_from_redis_with_fallback_writes_on_not_found() {
-        use common_redis::{CustomRedisError, MockRedisClient};
-
-        let team_id = rand::thread_rng().gen_range(1..10_000_000);
-        let token = random_string("phc_", 12);
-        let test_team = Team {
-            id: team_id,
-            project_id: i64::from(team_id),
-            name: "team".to_string(),
-            api_token: token.clone(),
-            organization_id: Some(Uuid::new_v4()),
-            ..Default::default()
-        };
-
-        // Set up mock redis_reader to return NotFound (which maps to TokenValidationError)
-        let mut mock_reader = MockRedisClient::new();
-        mock_reader.get_ret(
-            &format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"),
-            Err(CustomRedisError::NotFound),
-        );
-
-        // Set up mock redis_writer to track SET calls
-        // Note: We don't need to set up exists/set return values - the mock
-        // will track calls and we just check if SET was invoked
-        let mock_writer = MockRedisClient::new();
-
-        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
-        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
-
-        // Call the function with a DB lookup that returns the team
-        let result =
-            fetch_team_from_redis_with_fallback(reader, writer, &token, Some(3600), || async {
-                Ok(test_team.clone())
-            })
-            .await;
-
-        // Should succeed and return the team
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().id, team_id);
-
-        // Verify SETEX was called (cache write happened with TTL)
-        let writer_calls = mock_writer.get_calls();
-        assert!(
-            writer_calls.iter().any(|call| call.op == "setex"),
-            "Expected SETEX to be called for NotFound error, but it wasn't"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_fetch_team_from_redis_with_fallback_skips_write_on_timeout() {
-        use common_redis::{CustomRedisError, MockRedisClient};
-
-        let team_id = rand::thread_rng().gen_range(1..10_000_000);
-        let token = random_string("phc_", 12);
-        let test_team = Team {
-            id: team_id,
-            project_id: i64::from(team_id),
-            name: "team".to_string(),
-            api_token: token.clone(),
-            organization_id: Some(Uuid::new_v4()),
-            ..Default::default()
-        };
-
-        // Set up mock redis_reader to return Timeout
-        let mut mock_reader = MockRedisClient::new();
-        mock_reader.get_ret(
-            &format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"),
-            Err(CustomRedisError::Timeout),
-        );
-
-        // Set up mock redis_writer to track SET calls
-        let mock_writer = MockRedisClient::new();
-
-        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
-        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
-
-        // Call the function with a DB lookup that returns the team
-        let result =
-            fetch_team_from_redis_with_fallback(reader, writer, &token, Some(3600), || async {
-                Ok(test_team.clone())
-            })
-            .await;
-
-        // Should succeed and return the team
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().id, team_id);
-
-        // Verify SET was NOT called (cache write was skipped)
-        let writer_calls = mock_writer.get_calls();
-        assert!(
-            !writer_calls.iter().any(|call| call.op == "set"),
-            "Expected SET to NOT be called for Timeout error, but it was"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_fetch_team_from_redis_with_fallback_skips_write_on_redis_unavailable() {
-        use common_redis::{CustomRedisError, MockRedisClient};
-
-        let team_id = rand::thread_rng().gen_range(1..10_000_000);
-        let token = random_string("phc_", 12);
-        let test_team = Team {
-            id: team_id,
-            project_id: i64::from(team_id),
-            name: "team".to_string(),
-            api_token: token.clone(),
-            organization_id: Some(Uuid::new_v4()),
-            ..Default::default()
-        };
-
-        // Set up mock redis_reader to return Other (unavailable)
-        let mut mock_reader = MockRedisClient::new();
-        mock_reader.get_ret(
-            &format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"),
-            Err(CustomRedisError::Other("Connection refused".to_string())),
-        );
-
-        // Set up mock redis_writer to track SET calls
-        let mock_writer = MockRedisClient::new();
-
-        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
-        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
-
-        // Call the function with a DB lookup that returns the team
-        let result =
-            fetch_team_from_redis_with_fallback(reader, writer, &token, Some(3600), || async {
-                Ok(test_team.clone())
-            })
-            .await;
-
-        // Should succeed and return the team
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().id, team_id);
-
-        // Verify SET was NOT called (cache write was skipped)
-        let writer_calls = mock_writer.get_calls();
-        assert!(
-            !writer_calls.iter().any(|call| call.op == "set"),
-            "Expected SET to NOT be called for Redis unavailable error, but it was"
-        );
     }
 }

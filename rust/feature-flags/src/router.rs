@@ -7,6 +7,7 @@ use axum::{
     routing::{any, get},
     Router,
 };
+use common_cache::{CacheConfig, ReadThroughCache};
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_metrics::{setup_metrics_recorder, track_metrics};
@@ -47,6 +48,8 @@ pub struct State {
     pub config: Config,
     pub flags_rate_limiter: FlagsRateLimiter,
     pub ip_rate_limiter: IpRateLimiter,
+    pub team_token_cache: Arc<ReadThroughCache>,
+    pub team_secret_token_cache: Arc<ReadThroughCache>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -103,6 +106,28 @@ where
         )
     });
 
+    // Initialize team token cache (for regular API token lookups)
+    let team_token_cache_config =
+        CacheConfig::new("posthog:1:team_token:", Some(config.team_cache_ttl_seconds));
+    let team_token_cache = Arc::new(ReadThroughCache::new(
+        redis_reader.clone(),
+        redis_writer.clone(),
+        team_token_cache_config,
+        None, // TODO: Add negative cache via config.create_negative_cache() to prevent repeated DB queries for invalid tokens
+    ));
+
+    // Initialize team secret token cache (for secret API token lookups)
+    let team_secret_token_cache_config = CacheConfig::new(
+        "posthog:1:team_secret_token:",
+        Some(config.team_cache_ttl_seconds),
+    );
+    let team_secret_token_cache = Arc::new(ReadThroughCache::new(
+        redis_reader.clone(),
+        redis_writer.clone(),
+        team_secret_token_cache_config,
+        None, // TODO: Add negative cache via config.create_negative_cache() to prevent repeated DB queries for invalid tokens
+    ));
+
     let state = State {
         redis_reader,
         redis_writer,
@@ -117,6 +142,8 @@ where
         config: config.clone(),
         flags_rate_limiter,
         ip_rate_limiter,
+        team_token_cache,
+        team_secret_token_cache,
     };
 
     // Very permissive CORS policy, as old SDK versions

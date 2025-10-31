@@ -1,3 +1,4 @@
+use common_cache::NegativeCache;
 use common_cookieless::CookielessConfig;
 use common_types::TeamId;
 use envconfig::Envconfig;
@@ -434,6 +435,30 @@ pub struct Config {
     // Log-only mode for IP-based rate limiting (defaults to true for safe rollout)
     #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
     pub flags_ip_rate_limit_log_only: FlexBool,
+
+    // Negative cache configuration using Moka in-memory cache
+    // Replaces Redis-based negative caching to prevent cache poisoning vulnerabilities
+
+    // Enable/disable negative caching for database misses
+    // When enabled, uses in-memory Moka cache to avoid repeated DB queries for non-existent keys
+    // Pod isolation provides protection against cross-pod cache poisoning attacks
+    #[envconfig(from = "NEGATIVE_CACHE_ENABLED", default = "true")]
+    pub negative_cache_enabled: FlexBool,
+
+    // Maximum number of entries in each pod's negative cache
+    // Bounded memory usage: ~1MB for 10k entries with typical key sizes
+    // Higher values = more memory usage but fewer false DB queries after eviction
+    // Default: 10000 entries per pod
+    #[envconfig(from = "NEGATIVE_CACHE_MAX_CAPACITY", default = "10000")]
+    pub negative_cache_max_capacity: u64,
+
+    // TTL for negative cache entries in seconds
+    // Entries automatically expire after this duration
+    // Lower values = fresher data but more DB queries
+    // Higher values = fewer DB queries but potentially stale negative results
+    // Default: 300 seconds (5 minutes)
+    #[envconfig(from = "NEGATIVE_CACHE_TTL_SECONDS", default = "300")]
+    pub negative_cache_ttl_seconds: u64,
 }
 
 impl Config {
@@ -504,6 +529,9 @@ impl Config {
             flags_ip_replenish_rate: 100.0,
             flags_rate_limit_log_only: FlexBool(true),
             flags_ip_rate_limit_log_only: FlexBool(true),
+            negative_cache_enabled: FlexBool(true),
+            negative_cache_max_capacity: 10000,
+            negative_cache_ttl_seconds: 300,
         }
     }
 
@@ -581,6 +609,19 @@ impl Config {
             self.write_database_url.clone()
         } else {
             self.persons_write_database_url.clone()
+        }
+    }
+
+    /// Create a negative cache instance if enabled in configuration
+    /// Returns None if negative caching is disabled
+    pub fn create_negative_cache(&self) -> Option<NegativeCache> {
+        if *self.negative_cache_enabled {
+            Some(NegativeCache::new(
+                self.negative_cache_max_capacity,
+                self.negative_cache_ttl_seconds,
+            ))
+        } else {
+            None
         }
     }
 }
