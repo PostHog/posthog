@@ -1192,6 +1192,7 @@ class TestSummarizeSessionGroupWorkflow:
             assert len(found_status_patterns) > 0
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("video_validation_enabled", [True, False])
     async def test_video_validation_called_when_enabled(
         self,
         mocker: MockerFixture,
@@ -1207,6 +1208,7 @@ class TestSummarizeSessionGroupWorkflow:
         mock_cached_session_batch_events_query_response_factory: Callable,
         redis_test_setup: AsyncRedisTestContext,
         mock_session_summary_serializer: SessionSummarySerializer,
+        video_validation_enabled: bool,
     ):
         """Test that the workflow completes successfully and returns the expected result"""
         session_ids, workflow_id, workflow_input = self.setup_workflow_test(
@@ -1223,7 +1225,7 @@ class TestSummarizeSessionGroupWorkflow:
             model_to_use=workflow_input.model_to_use,
             extra_summary_context=workflow_input.extra_summary_context,
             local_reads_prod=workflow_input.local_reads_prod,
-            video_validation_enabled=True,
+            video_validation_enabled=video_validation_enabled,
         )
         # Store session summaries in DB for each session (following the new approach)
         for session_id in session_ids:
@@ -1261,8 +1263,12 @@ class TestSummarizeSessionGroupWorkflow:
                     id=workflow_id,
                     task_queue=worker.task_queue,
                 )
-                # Verify video validation was called for each session
-                assert mocket_video_validator.validate_session_summary_with_videos.call_count == len(session_ids)
+                if video_validation_enabled:
+                    # Verify video validation was called for each session
+                    assert mocket_video_validator.validate_session_summary_with_videos.call_count == len(session_ids)
+                else:
+                    # Verify video validation was not called
+                    assert mocket_video_validator.validate_session_summary_with_videos.call_count == 0
 
 
 @pytest.mark.asyncio
