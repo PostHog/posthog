@@ -27,7 +27,12 @@ from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS, is_url_allowe
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.heatmap_saved import SavedHeatmap
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
 from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
 from posthog.utils import relative_date_parse_with_delta_mapping
 
@@ -432,6 +437,12 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
     authentication_classes = [TemporaryTokenAuthentication]
     queryset = SavedHeatmap.objects.all()
     lookup_field = "short_id"
+
+    def get_throttles(self):
+        if self.action == "create":
+            # More restrictive rate limiting for expensive screenshot generation
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        return super().get_throttles()
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team=self.team)
