@@ -54,7 +54,7 @@ impl ErrorTrackingStackFrame {
                 symbol_set_id = $4,
                 contents = $5,
                 resolved = $6,
-                context = $8,
+                context = $8
             "#,
             self.id.raw_id,
             self.id.team_id,
