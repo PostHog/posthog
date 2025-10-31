@@ -309,7 +309,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up - Chrome) for previous week (2.0) is more than upper threshold (1.0)"]
+            ANY, ["The insight value (signed_up - Chrome) for previous week (2) is more than upper threshold (1.0)"]
         )
 
     def test_trend_breakdown_low_threshold_breached(
@@ -355,7 +355,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         assert alert_check.error is None
 
         mock_send_breaches.assert_called_once_with(
-            ANY, ["The insight value (signed_up - Firefox) for previous week (1.0) is less than lower threshold (2.0)"]
+            ANY, ["The insight value (signed_up - Firefox) for previous week (1) is less than lower threshold (2.0)"]
         )
 
     def test_trend_breakdown_no_threshold_breached(
