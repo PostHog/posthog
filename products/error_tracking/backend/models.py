@@ -317,12 +317,13 @@ class ErrorTrackingStackFrame(UUIDTModel):
     class Meta:
         indexes = [
             models.Index(fields=["team_id", "raw_id"]),
-            models.Index(fields=["team_id", "raw_id", "part"], name="idx_team_id_raw_id_part"),
         ]
 
         constraints = [
             models.UniqueConstraint(fields=["team_id", "raw_id"], name="unique_raw_id_per_team"),
+            models.UniqueConstraint(fields=["team_id", "raw_id", "part"], name="unique_team_id_raw_id_part"),
         ]
+
         db_table = "posthog_errortrackingstackframe"
 
 
