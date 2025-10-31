@@ -1623,7 +1623,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     output.push(JSON.stringify(snapshot))
                     output.push(',')
                 }
-                output.pop()
+                if (recording.data.snapshots.length > 0) {
+                    output.pop()
+                }
                 output.push(']}}')
 
                 return output
