@@ -74,10 +74,12 @@ export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
     [ProductKey.FEATURE_FLAGS]: [urls.featureFlags(), urls.earlyAccessFeatures(), urls.experiments()],
     [ProductKey.SURVEYS]: [urls.surveys()],
     [ProductKey.PRODUCT_ANALYTICS]: [urls.insights()],
-    [ProductKey.DATA_WAREHOUSE]: [urls.sqlEditor(), urls.dataPipelines('sources')],
+    [ProductKey.DATA_WAREHOUSE]: [urls.sqlEditor(), urls.dataPipelines('sources'), urls.dataWarehouseSourceNew()],
     [ProductKey.WEB_ANALYTICS]: [urls.webAnalytics()],
     [ProductKey.ERROR_TRACKING]: [urls.errorTracking()],
 }
+
+const productsNotDependingOnEventIngestion: ProductKey[] = [ProductKey.DATA_WAREHOUSE]
 
 const pathPrefixesOnboardingNotRequiredFor = [
     urls.onboarding(''),
@@ -793,23 +795,6 @@ export const sceneLogic = kea<sceneLogicType>([
                         )
                     ) {
                         const allProductUrls = Object.values(productUrlMapping).flat()
-                        if (
-                            !teamLogic.values.hasOnboardedAnyProduct &&
-                            !allProductUrls.some((path) =>
-                                removeProjectIdIfPresent(location.pathname).startsWith(path)
-                            ) &&
-                            !teamLogic.values.currentTeam?.ingested_event
-                        ) {
-                            console.warn('No onboarding completed, redirecting to /products')
-
-                            const nextUrl =
-                                getRelativeNextPath(params.searchParams.next, location) ??
-                                removeProjectIdIfPresent(location.pathname)
-
-                            router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
-                            return
-                        }
-
                         const productKeyFromUrl = Object.keys(productUrlMapping).find((key) =>
                             productUrlMapping[key as ProductKey]?.some(
                                 (path: string) =>
@@ -817,23 +802,43 @@ export const sceneLogic = kea<sceneLogicType>([
                                     !path.startsWith('/projects')
                             )
                         )
-
-                        if (
-                            productKeyFromUrl &&
-                            teamLogic.values.currentTeam &&
-                            !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
-                            // cloud mode? What is the experience for self-hosted?
-                        ) {
+                        if (!productsNotDependingOnEventIngestion.includes(productKeyFromUrl as ProductKey)) {
                             if (
                                 !teamLogic.values.hasOnboardedAnyProduct &&
+                                !allProductUrls.some((path) =>
+                                    removeProjectIdIfPresent(location.pathname).startsWith(path)
+                                ) &&
                                 !teamLogic.values.currentTeam?.ingested_event
                             ) {
-                                console.warn(
-                                    `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
-                                )
+                                console.warn('No onboarding completed, redirecting to /products')
 
-                                router.actions.replace(urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL))
+                                const nextUrl =
+                                    getRelativeNextPath(params.searchParams.next, location) ??
+                                    removeProjectIdIfPresent(location.pathname)
+
+                                router.actions.replace(urls.products(), nextUrl ? { next: nextUrl } : undefined)
                                 return
+                            }
+
+                            if (
+                                productKeyFromUrl &&
+                                teamLogic.values.currentTeam &&
+                                !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
+                                // cloud mode? What is the experience for self-hosted?
+                            ) {
+                                if (
+                                    !teamLogic.values.hasOnboardedAnyProduct &&
+                                    !teamLogic.values.currentTeam?.ingested_event
+                                ) {
+                                    console.warn(
+                                        `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
+                                    )
+
+                                    router.actions.replace(
+                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
+                                    )
+                                    return
+                                }
                             }
                         }
                     }
