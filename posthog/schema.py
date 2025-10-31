@@ -11634,6 +11634,8 @@ class TracesQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     filterTestAccounts: Optional[bool] = None
+    groupKey: Optional[str] = None
+    groupTypeIndex: Optional[int] = None
     kind: Literal["TracesQuery"] = "TracesQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(

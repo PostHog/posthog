@@ -60,6 +60,14 @@ const GroupFeedCanvas = ({ group }: GroupFeedCanvas): JSX.Element => {
                         type: 'ph-issues',
                         attrs: { groupKey, groupTypeIndex, nodeId: uuid() },
                     },
+                    {
+                        type: 'ph-llm-trace',
+                        attrs: {
+                            groupKey,
+                            groupTypeIndex,
+                            nodeId: uuid(),
+                        },
+                    },
                 ],
             }}
         />
