@@ -40,9 +40,9 @@ export function createSessionRecordingPipeline(
             // Step 1: Collect batch metrics (batch-level)
             .pipeBatch(createCollectBatchMetricsStep())
 
-            .messageAware((builder) =>
-                builder.sequentially((b) =>
-                    b
+            .messageAware((batch) =>
+                batch.sequentially((message) =>
+                    message
                         // Step 2: Parse headers
                         .pipe(createParseHeadersStep())
 
@@ -85,9 +85,11 @@ export function createSessionRecordingPipeline(
             .pipeBatch(createObtainBatchStep(config.sessionBatchManager))
 
             // Step 7: Record to batch using batch recorder (sequential, team-aware)
-            .messageAware((builder) =>
-                builder.teamAware((b) =>
-                    b.sequentially((seq) => seq.pipe(createRecordSessionEventStep(config.isDebugLoggingEnabled)))
+            .messageAware((batch) =>
+                batch.teamAware((teamBatch) =>
+                    teamBatch.sequentially((message) =>
+                        message.pipe(createRecordSessionEventStep(config.isDebugLoggingEnabled))
+                    )
                 )
             )
             .handleResults(config)
