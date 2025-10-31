@@ -93,6 +93,188 @@ flowchart TD
 - **View Traces**: Inline modal to explore all traces in a cluster
 - **Everything Else**: Special cluster for unclustered traces
 
+## Data Flow: Inputs and Outputs
+
+### Complete Pipeline Overview
+
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│ Stage 1: Theme Configuration (One-time User Setup)                  │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│ USER INPUTS (via Settings UI):                                       │
+│   • Theme name & description                                         │
+│   • HogQL filters (base + theme-specific)                            │
+│   • Analysis prompt (with theme_relevance instructions)              │
+│   • Sampling rate & max traces                                       │
+│   • Schedule (cron expression)                                       │
+│                                                                       │
+│ SYSTEM CREATES:                                                      │
+│   → Django record: AnalysisThemeConfig                               │
+│     Fields: theme_id, config (JSON), enabled, schedule               │
+│                                                                       │
+└─────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ Stage 2: Batch Processing (Scheduled Daily)                         │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│ INPUTS:                                                              │
+│   • Raw LLM traces (ClickHouse: llm_traces table)                    │
+│   • Theme config (filters, prompt, sampling)                         │
+│                                                                       │
+│ PROCESSING:                                                          │
+│   Step 2a: Query traces (HogQL filters)                              │
+│   Step 2b: Stringify each trace → text representation                │
+│   Step 2c: Summarize via LLM → JSON response                         │
+│            {"theme_relevant": bool, "summary": "..."}                │
+│   Step 2d: Filter where theme_relevant=true                          │
+│   Step 2e: Embed summaries → 3072-dim vectors                        │
+│                                                                       │
+│ SYSTEM GENERATES (per trace):                                        │
+│   → ClickHouse event: $ai_trace_summary                              │
+│     Properties: {                                                    │
+│       theme_id, trace_id, summary,                                   │
+│       theme_relevant, timestamp                                      │
+│     }                                                                 │
+│                                                                       │
+│   → ClickHouse embedding: posthog_document_embeddings                │
+│     Fields: {                                                        │
+│       team_id, product="llm_traces_summaries",                       │
+│       rendering="llm_traces_summary_{theme_id}",                     │
+│       document_id=trace_id, content=summary,                         │
+│       vector=[3072 floats]                                           │
+│     }                                                                 │
+│                                                                       │
+└─────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ Stage 3: Daily Clustering (Scheduled 3 AM UTC)                      │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│ INPUTS:                                                              │
+│   • Embeddings (from posthog_document_embeddings)                    │
+│   • Theme_id (determines which rendering to query)                   │
+│   • Date range (dynamic: 3→7→14→30 days until ≥100 traces)          │
+│                                                                       │
+│ PROCESSING:                                                          │
+│   Step 3a: Fetch embeddings for theme (100-10,000 traces)            │
+│   Step 3b: KMeans clustering (cosine similarity)                     │
+│            → 25-100 traces per cluster                               │
+│   Step 3c: For each cluster, LLM generates name + description        │
+│            (based on sample summaries)                               │
+│   Step 3d: Calculate coverage metrics                                │
+│                                                                       │
+│ SYSTEM GENERATES (per cluster):                                      │
+│   → ClickHouse event: $ai_trace_cluster                              │
+│     Properties: {                                                    │
+│       clustering_run_id,  ← versioning key                           │
+│       theme_id,                                                      │
+│       cluster_id,                                                    │
+│       cluster_name,                                                  │
+│       cluster_description,                                           │
+│       trace_ids: [array],                                            │
+│       avg_similarity,                                                │
+│       coverage_percent                                               │
+│     }                                                                 │
+│                                                                       │
+│   → Special "Everything Else" cluster for unclustered traces         │
+│                                                                       │
+└─────────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────────┐
+│ Stage 4: Reports UI (User-Facing Output)                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│ INPUTS (API queries):                                                │
+│   • Latest $ai_trace_cluster events (by clustering_run_id)           │
+│   • $ai_trace_summary events (for trace details)                     │
+│   • Original llm_traces (for full trace view)                        │
+│                                                                       │
+│ USER SEES (Reports Tab):                                             │
+│                                                                       │
+│ ┌─────────────────────────────────────────────────────────────┐     │
+│ │ Theme: Unhappy Users                    Last run: 2h ago     │     │
+│ │ 1,250 traces analyzed • 18 clusters found                    │     │
+│ │                                                              │     │
+│ │ ┌─────────────────────────────────────────────────────────┐ │     │
+│ │ │ Cluster 1: Confusing Error Messages (187 traces)       │ │     │
+│ │ │ Users frustrated by unclear error messages during...   │ │     │
+│ │ │ Coverage: 15% • Similarity: 0.82                       │ │     │
+│ │ │ [View Traces] [View Summaries]                         │ │     │
+│ │ └─────────────────────────────────────────────────────────┘ │     │
+│ │                                                              │     │
+│ │ ┌─────────────────────────────────────────────────────────┐ │     │
+│ │ │ Cluster 2: Slow Response Times (142 traces)            │ │     │
+│ │ │ Users complaining about laggy responses...             │ │     │
+│ │ │ Coverage: 11% • Similarity: 0.78                       │ │     │
+│ │ │ [View Traces] [View Summaries]                         │ │     │
+│ │ └─────────────────────────────────────────────────────────┘ │     │
+│ │                                                              │     │
+│ │ ... 16 more clusters ...                                     │     │
+│ │                                                              │     │
+│ │ ┌─────────────────────────────────────────────────────────┐ │     │
+│ │ │ Everything Else (321 traces)                           │ │     │
+│ │ │ Traces that didn't cluster together                    │ │     │
+│ │ └─────────────────────────────────────────────────────────┘ │     │
+│ └─────────────────────────────────────────────────────────────┘     │
+│                                                                       │
+│ INTERACTIONS:                                                        │
+│   • Click cluster → View sample summaries (inline)                   │
+│   • Click "View Traces" → Modal with all trace_ids in cluster        │
+│   • Click individual trace → Full trace detail view                  │
+│                                                                       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Summary Table: Inputs, Processing, and Outputs
+
+| Stage                   | User Inputs                                                                                            | System Inputs                                        | Processing                                                                                                                | Generated Datasets                                                                   | User-Facing Outputs                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| **1. Theme Config**     | • Theme name<br>• Description<br>• HogQL filters<br>• Analysis prompt<br>• Sampling rate<br>• Schedule | • Team ID<br>• User ID                               | Validate & store config                                                                                                   | **Django:**<br>`AnalysisThemeConfig` record                                          | Settings UI showing enabled themes                                                        |
+| **2. Batch Processing** | (none - automated)                                                                                     | • Raw llm_traces<br>• Theme config                   | • Query traces (HogQL)<br>• Stringify traces<br>• Summarize (LLM)<br>• Filter by theme_relevance<br>• Generate embeddings | **ClickHouse:**<br>`$ai_trace_summary` events<br>`posthog_document_embeddings` table | (background - no direct UI)                                                               |
+| **3. Clustering**       | (none - automated)                                                                                     | • Embeddings<br>• Summaries<br>• Theme config        | • Fetch embeddings<br>• KMeans clustering<br>• Generate cluster names (LLM)<br>• Calculate metrics                        | **ClickHouse:**<br>`$ai_trace_cluster` events                                        | (background - no direct UI)                                                               |
+| **4. Reports UI**       | • Select theme<br>• Click clusters<br>• View traces                                                    | • Cluster events<br>• Summary events<br>• Raw traces | • Query latest clusters<br>• Fetch summaries<br>• Fetch traces                                                            | (none - read-only)                                                                   | **Reports Dashboard:**<br>• Cluster cards<br>• Sample summaries<br>• Trace explorer modal |
+
+### Key Datasets Generated
+
+**Permanent Storage (ClickHouse):**
+
+```text
+1. $ai_trace_summary events
+   Purpose: Searchable summaries per theme per trace
+   Retention: Permanent
+   Volume: ~3,700 per theme per day (example)
+   Properties: theme_id, trace_id, summary, theme_relevant
+
+2. posthog_document_embeddings
+   Purpose: Vector similarity search for clustering
+   Retention: Permanent
+   Volume: Same as summaries (only theme_relevant=true)
+   Size: 3072 floats per trace = ~12KB per embedding
+   Namespace: llm_traces_summary_{theme_id}
+```
+
+**Ephemeral Storage (ClickHouse):**
+
+```text
+3. $ai_trace_cluster events
+   Purpose: Daily insights, versioned snapshots
+   Retention: 90 days (configurable)
+   Volume: ~15-25 clusters per theme per day
+   Properties: clustering_run_id, cluster_name, trace_ids[], metrics
+   Note: Recomputed daily, old versions kept for trends
+```
+
+**Configuration Storage (Django):**
+
+```text
+4. AnalysisThemeConfig records
+   Purpose: User theme configurations
+   Retention: Permanent (until user deletes)
+   Volume: 5 built-in + N custom per team
+```
+
 ## Key Design Decisions
 
 1. **Two-Tier Filtering**: HogQL pre-filters (coarse/cheap), then `theme_relevance` post-filters (fine/expensive) - only embed relevant traces
