@@ -7,7 +7,7 @@ import api from 'lib/api'
 
 import type { cliAuthorizeLogicType } from './cliAuthorizeLogicType'
 
-export const DEFAULT_CLI_SCOPES = ['event_definition:read', 'property_definition:read', 'error_tracking:write']
+export type CLIUseCase = 'schema' | 'error_tracking'
 
 export interface CLIAuthorizeForm {
     userCode: string
@@ -15,17 +15,45 @@ export interface CLIAuthorizeForm {
     scopes: string[]
 }
 
+// Map use cases to their required scopes
+const USE_CASE_SCOPES: Record<CLIUseCase, string[]> = {
+    schema: ['event_definition:read', 'property_definition:read'],
+    error_tracking: ['error_tracking:write'],
+}
+
+// Default use cases when none are specified
+const DEFAULT_USE_CASES: CLIUseCase[] = ['schema', 'error_tracking']
+
+function getDefaultScopesForUseCases(useCases: CLIUseCase[]): string[] {
+    const scopesSet = new Set<string>()
+    for (const useCase of useCases) {
+        const scopes = USE_CASE_SCOPES[useCase] || []
+        scopes.forEach((scope) => scopesSet.add(scope))
+    }
+    return Array.from(scopesSet)
+}
+
+// Pre-compute default scopes
+const DEFAULT_SCOPES = getDefaultScopesForUseCases(DEFAULT_USE_CASES)
+
 export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
     path(['scenes', 'authentication', 'cliAuthorizeLogic']),
     actions({
         setSuccess: (success: boolean) => ({ success }),
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
+        setRequestedUseCases: (useCases: CLIUseCase[]) => ({ useCases }),
     }),
     reducers({
         isSuccess: [
             false,
             {
                 setSuccess: (_, { success }) => success,
+            },
+        ],
+        requestedUseCases: [
+            DEFAULT_USE_CASES,
+            {
+                setRequestedUseCases: (_, { useCases }) => useCases,
             },
         ],
     }),
@@ -45,7 +73,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             defaults: {
                 userCode: '',
                 projectId: null,
-                scopes: DEFAULT_CLI_SCOPES,
+                scopes: DEFAULT_SCOPES,
             } as CLIAuthorizeForm,
             errors: ({ userCode, projectId, scopes }) => ({
                 userCode: !userCode
@@ -100,8 +128,12 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             },
         ],
         missingSchemaScopes: [
-            (s) => [s.authorize],
-            (authorize): boolean => {
+            (s) => [s.authorize, s.requestedUseCases],
+            (authorize, requestedUseCases): boolean => {
+                // Only show warning if schema use case was requested
+                if (!requestedUseCases.includes('schema')) {
+                    return false
+                }
                 if (!authorize || !authorize.scopes) {
                     return false
                 }
@@ -117,8 +149,12 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             },
         ],
         missingErrorTrackingScopes: [
-            (s) => [s.authorize],
-            (authorize): boolean => {
+            (s) => [s.authorize, s.requestedUseCases],
+            (authorize, requestedUseCases): boolean => {
+                // Only show warning if error_tracking use case was requested
+                if (!requestedUseCases.includes('error_tracking')) {
+                    return false
+                }
                 if (!authorize || !authorize.scopes) {
                     return false
                 }
@@ -144,6 +180,11 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         submitAuthorizeFailure: () => {
             // Error handling is done in the form errors
         },
+        setRequestedUseCases: ({ useCases }) => {
+            // Update scopes when requested use cases change
+            const newScopes = getDefaultScopesForUseCases(useCases)
+            actions.setAuthorizeValue('scopes', newScopes)
+        },
         setScopeRadioValue: ({ key, action }) => {
             if (!values.authorize || !values.authorize.scopes) {
                 return
@@ -162,6 +203,17 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             if (code) {
                 // Set the form field value directly
                 actions.setAuthorizeValue('userCode', code)
+            }
+
+            // Parse use_cases from URL (comma-separated)
+            const useCasesParam = searchParams.use_cases
+            if (useCasesParam) {
+                const useCases = useCasesParam.split(',').filter((uc): uc is CLIUseCase => {
+                    return uc === 'schema' || uc === 'error_tracking'
+                })
+                if (useCases.length > 0) {
+                    actions.setRequestedUseCases(useCases)
+                }
             }
         },
     })),

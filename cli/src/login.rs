@@ -32,6 +32,13 @@ struct PollResponse {
 }
 
 pub fn login(host_override: Option<String>) -> Result<(), Error> {
+    login_with_use_cases(host_override, vec!["schema", "error_tracking"])
+}
+
+pub fn login_with_use_cases(
+    host_override: Option<String>,
+    use_cases: Vec<&str>,
+) -> Result<(), Error> {
     let host = if let Some(override_host) = host_override {
         // Strip trailing slashes to avoid double slashes in URLs
         override_host.trim_end_matches('/').to_string()
@@ -58,13 +65,27 @@ pub fn login(host_override: Option<String>) -> Result<(), Error> {
     // Step 1: Request device code
     let device_data = request_device_code(&host)?;
 
+    // Add use_cases parameter to the verification URL
+    let use_cases_param = use_cases.join(",");
+    let verification_url = if device_data.verification_uri_complete.contains('?') {
+        format!(
+            "{}&use_cases={}",
+            device_data.verification_uri_complete, use_cases_param
+        )
+    } else {
+        format!(
+            "{}?use_cases={}",
+            device_data.verification_uri_complete, use_cases_param
+        )
+    };
+
     println!();
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("  📱 Authorization Required");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
     println!("To authenticate, visit this URL in your browser:");
-    println!("  {}", device_data.verification_uri_complete);
+    println!("  {}", verification_url);
     println!();
     println!("Your authorization code:");
     println!("  ✨ {} ✨", device_data.user_code);
@@ -73,7 +94,7 @@ pub fn login(host_override: Option<String>) -> Result<(), Error> {
     println!();
 
     // Step 2: Try to open browser
-    if let Err(e) = open_browser(&device_data.verification_uri_complete) {
+    if let Err(e) = open_browser(&verification_url) {
         info!("Could not open browser automatically: {}", e);
         info!("Please open the URL manually");
     } else {
