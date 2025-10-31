@@ -32,7 +32,7 @@ class EnterpriseFeatureException(APIException):
         if feature in self.SCALE_ADD_ONS_FEATURES:
             super().__init__(
                 detail=(
-                    f"{feature.capitalize()} is part of the PostHog Cloud Scale add-on. "
+                    f"{feature.capitalize().replace('_', ' ')} is part of the PostHog Cloud Scale add-on. "
                     + (
                         "To use it, please subscribe to the add-on."
                         if is_cloud()
@@ -43,7 +43,7 @@ class EnterpriseFeatureException(APIException):
             return
         super().__init__(
             detail=(
-                f"{feature.capitalize() if feature else 'This feature'} is part of the premium PostHog offering. "
+                f"{feature.capitalize().replace('_', ' ') if feature else 'This feature'} is part of the premium PostHog offering. "
                 + (
                     "To use it, subscribe to PostHog Cloud with a generous free tier."
                     if is_cloud()
