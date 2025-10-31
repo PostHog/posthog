@@ -82,7 +82,7 @@ def split_baseline_and_test_variants(
     return control_variant, test_variants
 
 
-def get_variant_results(
+def get_variant_result(
     result: tuple,
     metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
 ) -> tuple[tuple[str, ...] | None, ExperimentStatsBase]:
@@ -163,6 +163,26 @@ def get_variant_results(
             pass  # No additional fields beyond base_stats
 
     return (breakdown_tuple, ExperimentStatsBase(**base_stats))
+
+
+def get_variant_results(
+    sorted_results: list[tuple],
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
+    """
+    Parse multiple result rows from experiment query into structured variant results.
+
+    This is the main entry point for parsing query results with breakdown support.
+    Delegates to get_variant_result for each row.
+
+    Args:
+        sorted_results: List of query result tuples
+        metric: The metric definition that determines expected fields and breakdown count
+
+    Returns:
+        List of (breakdown_tuple, ExperimentStatsBase) tuples
+    """
+    return [get_variant_result(result, metric) for result in sorted_results]
 
 
 def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStatsBase]:
