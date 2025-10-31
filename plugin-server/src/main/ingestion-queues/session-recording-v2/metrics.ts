@@ -47,8 +47,8 @@ export class SessionRecordingIngesterMetrics {
         help: 'The number of messages redirected to overflow due to event ingestion restrictions',
     })
 
-    public static incrementMessageReceived(partition: number): void {
-        this.messageReceived.labels(partition.toString()).inc()
+    public static incrementMessageReceived(partition: number, count: number = 1): void {
+        this.messageReceived.labels(partition.toString()).inc(count)
     }
 
     public static observeDroppedByRestrictions(count: number): void {

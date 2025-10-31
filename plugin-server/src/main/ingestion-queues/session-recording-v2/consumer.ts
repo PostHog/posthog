@@ -4,6 +4,9 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { buildIntegerMatcher } from '../../../config/config'
+import { BatchPipeline } from '../../../ingestion/pipelines/batch-pipeline.interface'
+import { createBatch } from '../../../ingestion/pipelines/helpers'
+import { PipelineConfig } from '../../../ingestion/pipelines/result-handling-pipeline'
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
 import {
@@ -31,6 +34,7 @@ import {
 import { KafkaMessageParser } from './kafka/message-parser'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
+import { createSessionRecordingPipeline } from './pipeline'
 import { RetentionAwareStorage } from './retention/retention-aware-batch-writer'
 import { RetentionService } from './retention/retention-service'
 import { SessionRecordingRestrictionHandler } from './session-recording-restriction-handler'
@@ -65,6 +69,7 @@ export class SessionRecordingIngester {
     private restrictionHandler?: SessionRecordingRestrictionHandler
     private kafkaOverflowProducer?: KafkaProducerWrapper
     private readonly overflowTopic: string
+    private pipeline!: BatchPipeline<{ message: Message }, { message: Message }, { message: Message }>
 
     constructor(
         private hub: Hub,
@@ -192,20 +197,21 @@ export class SessionRecordingIngester {
                 key: `recordingingesterv2.handleEachBatch`,
                 sendException: false,
             },
-            async () => this.processBatchMessages(messages)
+            async () => {
+                // Create batch and feed to pipeline
+                const batch = createBatch(messages.map((message) => ({ message })))
+                this.pipeline.feed(batch)
+
+                // Pipeline handles batch metrics
+                await this.pipeline.next()
+
+                // Continue with old flow for now
+                await this.processBatchMessages(messages)
+            }
         )
     }
 
     private async processBatchMessages(messages: Message[]): Promise<void> {
-        messages.forEach((message) => {
-            SessionRecordingIngesterMetrics.incrementMessageReceived(message.partition)
-        })
-
-        const batchSize = messages.length
-        const batchSizeKb = messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
-        SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
-        SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
-
         // Apply event ingestion restrictions before parsing
         const messagesToProcess = await instrumentFn(
             `recordingingesterv2.handleEachBatch.applyRestrictions`,
@@ -275,6 +281,16 @@ export class SessionRecordingIngester {
         await batch.record(message)
     }
 
+    private initializePipeline(): void {
+        const pipelineConfig: PipelineConfig = {
+            kafkaProducer: this.kafkaOverflowProducer!,
+            dlqTopic: '', // Session recordings don't use DLQ currently
+            promiseScheduler: this.promiseScheduler,
+        }
+
+        this.pipeline = createSessionRecordingPipeline(pipelineConfig)
+    }
+
     public async start(): Promise<void> {
         logger.info('🔁', 'blob_ingester_consumer_v2 - starting session recordings blob consumer', {
             librdKafkaVersion: librdkafkaVersion,
@@ -294,6 +310,9 @@ export class SessionRecordingIngester {
             this.promiseScheduler,
             this.consumeOverflow
         )
+
+        // Initialize pipeline
+        this.initializePipeline()
 
         // Check that the storage backend is healthy before starting the consumer
         // This is especially important in local dev with minio
