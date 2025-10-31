@@ -21,7 +21,7 @@ export function CurrentFilterIndicator(): JSX.Element | null {
     const hasFilterChanges = !equal(appliedSavedFilter.filters, currentFilters)
 
     const handleClearFilter = (): void => {
-        resetFilters()
+        resetFilters?.()
         setAppliedSavedFilter(null)
     }
 
@@ -30,6 +30,7 @@ export function CurrentFilterIndicator(): JSX.Element | null {
             <div className="font-semibold whitespace-nowrap flex-shrink-0">Current filter applied:</div>
             <div className="flex items-center min-w-0 flex-1">
                 <LemonTag
+                    data-attr="current-filter-indicator"
                     type={hasFilterChanges ? 'option' : 'primary'}
                     icon={<IconFilter />}
                     closable

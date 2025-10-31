@@ -341,6 +341,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                             {hasFilterChanges && (
                                 <div className="flex gap-2 flex-shrink-0">
                                     <LemonButton
+                                        data-attr="replay-filters-discard-changes-button"
                                         type="secondary"
                                         size="small"
                                         icon={<IconTrash />}
@@ -351,6 +352,7 @@ export const RecordingsUniversalFiltersEmbed = ({
                                         Discard changes
                                     </LemonButton>
                                     <LemonButton
+                                        data-attr="replay-filters-save-changes-button"
                                         type="secondary"
                                         status="danger"
                                         size="small"
