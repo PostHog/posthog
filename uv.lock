@@ -1615,6 +1615,19 @@ wheels = [
 ]
 
 [[package]]
+name = "django-scim2"
+version = "0.19.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "scim2-filter-parser" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/17/60/2abaaa8bd46276d05630477f10960790dcd86c5ce63372ec8ce134401df6/django_scim2-0.19.0.tar.gz", hash = "sha256:531e8ae3d7dadb225e1b5addaa8c685f307de7eda5f23796ad0f4c7a96e06479", size = 27644, upload-time = "2023-03-19T17:57:30.271Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/1e/bfed9fe77bdb941b541f9ee61d5f24b6d8bfc61ed7e10ff2cba3fffe326c/django_scim2-0.19.0-py3-none-any.whl", hash = "sha256:0571c9798e3af1a199bc05d6726185675bdd960627c3f4406a0c125e3e12e025", size = 32070, upload-time = "2023-03-19T17:57:27.951Z" },
+]
+
+[[package]]
 name = "django-statsd"
 version = "2.5.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4192,6 +4205,7 @@ dependencies = [
     { name = "django-picklefield" },
     { name = "django-prometheus" },
     { name = "django-redis" },
+    { name = "django-scim2" },
     { name = "django-statsd" },
     { name = "django-structlog", extra = ["celery"] },
     { name = "django-two-factor-auth" },
@@ -4434,6 +4448,7 @@ requires-dist = [
     { name = "django-picklefield", specifier = "==3.0.1" },
     { name = "django-prometheus", specifier = "==2.2.0" },
     { name = "django-redis", specifier = "==6.0.0" },
+    { name = "django-scim2", specifier = "==0.19.0" },
     { name = "django-statsd", specifier = "==2.5.2" },
     { name = "django-structlog", extras = ["celery"], specifier = "~=9.1.0" },
     { name = "django-two-factor-auth", specifier = "~=1.18.0" },
@@ -5749,6 +5764,18 @@ wheels = [
 ]
 
 [[package]]
+name = "scim2-filter-parser"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "sly" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/25/c0/2f4d5caee8faa8f0d0979584c4aab95fa69d626d6f9d211dd6bb7089bc2f/scim2_filter_parser-0.7.0.tar.gz", hash = "sha256:1e11dbe2e186fc1be6d93732b467a3bbaa9deff272dfeb3a0540394cfab7030c", size = 21358, upload-time = "2024-07-20T16:38:23.2Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/54/b54961bfc5018fa593758c439fe0d4a22fbadfabff49a7559850af9a79e1/scim2_filter_parser-0.7.0-py3-none-any.whl", hash = "sha256:a74f90a2d52a77e0f1bc4d77e84b79f88749469f6f7192d64a4f92e4fe50ab69", size = 23409, upload-time = "2024-07-20T16:38:21.525Z" },
+]
+
+[[package]]
 name = "scipy"
 version = "1.15.3"
 source = { registry = "https://pypi.org/simple" }
@@ -5875,6 +5902,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/35/f6/8d894a14d751216705fb4b5f5b552cdc50b6963fcd58c6e0da9cea3dfb4c/slack_sdk-3.17.1.tar.gz", hash = "sha256:20a170698fa1affde9c642d78ea1e8947e9dd37920685cb0f2c5a2df7c48abd4", size = 205437, upload-time = "2022-06-14T04:47:35.244Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c9/a6/388ea894e55980067b28345f695e07c97b7b28fcd88353920ecd0810b97e/slack_sdk-3.17.1-py2.py3-none-any.whl", hash = "sha256:50fa984d9513226d3f982ba7d596d3d68127f58865f83dcc1825f52012e908ab", size = 265476, upload-time = "2022-06-14T04:47:32.84Z" },
+]
+
+[[package]]
+name = "sly"
+version = "0.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/41/8a/59e943f7b27904c7756a7b565ffbd55f3841f5cd3d2da2b2b0713c49e488/sly-0.5.tar.gz", hash = "sha256:251d42015e8507158aec2164f06035df4a82b0314ce6450f457d7125e7649024", size = 66702, upload-time = "2022-10-25T14:35:30.592Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8e/4d/c96d807295183f2360329cd8d8bf5e8072c53d664125b3858c04153f026e/sly-0.5-py3-none-any.whl", hash = "sha256:20485483259eec7f6ba85ff4d2e96a4e50c6621902667fc2695cc8bc2a3e5133", size = 28864, upload-time = "2022-10-25T14:35:28.054Z" },
 ]
 
 [[package]]

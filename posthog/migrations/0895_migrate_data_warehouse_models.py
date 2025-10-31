@@ -57,7 +57,7 @@ def reverse_content_type(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0893_add_ingestion_lane_fields_to_event_ingestion_restriction"),
+        ("posthog", "0894_organizationdomain_scim_bearer_token_and_more"),
     ]
 
     operations = [
