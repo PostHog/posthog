@@ -4,23 +4,20 @@ from typing import cast
 from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent, AssistantUpdateEvent
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
-from ee.hogai.utils.types import AssistantMessageUnion, AssistantOutput
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantResultUnion
 from ee.models.assistant import Conversation
 
 
 class AssistantSSESerializer:
-    def dumps(self, event: AssistantOutput) -> str:
-        event_type, event_data = event
-        if event_type == AssistantEventType.MESSAGE:
-            return self._serialize_message(cast(AssistantMessageUnion, event_data))
-        elif event_type == AssistantEventType.CONVERSATION:
-            return self._serialize_conversation(cast(Conversation, event_data))
-        elif event_type == AssistantEventType.STATUS:
-            return self._serialize_status(cast(AssistantGenerationStatusEvent, event_data))
-        elif event_type == AssistantEventType.UPDATE:
-            return self._serialize_update(cast(AssistantUpdateEvent, event_data))
+    def dumps(self, event: AssistantResultUnion | Conversation) -> str:
+        if isinstance(event, AssistantUpdateEvent):
+            return self._serialize_update(event)
+        elif isinstance(event, AssistantGenerationStatusEvent):
+            return self._serialize_status(event)
+        elif isinstance(event, Conversation):
+            return self._serialize_conversation(event)
         else:
-            raise ValueError(f"Unknown event type: {event_type}")
+            return self._serialize_message(cast(AssistantMessageUnion, event))
 
     def _serialize_message(self, message: AssistantMessageUnion) -> str:
         output = f"event: {AssistantEventType.MESSAGE}\n"

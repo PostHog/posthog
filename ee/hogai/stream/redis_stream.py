@@ -10,11 +10,9 @@ import structlog
 import redis.exceptions as redis_exceptions
 from pydantic import BaseModel
 
-from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent, AssistantUpdateEvent
-
 from posthog.redis import get_async_client
 
-from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMessageUnion
+from ee.hogai.utils.types.base import AssistantDispatcherEvent
 
 logger = structlog.get_logger(__name__)
 
@@ -24,26 +22,6 @@ CONVERSATION_STREAM_MAX_LENGTH = 1000  # Maximum number of messages to keep in s
 CONVERSATION_STREAM_CONCURRENT_READ_COUNT = 8
 CONVERSATION_STREAM_PREFIX = "conversation-stream:"
 CONVERSATION_STREAM_TIMEOUT = 30 * 60  # 30 minutes
-
-
-class ConversationEvent(BaseModel):
-    type: Literal["conversation"]
-    payload: UUID  # conversation id
-
-
-class MessageEvent(BaseModel):
-    type: Literal[AssistantEventType.MESSAGE]
-    payload: AssistantMessageUnion
-
-
-class UpdateEvent(BaseModel):
-    type: Literal[AssistantEventType.UPDATE]
-    payload: AssistantUpdateEvent
-
-
-class GenerationStatusEvent(BaseModel):
-    type: Literal[AssistantEventType.STATUS]
-    payload: AssistantGenerationStatusEvent
 
 
 class StreamStatusEvent(BaseModel):
@@ -210,10 +188,10 @@ class ConversationRedisStream:
     async def write_to_stream(
         self, generator: AsyncGenerator[AssistantDispatcherEvent, None], callback: Callable[[], None] | None = None
     ) -> None:
-        """Write raw dispatcher events to the Redis stream.
+        """Write assistant output to the Redis stream.
 
         Args:
-            generator: AsyncGenerator of raw AssistantDispatcherEvent objects
+            generator: AsyncGenerator of AssistantDispatcherEvent objects
             callback: Callback to trigger after each message is written to the stream
         """
         try:
@@ -221,6 +199,7 @@ class ConversationRedisStream:
 
             async for event in generator:
                 message = self._serializer.dumps(event)
+
                 if message is not None:
                     await self._redis_client.xadd(
                         self._stream_key,
@@ -228,6 +207,7 @@ class ConversationRedisStream:
                         maxlen=CONVERSATION_STREAM_MAX_LENGTH,
                         approximate=True,
                     )
+
                 if callback:
                     callback()
 
