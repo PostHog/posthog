@@ -63,7 +63,7 @@ export function HeatmapNewScene(): JSX.Element {
             <SceneDivider />
             <SceneSection
                 title="Heatmap data URL"
-                description="An exact match or a pattern for heatmap data. A pattern can be for example if you have a page with an ID. E.g. https://www.example.com/users/* will aggregate data from all pages with the /users/ ID."
+                description="An exact match or a pattern for heatmap data. For example, use a pattern if you have pages with dynamic IDs. E.g. https://www.example.com/users/* will aggregate data from all pages under /users/."
             >
                 <LemonInput
                     size="small"
@@ -78,13 +78,13 @@ export function HeatmapNewScene(): JSX.Element {
                 {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
             </SceneSection>
             <SceneDivider />
-            <SceneSection title="Capture method" description="Select the method to represent the source of the heatmap">
+            <SceneSection title="Capture method" description="Choose how to display your page in the heatmap">
                 <LemonRadio
                     options={[
                         {
                             label: 'Screenshot',
                             value: 'screenshot',
-                            description: 'We will generate a full screenshot of your website',
+                            description: 'We will generate a full-page screenshot of your website',
                         },
                         {
                             label: 'Iframe',
