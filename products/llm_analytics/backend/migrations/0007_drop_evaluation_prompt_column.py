@@ -15,6 +15,6 @@ class Migration(migrations.Migration):
         # This is the final cleanup step after one full deployment cycle
         migrations.RunSQL(
             sql="ALTER TABLE llm_analytics_evaluation DROP COLUMN IF EXISTS prompt",
-            reverse_sql=migrations.RunSQL.noop,
+            reverse_sql="ALTER TABLE llm_analytics_evaluation ADD COLUMN IF NOT EXISTS prompt text NOT NULL DEFAULT ''",
         ),
     ]
