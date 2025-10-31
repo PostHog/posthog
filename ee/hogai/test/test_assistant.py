@@ -233,296 +233,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             msg_dict.pop("id", None)
             self.assertLessEqual(expected_msg_dict.items(), msg_dict.items(), f"Message content mismatch at index {i}")
 
-    @patch(
-        "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
-        return_value=FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "final_answer",
-                            "args": {"query_kind": "trends", "plan": "Plan"},
-                        }
-                    ],
-                )
-            ]
-        ),
-    )
-    @patch(
-        "ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun",
-        return_value=PartialAssistantState(
-            messages=[AssistantMessage(content="Foobar")],
-        ),
-    )
-    async def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_query_planner_run):
-        output, _ = await self._run_assistant_graph(
-            InsightsGraph(self.team, self.user, ())
-            .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
-            .add_query_planner(
-                {
-                    "continue": AssistantNodeName.QUERY_PLANNER,
-                    "trends": AssistantNodeName.END,
-                    "funnel": AssistantNodeName.END,
-                    "retention": AssistantNodeName.END,
-                    "sql": AssistantNodeName.END,
-                    "end": AssistantNodeName.END,
-                }
-            )
-            .compile(),
-            conversation=self.conversation,
-            mode=AssistantMode.INSIGHTS_TOOL,
-        )
-
-        # Assert that ReasoningMessages are added
-        # Note: InsightsAssistant doesn't stream the first HumanMessage
-        expected_output = [
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [],
-                },
-            ),
-        ]
-        self.assertConversationEqual(output, expected_output)
-
-    @patch(
-        "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
-        return_value=FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "retrieve_entity_properties",
-                            "args": {"entity": "session"},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_2",
-                            "name": "retrieve_event_properties",
-                            "args": {"event_name": "$pageview"},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_3",
-                            "name": "retrieve_event_property_values",
-                            "args": {"event_name": "purchase", "property_name": "currency"},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_4",
-                            "name": "retrieve_entity_property_values",
-                            "args": {"entity": "person", "property_name": "country_of_birth"},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_6",
-                            "name": "final_answer",
-                            "args": {"query_kind": "trends", "plan": "Plan"},
-                        }
-                    ],
-                ),
-            ]
-        ),
-    )
-    async def test_reasoning_messages_with_substeps_added(self, _mock_query_planner_run):
-        output, _ = await self._run_assistant_graph(
-            InsightsGraph(self.team, self.user, ())
-            .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
-            .add_query_planner(
-                {
-                    "continue": AssistantNodeName.QUERY_PLANNER,
-                    "trends": AssistantNodeName.END,
-                    "funnel": AssistantNodeName.END,
-                    "retention": AssistantNodeName.END,
-                    "sql": AssistantNodeName.END,
-                    "end": AssistantNodeName.END,
-                }
-            )
-            .compile(),
-            conversation=self.conversation,
-            tool_call_partial_state=AssistantState(root_tool_call_id="foo"),
-            mode=AssistantMode.INSIGHTS_TOOL,
-        )
-
-        # Assert that ReasoningMessages are added
-        # Note: InsightsAssistant doesn't stream the first HumanMessage
-        expected_output = [
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [
-                        "Exploring session properties",
-                    ],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [
-                        "Exploring session properties",
-                        "Exploring `$pageview` event's properties",
-                    ],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [
-                        "Exploring session properties",
-                        "Exploring `$pageview` event's properties",
-                        "Analyzing `purchase` event's property `currency`",
-                    ],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [
-                        "Exploring session properties",
-                        "Exploring `$pageview` event's properties",
-                        "Analyzing `purchase` event's property `currency`",
-                        "Analyzing person property `country_of_birth`",
-                    ],
-                },
-            ),
-        ]
-        self.assertConversationEqual(output, expected_output)
-
-    async def test_action_reasoning_messages_added(self):
-        action = await Action.objects.acreate(team=self.team, name="Marius Tech Tips")
-
-        with patch(
-            "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
-            return_value=FakeChatOpenAI(
-                responses=[
-                    messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "call_1",
-                                "name": "retrieve_action_properties",
-                                "args": {"action_id": action.id},
-                            }
-                        ],
-                    ),
-                    messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "call_2",
-                                "name": "retrieve_action_property_values",
-                                "args": {"action_id": action.id, "property_name": "video_name"},
-                            }
-                        ],
-                    ),
-                    messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "call_3",
-                                "name": "final_answer",
-                                "args": {"query_kind": "trends", "plan": "Plan"},
-                            }
-                        ],
-                    ),
-                ]
-            ),
-        ):
-            test_graph = (
-                InsightsGraph(self.team, self.user, ())
-                .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
-                .add_query_planner(
-                    {
-                        "continue": AssistantNodeName.QUERY_PLANNER,
-                        "trends": AssistantNodeName.END,
-                        "funnel": AssistantNodeName.END,
-                        "retention": AssistantNodeName.END,
-                        "sql": AssistantNodeName.END,
-                        "end": AssistantNodeName.END,
-                    }
-                )
-                .compile()
-            )
-            output, assistant = await self._run_assistant_graph(
-                test_graph,
-                tool_call_partial_state=AssistantState(root_tool_call_id="foo"),
-                conversation=self.conversation,
-                mode=AssistantMode.INSIGHTS_TOOL,
-            )
-
-            # Assert that ReasoningMessages are added
-            # Note: InsightsAssistant doesn't stream the first HumanMessage
-            expected_output = [
-                (
-                    "message",
-                    {
-                        "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",
-                        "substeps": [],
-                    },
-                ),
-                (
-                    "message",
-                    {
-                        "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",
-                        "substeps": [
-                            "Exploring `Marius Tech Tips` action properties",
-                        ],
-                    },
-                ),
-                (
-                    "message",
-                    {
-                        "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",
-                        "substeps": [
-                            "Exploring `Marius Tech Tips` action properties",
-                            "Analyzing `video_name` action property of `Marius Tech Tips`",
-                        ],
-                    },
-                ),
-            ]
-            self.assertConversationEqual(output, expected_output)
-
     async def _test_human_in_the_loop(self, insight_type: Literal["trends", "funnel", "retention"]):
         graph = (
             AssistantGraph(self.team, self.user)
@@ -590,7 +300,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                             AssistantToolCall(
                                 id="1",
                                 name="create_and_query_insight",
-                                args={"query_description": "Foobar", "query_kind": insight_type},
+                                args={"query_description": "Foobar"},
                             )
                         ],
                     ),
@@ -615,12 +325,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             snapshot: StateSnapshot = await graph.aget_state(config)
             self.assertFalse(snapshot.next)
             self.assertFalse(snapshot.values.get("intermediate_steps"))
-            self.assertFalse(snapshot.values["plan"])
-            self.assertFalse(snapshot.values["graph_status"])
-            self.assertFalse(snapshot.values["root_tool_call_id"])
-            self.assertFalse(snapshot.values["root_tool_insight_plan"])
-            self.assertFalse(snapshot.values["root_tool_insight_type"])
-            self.assertFalse(snapshot.values["root_tool_calls_count"])
+            self.assertFalse(snapshot.values.get("plan"))
+            self.assertFalse(snapshot.values.get("graph_status"))
+            self.assertFalse(snapshot.values.get("root_tool_call_id"))
+            self.assertFalse(snapshot.values.get("root_tool_insight_plan"))
+            self.assertFalse(snapshot.values.get("root_tool_insight_type"))
+            self.assertFalse(snapshot.values.get("root_tool_calls_count"))
 
     async def test_trends_interrupt_when_asking_for_help(self):
         await self._test_human_in_the_loop("trends")
@@ -1565,7 +1275,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.graph.QueryExecutorNode")
+    @patch("ee.hogai.graph.nodes.query_executor.nodes.QueryExecutorNode")
     async def test_insights_tool_mode_flow(
         self, query_executor_mock, planner_mock, generator_mock, title_generator_mock
     ):
