@@ -1839,7 +1839,8 @@
                 "read_data",
                 "todo_write",
                 "filter_revenue_analytics",
-                "create_feature_flag"
+                "create_feature_flag",
+                "create_experiment"
             ],
             "type": "string"
         },
