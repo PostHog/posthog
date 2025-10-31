@@ -52,9 +52,34 @@ impl<'de> Deserialize<'de> for FrameId {
             0
         };
 
+        // Frame ID's are deserialized without a Team ID. We could encode this in the type system,
+        // e.g. have a "TeamlessFrameId" or something, and in fact I'd recommend that as a piece of
+        // future work - Take the `Frame` struct, make it generic across the ID type, and then write
+        // various impls and code. A good onboarding task maybe, for someone rusty. An alternative
+        // would be to move the team_id up a level in whatever struct is using it, but it would
+        // be a lot less clean.
+        //
+        // The reason we don't serialize FrameID's as a struct, but instead as a string, is mostly
+        // down to legacy - at one point, FrameIDs were "raw_id"'s, a pure string, and their only
+        // purpose was to encode be a hash of a raw frames contents, so we could rapidly look up
+        // resolved frames on the basis of raw ones. Over time, I realised we almost always need
+        // the team_id whenever we use the raw_id in code - when deduplicating resolution futures, when
+        // putting data into caches, and when storing in the DB, so I added it to the ID - this is
+        // the "RawFrameID" above. When serializing this, I just included the raw_id, but not the
+        // team_id, since it was mostly used on the frontend, where team ID information is always
+        // globally available (api requests are scoped by team_id, etc).
+        //
+        // Once we adopted Java, it became apparent we also needed to include a bit of information about
+        // the output frame - the mapping of input:output frames was no longer 1:1, and since the rest
+        // of the system (in particular the frontend) relied on a simple string ID, we decided to go
+        // with encoding this as a suffix to the existing raw_id when serializing. In the DB and
+        // the app backend, we transparently map between this suffix format and a full struct, so the
+        // frontend, query runners and any user queries that are using the frame's "raw_id" (called
+        // that despite including the resolved frames identifier too) don't break.
+
         Ok(FrameId {
             hash_id,
-            team_id: 0, // Note: team_id is not serialized, defaults to 0
+            team_id: 0,
             part,
         })
     }

@@ -71,6 +71,5 @@ pub fn upload(args: &Args) -> Result<()> {
 
     api::symbol_sets::upload(&[to_upload], 50)?;
 
-    // Your upload logic here
     Ok(())
 }

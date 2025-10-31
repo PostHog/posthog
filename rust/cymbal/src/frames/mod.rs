@@ -146,7 +146,7 @@ impl RawFrame {
 pub struct Frame {
     // Renamed for legacy reasons - resolved frames have a full FrameId, not a RawFrameId
     #[serde(rename = "raw_id")]
-    pub frame_id: FrameId, // The raw frame id this was resolved from. This has a custom serde impl to be string represented, and drops team_id on ser/de
+    pub frame_id: FrameId, // The frame id this was resolved from. This has a custom serde impl to be string represented, and drops team_id on serialization
     pub mangled_name: String, // Mangled name of the function
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u32>, // Line the function is define on, if known

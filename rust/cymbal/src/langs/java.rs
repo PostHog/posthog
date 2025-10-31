@@ -26,7 +26,9 @@ pub struct RawJavaFrame {
     pub map_id: Option<String>, // ID of the proguard mapping symbol set this frame can be demangled with
     #[serde(default)]
     // Java compilers sometimes generate synthetic methods, for stuff like implied accessors from the source
-    // More info at. TODO - we've used "synthetic" to mean "constructed by our SDK". This is a language-specific
+    // More info at https://docs.oracle.com/javase/specs/jvms/se7/html/jvms-4.html#jvms-4.7.8
+    //
+    // TODO - we've used "synthetic" to mean "constructed by our SDK". This is a language-specific
     // meaning, and I'm not sure how to use it in our app. I'm also not /sure/ it matters, though.
     pub method_synthetic: bool,
     #[serde(flatten)]
