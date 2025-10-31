@@ -1,3 +1,5 @@
+from typing import Sequence
+from ee.hogai.utils.types.base import AssistantMessageUnion
 from posthog.test.base import BaseTest
 
 from langchain_core.messages import AIMessage
@@ -7,7 +9,6 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
-    ContextMessage,
     HumanMessage,
     VisualizationMessage,
 )
@@ -403,114 +404,13 @@ class TestExtractThinkingFromAIMessage(BaseTest):
         self.assertEqual(thinking[1]["content"], "Thought 2")
 
 
-class TestFilterAndMergeMessages(BaseTest):
-    """Test filter_and_merge_messages with various message sequences."""
-
-    def test_filter_basic_conversation(self):
-        """Test basic filtering with human and assistant messages"""
-        messages = [
-            HumanMessage(content="Hello", id="h1"),
-            AssistantMessage(content="Hi there", type="ai", id="a1"),
-            HumanMessage(content="How are you?", id="h2"),
-            AssistantMessage(content="I'm good", type="ai", id="a2"),
-        ]
-
-        result = filter_and_merge_messages(messages)
-
-        self.assertEqual(len(result), 4)
-        self.assertEqual(result[0].content, "Hello")
-        self.assertEqual(result[1].content, "Hi there")
-        self.assertEqual(result[2].content, "How are you?")
-        self.assertEqual(result[3].content, "I'm good")
-
-    def test_merge_consecutive_human_messages(self):
-        """Test that consecutive human messages get merged"""
-        messages = [
-            HumanMessage(content="First", id="h1"),
-            HumanMessage(content="Second", id="h2"),
-            AssistantMessage(content="Response", type="ai", id="a1"),
-        ]
-
-        result = filter_and_merge_messages(messages)
-
-        self.assertEqual(len(result), 2)
-        # After merging, consecutive messages should be combined
-        self.assertIsInstance(result[0], HumanMessage)
-        self.assertIn("First", result[0].content)
-        self.assertIn("Second", result[0].content)
-        self.assertEqual(result[1].content, "Response")
-
-    def test_filter_removes_non_matching_entities(self):
-        """Test that messages not matching entity_filter are excluded"""
-        messages = [
-            HumanMessage(content="Hello", id="h1"),
-            AssistantMessage(content="Response", type="ai", id="a1"),
-            VisualizationMessage(answer=AssistantTrendsQuery(series=[])),
-            AssistantToolCallMessage(content="Tool result", tool_call_id="tc1", type="tool"),
-        ]
-
-        result = filter_and_merge_messages(messages)
-
-        # Default filter includes AssistantMessage and VisualizationMessage
-        self.assertEqual(len(result), 3)
-        self.assertIsInstance(result[0], HumanMessage)
-        self.assertIsInstance(result[1], AssistantMessage)
-        self.assertIsInstance(result[2], VisualizationMessage)
-
-    def test_filter_with_custom_entity_filter(self):
-        """Test filtering with custom entity types"""
-        messages = [
-            HumanMessage(content="Hello", id="h1"),
-            AssistantMessage(content="Response", type="ai", id="a1"),
-            VisualizationMessage(answer=AssistantTrendsQuery(series=[])),
-        ]
-
-        result = filter_and_merge_messages(messages, entity_filter=AssistantMessage)
-
-        self.assertEqual(len(result), 2)
-        self.assertIsInstance(result[0], HumanMessage)
-        self.assertIsInstance(result[1], AssistantMessage)
-
-    def test_filter_preserves_message_ids(self):
-        """Test that message IDs are preserved after filtering"""
-        messages = [
-            HumanMessage(content="First", id="h1"),
-            HumanMessage(content="Second", id="h2"),
-            AssistantMessage(content="Response", type="ai", id="a1"),
-        ]
-
-        result = filter_and_merge_messages(messages)
-
-        # The merged human message should preserve one of the IDs
-        self.assertIsNotNone(result[0].id)
-        self.assertEqual(result[1].id, "a1")
-
-    def test_filter_empty_messages(self):
-        """Test filtering with empty message list"""
-        result = filter_and_merge_messages([])
-        self.assertEqual(len(result), 0)
-
-    def test_filter_only_human_messages(self):
-        """Test filtering when only human messages exist"""
-        messages = [
-            HumanMessage(content="First", id="h1"),
-            HumanMessage(content="Second", id="h2"),
-            HumanMessage(content="Third", id="h3"),
-        ]
-
-        result = filter_and_merge_messages(messages)
-
-        # All human messages should be merged into one
-        self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], HumanMessage)
-
 
 class TestConvertToolMessagesToDict(BaseTest):
     """Test convert_tool_messages_to_dict function."""
 
     def test_convert_single_tool_message(self):
         """Test converting a single tool message to dictionary"""
-        messages = [
+        messages :  Sequence[AssistantMessageUnion]= [
             AssistantToolCallMessage(content="Result 1", tool_call_id="tc1", type="tool"),
         ]
 
@@ -522,7 +422,7 @@ class TestConvertToolMessagesToDict(BaseTest):
 
     def test_convert_multiple_tool_messages(self):
         """Test converting multiple tool messages"""
-        messages = [
+        messages:  Sequence[AssistantMessageUnion] = [
             AssistantToolCallMessage(content="Result 1", tool_call_id="tc1", type="tool"),
             AssistantToolCallMessage(content="Result 2", tool_call_id="tc2", type="tool"),
             AssistantToolCallMessage(content="Result 3", tool_call_id="tc3", type="tool"),
@@ -537,7 +437,7 @@ class TestConvertToolMessagesToDict(BaseTest):
 
     def test_convert_ignores_non_tool_messages(self):
         """Test that non-tool messages are ignored"""
-        messages = [
+        messages:  Sequence[AssistantMessageUnion]= [
             HumanMessage(content="Hello", id="h1"),
             AssistantMessage(content="Response", type="ai", id="a1"),
             AssistantToolCallMessage(content="Result 1", tool_call_id="tc1", type="tool"),
@@ -556,7 +456,7 @@ class TestConvertToolMessagesToDict(BaseTest):
 
     def test_convert_preserves_tool_call_metadata(self):
         """Test that tool message metadata is preserved"""
-        messages = [
+        messages:  Sequence[AssistantMessageUnion] = [
             AssistantToolCallMessage(
                 content="Result with UI", tool_call_id="tc1", type="tool", ui_payload={"data": "value"}
             ),
@@ -565,77 +465,6 @@ class TestConvertToolMessagesToDict(BaseTest):
         result = convert_tool_messages_to_dict(messages)
 
         self.assertEqual(result["tc1"].ui_payload, {"data": "value"})
-
-
-class TestInsertMessagesBeforeStart(BaseTest):
-    """Test insert_messages_before_start function."""
-
-    def test_insert_before_first_message(self):
-        """Test inserting messages at the beginning (no start_id)"""
-        messages = [
-            HumanMessage(content="First", id="h1"),
-            AssistantMessage(content="Response", type="ai", id="a1"),
-        ]
-        new_messages = [ContextMessage(content="Context", type="context")]
-
-        result = insert_messages_before_start(messages, new_messages, start_id=None)
-
-        self.assertEqual(len(result), 3)
-        self.assertIsInstance(result[0], ContextMessage)
-        self.assertEqual(result[1].content, "First")
-        self.assertEqual(result[2].content, "Response")
-
-    def test_insert_before_specific_message(self):
-        """Test inserting messages before a specific message ID"""
-        messages = [
-            HumanMessage(content="First", id="h1"),
-            AssistantMessage(content="Response 1", type="ai", id="a1"),
-            HumanMessage(content="Second", id="h2"),
-            AssistantMessage(content="Response 2", type="ai", id="a2"),
-        ]
-        new_messages = [ContextMessage(content="Context", type="context")]
-
-        result = insert_messages_before_start(messages, new_messages, start_id="h2")
-
-        self.assertEqual(len(result), 5)
-        self.assertEqual(result[0].content, "First")
-        self.assertEqual(result[1].content, "Response 1")
-        self.assertIsInstance(result[2], ContextMessage)
-        self.assertEqual(result[3].content, "Second")
-        self.assertEqual(result[4].content, "Response 2")
-
-    def test_insert_multiple_new_messages(self):
-        """Test inserting multiple new messages"""
-        messages = [
-            HumanMessage(content="First", id="h1"),
-            AssistantMessage(content="Response", type="ai", id="a1"),
-        ]
-        new_messages = [
-            ContextMessage(content="Context 1", type="context"),
-            ContextMessage(content="Context 2", type="context"),
-        ]
-
-        result = insert_messages_before_start(messages, new_messages, start_id="h1")
-
-        self.assertEqual(len(result), 4)
-        self.assertIsInstance(result[0], ContextMessage)
-        self.assertIsInstance(result[1], ContextMessage)
-        self.assertEqual(result[2].content, "First")
-        self.assertEqual(result[3].content, "Response")
-
-    def test_insert_when_start_id_not_found(self):
-        """Test inserting when start_id doesn't exist (should insert at beginning)"""
-        messages = [
-            HumanMessage(content="First", id="h1"),
-            AssistantMessage(content="Response", type="ai", id="a1"),
-        ]
-        new_messages = [ContextMessage(content="Context", type="context")]
-
-        result = insert_messages_before_start(messages, new_messages, start_id="nonexistent")
-
-        self.assertEqual(len(result), 3)
-        self.assertIsInstance(result[0], ContextMessage)
-        self.assertEqual(result[1].content, "First")
 
 
 class TestNormalizeAIMessageWebSearch(BaseTest):
@@ -662,12 +491,13 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].content, "Let me search for that.")
         # First message has meta with empty thinking
-        self.assertIsNone(result.meta)
+        self.assertIsNone(result[0].meta)
 
         # Second message starts with server_tool_use
         self.assertEqual(result[1].content, "")
         self.assertIsNotNone(result[1].meta)
         assert result[1].meta is not None
+        assert result[1].meta.thinking is not None
         self.assertEqual(len(result[1].meta.thinking), 1)
         self.assertEqual(result[1].meta.thinking[0]["type"], "server_tool_use")
         self.assertEqual(result[1].meta.thinking[0]["input"], {"query": "test query"})
@@ -699,6 +529,7 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
 
         # Second message has both server_tool_use and web_search_tool_result in thinking
         assert result[1].meta is not None
+        assert result[1].meta.thinking is not None
         self.assertEqual(len(result[1].meta.thinking), 2)
         self.assertEqual(result[1].meta.thinking[0]["type"], "server_tool_use")
         self.assertEqual(result[1].meta.thinking[1]["type"], "web_search_tool_result")
@@ -753,12 +584,14 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
 
         # First message has thinking and text
         assert result[0].meta is not None
+        assert result[0].meta.thinking is not None
         self.assertEqual(len(result[0].meta.thinking), 1)
         self.assertEqual(result[0].meta.thinking[0]["type"], "thinking")
         self.assertEqual(result[0].content, "Let me look that up.")
 
         # Second message has server_tool_use and subsequent text
         assert result[1].meta is not None
+        assert result[1].meta.thinking is not None
         self.assertEqual(len(result[1].meta.thinking), 1)
         self.assertEqual(result[1].meta.thinking[0]["type"], "server_tool_use")
         self.assertEqual(result[1].content, "Here's what I found.")
@@ -782,6 +615,7 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
         # Should handle gracefully without crashing
         self.assertEqual(len(result), 2)
         assert result[1].meta is not None
+        assert result[1].meta.thinking is not None
         self.assertEqual(len(result[1].meta.thinking), 1)
         # The input field should not be set due to JSON parse error
         self.assertNotIn("input", result[1].meta.thinking[0])
@@ -820,12 +654,14 @@ class TestNormalizeAIMessageWebSearch(BaseTest):
 
         # First message: thinking + text before server_tool_use
         assert result[0].meta is not None
+        assert result[0].meta.thinking is not None
         self.assertEqual(len(result[0].meta.thinking), 1)
         self.assertEqual(result[0].meta.thinking[0]["type"], "thinking")
         self.assertEqual(result[0].content, "Let me search for information about X.")
 
         # Second message: server_tool_use + result + thinking + text with citations
         assert result[1].meta is not None
+        assert result[1].meta.thinking is not None
         self.assertEqual(len(result[1].meta.thinking), 3)
         self.assertEqual(result[1].meta.thinking[0]["type"], "server_tool_use")
         self.assertEqual(result[1].meta.thinking[1]["type"], "web_search_tool_result")

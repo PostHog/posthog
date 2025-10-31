@@ -82,7 +82,7 @@ RouteName = Literal[
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
 
-RootTool = Union[type[BaseModel], "MaxTool", dict[str, Any]]
+RootTool = Union[type[BaseModel], "MaxTool"]
 
 
 class RootNode(AssistantNode):

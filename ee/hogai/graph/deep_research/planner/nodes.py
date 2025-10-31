@@ -112,7 +112,7 @@ class DeepResearchPlannerNode(DeepResearchNode):
             core_memory=await self._aget_core_memory(),
         )
 
-        messages: list[tuple[str, str] | LangchainToolMessage] = []
+        input_messages: list[tuple[str, str] | LangchainToolMessage] = []
         if state.previous_response_id:
             last_message = state.messages[-1]
             if isinstance(last_message, HumanMessage):
@@ -122,7 +122,7 @@ class DeepResearchPlannerNode(DeepResearchNode):
                     raise ValueError("No other messages found in the state.")
                 last_other_message = other_messages[-1]
                 if isinstance(last_other_message, AssistantMessage) and last_other_message.tool_calls:
-                    messages.extend(
+                    input_messages.extend(
                         [
                             LangchainToolMessage(
                                 content="The tool call was interrupted by the user.", tool_call_id=tool_call.id
@@ -131,14 +131,14 @@ class DeepResearchPlannerNode(DeepResearchNode):
                         ]
                     )
                 elif isinstance(last_other_message, AssistantToolCallMessage):
-                    messages.append(
+                    input_messages.append(
                         LangchainToolMessage(
                             content=last_other_message.content, tool_call_id=last_other_message.tool_call_id
                         )
                     )
-                messages.append(("human", last_message.content))
+                input_messages.append(("human", last_message.content))
             elif isinstance(last_message, AssistantToolCallMessage):
-                messages.append(
+                input_messages.append(
                     LangchainToolMessage(content=last_message.content, tool_call_id=last_message.tool_call_id)
                 )
             else:
@@ -156,9 +156,9 @@ class DeepResearchPlannerNode(DeepResearchNode):
             serializer = NotebookSerializer()
             notebook_content = ProsemirrorJSONContent.model_validate(notebook.content)
             markdown = serializer.from_json_to_markdown(notebook_content)
-            messages = [("human", markdown)]
+            input_messages = [("human", markdown)]
 
-        prompt = ChatPromptTemplate.from_messages(messages)
+        prompt = ChatPromptTemplate.from_messages(input_messages)
         model = self._get_model(instructions, state.previous_response_id).bind_tools(
             [todo_write, todo_read, result_write, finalize_research, artifacts_read, execute_tasks],
             tool_choice="required",
@@ -171,7 +171,7 @@ class DeepResearchPlannerNode(DeepResearchNode):
         )
         response = cast(LangchainAIMessage, response)
 
-        messages = normalize_ai_message(response)  # type: ignore - this might be broken now
+        messages = normalize_ai_message(response)
         response_id = response.response_metadata["id"]
 
         return PartialDeepResearchState(
