@@ -23,6 +23,7 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
@@ -284,9 +285,8 @@ function convertToTypedExperimentResponse(response: CachedExperimentQueryRespons
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => {
-        const baseKey = props.experimentId || 'new'
-        // For new experiments, make each tab's instance unique
-        return baseKey === 'new' && props.tabId ? `new-${props.tabId}` : baseKey
+        const baseKey = props.experimentId ?? 'new'
+        return `${baseKey}${props.tabId ? `-${props.tabId}` : ''}`
     }),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect(() => ({
@@ -841,7 +841,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions, props }) => ({
+    listeners(({ values, actions }) => ({
         createExperiment: async ({ draft, folder }) => {
             actions.setCreateExperimentLoading(true)
             const { recommendedRunningTime, recommendedSampleSize, minimumDetectableEffect } = values
@@ -868,7 +868,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
 
             let response: Experiment | null = null
-            const isUpdate = props.formMode === 'update'
+            const isUpdate = values.formMode === FORM_MODES.update
             try {
                 if (isUpdate) {
                     response = await api.update(
@@ -918,7 +918,7 @@ export const experimentLogic = kea<experimentLogicType>([
                              * the recommended running time. If we are duplicating we want to
                              * preserve this values.
                              */
-                            props.formMode === FORM_MODES.create
+                            values.formMode === FORM_MODES.create
                                 ? {
                                       ...values.experiment?.parameters,
                                       recommended_running_time: recommendedRunningTime,
@@ -951,14 +951,26 @@ export const experimentLogic = kea<experimentLogicType>([
             if (response?.id) {
                 const experimentId = response.id
                 refreshTreeItem('experiment', String(experimentId))
-                router.actions.push(urls.experiment(experimentId))
+                const navigateToExperiment = (): void => {
+                    const targetUrl = urls.experiment(experimentId)
+                    const tabId = values.props.tabId
+                    const activeTabId = sceneLogic.values.activeTabId
+
+                    if (tabId && activeTabId && activeTabId !== tabId) {
+                        sceneLogic.actions.setTabs(
+                            sceneLogic.values.tabs.map((tab) => (tab.id === tabId ? { ...tab, url: targetUrl } : tab))
+                        )
+                    } else {
+                        router.actions.push(targetUrl)
+                    }
+                }
+
+                navigateToExperiment()
                 actions.addToExperiments(response)
                 lemonToast.success(`Experiment ${isUpdate ? 'updated' : 'created'}`, {
                     button: {
                         label: 'View it',
-                        action: () => {
-                            router.actions.push(urls.experiment(experimentId))
-                        },
+                        action: navigateToExperiment,
                     },
                 })
             }
@@ -1373,20 +1385,20 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
     })),
-    loaders(({ actions, props, values }) => ({
+    loaders(({ actions, values }) => ({
         experiment: {
             loadExperiment: async () => {
-                if (props.experimentId && props.experimentId !== 'new') {
+                if (values.experimentId && values.experimentId !== 'new') {
                     try {
                         let response: Experiment = await api.get(
-                            `api/projects/${values.currentProjectId}/experiments/${props.experimentId}`
+                            `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`
                         )
 
                         /**
                          * if we are duplicating, we need to clear a lot of props to ensure that
                          * the experiment will be in draft mode and available for launch
                          */
-                        if (props.formMode === FORM_MODES.duplicate) {
+                        if (values.formMode === FORM_MODES.duplicate) {
                             response = {
                                 ...response,
                                 name: `${response.name} (duplicate)`,
@@ -1436,8 +1448,8 @@ export const experimentLogic = kea<experimentLogicType>([
             null as CohortType | null,
             {
                 createExposureCohort: async () => {
-                    if (props.experimentId && props.experimentId !== 'new' && props.experimentId !== 'web') {
-                        return (await api.experiments.createExposureCohort(props.experimentId)).cohort
+                    if (values.experimentId && values.experimentId !== 'new' && values.experimentId !== 'web') {
+                        return (await api.experiments.createExposureCohort(values.experimentId)).cohort
                     }
                     return null
                 },
@@ -1475,7 +1487,7 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     const query = setLatestVersionsOnQuery({
                         kind: NodeKind.ExperimentExposureQuery,
-                        experiment_id: props.experimentId,
+                        experiment_id: values.experimentId,
                         experiment_name: experiment.name,
                         exposure_criteria: experiment.exposure_criteria,
                         feature_flag: experiment.feature_flag,
@@ -2023,7 +2035,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
     }),
-    forms(({ actions, values, props }) => ({
+    forms(({ actions, values }) => ({
         experiment: {
             options: { showErrorsOnTouch: true },
             defaults: { ...NEW_EXPERIMENT } as Experiment,
@@ -2041,7 +2053,7 @@ export const experimentLogic = kea<experimentLogicType>([
             submit: () => {
                 if (
                     values.experimentId &&
-                    ([FORM_MODES.create, FORM_MODES.duplicate] as FormModes[]).includes(props.formMode!)
+                    ([FORM_MODES.create, FORM_MODES.duplicate] as FormModes[]).includes(values.formMode!)
                 ) {
                     actions.createExperiment(true)
                 } else {

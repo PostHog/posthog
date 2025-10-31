@@ -1,5 +1,6 @@
-import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
+import { BuiltLogic, actions, kea, listeners, path, props, reducers, selectors } from 'kea'
 
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { Scene } from 'scenes/sceneTypes'
@@ -9,7 +10,14 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { ActivityScope, Breadcrumb, Experiment, ProjectTreeRef } from '~/types'
 
-import { type ExperimentLogicProps, NEW_EXPERIMENT, experimentLogic } from './experimentLogic'
+import {
+    type ExperimentLogicProps,
+    FORM_MODES,
+    type FormModes,
+    NEW_EXPERIMENT,
+    experimentLogic,
+} from './experimentLogic'
+import type { experimentLogicType } from './experimentLogicType'
 import type { experimentSceneLogicType } from './experimentSceneLogicType'
 
 export interface ExperimentSceneLogicProps extends ExperimentLogicProps {
@@ -20,12 +28,22 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
     props({} as ExperimentSceneLogicProps),
     path(['scenes', 'experiments', 'experimentSceneLogic']),
     tabAwareScene(),
-    connect((props: ExperimentSceneLogicProps) => ({
-        values: [experimentLogic(props), ['experiment', 'experimentMissing', 'isExperimentRunning']],
-        actions: [experimentLogic(props), ['loadExperiment', 'loadExposures', 'setEditExperiment', 'resetExperiment']],
-    })),
     actions({
         setActiveTabKey: (activeTabKey: string) => ({ activeTabKey }),
+        setSceneState: (experimentId: Experiment['id'], formMode: FormModes) => ({ experimentId, formMode }),
+        setExperimentLogicRef: (
+            logic: BuiltLogic<experimentLogicType> | null,
+            unmount: null | (() => void),
+            logicProps: ExperimentLogicProps | null
+        ) => ({
+            logic,
+            unmount,
+            logicProps,
+        }),
+        setEditMode: (editing: boolean) => ({ editing }),
+        resetExperimentState: (experimentConfig: Experiment) => ({ experimentConfig }),
+        loadExperimentData: true,
+        loadExposuresData: (forceRefresh: boolean = false) => ({ forceRefresh }),
     }),
     reducers({
         activeTabKey: [
@@ -34,17 +52,48 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 setActiveTabKey: (_, { activeTabKey }) => activeTabKey,
             },
         ],
-    }),
-    selectors({
         experimentId: [
-            () => [(_, props) => props.experimentId ?? 'new'],
-            (experimentId: Experiment['id']): Experiment['id'] => experimentId,
+            (props: ExperimentSceneLogicProps) => props.experimentId ?? 'new',
+            {
+                setSceneState: (_, { experimentId }) => experimentId,
+            },
         ],
         formMode: [
-            () => [(_, props) => props.formMode],
-            (formMode: ExperimentLogicProps['formMode']): ExperimentLogicProps['formMode'] => formMode,
+            (props: ExperimentSceneLogicProps) => props.formMode ?? FORM_MODES.update,
+            {
+                setSceneState: (_, { formMode }) => formMode,
+            },
         ],
+        experimentLogicRef: [
+            null as null | {
+                logic: BuiltLogic<experimentLogicType>
+                unmount: () => void
+                props: ExperimentLogicProps
+            },
+            {
+                setExperimentLogicRef: (_, { logic, unmount, logicProps }) =>
+                    logic && unmount && logicProps ? { logic, unmount, props: logicProps } : null,
+            },
+        ],
+    }),
+    selectors({
         tabId: [() => [(_, props) => props.tabId], (tabId: string | undefined): string | undefined => tabId],
+        experimentLogicValues: [
+            (s) => [s.experimentLogicRef],
+            (experimentLogicRef): Record<string, any> | undefined => experimentLogicRef?.logic.values,
+        ],
+        experiment: [
+            (s) => [s.experimentLogicValues],
+            (logicValues: Record<string, any> | undefined): Experiment => logicValues?.experiment ?? NEW_EXPERIMENT,
+        ],
+        experimentMissing: [
+            (s) => [s.experimentLogicValues],
+            (logicValues: Record<string, any> | undefined): boolean => logicValues?.experimentMissing ?? false,
+        ],
+        isExperimentRunning: [
+            (s) => [s.experimentLogicValues],
+            (logicValues: Record<string, any> | undefined): boolean => logicValues?.isExperimentRunning ?? false,
+        ],
         breadcrumbs: [
             (s) => [s.experiment, s.experimentId],
             (experiment: Experiment, experimentId: Experiment['id']): Breadcrumb[] => {
@@ -81,35 +130,122 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             },
         ],
     }),
+    listeners(({ actions, values }) => {
+        const ensureExperimentLogicMounted = (): void => {
+            if (!values.tabId) {
+                throw new Error('Tab-aware scene logic must have a tabId prop')
+            }
+
+            const currentProps = values.experimentLogicRef?.props
+            const desiredExperimentId = values.experimentId ?? 'new'
+            const desiredFormMode = values.formMode ?? FORM_MODES.update
+
+            if (
+                !values.experimentLogicRef ||
+                currentProps?.experimentId !== desiredExperimentId ||
+                currentProps?.formMode !== desiredFormMode ||
+                currentProps?.tabId !== values.tabId
+            ) {
+                const oldRef = values.experimentLogicRef
+
+                const logicProps: ExperimentLogicProps = {
+                    experimentId: desiredExperimentId,
+                    formMode: desiredFormMode,
+                    tabId: values.tabId,
+                }
+
+                const logic = experimentLogic.build(logicProps)
+                const unmount = logic.mount()
+                actions.setExperimentLogicRef(logic, unmount, logicProps)
+
+                if (oldRef) {
+                    oldRef.unmount()
+                }
+            }
+        }
+
+        return {
+            setSceneState: () => {
+                ensureExperimentLogicMounted()
+            },
+            setEditMode: ({ editing }) => {
+                ensureExperimentLogicMounted()
+                values.experimentLogicRef?.logic.actions.setEditExperiment(editing)
+            },
+            resetExperimentState: ({ experimentConfig }) => {
+                ensureExperimentLogicMounted()
+                values.experimentLogicRef?.logic.actions.resetExperiment(experimentConfig)
+            },
+            loadExperimentData: () => {
+                ensureExperimentLogicMounted()
+                values.experimentLogicRef?.logic.actions.loadExperiment()
+            },
+            loadExposuresData: ({ forceRefresh }) => {
+                ensureExperimentLogicMounted()
+                values.experimentLogicRef?.logic.actions.loadExposures(forceRefresh)
+            },
+        }
+    }),
+    tabAwareActionToUrl(({ values }) => {
+        const actionToUrl = ({
+            experimentId = values.experimentId,
+            formMode = values.formMode,
+        }: {
+            experimentId?: Experiment['id']
+            formMode?: FormModes
+        }):
+            | [string, Record<string, any> | string | undefined, Record<string, any> | string | undefined]
+            | undefined => {
+            const id = experimentId ?? 'new'
+            const effectiveFormMode =
+                id === 'new' && formMode === FORM_MODES.create
+                    ? undefined
+                    : formMode === FORM_MODES.update
+                      ? undefined
+                      : formMode
+
+            return [urls.experiment(id, effectiveFormMode), undefined, undefined]
+        }
+
+        return {
+            setSceneState: actionToUrl,
+        }
+    }),
     tabAwareUrlToAction(({ actions, values }) => ({
         '/experiments/:id': ({ id }, query, __, currentLocation, previousLocation) => {
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
-            actions.setEditExperiment(false)
+            actions.setEditMode(false)
 
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
+                const formMode = parsedId === 'new' ? FORM_MODES.create : FORM_MODES.update
+                const existingProps = values.experimentLogicRef?.props
+                const matchesExistingLogic =
+                    existingProps?.experimentId === parsedId && existingProps?.formMode === formMode
+
+                actions.setSceneState(parsedId, formMode)
+
                 if (parsedId === 'new') {
                     // Only reset if we're not already viewing a new experiment (tab switch scenario)
                     const shouldReset = currentLocation.initial || values.experimentId !== 'new'
 
                     if (shouldReset) {
-                        actions.resetExperiment({
+                        actions.resetExperimentState({
                             ...NEW_EXPERIMENT,
                             metrics: query.metric ? [query.metric] : [],
                             name: query.name ?? '',
                         })
                     }
                 } else {
-                    // Only load if this is a different experiment or initial load
-                    const shouldLoad = currentLocation.initial || values.experiment?.id !== parsedId
+                    // Only load if this is a different experiment or we have no cached logic yet
+                    const shouldLoad = currentLocation.initial || !matchesExistingLogic
 
                     if (shouldLoad) {
-                        actions.loadExperiment()
-                    }
-
-                    if (values.isExperimentRunning) {
-                        actions.loadExposures()
+                        actions.loadExperimentData()
+                        if (values.isExperimentRunning) {
+                            actions.loadExposuresData()
+                        }
                     }
                 }
             }
@@ -119,14 +255,24 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
 
             if (id && didPathChange) {
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
+                const parsedFormMode =
+                    formMode && Object.values(FORM_MODES).includes(formMode as FormModes)
+                        ? (formMode as FormModes)
+                        : parsedId === 'new'
+                          ? FORM_MODES.create
+                          : FORM_MODES.update
+                const existingProps = values.experimentLogicRef?.props
+                const matchesExistingLogic =
+                    existingProps?.experimentId === parsedId && existingProps?.formMode === parsedFormMode
+
+                actions.setSceneState(parsedId, parsedFormMode)
 
                 // For form modes, always reload to ensure proper data transformation (duplicate/edit)
                 // unless we're just switching back to a tab that already has this exact experiment+formMode loaded
-                const shouldLoad =
-                    currentLocation.initial || values.experiment?.id !== parsedId || values.formMode !== formMode
+                const shouldLoad = currentLocation.initial || !matchesExistingLogic
 
                 if (shouldLoad) {
-                    actions.loadExperiment()
+                    actions.loadExperimentData()
                 }
             }
         },
