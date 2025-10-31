@@ -126,9 +126,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             else:
                 breakdown_other_expr = ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL)
 
-            breakdown_limit = None  # TODO: Investigate what this override is used for
-            breakdown_limit_expr = ast.Constant(value=breakdown_limit or self._get_breakdown_limit())
-
+            breakdown_limit_expr = ast.Constant(value=self._get_breakdown_limit())
             is_cumulative = self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
 
             return parse_select(
@@ -195,33 +193,15 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     ) ORDER BY day_start, value
                 ) AS top_n_and_other_breakdown_values,
 
-                (
-                    -- All dates in the range; :TODO: Reuse self._get_date_subqueries()
-                    arrayMap(
-                        number -> {{date_from_start_of_interval}} + {{number_interval_period}}, -- NOTE: flipped the order around to use start date
-                        range(
-                            0,
-                            coalesce(
-                                dateDiff(
-                                    {{interval}},
-                                    {{date_from_start_of_interval}},
-                                    {{date_to_start_of_interval}}
-                                )
-                            ) + 1
-                        )
-                    )
-
-                ) as all_dates,
-
                 -- Transpose the results into arrays for each breakdown value
                 {'SELECT date, total, breakdown_value FROM (' if is_cumulative else ''}
                 SELECT
-                    all_dates AS date,
+                    {{all_dates}},
                     arrayMap(d ->
                         arraySum(
                             arrayMap((v, dd) -> dd = d ? v : 0, vals, days)
                         ),
-                        all_dates
+                        date
                     ) AS {'values' if is_cumulative else 'total'},
                     {'arrayMap(i -> arraySum(arraySlice(values, 1, i)), arrayEnumerate(values)) AS total,' if is_cumulative else ''}
                     breakdown_value
@@ -241,6 +221,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     "breakdown_other": breakdown_other_expr,
                     "breakdown_limit": breakdown_limit_expr,
                     "breakdown_order": self._breakdown_query_order_by(self.breakdown),
+                    "all_dates": self._get_date_subqueries(),
                     **self.query_date_range.to_placeholders(),
                 },
             )

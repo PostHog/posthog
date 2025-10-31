@@ -39,7 +39,7 @@
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
-                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+                                                              and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
     (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
@@ -197,7 +197,7 @@
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
-                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+                                                              and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
     (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
@@ -460,7 +460,7 @@
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
-                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+                                                              and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
     (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
@@ -618,7 +618,7 @@
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
-                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+                                                              and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
     (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
@@ -776,7 +776,7 @@
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
-                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+                                                              and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
     (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
@@ -974,7 +974,7 @@
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
-                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+                                                              and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
     (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
@@ -1172,7 +1172,7 @@
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
-                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+                                                              and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
     (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
@@ -1398,7 +1398,7 @@
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
-                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+                                                              and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
     (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
@@ -1624,7 +1624,7 @@
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
-                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+                                                              and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
     (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
@@ -1782,7 +1782,7 @@
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
-                                                              and isNull(d)), v, 0), vals, days)), arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1)))) AS total,
+                                                              and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
     (SELECT groupArray(top_n_and_other_breakdown_values.day_start) AS days,
