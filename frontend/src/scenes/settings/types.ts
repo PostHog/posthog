@@ -152,6 +152,7 @@ export type SettingId =
     | 'base-currency'
     | 'marketing-settings'
     | 'mcp-server-configure'
+    | 'organization-ip-anonymization-default'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
