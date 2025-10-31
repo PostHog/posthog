@@ -390,8 +390,14 @@ export class PostgresPersonRepository
                 query,
                 [
                     ...personParams,
-                    ...distinctIds.map(({ version }) => version),
-                    ...distinctIds.map(({ distinctId }) => distinctId),
+                    ...distinctIds
+                        .slice()
+                        .reverse()
+                        .map(({ version }) => version),
+                    ...distinctIds
+                        .slice()
+                        .reverse()
+                        .map(({ distinctId }) => distinctId),
                 ],
                 'insertPerson',
                 'warn'
