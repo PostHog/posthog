@@ -5,11 +5,14 @@ import { useDebouncedCallback } from 'use-debounce'
 import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { SceneShortcut } from 'lib/components/Scenes/SceneShortcut/SceneShortcut'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -22,6 +25,8 @@ import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDivider } from './SceneDivider'
 
 function SceneTitlePanelButton(): JSX.Element | null {
+    const { sceneKey } = useValues(sceneLogic)
+
     const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative, forceScenePanelClosedWhenRelative } =
         useValues(sceneLayoutLogic)
     const { setScenePanelOpen, setForceScenePanelClosedWhenRelative } = useActions(sceneLayoutLogic)
@@ -31,31 +36,42 @@ function SceneTitlePanelButton(): JSX.Element | null {
     }
 
     return (
-        <LemonButton
-            onClick={() =>
+        <SceneShortcut
+            keys={['option', 'i']}
+            description="Open Info & actions panel"
+            onAction={() => {
                 scenePanelIsRelative
                     ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
                     : setScenePanelOpen(!scenePanelOpen)
-            }
-            icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
-            tooltip={
-                !scenePanelOpen
-                    ? 'Open Info & actions panel'
-                    : scenePanelIsRelative
-                      ? 'Force close Info & actions panel'
-                      : 'Close Info & actions panel'
-            }
-            data-attr="info-actions-panel"
-            aria-label={
-                !scenePanelOpen
-                    ? 'Open Info & actions panel'
-                    : scenePanelIsRelative
-                      ? 'Force close Info & actions panel'
-                      : 'Close Info & actions panel'
-            }
-            active={scenePanelOpen}
-            size="small"
-        />
+            }}
+            sceneKey={sceneKey as Scene}
+        >
+            <LemonButton
+                onClick={() =>
+                    scenePanelIsRelative
+                        ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
+                        : setScenePanelOpen(!scenePanelOpen)
+                }
+                icon={!scenePanelOpen ? <IconEllipsis className="text-primary" /> : <IconX className="text-primary" />}
+                tooltip={
+                    !scenePanelOpen
+                        ? 'Open Info & actions panel'
+                        : scenePanelIsRelative
+                          ? 'Force close Info & actions panel'
+                          : 'Close Info & actions panel'
+                }
+                data-attr="info-actions-panel"
+                aria-label={
+                    !scenePanelOpen
+                        ? 'Open Info & actions panel'
+                        : scenePanelIsRelative
+                          ? 'Force close Info & actions panel'
+                          : 'Close Info & actions panel'
+                }
+                active={scenePanelOpen}
+                size="small"
+            />
+        </SceneShortcut>
     )
 }
 type ResourceType = {

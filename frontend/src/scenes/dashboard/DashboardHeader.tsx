@@ -83,7 +83,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
     const { newTab } = useActions(sceneLogic)
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
-
+    const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { user } = useValues(userLogic)
 
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
@@ -94,6 +94,15 @@ export function DashboardHeader(): JSX.Element | null {
     const { push } = useActions(router)
 
     const [isPinned, setIsPinned] = useState(dashboard?.pinned)
+
+    // Check if text tile modal is currently open
+    const isTextTileModalOpen = useMemo(() => {
+        if (!dashboard) {
+            return false
+        }
+        const currentPath = router.values.location.pathname
+        return currentPath.includes(`/dashboard/${dashboard.id}/text-tiles/`)
+    }, [dashboard, router.values.location.pathname])
 
     const isNewDashboard = useMemo(() => {
         if (!dashboard || dashboardLoading) {
@@ -248,7 +257,7 @@ export function DashboardHeader(): JSX.Element | null {
                             keys={['option', 'e']}
                             description="Toggle dashboard edit mode"
                             sceneKey={Scene.Dashboard}
-                            enabled={canEditDashboard}
+                            enabled={canEditDashboard && dashboardMode !== DashboardMode.Edit}
                             onAction={() =>
                                 setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
                             }
@@ -406,9 +415,9 @@ export function DashboardHeader(): JSX.Element | null {
                             <>
                                 <SceneShortcut
                                     keys={['option', 'escape']}
-                                    description="Cancel dashboard edit mode"
+                                    description="Cancel edit mode"
                                     sceneKey={Scene.Dashboard}
-                                    enabled={canEditDashboard}
+                                    enabled={canEditDashboard && dashboardMode === DashboardMode.Edit}
                                     onAction={() =>
                                         setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
                                     }
@@ -427,7 +436,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 </SceneShortcut>
 
                                 <SceneShortcut
-                                    keys={['option', 'enter']}
+                                    keys={['option', 's']}
                                     description="Save dashboard"
                                     sceneKey={Scene.Dashboard}
                                     enabled={canEditDashboard}
@@ -492,7 +501,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 keys={['option', 'a']}
                                                 description="Add text card to dashboard"
                                                 sceneKey={Scene.Dashboard}
-                                                enabled={canEditDashboard}
+                                                enabled={canEditDashboard && !isTextTileModalOpen}
                                                 onAction={() => push(urls.dashboardTextTile(dashboard.id, 'new'))}
                                             >
                                                 <LemonButton
@@ -532,7 +541,11 @@ export function DashboardHeader(): JSX.Element | null {
                                                     keys={['option', 'n']}
                                                     description="Add insight to dashboard"
                                                     sceneKey={Scene.Dashboard}
-                                                    enabled={canEditDashboard}
+                                                    enabled={
+                                                        canEditDashboard &&
+                                                        !addInsightToDashboardModalVisible &&
+                                                        !isTextTileModalOpen
+                                                    }
                                                     onAction={showAddInsightToDashboardModal}
                                                 >
                                                     <LemonButton

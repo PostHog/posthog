@@ -137,6 +137,8 @@ export const sceneLogic = kea<sceneLogicType>([
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
         cache.lastTrackedSceneByTab = {} as Record<string, { sceneId?: string; sceneKey?: string }>
+        cache.optionClickTimestamp = 0
+        cache.optionClickTimeout = null
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -215,6 +217,7 @@ export const sceneLogic = kea<sceneLogicType>([
         registerSceneShortcut: (tabId: string, shortcut: SceneShortcut) => ({ tabId, shortcut }),
         unregisterSceneShortcut: (tabId: string, shortcutId: string) => ({ tabId, shortcutId }),
         setOptionKeyHeld: (held: boolean) => ({ held }),
+        setActionPaletteOpen: (open: boolean) => ({ open }),
     }),
     reducers({
         // We store all state in "tabs". This allows us to have multiple tabs open, each with its own scene and parameters.
@@ -407,6 +410,12 @@ export const sceneLogic = kea<sceneLogicType>([
             false,
             {
                 setOptionKeyHeld: (_, { held }) => held,
+            },
+        ],
+        actionPaletteOpen: [
+            false,
+            {
+                setActionPaletteOpen: (_, { open }) => open,
             },
         ],
     }),
@@ -1196,16 +1205,26 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
-                // Skip if we're in an input/textarea/contenteditable
+                // Skip if we're in an input/textarea/contenteditable (except action palette)
                 const element = event.target as HTMLElement
+                const isInActionPalette = element && element.closest('#scene-action-palette')
+
                 if (
                     element &&
                     (element.tagName === 'INPUT' ||
                         element.tagName === 'TEXTAREA' ||
                         element.contentEditable === 'true' ||
-                        element.closest('.NotebookEditor'))
+                        element.closest('.NotebookEditor')) &&
+                    !isInActionPalette
                 ) {
                     return
+                }
+
+                // Special handling for action palette input - prevent accented characters
+                if (isInActionPalette && event.altKey && element.tagName === 'INPUT') {
+                    // Don't return here - let the shortcut system handle it
+                    // But prevent the default behavior to avoid accented characters
+                    event.preventDefault()
                 }
 
                 // Build current key combination
@@ -1258,9 +1277,24 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             const onKeyUp = (event: KeyboardEvent): void => {
-                // Track option key release
+                // Track option key release and double click detection
                 if (!event.altKey && values.optionKeyHeld) {
                     actions.setOptionKeyHeld(false)
+
+                    // Handle double option click for command palette
+                    if (event.key === 'Alt') {
+                        const now = Date.now()
+                        const timeSinceLastClick = now - cache.optionClickTimestamp
+
+                        if (timeSinceLastClick < 500) {
+                            // Double click detected
+                            actions.setActionPaletteOpen(true)
+                            cache.optionClickTimestamp = 0 // Reset to prevent triple clicks
+                        } else {
+                            // First click, start timer
+                            cache.optionClickTimestamp = now
+                        }
+                    }
                 }
             }
 

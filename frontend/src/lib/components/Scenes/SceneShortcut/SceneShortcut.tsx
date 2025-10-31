@@ -15,15 +15,16 @@ export interface SceneShortcut {
     action: () => void
     sceneKey?: Scene
     element?: HTMLElement
+    closeActionPaletteOnAction?: boolean
 }
 
-interface SceneShortcutProps {
+export interface SceneShortcutProps {
     /** Array of keys that make up the shortcut (e.g., ['command', 'e']) */
     keys: HotKeyOrModifier[]
     /** Description of what this shortcut does */
     description: string
     /** Scene this shortcut belongs to */
-    sceneKey: Scene
+    sceneKey?: Scene
     /** Whether the shortcut is currently enabled */
     enabled?: boolean
     /** The action to perform when the shortcut is triggered */
@@ -32,6 +33,8 @@ interface SceneShortcutProps {
     id?: string
     /** The child element to wrap */
     children: React.ReactNode
+    /** Whether the action palette should close when this action is triggered @default true */
+    closeActionPaletteOnAction?: boolean
 }
 
 export function SceneShortcut({
@@ -42,6 +45,7 @@ export function SceneShortcut({
     onAction,
     id,
     children,
+    closeActionPaletteOnAction = true,
 }: SceneShortcutProps): JSX.Element {
     const elementRef = useRef<HTMLElement>(null)
     const { registerSceneShortcut, unregisterSceneShortcut } = useActions(sceneLogic)
@@ -66,8 +70,9 @@ export function SceneShortcut({
             action: stableOnAction,
             sceneKey,
             element: elementRef.current || undefined,
+            closeActionPaletteOnAction,
         }),
-        [shortcutId, keys, description, enabled, stableOnAction, sceneKey]
+        [shortcutId, keys, description, enabled, stableOnAction, sceneKey, closeActionPaletteOnAction]
     )
 
     // Register/unregister shortcut
