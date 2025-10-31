@@ -25,7 +25,7 @@ use tower_http::{
 use crate::{
     api::{
         endpoint, flag_definitions, flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
-        flags_rate_limiter::FlagsRateLimiter,
+        flags_rate_limiter::FlagsRateLimiter, sse_endpoint,
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
     config::{Config, TeamIdCollection},
@@ -33,6 +33,7 @@ use crate::{
         consts::{FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER},
         utils::team_id_label_filter,
     },
+    sse::SseRedisSubscriptionManager,
 };
 
 #[derive(Clone)]
@@ -49,6 +50,7 @@ pub struct State {
     pub flag_definitions_limiter: FlagDefinitionsRateLimiter,
     pub config: Config,
     pub flags_rate_limiter: FlagsRateLimiter,
+    pub sse_manager: Option<Arc<SseRedisSubscriptionManager>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -90,6 +92,12 @@ where
         )
     });
 
+    // Initialize SSE manager for real-time feature flag updates
+    // For now, use a simple Redis URL - in production, this should come from config
+    let redis_url =
+        std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string());
+    let sse_manager = Arc::new(SseRedisSubscriptionManager::new(redis_url));
+
     let state = State {
         redis_reader,
         redis_writer,
@@ -103,6 +111,7 @@ where
         flag_definitions_limiter,
         config: config.clone(),
         flags_rate_limiter,
+        sse_manager: Some(sse_manager),
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -132,6 +141,8 @@ where
             "/flags/definitions/",
             any(flag_definitions::flags_definitions),
         )
+        .route("/flags/stream", get(sse_endpoint::feature_flags_stream))
+        .route("/flags/stream/", get(sse_endpoint::feature_flags_stream))
         .route("/decide", any(endpoint::flags))
         .route("/decide/", any(endpoint::flags))
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency));

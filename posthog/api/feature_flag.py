@@ -211,7 +211,7 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
                 request.user.distinct_id,
                 groups={"organization": str(request.user.organization.id)},
                 group_properties={"organization": {"id": str(request.user.organization.id)}},
-                only_evaluate_locally=False,
+                only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
         except Exception:

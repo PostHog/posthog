@@ -12,6 +12,7 @@ pub mod properties;
 pub mod router;
 pub mod server;
 pub mod site_apps;
+pub mod sse;
 pub mod team;
 
 // Test modules don't need to be compiled with main binary

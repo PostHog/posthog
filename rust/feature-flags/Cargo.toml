@@ -65,6 +65,8 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 tracing-opentelemetry = { workspace = true }
 tokio-retry = "0.3"
+async-stream = "0.3"
+futures-util = { workspace = true }
 
 [lints]
 workspace = true

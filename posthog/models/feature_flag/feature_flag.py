@@ -486,6 +486,55 @@ def refresh_flag_cache_on_updates(sender, instance, **kwargs):
     transaction.on_commit(lambda: set_feature_flags_for_team_in_cache(instance.team.project_id))
 
 
+@mutable_receiver([post_save], sender=FeatureFlag)
+def broadcast_feature_flag_updates_to_redis(sender, instance, created=False, **kwargs):
+    """
+    Broadcast feature flag changes to Redis Pub/Sub for SSE consumers.
+
+    This signal handler publishes feature flag create/update events to a global Redis channel
+    where they can be consumed by all Rust SSE service pods. Each pod filters the events
+    and only broadcasts to SSE clients connected to that specific team.
+
+    Architecture:
+        Django Signal → Redis PUBLISH (global channel) → All Rust Pods → Filter by team → SSE Clients
+
+    Scalability:
+        - Uses ONE Redis channel for ALL teams: "feature_flags:updates"
+        - Each Rust pod has ONE Redis subscription (not per-team)
+        - Pods filter events in-memory by team_id
+        - Much more scalable than per-team Redis subscriptions
+    """
+    from posthog.api.feature_flag import MinimalFeatureFlagSerializer
+    from posthog.redis import get_client
+
+    def _broadcast():
+        # Determine event type based on created parameter
+        event_type = "created" if created else "updated"
+
+        # Serialize the full flag data
+        data = MinimalFeatureFlagSerializer(instance).data
+
+        # Add team_id to the data so Rust can filter by team
+        data["team_id"] = instance.team_id
+
+        # Publish to the global Redis channel - all Rust pods will receive this
+        # Each pod will filter and only broadcast to SSE clients for this team
+        try:
+            redis_client = get_client()
+            channel = "feature_flags:updates"
+            message = json.dumps({"type": event_type, "data": data})
+
+            redis_client.publish(channel, message)
+            logger.info(
+                f"Published {event_type} event for flag {instance.key} (team {instance.team_id}) to global Redis channel"
+            )
+        except Exception:
+            logger.exception(f"Failed to publish feature flag update to Redis for team {instance.team_id}")
+
+    # Defer broadcast until after the transaction commits to ensure consistency
+    transaction.on_commit(_broadcast)
+
+
 class FeatureFlagHashKeyOverride(models.Model):
     # Can't use a foreign key to feature_flag_key directly, since
     # the unique constraint is on (team_id+key), and not just key.
