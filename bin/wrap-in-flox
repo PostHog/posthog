@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -e
+
+if command -v flox &> /dev/null && [ -d ".flox/cache" ] && [ -z "$FLOX_ENV" ]; then
+# If `flox` available, and .flox/cache/ has content, and $FLOX_ENV is empty, activate the environment
+    flox activate -- "$@"
+else
+    # Otherwise, run the command directly
+    "$@"
+fi

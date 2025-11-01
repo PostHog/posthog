@@ -81,16 +81,16 @@
         }
     },
     "lint-staged": {
-        "*.{json,yaml,yml}": "bin/hogli format:yaml",
-        "*.{css,scss}": "bin/hogli format:css",
-        "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
-        "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:plugin-server",
-        "funnel-udf/**/*.rs": "bin/hogli format:rust",
+        "*.{json,yaml,yml}": "bin/wrap-in-flox bin/hogli format:yaml",
+        "*.{css,scss}": "bin/wrap-in-flox bin/hogli format:css",
+        "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": "bin/wrap-in-flox bin/hogli format:js",
+        "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": "bin/wrap-in-flox bin/hogli format:plugin-server",
+        "funnel-udf/**/*.rs": "bin/wrap-in-flox bin/hogli format:rust",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
-            "bin/hogli lint:python:fix",
-            "bin/hogli format:python"
+            "bin/wrap-in-flox bin/hogli lint:python:fix",
+            "bin/wrap-in-flox bin/hogli format:python"
         ],
-        "*.{md,mdx}": "bin/hogli format:markdown"
+        "*.{md,mdx}": "bin/wrap-in-flox bin/hogli format:markdown"
     },
     "browserslist": {
         "development": [

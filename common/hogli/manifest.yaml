@@ -417,7 +417,11 @@ tools:
         hidden: true
     create:notebook:node:
         bin_script: create-notebook-node.sh
-        description: 'Create a new NotebookNode file and update types and editor references'
+        description: Create a new NotebookNode file and update types and editor references
+        hidden: true
+    wrap:in:flox:
+        bin_script: wrap-in-flox
+        description: 'Runs the provided Bash command with Flox activation guaranteed'
         hidden: true
 utilities:
     utilities:posthog-worktree:
