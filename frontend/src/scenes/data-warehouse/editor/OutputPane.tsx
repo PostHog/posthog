@@ -545,6 +545,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                                 type="primary"
                                                 onClick={() => updateInsight()}
                                                 id="sql-editor-update-insight"
+                                                data-attr="sql-editor-update-insight"
                                                 sideAction={{
                                                     dropdown: {
                                                         placement: 'bottom-end',
@@ -570,6 +571,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                                 type="primary"
                                                 onClick={() => saveAsInsight()}
                                                 id="sql-editor-save-insight"
+                                                data-attr="sql-editor-save-insight"
                                             >
                                                 Save insight
                                             </LemonButton>
@@ -585,6 +587,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             type="secondary"
                             onClick={() => setActiveTab(OutputTab.Visualization)}
                             id={`sql-editor-${editingInsight ? 'view' : 'create'}-insight`}
+                            data-attr={`sql-editor-${editingInsight ? 'view' : 'create'}-insight`}
                             icon={<IconGraph />}
                         >
                             {editingInsight ? 'View insight' : 'Create insight'}
