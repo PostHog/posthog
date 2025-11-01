@@ -42,6 +42,8 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         setSuccess: (success: boolean) => ({ success }),
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
         setRequestedUseCases: (useCases: CLIUseCase[]) => ({ useCases }),
+        updateDisplayedScopeSnapshot: true,
+        setDisplayedScopeValues: (values: Record<string, string>) => ({ values }),
     }),
     reducers({
         isSuccess: [
@@ -54,6 +56,12 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             DEFAULT_USE_CASES,
             {
                 setRequestedUseCases: (_, { useCases }) => useCases,
+            },
+        ],
+        displayedScopeValues: [
+            {} as Record<string, string>,
+            {
+                setDisplayedScopeValues: (_, { values }) => values,
             },
         ],
     }),
@@ -174,6 +182,19 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                 actions.setAuthorizeValue('projectId', values.projects[0].id)
             }
         },
+        setAuthorizeValue: (payload) => {
+            // Initialize displayed scope values when scopes are first set
+            if (payload.name === 'scopes' && Object.keys(values.displayedScopeValues).length === 0) {
+                // Small delay to ensure formScopeRadioValues selector has updated
+                setTimeout(() => {
+                    actions.setDisplayedScopeValues(values.formScopeRadioValues)
+                }, 0)
+            }
+        },
+        updateDisplayedScopeSnapshot: () => {
+            // Update displayed scope values with current form values
+            actions.setDisplayedScopeValues(values.formScopeRadioValues)
+        },
         submitAuthorizeSuccess: () => {
             actions.setSuccess(true)
         },
@@ -184,15 +205,34 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             // Update scopes when requested use cases change
             const newScopes = getDefaultScopesForUseCases(useCases)
             actions.setAuthorizeValue('scopes', newScopes)
+            // Update snapshot after setting scopes
+            setTimeout(() => {
+                actions.setDisplayedScopeValues(values.formScopeRadioValues)
+            }, 0)
         },
         setScopeRadioValue: ({ key, action }) => {
             if (!values.authorize || !values.authorize.scopes) {
                 return
             }
-            const newScopes = values.authorize.scopes.filter((scope) => !scope.startsWith(key))
-            if (action !== 'none') {
-                newScopes.push(`${key}:${action}`)
+
+            // Convert current scopes array to object for easier manipulation
+            const scopesObject: Record<string, string> = {}
+            values.authorize.scopes.forEach((scope) => {
+                const [scopeKey, scopeAction] = scope.split(':')
+                if (scopeKey && scopeAction) {
+                    scopesObject[scopeKey] = scopeAction
+                }
+            })
+
+            // Update the specific scope
+            if (action === 'none') {
+                delete scopesObject[key]
+            } else {
+                scopesObject[key] = action
             }
+
+            // Convert back to array format
+            const newScopes = Object.entries(scopesObject).map(([k, a]) => `${k}:${a}`)
 
             actions.setAuthorizeValue('scopes', newScopes)
         },
@@ -208,7 +248,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             // Parse use_cases from URL (comma-separated)
             const useCasesParam = searchParams.use_cases
             if (useCasesParam) {
-                const useCases = useCasesParam.split(',').filter((uc): uc is CLIUseCase => {
+                const useCases = useCasesParam.split(',').filter((uc: string): uc is CLIUseCase => {
                     return uc === 'schema' || uc === 'error_tracking'
                 })
                 if (useCases.length > 0) {

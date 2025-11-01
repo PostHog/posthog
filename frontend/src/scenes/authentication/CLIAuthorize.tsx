@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useState } from 'react'
 
 import { IconCode, IconGear, IconWarning } from '@posthog/icons'
 import { IconInfo } from '@posthog/icons'
@@ -109,26 +109,19 @@ export function CLIAuthorize(): JSX.Element {
         projectsLoading,
         isAuthorizeSubmitting,
         formScopeRadioValues,
+        displayedScopeValues,
         missingSchemaScopes,
         missingErrorTrackingScopes,
     } = useValues(cliAuthorizeLogic)
-    const { setAuthorizeValue, setScopeRadioValue } = useActions(cliAuthorizeLogic)
+    const { setAuthorizeValue, setScopeRadioValue, updateDisplayedScopeSnapshot } = useActions(cliAuthorizeLogic)
     const [isScopesModalOpen, setIsScopesModalOpen] = useState(false)
-    const [displayedScopeValues, setDisplayedScopeValues] = useState<Record<string, string>>({})
-
-    // Initialize displayed values only once when form values are first loaded
-    useEffect(() => {
-        if (Object.keys(displayedScopeValues).length === 0 && Object.keys(formScopeRadioValues).length > 0) {
-            setDisplayedScopeValues(formScopeRadioValues)
-        }
-    }, [formScopeRadioValues, displayedScopeValues])
 
     const handleOpenModal = (): void => {
         setIsScopesModalOpen(true)
     }
 
     const handleCloseModal = (): void => {
-        setDisplayedScopeValues(formScopeRadioValues)
+        updateDisplayedScopeSnapshot()
         setIsScopesModalOpen(false)
     }
 
