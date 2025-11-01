@@ -4,8 +4,10 @@ use rdkafka::Message;
 use tokio::sync::OwnedSemaphorePermit;
 use tracing::{debug, error, warn};
 
+use crate::kafka::batch_message::KafkaMessage;
 use crate::kafka::metrics_consts::{MESSAGES_AUTO_NACKED, MESSAGES_COMPLETED};
 use crate::kafka::tracker::{MessageCompletion, MessageHandle};
+use common_types::CapturedEvent;
 
 /// Result of message processing - simple success/failure
 #[derive(Debug, Clone)]
@@ -156,7 +158,7 @@ impl MessageResult {
 pub trait MessageProcessor: Send + Sync + Clone + 'static {
     /// Process an ackable message
     /// The processor is responsible for calling ack() or nack() on the message
-    async fn process_message(&self, message: AckableMessage) -> Result<()>;
+    async fn process_message(&self, message: KafkaMessage<CapturedEvent>) -> Result<()>;
 }
 
 #[cfg(test)]

@@ -17,8 +17,7 @@ use rdkafka::error::KafkaResult;
 use rdkafka::message::Message;
 use rdkafka::TopicPartitionList;
 use serde::Deserialize;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio_util::sync::CancellationToken;
+use tokio::sync::{mpsc::UnboundedSender, oneshot::Receiver};
 use tracing::{error, info, warn};
 
 pub struct BatchConsumer<T> {
@@ -39,7 +38,7 @@ pub struct BatchConsumer<T> {
     // shutdown signal from parent process which
     // we assume will be wrapping start_consumption
     // in a spawned thread
-    shutdown_token: CancellationToken,
+    shutdown_rx: Receiver<()>,
 }
 
 impl<T> BatchConsumer<T>
@@ -51,7 +50,7 @@ where
         config: &ClientConfig,
         rebalance_handler: Arc<dyn RebalanceHandler>,
         sender: UnboundedSender<Batch<T>>,
-        shutdown_token: CancellationToken,
+        shutdown_rx: Receiver<()>,
         topic: &str,
         batch_size: usize,
         batch_timeout: Duration,
@@ -77,12 +76,12 @@ where
             batch_size,
             batch_timeout,
             sender,
-            shutdown_token,
+            shutdown_rx,
         })
     }
 
     /// Start consuming messages in a loop with graceful shutdown support
-    pub async fn start_consumption(self) -> Result<()> {
+    pub async fn start_consumption(mut self) -> Result<()> {
         info!("Starting batch Kafka message consumption...");
 
         let batch_timeout = self.batch_timeout;
@@ -90,7 +89,6 @@ where
         let mut commit_interval = tokio::time::interval(self.commit_interval);
 
         // consume the clients and channels needed to operate the loop
-        let shutdown_token = self.shutdown_token.clone();
         let sender = self.sender;
         let consumer = self.consumer;
         let mut stream = consumer.stream();
@@ -98,13 +96,13 @@ where
         loop {
             tokio::select! {
                 // Check for shutdown signal
-                _ = shutdown_token.cancelled() => {
+                _ = &mut self.shutdown_rx => {
                     info!("Shutdown signal received, starting graceful shutdown");
                     break;
                 }
 
                 // Poll for messages
-                batch_result = Self::consume_batch(&mut stream, shutdown_token.clone(), batch_size, batch_timeout) => {
+                batch_result = Self::consume_batch(&mut stream, batch_size, batch_timeout) => {
                     match batch_result {
                         Ok(batch) => {
                             // track latest offsets with rdkafka consumer
@@ -157,7 +155,8 @@ where
         &self.consumer
     }
 
-    /// best-effort attempt to store latest offsets seen in the supplied Batch
+    /// best-effort attempt to store latest offsets seen in the supplied Batch.
+    /// TODO: move calls to this method downstream so processors can trigger this.
     fn store_offsets(consumer: &StreamConsumer<BatchConsumerContext>, batch: &Batch<T>) {
         let mut offsets = HashMap::<Partition, i64>::new();
         for kmsg in batch.get_messages() {
@@ -203,7 +202,6 @@ where
     /// Consumes a batch of messages based on the configured batch size and timeout
     async fn consume_batch(
         stream: &mut MessageStream<'_, BatchConsumerContext>,
-        shutdown_token: CancellationToken,
         batch_size: usize,
         batch_timeout: Duration,
     ) -> KafkaResult<Batch<T>> {
@@ -212,11 +210,6 @@ where
 
         loop {
             tokio::select! {
-                // Exit if the parent process signalled shutdown
-                _ = shutdown_token.cancelled() => {
-                    break;
-                }
-
                 // Exit if the batch timeout is reached before a full batch is collected
                 _ = batch_complete.tick() => {
                     break;
