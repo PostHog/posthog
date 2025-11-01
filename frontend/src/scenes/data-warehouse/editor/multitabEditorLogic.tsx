@@ -1,5 +1,17 @@
 import { Monaco } from '@monaco-editor/react'
-import { actions, beforeUnmount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -20,6 +32,7 @@ import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -1260,8 +1273,27 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
     })),
+    afterMount(({ values, cache }) => {
+        // Listen for view open events from the editor
+        const handleOpenView = (event: CustomEvent<{ viewId: string; viewName: string }>): void => {
+            const { viewId } = event.detail
+            const view = values.dataWarehouseSavedQueryMapById[viewId]
+            if (view) {
+                // Open the view in a new browser tab
+                sceneLogic.actions.newTab(urls.sqlEditor(undefined, viewId))
+            }
+        }
+
+        window.addEventListener('hogql-open-view', handleOpenView as EventListener)
+        cache.viewOpenListener = handleOpenView
+    }),
     beforeUnmount(({ cache }) => {
         cache.umountDataNode?.()
+
+        // Clean up view open listener
+        if (cache.viewOpenListener) {
+            window.removeEventListener('hogql-open-view', cache.viewOpenListener as EventListener)
+        }
 
         cache.createdModels?.forEach((m: editor.ITextModel) => {
             try {

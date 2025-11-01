@@ -1,4 +1,4 @@
-from typing import Optional, Union, cast
+from typing import Any, Union, cast
 
 from django.conf import settings
 
@@ -25,9 +25,9 @@ from posthog.models import Team
 def get_hogql_metadata(
     query: HogQLMetadata,
     team: Team,
-    hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
-    clickhouse_prepared_ast: Optional[ast.AST] = None,
-    clickhouse_sql: Optional[str] = None,
+    hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery] | None = None,
+    clickhouse_prepared_ast: ast.AST | None = None,
+    clickhouse_sql: str | None = None,
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
@@ -36,6 +36,7 @@ def get_hogql_metadata(
         warnings=[],
         notices=[],
         table_names=[],
+        view_metadata={},
     )
 
     query_modifiers = create_default_modifiers_for_team(team, query.modifiers)
@@ -74,6 +75,15 @@ def get_hogql_metadata(
 
             hogql_table_names = get_table_names(hogql_ast)
             response.table_names = hogql_table_names
+
+            # Ensure database is created so we can extract view metadata
+            if context.database is None:
+                from posthog.hogql.database.database import Database
+
+                context.database = Database.create_for(context.team_id, modifiers=context.modifiers, team=team)
+
+            # Fetch view metadata for the referenced tables from the virtual database (no DB queries)
+            response.view_metadata = get_view_metadata_from_database(hogql_table_names, context)
 
             if not clickhouse_sql or not clickhouse_prepared_ast:
                 clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
@@ -126,7 +136,7 @@ def get_hogql_metadata(
 def process_expr_on_table(
     node: ast.Expr,
     context: HogQLContext,
-    source_query: Optional[ast.SelectQuery | ast.SelectSetQuery] = None,
+    source_query: ast.SelectQuery | ast.SelectSetQuery | None = None,
 ):
     try:
         if source_query is not None:
@@ -164,3 +174,20 @@ class TableCollector(TraversingVisitor):
             self.visit(node.table)
 
         self.visit(node.next_join)
+
+
+def get_view_metadata_from_database(table_names: list[str], context: HogQLContext) -> dict[str, dict[str, Any]]:
+    """Extract view metadata from the virtual database (no DB queries)."""
+    if not table_names or not context.database:
+        return {}
+
+    # Get all view metadata from the database
+    all_view_metadata = context.database.get_view_metadata()
+
+    # Filter to only include views that are in the query's table_names
+    view_metadata = {}
+    for table_name in table_names:
+        if table_name in all_view_metadata:
+            view_metadata[table_name] = all_view_metadata[table_name]
+
+    return view_metadata

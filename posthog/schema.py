@@ -1666,6 +1666,15 @@ class HogLanguage(StrEnum):
     HOG_TEMPLATE = "hogTemplate"
 
 
+class ViewMetadata(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    is_materialized: bool
+    is_view: bool
+
+
 class BounceRatePageViewMode(StrEnum):
     COUNT_PAGEVIEWS = "count_pageviews"
     UNIQ_URLS = "uniq_urls"
@@ -4469,6 +4478,7 @@ class QueryResponseAlternative8(BaseModel):
     notices: list[HogQLNotice]
     query: Optional[str] = None
     table_names: Optional[list[str]] = None
+    view_metadata: Optional[dict[str, ViewMetadata]] = None
     warnings: list[HogQLNotice]
 
 
@@ -9446,6 +9456,7 @@ class HogQLMetadataResponse(BaseModel):
     notices: list[HogQLNotice]
     query: Optional[str] = None
     table_names: Optional[list[str]] = None
+    view_metadata: Optional[dict[str, ViewMetadata]] = None
     warnings: list[HogQLNotice]
 
 

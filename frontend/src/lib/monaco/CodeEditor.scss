@@ -35,3 +35,17 @@
         }
     }
 }
+
+.monaco-editor {
+    .hogql-view-decoration {
+        background-color: rgba(33, 150, 243, 0.15);
+        border-bottom: 1px solid rgba(33, 150, 243, 0.4);
+        cursor: pointer;
+    }
+
+    .hogql-materialized-view-decoration {
+        background-color: rgba(156, 39, 176, 0.15);
+        border-bottom: 1px solid rgba(156, 39, 176, 0.4);
+        cursor: pointer;
+    }
+}

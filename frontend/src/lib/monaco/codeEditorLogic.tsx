@@ -1,5 +1,5 @@
 import type { Monaco } from '@monaco-editor/react'
-import { actions, connect, kea, key, path, props, propsChanged, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 // Note: we can oly import types and not values from monaco-editor, because otherwise some Monaco code breaks
@@ -48,6 +48,9 @@ export interface CodeEditorLogicProps {
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
     onMetadataLoading?: (loading: boolean) => void
 }
+
+// Store decorations collection outside the logic to persist across logic instances
+let viewDecorationsCollection: editor.IEditorDecorationsCollection | null = null
 
 export const codeEditorLogic = kea<codeEditorLogicType>([
     path(['lib', 'monaco', 'hogQLMetadataProvider']),
@@ -143,6 +146,69 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                 },
             },
         ],
+    })),
+    listeners(({ props }) => ({
+        reloadMetadataSuccess: ({ metadata }) => {
+            const model = props.editor?.getModel()
+            if (!model || !metadata || !props.editor) {
+                if (viewDecorationsCollection) {
+                    viewDecorationsCollection.clear()
+                }
+                return
+            }
+
+            if (!viewDecorationsCollection) {
+                viewDecorationsCollection = props.editor.createDecorationsCollection()
+            }
+
+            const [query, metadataResponse] = metadata
+            const viewMetadata = metadataResponse?.view_metadata
+            const tableNames = metadataResponse?.table_names
+
+            if (!viewMetadata || Object.keys(viewMetadata).length === 0 || !tableNames) {
+                viewDecorationsCollection.clear()
+                return
+            }
+
+            const decorations: editor.IModelDeltaDecoration[] = []
+
+            for (const tableName of tableNames) {
+                const viewInfo = viewMetadata[tableName]
+                if (!viewInfo) {
+                    continue
+                }
+
+                const regex = new RegExp(`\\b${tableName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')
+
+                for (const match of query.matchAll(regex)) {
+                    const startPos = model.getPositionAt(match.index!)
+                    const endPos = model.getPositionAt(match.index! + match[0].length)
+
+                    const className = viewInfo.is_materialized
+                        ? 'hogql-materialized-view-decoration'
+                        : 'hogql-view-decoration'
+
+                    decorations.push({
+                        range: {
+                            startLineNumber: startPos.lineNumber,
+                            startColumn: startPos.column,
+                            endLineNumber: endPos.lineNumber,
+                            endColumn: endPos.column,
+                        },
+                        options: {
+                            inlineClassName: className,
+                            hoverMessage: {
+                                value: viewInfo.is_materialized
+                                    ? `Materialized view: **${tableName}** (Ctrl+Click to open in new tab)`
+                                    : `View: **${tableName}** (Ctrl+Click to open in new tab)`,
+                            },
+                        },
+                    })
+                }
+            }
+
+            viewDecorationsCollection.set(decorations)
+        },
     })),
     selectors({
         hasErrors: [
