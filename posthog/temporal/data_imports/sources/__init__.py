@@ -24,12 +24,14 @@ from .salesforce.source import SalesforceSource
 from .shopify.source import ShopifySource
 from .snowflake.source import SnowflakeSource
 from .stripe.source import StripeSource
+from .supabase.source import SupabaseSource
 from .temporalio.source import TemporalIOSource
 from .tiktok_ads.source import TikTokAdsSource
 from .vitally.source import VitallySource
 from .zendesk.source import ZendeskSource
 
 __all__ = [
+    "SupabaseSource",
     "GithubSource",
     "SourceRegistry",
     "BigQuerySource",
