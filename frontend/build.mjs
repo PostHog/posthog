@@ -13,6 +13,13 @@ import {
     startDevServer,
 } from '@posthog/esbuilder'
 
+// Check if we should use Vite for production builds
+const useViteProd = process.env.POSTHOG_USE_VITE_PROD === '1'
+
+if (useViteProd && !isDev) {
+    process.exit(0)
+}
+
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 startDevServer(__dirname)
