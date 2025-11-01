@@ -888,6 +888,16 @@ class TestProperty(BaseTest):
             {"type": "person", "key": "$virt_revenue_last_30_days", "value": 100, "operator": "exact"}, scope="person"
         ) == self._parse_expr("$virt_revenue_last_30_days = 100")
 
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_revenue_last_30_days", "value": "is_set", "operator": "is_set"},
+            scope="person",
+        ) == self._parse_expr("$virt_revenue_last_30_days != NULL")
+
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_revenue_last_30_days", "value": "is_not_set", "operator": "is_not_set"},
+            scope="person",
+        ) == self._parse_expr("$virt_revenue_last_30_days = NULL")
+
     def test_virtual_group_properties_on_group_scope(self):
         assert self._property_to_expr(
             {
