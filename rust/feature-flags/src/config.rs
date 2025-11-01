@@ -382,6 +382,15 @@ pub struct Config {
     #[envconfig(from = "FLAG_DEFINITIONS_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
 
+    // Retry-After header value (seconds) returned on cache miss
+    // Tells clients how long to wait before retrying when cache is being warmed
+    // Default: 2 seconds (covers celery beat interval + cache rebuild time)
+    #[envconfig(
+        from = "FLAG_DEFINITIONS_CACHE_MISS_RETRY_AFTER_SECONDS",
+        default = "2"
+    )]
+    pub flag_definitions_cache_miss_retry_after_seconds: u32,
+
     // OpenTelemetry configuration
     #[envconfig(from = "OTEL_EXPORTER_OTLP_ENDPOINT")]
     pub otel_url: Option<String>,
@@ -489,6 +498,7 @@ impl Config {
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
+            flag_definitions_cache_miss_retry_after_seconds: 2,
             otel_url: None,
             otel_sampling_rate: 1.0,
             otel_service_name: "posthog-feature-flags".to_string(),

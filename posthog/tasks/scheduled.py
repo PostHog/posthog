@@ -15,6 +15,7 @@ from posthog.tasks.alerts.checks import (
     reset_stuck_alerts_task,
 )
 from posthog.tasks.email import send_hog_functions_daily_digest
+from posthog.tasks.feature_flags import process_flag_cache_miss_queue
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
@@ -96,6 +97,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # Heartbeat every 10sec to make sure the worker is alive
     add_periodic_task_with_expiry(sender, 10, redis_heartbeat.s(), "10 sec heartbeat")
+
+    # Process flag cache miss queue every 1 second
+    add_periodic_task_with_expiry(sender, 1, process_flag_cache_miss_queue.s(), "process flag cache miss queue")
 
     add_periodic_task_with_expiry(sender, 20, start_poll_query_performance.s(), "20 sec query performance heartbeat")
 

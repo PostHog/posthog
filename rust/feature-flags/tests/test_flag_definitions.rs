@@ -737,14 +737,14 @@ async fn test_cache_miss_returns_503() {
             body["detail"]
                 .as_str()
                 .unwrap()
-                .contains("Required data not found in cache"),
-            "Error message should mention cache miss"
+                .contains("Flag definitions cache is warming"),
+            "Error message should mention cache warming"
         );
     } else {
-        // If not JSON, verify the error message mentions cache
+        // If not JSON, verify the error message mentions cache warming
         assert!(
-            body_text.contains("Required data not found in cache"),
-            "Body should mention cache miss. Got: {body_text}"
+            body_text.contains("Flag definitions cache is warming"),
+            "Body should mention cache warming. Got: {body_text}"
         );
     }
 }
