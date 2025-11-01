@@ -15,7 +15,6 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 choices=[
                     ("CustomerIO", "CustomerIO"),
-                    ("Supabase", "Supabase"),
                     ("Github", "Github"),
                     ("Stripe", "Stripe"),
                     ("Hubspot", "Hubspot"),
