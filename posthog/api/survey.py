@@ -22,6 +22,7 @@ from axes.decorators import axes_dispatch
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from posthoganalytics import capture_exception
+from prometheus_client import Counter
 from rest_framework import exceptions, filters, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -44,7 +45,7 @@ from posthog.models import Action
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, ensure_question_ids
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, ensure_question_ids, surveys_hypercache
 from posthog.models.surveys.util import (
     SurveyEventName,
     SurveyEventProperties,
@@ -58,6 +59,10 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
 from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
+
+# Constants for better maintainability
+logger = structlog.get_logger(__name__)
+CACHE_TIMEOUT_SECONDS = 300
 
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
@@ -82,6 +87,19 @@ if "replica" in settings.DATABASES:
     READ_DB_FOR_SURVEYS = "replica"
 else:
     READ_DB_FOR_SURVEYS = "default"
+
+
+COUNTER_SURVEYS_API_USE_REMOTE_CONFIG = Counter(
+    "posthog_surveys_api_use_remote_config",
+    "Number of times the surveys API has been used with remote config",
+    labelnames=["result"],
+)
+
+COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON = Counter(
+    "posthog_surveys_api_remote_config_comparison",
+    "Comparison of surveys response equality",
+    labelnames=["result"],
+)
 
 
 class EventStats(TypedDict):
@@ -1621,25 +1639,58 @@ def surveys(request: Request):
             ),
         )
 
-    team = Team.objects.get_team_from_cache_or_token(token)
-    if team is None:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "surveys",
-                "Project API key invalid. You can find your project API key in your PostHog project settings.",
-                type="authentication_error",
-                code="invalid_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
+    hypercache_response = None
+    response = None
 
-    return cors_response(request, JsonResponse(get_surveys_response(team)))
+    if settings.SURVEYS_API_USE_HYPERCACHE_TOKENS and (
+        "*" in settings.SURVEYS_API_USE_HYPERCACHE_TOKENS or token in settings.SURVEYS_API_USE_HYPERCACHE_TOKENS
+    ):
+        try:
+            hypercache_response = surveys_hypercache.get_from_cache(token)
+            if not hypercache_response:
+                raise Exception("No hypercache response found")
 
+            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="found").inc()
+            response = hypercache_response
 
-# Constants for better maintainability
-logger = structlog.get_logger(__name__)
-CACHE_TIMEOUT_SECONDS = 300
+        except Exception as e:
+            capture_exception(e)
+            COUNTER_SURVEYS_API_USE_REMOTE_CONFIG.labels(result="not_found").inc()
+            pass  # For now fallback
+
+    # If we didn't get a hypercache response or we are comparing then load the normal response to compare
+    if not hypercache_response or settings.SURVEYS_API_USE_REMOTE_CONFIG_COMPARE:
+        team = Team.objects.get_team_from_cache_or_token(token)
+        if team is None:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "surveys",
+                    "Project API key invalid. You can find your project API key in your PostHog project settings.",
+                    type="authentication_error",
+                    code="invalid_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
+        response = get_surveys_response(team)
+
+        if hypercache_response:
+            # Do the comparison here
+            try:
+                if hypercache_response == response:
+                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON.labels(result="same").inc()
+                else:
+                    COUNTER_SURVEYS_API_REMOTE_CONFIG_COMPARISON.labels(result="different").inc()
+                    logger.warning(
+                        "SurveyHypercacheResponseDifferentFromAPIResponse",
+                        hypercache_response=hypercache_response,
+                        response=response,
+                    )
+
+            except Exception as e:
+                capture_exception(e)
+
+    return cors_response(request, JsonResponse(response))
 
 
 @csrf_exempt
