@@ -43,6 +43,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setManagedSearchTerm: (managedSearchTerm: string) => ({ managedSearchTerm }),
         deleteJoin: (join: DataWarehouseViewLink) => ({ join }),
     }),
     loaders(({ actions, values }) => ({
@@ -104,6 +105,12 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
         ],
+        managedSearchTerm: [
+            '' as string,
+            {
+                setManagedSearchTerm: (_, { managedSearchTerm }) => managedSearchTerm,
+            },
+        ],
     })),
     selectors({
         selfManagedTables: [
@@ -123,6 +130,21 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 }
                 const normalizedSearch = searchTerm.toLowerCase()
                 return selfManagedTables.filter((table) => table.name.toLowerCase().includes(normalizedSearch))
+            },
+        ],
+        filteredManagedSources: [
+            (s) => [s.dataWarehouseSources, s.managedSearchTerm],
+            (dataWarehouseSources, managedSearchTerm): ExternalDataSource[] => {
+                const sources = dataWarehouseSources?.results ?? []
+                if (!managedSearchTerm?.trim()) {
+                    return sources
+                }
+                const normalizedSearch = managedSearchTerm.toLowerCase()
+                return sources.filter(
+                    (source) =>
+                        source.source_type.toLowerCase().includes(normalizedSearch) ||
+                        source.prefix?.toLowerCase().includes(normalizedSearch)
+                )
             },
         ],
         hasZendeskSource: [
