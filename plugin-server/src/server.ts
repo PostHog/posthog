@@ -31,7 +31,7 @@ import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
 import { startEvaluationScheduler } from './main/ingestion-queues/evaluation-scheduler'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
-import { Hub, PluginServerService, PluginsServerConfig } from './types'
+import { HealthCheckResultOk, Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
 import { isTestEnv } from './utils/env-utils'
@@ -237,6 +237,19 @@ export class PluginServer {
                     this.expressApp.use('/', api.router())
                     await api.start()
                     return api.service
+                })
+            }
+
+            if (capabilities.llmAnalyticsApi) {
+                serviceLoaders.push(async () => {
+                    const { TextReprApi } = await import('./llm-analytics/text-repr-api')
+                    const textReprApi = new TextReprApi()
+                    this.expressApp.use('/', textReprApi.router())
+                    return {
+                        id: 'text-repr-api',
+                        onShutdown: async () => {},
+                        healthcheck: () => new HealthCheckResultOk(),
+                    }
                 })
             }
 

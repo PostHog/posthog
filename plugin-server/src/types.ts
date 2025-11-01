@@ -566,6 +566,7 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
+    llmAnalyticsApi?: boolean
 }
 
 export interface EnqueuedPluginJob {
