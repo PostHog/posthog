@@ -49,6 +49,7 @@ from products.llm_analytics.backend.api import (
     DatasetViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
+    LLMAnalyticsTextReprViewSet,
     LLMProxyViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
@@ -132,6 +133,7 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
+router.register(r"llm_analytics/text_repr", LLMAnalyticsTextReprViewSet, "llm_analytics_text_repr")
 router.register(r"oauth_application/metadata", OAuthApplicationPublicMetadataViewSet, "oauth_application_metadata")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
