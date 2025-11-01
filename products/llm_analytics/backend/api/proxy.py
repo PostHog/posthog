@@ -24,7 +24,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import SessionAuthentication
-from posthog.rate_limit import LLMGatewayBurstRateThrottle, LLMGatewaySustainedRateThrottle
+from posthog.rate_limit import LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
@@ -83,7 +83,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
     renderer_classes = [SafeJSONRenderer, ServerSentEventRenderer]
 
     def get_throttles(self):
-        return [LLMGatewayBurstRateThrottle(), LLMGatewaySustainedRateThrottle()]
+        return [LLMProxyBurstRateThrottle(), LLMProxySustainedRateThrottle()]
 
     def validate_feature_flag(self, request):
         if not request.user or not request.user.is_authenticated:
