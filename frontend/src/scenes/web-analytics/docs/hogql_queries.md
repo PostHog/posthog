@@ -155,15 +155,15 @@ The examples above use high-level query types like `WebOverviewQuery` and `WebSt
 
 1. Open the snapshot file:
 
-    ```bash
-    posthog/hogql_queries/web_analytics/test/__snapshots__/test_sample_web_analytics_queries.hogql.ambr
-    ```
+   ```bash
+   posthog/hogql_queries/web_analytics/test/__snapshots__/test_sample_web_analytics_queries.hogql.ambr
+   ```
 
 2. Find the query you want. Each snapshot is named like:
 
-    ```bash
-    # name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_page
-    ```
+   ```bash
+   # name: TestSampleWebAnalyticsQueries.test_web_stats_breakdown_page
+   ```
 
 3. Copy the HogQL query between the triple quotes `'''`
 
@@ -306,13 +306,13 @@ LIMIT 100  -- Instead of 50000
 - Try to include the sorting key fields (`timestamp`, `event`, etc.) in your WHERE clause for better performance.
 - Consider using `async=true` for long-running queries:
 
-    ```json
-    {
-      "query": { ... },
-      "async": true,
-      "client_query_id": "my-custom-query-123"
-    }
-    ```
+  ```json
+  {
+    "query": { ... },
+    "async": true,
+    "client_query_id": "my-custom-query-123"
+  }
+  ```
 
 **Tracking Queries:**
 

@@ -117,23 +117,23 @@ mkdir -p .dagster_home
 
 ```yaml
 run_coordinator:
-    module: dagster._core.run_coordinator.queued_run_coordinator
-    class: QueuedRunCoordinator
-    config:
-        dequeue_interval_seconds: 5
+  module: dagster._core.run_coordinator.queued_run_coordinator
+  class: QueuedRunCoordinator
+  config:
+    dequeue_interval_seconds: 5
 
 run_launcher:
-    module: dagster._core.launcher.default_run_launcher
-    class: DefaultRunLauncher
+  module: dagster._core.launcher.default_run_launcher
+  class: DefaultRunLauncher
 
 concurrency:
-    runs:
-        max_concurrent_runs: 10 # Overall instance limit
-        tag_concurrency_limits:
-            # Limit specific job types
-            - key: 'dagster/job_name'
-              value: 'web_analytics_daily_job'
-              limit: 1
+  runs:
+    max_concurrent_runs: 10 # Overall instance limit
+    tag_concurrency_limits:
+      # Limit specific job types
+      - key: 'dagster/job_name'
+        value: 'web_analytics_daily_job'
+        limit: 1
 ```
 
 3. Run Dagster with the configuration:
@@ -150,9 +150,9 @@ export DAGSTER_HOME=$(pwd)/.dagster_home && DAGSTER_WEB_PREAGGREGATED_MAX_PARTIT
 1. In the Dagster UI, navigate to your assets (e.g., web analytics assets)
 2. Start a backfill for several days (e.g., 3-5 days)
 3. Check the "Runs" page - you should observe:
-    - Only 1 run in `STARTED`/`STARTING` status at a time for the same concurrency group
-    - Other runs waiting in `QUEUED` status
-    - Runs progressing sequentially: `QUEUED` → `STARTED` → `SUCCESS`
+   - Only 1 run in `STARTED`/`STARTING` status at a time for the same concurrency group
+   - Other runs waiting in `QUEUED` status
+   - Runs progressing sequentially: `QUEUED` → `STARTED` → `SUCCESS`
 
 #### Production Configuration
 
