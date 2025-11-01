@@ -26,6 +26,7 @@ class CustomerIOSource(BaseSource[CustomerIOSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.CUSTOMER_IO,
             iconPath="/static/services/customer-io.png",
+            label="Customer.io",
             caption=None,  # only needed if you want to inline docs
             docsUrl=None,  # TODO(Andrew J. McGehee): link to the docs in the website, full path including https://
             fields=cast(list[FieldType], []),  # TODO(Andrew J. McGehee): add source config fields here
