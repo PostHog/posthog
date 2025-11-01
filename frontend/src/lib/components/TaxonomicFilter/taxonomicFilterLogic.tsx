@@ -46,6 +46,7 @@ import {
     replayTaxonomicFiltersProperties,
 } from 'scenes/session-recordings/filters/ReplayTaxonomicFilters'
 import { teamLogic } from 'scenes/teamLogic'
+import { PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES_BY_GROUP } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { actionsModel } from '~/models/actionsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -227,6 +228,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
         ],
+        enablePreaggregatedTableHints: [
+            () => [(_, props) => props.enablePreaggregatedTableHints],
+            (enablePreaggregatedTableHints) => !!enablePreaggregatedTableHints,
+        ],
         hideBehavioralCohorts: [
             () => [(_, props) => props.hideBehavioralCohorts],
             (hideBehavioralCohorts: boolean | undefined) => hideBehavioralCohorts ?? false,
@@ -244,6 +249,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.eventMetadataPropertyDefinitions,
                 s.eventOrdering,
                 s.maxContextOptions,
+                s.enablePreaggregatedTableHints,
                 s.hideBehavioralCohorts,
             ],
             (
@@ -258,6 +264,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 eventMetadataPropertyDefinitions: PropertyDefinition[],
                 eventOrdering: string | null,
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
+                enablePreaggregatedTableHints: boolean,
                 hideBehavioralCohorts: boolean
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
@@ -731,10 +738,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                       ?.map((property: string) => ({
                                           name: property,
                                           value: property,
+                                          supported_by_preaggregated_tables: enablePreaggregatedTableHints
+                                              ? PREAGGREGATED_TABLE_SUPPORTED_PROPERTIES_BY_GROUP[
+                                                    TaxonomicFilterGroupType.SessionProperties
+                                                ].includes(property)
+                                              : false,
                                       })),
                               }
                             : {
-                                  endpoint: `api/environments/${teamId}/sessions/property_definitions`,
+                                  endpoint: combineUrl(
+                                      `api/environments/${teamId}/sessions/property_definitions`,
+                                      enablePreaggregatedTableHints ? { enable_preaggregated_table_hints: 'true' } : {}
+                                  ).url,
                               }),
                         getName: (option: any) => option.name,
                         getValue: (option) => option.name,
