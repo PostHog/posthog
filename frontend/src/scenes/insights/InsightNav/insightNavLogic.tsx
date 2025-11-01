@@ -205,7 +205,14 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 if (activeView === InsightType.WEB_ANALYTICS) {
                     // Temporary tab for Web Analytics insights, similar to JSON tab
                     tabs.push({
-                        label: 'Web Analytics',
+                        label: (
+                            <>
+                                Web Analytics{' '}
+                                <LemonTag type="warning" className="uppercase ml-2">
+                                    Beta
+                                </LemonTag>
+                            </>
+                        ),
                         type: InsightType.WEB_ANALYTICS,
                         dataAttr: 'insight-web-analytics-tab',
                     })
