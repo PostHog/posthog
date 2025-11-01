@@ -91,7 +91,6 @@ impl FeatureFlagList {
               LEFT JOIN posthog_tag AS tag ON (et.tag_id = tag.id)
             WHERE t.project_id = $1
               AND f.deleted = false
-              AND f.active = true
             GROUP BY f.id, f.team_id, f.name, f.key, f.filters, f.deleted, f.active, 
                      f.ensure_experience_continuity, f.version, f.evaluation_runtime
         "#;

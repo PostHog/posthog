@@ -259,3 +259,46 @@ class TestFeatureFlagDependencyDeletion(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_has_active_dependents_with_no_dependencies(self):
+        """Test has_active_dependents returns False with 0 dependent flags."""
+        flag = self.create_flag("standalone_flag")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/has_active_dependents/",
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["has_active_dependents"], False)
+        self.assertEqual(len(response.json()["dependent_flags"]), 0)
+
+    def test_has_active_dependents_with_active_dependencies(self):
+        """Test has_active_dependents returns True with 1 active dependent flag."""
+        base_flag = self.create_flag("base_flag")
+        self.create_flag("dependent_flag", dependencies=[base_flag.id])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/has_active_dependents/",
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["has_active_dependents"], True)
+        self.assertEqual(len(response.json()["dependent_flags"]), 1)
+
+    def test_has_active_dependents_with_inactive_dependencies(self):
+        """Test has_active_dependents returns False when dependent flags are inactive."""
+        base_flag = self.create_flag("base_flag")
+        dependent_flag = self.create_flag("dependent_flag", dependencies=[base_flag.id])
+        dependent_flag.active = False
+        dependent_flag.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{base_flag.id}/has_active_dependents/",
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["has_active_dependents"], False)
+        self.assertEqual(len(response.json()["dependent_flags"]), 0)
