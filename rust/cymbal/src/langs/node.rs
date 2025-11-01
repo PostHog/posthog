@@ -50,9 +50,9 @@ impl RawNodeFrame {
             Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 Ok((self, JsResolveErr::NoSourcemapUploaded(chunk_id)).into())
             }
-            Err(ResolveError::ResolutionError(FrameError::Hermes(e))) => {
-                // TODO - should be unreachable, specialize Error to encode that
-                Err(UnhandledError::from(FrameError::from(e)))
+            Err(ResolveError::ResolutionError(e)) => {
+                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
+                unreachable!("Should not have received error {:?}", e)
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }
@@ -150,7 +150,7 @@ impl RawNodeFrame {
 impl From<&RawNodeFrame> for Frame {
     fn from(raw: &RawNodeFrame) -> Self {
         Frame {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno,
             column: None,
@@ -190,7 +190,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             .unwrap_or(raw_frame.meta.in_app);
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.function.clone(),
             line: Some(location.line()),
             column: Some(location.column()),
@@ -234,7 +234,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
         };
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.function.clone(),
             line: raw_frame.lineno,
             column: raw_frame.colno,

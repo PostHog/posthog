@@ -1,5 +1,5 @@
 use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
-use common_types::error_tracking::{ExceptionData, FrameData, FrameId};
+use common_types::error_tracking::{ExceptionData, FrameData, RawFrameId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha512};
@@ -409,22 +409,25 @@ impl OutputErrProps {
 }
 
 impl Stacktrace {
-    pub fn resolve(&self, team_id: i32, lookup_table: &HashMap<FrameId, Frame>) -> Option<Self> {
-        let Stacktrace::Raw { frames } = self else {
+    pub fn resolve(
+        &self,
+        team_id: i32,
+        lookup_table: &HashMap<RawFrameId, Vec<Frame>>,
+    ) -> Option<Self> {
+        let Stacktrace::Raw { frames: raw_frames } = self else {
             return Some(self.clone());
         };
 
-        let mut resolved_frames = Vec::with_capacity(frames.len());
-        for frame in frames {
-            match lookup_table.get(&frame.frame_id(team_id)) {
-                Some(resolved_frame) => resolved_frames.push(resolved_frame.clone()),
+        let mut resolved_frames = Vec::with_capacity(raw_frames.len() + 10);
+        for raw_frame in raw_frames {
+            match lookup_table.get(&raw_frame.raw_id(team_id)) {
+                Some(resolved) => resolved_frames.extend(resolved.clone()),
                 None => return None,
             }
         }
 
-        if resolved_frames.iter().any(|f| f.suspicious) {
-            metrics::counter!(POSTHOG_SDK_EXCEPTION_RESOLVED).increment(1);
-        }
+        metrics::counter!(POSTHOG_SDK_EXCEPTION_RESOLVED)
+            .increment(resolved_frames.iter().filter(|f| f.suspicious).count() as u64);
 
         Some(Stacktrace::Resolved {
             frames: resolved_frames,

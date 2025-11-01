@@ -2252,7 +2252,8 @@ dependencies = [
  "moka",
  "once_cell",
  "posthog-rs",
- "posthog-symbol-data 0.2.0",
+ "posthog-symbol-data 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proguard",
  "rdkafka",
  "regex",
  "reqwest 0.12.15",
@@ -5731,17 +5732,17 @@ dependencies = [
 
 [[package]]
 name = "posthog-symbol-data"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed6c8edcab40fb71e1eb6b6af8961b3d0d04fbcaa841331036c964868d5dcb22"
+version = "0.3.0"
 dependencies = [
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
 name = "posthog-symbol-data"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe5471c1aad2514de61c8cbfd0c52fb3eb7efa03229737178442c2277d700330"
 dependencies = [
  "serde",
  "thiserror 2.0.16",
@@ -5856,6 +5857,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "307e3004becf10f5a6e0d59d20f3cd28231b0e0827a96cd3e0ce6d14bc1e4bb3"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "proguard"
+version = "5.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e40a6553b04a87f8efa9b559356dc9d6342b255307c8cf052ea09e93cd53a1bb"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "watto",
 ]
 
 [[package]]

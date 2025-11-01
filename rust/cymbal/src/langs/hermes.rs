@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, sync::Arc};
 
 use common_types::error_tracking::FrameId;
 use serde::{Deserialize, Serialize};
@@ -49,9 +49,9 @@ impl RawHermesFrame {
             Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 Ok(self.handle_resolution_error(HermesError::NoSourcemapUploaded(chunk_id)))
             }
-            Err(ResolveError::ResolutionError(FrameError::JavaScript(e))) => {
-                // TODO - should be unreachable, specialize ResolveError to encode that
-                Err(UnhandledError::from(FrameError::from(e)))
+            Err(ResolveError::ResolutionError(e)) => {
+                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
+                unreachable!("Should not have received error {:?}", e)
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }
@@ -62,7 +62,8 @@ impl RawHermesFrame {
         C: SymbolCatalog<OrChunkId<HermesRef>, ParsedHermesMap>,
     {
         let r = self.get_ref()?;
-        let sourcemap = catalog.lookup(team_id, r.clone()).await?;
+        // This type annotation is due to a rust analyzer bug - `cargo check` passes without it, but RA emits an error
+        let sourcemap: Arc<ParsedHermesMap> = catalog.lookup(team_id, r.clone()).await?;
         let sourcemap = &sourcemap.map;
 
         let Some(token) = sourcemap.lookup_token(0, self.column) else {
@@ -112,7 +113,7 @@ impl Display for HermesRef {
 impl From<(&RawHermesFrame, HermesError)> for Frame {
     fn from((frame, err): (&RawHermesFrame, HermesError)) -> Self {
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: frame.fn_name.clone(),
             line: Some(1), // Hermes frames are 1-indexed and always 1
             column: Some(frame.column),
@@ -145,7 +146,7 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
             .unwrap_or(frame.meta.in_app);
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: frame.fn_name.clone(),
             line: Some(token.get_src_line()),
             column: Some(token.get_src_col()),
@@ -185,8 +186,8 @@ mod test {
         frames::RawFrame,
         langs::{hermes::RawHermesFrame, CommonFrameMetadata},
         symbol_store::{
-            chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, saving::SymbolSetRecord,
-            sourcemap::SourcemapProvider, Catalog, S3Client,
+            chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider, proguard::ProguardProvider,
+            saving::SymbolSetRecord, sourcemap::SourcemapProvider, Catalog, S3Client,
         },
     };
 
@@ -242,10 +243,17 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let c = Catalog::new(smp, hmp);
+        let pgp = ChunkIdFetcher::new(
+            ProguardProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let c = Catalog::new(smp, hmp, pgp);
 
         for (raw_frame, expected_name) in get_frames(chunk_id) {
-            let res = raw_frame.resolve(team_id, &c).await.unwrap();
+            let res = raw_frame.resolve(team_id, &c).await.unwrap().pop().unwrap();
             println!("GOT FRAME: {}", serde_json::to_string_pretty(&res).unwrap());
             assert!(res.resolved);
             assert_eq!(res.resolved_name, expected_name)

@@ -52,9 +52,9 @@ impl RawJSFrame {
             Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
             }
-            Err(ResolveError::ResolutionError(FrameError::Hermes(e))) => {
-                // TODO - should be unreachable, specialize ResolveError to encode that
-                Err(UnhandledError::from(FrameError::from(e)))
+            Err(ResolveError::ResolutionError(e)) => {
+                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
+                unreachable!("Should not have received error {:?}", e)
             }
             Err(ResolveError::UnhandledError(e)) => Err(e),
         }
@@ -199,7 +199,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
         let suspicious = source.as_ref().is_some_and(|s| s.contains("posthog-js@"));
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(), // We use placeholders here, as they're overriden at the RawFrame level
+            frame_id: FrameId::placeholder(), // We use placeholders here, as they're overriden at the RawFrame level
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(token.line()),
             column: Some(token.column()),
@@ -244,7 +244,7 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
         };
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(location.line),
             column: Some(location.column),
@@ -287,7 +287,7 @@ impl From<&RawJSFrame> for Frame {
         let in_app = raw_frame.meta.in_app && !is_anon;
 
         let mut res = Self {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.fn_name.clone(),
             line: None,
             column: None,

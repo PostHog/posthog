@@ -23,6 +23,7 @@ use crate::{
         chunk_id::ChunkIdFetcher,
         concurrency,
         hermesmap::HermesMapProvider,
+        proguard::ProguardProvider,
         saving::Saving,
         sourcemap::SourcemapProvider,
         Catalog, S3Client,
@@ -118,9 +119,8 @@ impl AppContext {
         // reference concurrency to 1 ensures this.
         let smp_atmostonce = concurrency::AtMostOne::new(smp_caching);
 
-        let hmp = HermesMapProvider {};
         let hmp_chunk = ChunkIdFetcher::new(
-            hmp,
+            HermesMapProvider {},
             s3_client.clone(),
             posthog_pool.clone(),
             config.object_storage_bucket.clone(),
@@ -128,12 +128,20 @@ impl AppContext {
         let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
         // We skip the saving layer for HermesMapProvider, since it'll never fetch something from the outside world.
 
+        let pgp_chunk = ChunkIdFetcher::new(
+            ProguardProvider {},
+            s3_client.clone(),
+            posthog_pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+        let pgp_caching = Caching::new(pgp_chunk, ss_cache.clone());
+
         info!(
             "AppContext initialized, subscribed to topic {}",
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Catalog::new(smp_atmostonce, hmp_caching);
+        let catalog = Catalog::new(smp_atmostonce, hmp_caching, pgp_caching);
         let resolver = Resolver::new(config);
 
         let team_manager = TeamManager::new(config);
