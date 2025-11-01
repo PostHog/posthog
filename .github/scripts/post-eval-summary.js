@@ -23,18 +23,24 @@ module.exports = ({ github, context, fs }) => {
             .filter((d) => typeof d === 'number')
         const minDiff = diffs.length > 0 ? Math.min(...diffs) : 0
         const maxDiff = diffs.length > 0 ? Math.max(...diffs) : 0
+        const category = minDiff < -DIFF_THRESHOLD ? 'regression' : maxDiff > DIFF_THRESHOLD ? 'improvement' : 'neutral'
 
         return {
             result,
-            maxAbsDiff: Math.max(Math.abs(minDiff), Math.abs(maxDiff)),
-            category: minDiff < -DIFF_THRESHOLD ? 'regression' : maxDiff > DIFF_THRESHOLD ? 'improvement' : 'neutral',
+            category,
+            maxDiffInCategoryAbs:
+                category === 'regression'
+                    ? -minDiff
+                    : category === 'improvement'
+                      ? maxDiff
+                      : Math.max(Math.abs(minDiff), Math.abs(maxDiff)),
         }
     })
 
     // Sort: regressions first (most negative to least), then improvements (most positive to least), then neutral
     experimentsWithMaxDiff.sort((a, b) => {
         if (a.category === b.category) {
-            return b.maxAbsDiff - a.maxAbsDiff
+            return b.maxDiffInCategoryAbs - a.maxDiffInCategoryAbs
         }
         const order = { regression: 0, improvement: 1, neutral: 2 }
         return order[a.category] - order[b.category]
