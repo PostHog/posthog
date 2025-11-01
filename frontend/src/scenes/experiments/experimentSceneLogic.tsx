@@ -1,4 +1,4 @@
-import { BuiltLogic, actions, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { BuiltLogic, actions, kea, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
@@ -162,8 +162,8 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => {
-        const ensureExperimentLogicMounted = (): void => {
+    sharedListeners(({ actions, values }) => {
+        const ensureLogic = (): BuiltLogic<experimentLogicType> | null => {
             if (!values.tabId) {
                 throw new Error('Tab-aware scene logic must have a tabId prop')
             }
@@ -194,30 +194,43 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                     oldRef.unmount()
                 }
             }
+
+            return values.experimentLogicRef?.logic ?? null
         }
 
         return {
-            setSceneState: () => {
-                ensureExperimentLogicMounted()
+            mountExperimentLogic: () => {
+                ensureLogic()
             },
-            setEditMode: ({ editing }) => {
-                ensureExperimentLogicMounted()
-                values.experimentLogicRef?.logic.actions.setEditExperiment(editing)
+            syncEditMode: ({ editing }: { editing?: boolean } = {}) => {
+                const logic = ensureLogic()
+                if (logic && typeof editing === 'boolean') {
+                    logic.actions.setEditExperiment(editing)
+                }
             },
-            resetExperimentState: ({ experimentConfig }) => {
-                ensureExperimentLogicMounted()
-                values.experimentLogicRef?.logic.actions.resetExperiment(experimentConfig)
+            resetExperimentState: ({ experimentConfig }: { experimentConfig?: Experiment } = {}) => {
+                const logic = ensureLogic()
+                if (logic && experimentConfig) {
+                    logic.actions.resetExperiment(experimentConfig)
+                }
             },
             loadExperimentData: () => {
-                ensureExperimentLogicMounted()
-                values.experimentLogicRef?.logic.actions.loadExperiment()
+                const logic = ensureLogic()
+                logic?.actions.loadExperiment()
             },
-            loadExposuresData: ({ forceRefresh }) => {
-                ensureExperimentLogicMounted()
-                values.experimentLogicRef?.logic.actions.loadExposures(forceRefresh)
+            loadExposuresData: ({ forceRefresh }: { forceRefresh?: boolean } = {}) => {
+                const logic = ensureLogic()
+                logic?.actions.loadExposures(forceRefresh)
             },
         }
     }),
+    listeners(({ sharedListeners }) => ({
+        setSceneState: sharedListeners.mountExperimentLogic,
+        setEditMode: sharedListeners.syncEditMode,
+        resetExperimentState: sharedListeners.resetExperimentState,
+        loadExperimentData: sharedListeners.loadExperimentData,
+        loadExposuresData: sharedListeners.loadExposuresData,
+    })),
     tabAwareActionToUrl(({ values }) => {
         const actionToUrl = ({
             experimentId = values.experimentId,
