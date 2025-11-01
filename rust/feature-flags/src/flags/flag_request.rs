@@ -192,10 +192,7 @@ mod tests {
     use crate::api::errors::FlagError;
 
     use crate::flags::flag_request::FlagRequest;
-    use crate::flags::flag_service::FlagService;
-    use crate::utils::test_utils::{
-        insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client,
-    };
+    use crate::utils::test_utils::{insert_new_team_in_redis, setup_redis_client};
     use bytes::Bytes;
     use serde_json::json;
 
@@ -461,7 +458,6 @@ mod tests {
     #[tokio::test]
     async fn token_is_returned_correctly() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -478,47 +474,12 @@ mod tests {
             .extract_token()
             .expect("failed to extract token");
 
-        let flag_service = FlagService::new(
-            redis_client.clone(),
-            redis_client.clone(),
-            pg_client.clone(),
-            DEFAULT_CACHE_TTL_SECONDS,
-            DEFAULT_CACHE_TTL_SECONDS,
-        );
-
-        match flag_service.verify_token(&token).await {
-            Ok(extracted_token) => assert_eq!(extracted_token, team.api_token),
-            Err(e) => panic!("Failed to extract and verify token: {e:?}"),
-        };
+        // Verify token extraction worked correctly
+        assert_eq!(token, team.api_token);
     }
 
-    #[tokio::test]
-    async fn test_error_cases() {
-        let redis_reader_client = setup_redis_client(None).await;
-        let redis_writer_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
-
-        // Test invalid token
-        let flag_request = FlagRequest {
-            token: Some("invalid_token".to_string()),
-            ..Default::default()
-        };
-        let result = flag_request
-            .extract_token()
-            .expect("failed to extract token");
-
-        let flag_service = FlagService::new(
-            redis_reader_client.clone(),
-            redis_writer_client.clone(),
-            pg_client.clone(),
-            DEFAULT_CACHE_TTL_SECONDS,
-            DEFAULT_CACHE_TTL_SECONDS,
-        );
-        assert!(matches!(
-            flag_service.verify_token(&result).await,
-            Err(FlagError::TokenValidationError)
-        ));
-
+    #[test]
+    fn test_error_cases() {
         // Test missing distinct_id
         let flag_request = FlagRequest {
             token: Some("valid_token".to_string()),

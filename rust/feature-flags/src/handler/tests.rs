@@ -27,8 +27,10 @@ use crate::{
 use axum::http::HeaderMap;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
+use common_cache::{CacheConfig, ReadThroughCache};
 use common_database::Client;
 use common_geoip::GeoIpClient;
+use common_redis::Client as RedisClient;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{json, Value};
 use std::net::{Ipv4Addr, Ipv6Addr};
@@ -39,6 +41,20 @@ fn create_test_geoip_service() -> GeoIpClient {
     let config = Config::default_test_config();
     GeoIpClient::new(config.get_maxmind_db_path())
         .expect("Failed to create GeoIpService for testing")
+}
+
+/// Helper function to create a team token cache for testing
+fn create_team_token_cache(
+    redis_client: Arc<dyn RedisClient + Send + Sync>,
+    ttl_seconds: Option<u64>,
+) -> Arc<ReadThroughCache> {
+    let cache_config = CacheConfig::new("posthog:1:team_token:", ttl_seconds);
+    Arc::new(ReadThroughCache::new(
+        redis_client.clone(),
+        redis_client.clone(),
+        cache_config,
+        None, // no negative cache for tests
+    ))
 }
 
 #[test]
@@ -1148,11 +1164,12 @@ async fn test_fetch_and_filter_flags() {
     let redis_reader_client = setup_redis_client(None).await;
     let redis_writer_client = setup_redis_client(None).await;
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None).await;
+    let team_token_cache = create_team_token_cache(redis_reader_client.clone(), Some(432000));
     let flag_service = FlagService::new(
         redis_reader_client.clone(),
         redis_writer_client.clone(),
         reader.clone(),
-        432000, // team_cache_ttl_seconds
+        team_token_cache,
         432000, // flags_cache_ttl_seconds
     );
     let context = TestContext::new(None).await;

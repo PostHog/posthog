@@ -6,6 +6,7 @@ members = [
     "batch-import-worker",
     "capture",
     "common/alloc",
+    "common/cache",
     "common/cookieless",
     "common/database",
     "common/dns",

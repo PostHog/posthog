@@ -342,6 +342,9 @@ impl IntoResponse for FlagError {
 impl From<CustomRedisError> for FlagError {
     fn from(e: CustomRedisError) -> Self {
         match e {
+            // NOTE: This mapping is used by legacy team_operations::fetch_team_from_redis_with_fallback
+            // In that context, NotFound means the team token doesn't exist in cache, which is treated
+            // as a token validation error. New code using ReadThroughCache should not rely on this.
             CustomRedisError::NotFound => FlagError::TokenValidationError,
             CustomRedisError::ParseError(_) => FlagError::RedisDataParsingError,
             CustomRedisError::Timeout => FlagError::TimeoutError(Some("redis_timeout".to_string())),

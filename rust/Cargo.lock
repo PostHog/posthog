@@ -1791,6 +1791,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-cache"
+version = "0.1.0"
+dependencies = [
+ "common-redis",
+ "moka",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "common-compression"
 version = "0.1.0"
 dependencies = [
@@ -1924,6 +1936,8 @@ dependencies = [
  "serde-pickle",
  "thiserror 2.0.16",
  "tokio",
+ "tracing",
+ "zstd",
 ]
 
 [[package]]
@@ -2823,6 +2837,7 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-cache",
  "common-compression",
  "common-cookieless",
  "common-database",
