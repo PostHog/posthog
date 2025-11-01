@@ -47,22 +47,38 @@ export const PersonPropertyFilterSchema = z
         if (!operator) {
             return
         }
-        const isArray = Array.isArray(value)
 
-        const valid =
-            (typeof value === 'string' && stringOps.includes(operator as any)) ||
-            (typeof value === 'number' && numberOps.includes(operator as any)) ||
-            (typeof value === 'boolean' && booleanOps.includes(operator as any)) ||
-            (isArray && arrayOps.includes(operator as any))
+        let valid = false
+
+        if (typeof value === 'string') {
+            valid = stringOps.includes(operator as any)
+        } else if (typeof value === 'number') {
+            valid = numberOps.includes(operator as any)
+        } else if (typeof value === 'boolean') {
+            valid = booleanOps.includes(operator as any)
+        } else if (Array.isArray(value)) {
+            if (value.length === 0) {
+                valid = arrayOps.includes(operator as any)
+            } else {
+                const elementType = typeof value[0]
+                if (elementType === 'string') {
+                    // String arrays can use string operators (exact, icontains, etc.) + array operators (in, not_in)
+                    valid = stringOps.includes(operator as any) || arrayOps.includes(operator as any)
+                } else if (elementType === 'number') {
+                    // Number arrays can use base operators (exact, is_not, etc.) + array operators, but not comparisons (gt, gte, etc.)
+                    valid = base.includes(operator as any) || arrayOps.includes(operator as any)
+                }
+            }
+        }
 
         if (!valid) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
-                message: `operator "${operator}" is not valid for value type "${isArray ? 'array' : typeof value}"`,
+                message: `operator "${operator}" is not valid for value type "${Array.isArray(value) ? 'array' : typeof value}"`,
             })
         }
 
-        if (!isArray && arrayOps.includes(operator as any)) {
+        if (!Array.isArray(value) && arrayOps.includes(operator as any)) {
             ctx.addIssue({
                 code: z.ZodIssueCode.custom,
                 message: `operator "${operator}" requires an array value`,

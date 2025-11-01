@@ -372,4 +372,133 @@ describe('Feature Flags', { concurrent: false }, () => {
             expect(deleteResponse.message).toContain('deleted successfully')
         })
     })
+
+    describe('Array values with operators (Issue #145)', () => {
+        const createTool = createFeatureFlagTool()
+
+        it('should create feature flag with string array and exact operator', async () => {
+            const params = {
+                name: 'Array Exact Test',
+                key: generateUniqueKey('array-exact-test'),
+                description: 'Testing string array with exact operator',
+                active: true,
+                filters: {
+                    groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'email',
+                                    value: ['user1@example.com', 'user2@example.com', 'user3@example.com'],
+                                    operator: 'exact',
+                                },
+                            ],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
+            }
+
+            const result = await createTool.handler(context, params)
+            const flagData = parseToolResponse(result)
+
+            expect(flagData.id).toBeDefined()
+            expect(flagData.key).toBe(params.key)
+            expect(flagData.name).toBe(params.name)
+
+            createdResources.featureFlags.push(flagData.id)
+        })
+
+        it('should create feature flag with string array and icontains operator', async () => {
+            const params = {
+                name: 'Array icontains Test',
+                key: generateUniqueKey('array-icontains-test'),
+                description: 'Testing string array with icontains operator',
+                active: true,
+                filters: {
+                    groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'email',
+                                    value: ['@company.com', '@example.org'],
+                                    operator: 'icontains',
+                                },
+                            ],
+                            rollout_percentage: 50,
+                        },
+                    ],
+                },
+            }
+
+            const result = await createTool.handler(context, params)
+            const flagData = parseToolResponse(result)
+
+            expect(flagData.id).toBeDefined()
+            expect(flagData.key).toBe(params.key)
+
+            createdResources.featureFlags.push(flagData.id)
+        })
+
+        it('should create feature flag with number array and exact operator', async () => {
+            const params = {
+                name: 'Number Array Test',
+                key: generateUniqueKey('number-array-test'),
+                description: 'Testing number array with exact operator',
+                active: true,
+                filters: {
+                    groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'user_id',
+                                    value: [123, 456, 789],
+                                    operator: 'exact',
+                                },
+                            ],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
+            }
+
+            const result = await createTool.handler(context, params)
+            const flagData = parseToolResponse(result)
+
+            expect(flagData.id).toBeDefined()
+            expect(flagData.key).toBe(params.key)
+
+            createdResources.featureFlags.push(flagData.id)
+        })
+
+        it('should create feature flag with array and in operator', async () => {
+            const params = {
+                name: 'Array In Test',
+                key: generateUniqueKey('array-in-test'),
+                description: 'Testing array with in operator',
+                active: true,
+                filters: {
+                    groups: [
+                        {
+                            properties: [
+                                {
+                                    key: 'region',
+                                    value: ['US', 'CA', 'UK'],
+                                    operator: 'in',
+                                },
+                            ],
+                            rollout_percentage: 100,
+                        },
+                    ],
+                },
+            }
+
+            const result = await createTool.handler(context, params)
+            const flagData = parseToolResponse(result)
+
+            expect(flagData.id).toBeDefined()
+            expect(flagData.key).toBe(params.key)
+
+            createdResources.featureFlags.push(flagData.id)
+        })
+    })
 })
