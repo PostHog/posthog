@@ -51,7 +51,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSource: (sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]) => ({
             sources,
         }),
-        loadUntilTimestamp: (targetBufferTimestampMillis: number | null) => ({ targetBufferTimestampMillis }),
         maybeStartPolling: true,
         startPolling: true,
         stopPolling: true,
@@ -63,12 +62,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             0,
             {
                 loadSnapshotsForSourceSuccess: (state) => state + 1,
-            },
-        ],
-        targetTimestampToBufferMillis: [
-            null as number | null,
-            {
-                loadUntilTimestamp: (_, { targetBufferTimestampMillis }) => targetBufferTimestampMillis,
             },
         ],
         loadingSources: [
@@ -263,20 +256,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 })
             }
 
-            actions.loadNextSnapshotSource()
-        },
-
-        loadUntilTimestamp: ({ targetBufferTimestampMillis }) => {
-            // load until timestmap changes frequently we want to be careful not to load if we already are
-            if (
-                targetBufferTimestampMillis === cache.lastTargetTimestamp ||
-                values.snapshotSourcesLoading ||
-                values.snapshotsForSourceLoading
-            ) {
-                return
+            // when we're doing progressive loading, the player logic decides when to continue
+            if (!values.useProgressiveLoading) {
+                // if not then whenever we load a set of data, we try to load the next set right away
+                actions.loadNextSnapshotSource()
             }
-            cache.lastTargetTimestamp = targetBufferTimestampMillis
-            actions.loadNextSnapshotSource()
         },
 
         maybeStartPolling: () => {
@@ -295,24 +279,30 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             actions.loadSnapshotSources(values.pollingInterval)
         },
 
-        loadNextSnapshotSource: () => {
+        loadNextSnapshotSource: async (_, breakpoint) => {
+            if (values.snapshotsForSourceLoading) {
+                // we already are
+                return
+            }
+
+            // when we're progressive loading we'll call this a lot
+            // because it's triggered on player tick
+            // we want to debounce calls because otherwise
+            // particularly early in a recording
+            // we end up loading everything
+            if (values.useProgressiveLoading) {
+                await breakpoint(5)
+            }
+
             // yes this is ugly duplication, but we're going to deprecate v1 and I want it to be clear which is which
             if (values.snapshotSources?.some((s) => s.source === SnapshotSourceType.blob_v2)) {
                 const nextSourcesToLoad = values.snapshotSources.filter((s) => {
                     if (s.source === SnapshotSourceType.file) {
                         return false
                     }
-                    const sourceKey = keyForSource(s)
-                    if (cache.snapshotsBySource?.[sourceKey]?.sourceLoaded) {
-                        return false
-                    }
-                    // Load sources that have timestamps <= target, once a target is set
-                    //if (s.start_timestamp && values.targetTimestampToBufferMillis) {
-                    //   const sourceStartTime = new Date(s.start_timestamp).getTime()
-                    //    return sourceStartTime <= values.targetTimestampToBufferMillis
-                    //}
 
-                    return true
+                    const sourceKey = keyForSource(s)
+                    return !cache.snapshotsBySource?.[sourceKey]?.sourceLoaded
                 })
 
                 // Load up to 10 sources at once
@@ -335,6 +325,13 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
     })),
     selectors(({ cache }) => ({
+        useProgressiveLoading: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return !!featureFlags[FEATURE_FLAGS.REPLAY_PROGRESSIVE_LOADING]
+            },
+        ],
+
         snapshotsLoading: [
             (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.snapshotsBySources],
             (
@@ -358,6 +355,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 if (!cache.snapshotsBySource) {
                     return {}
                 }
+                // TODO: if we change the data without changing the object instance then dependents don't recalculate
                 return cache.snapshotsBySource
             },
         ],
@@ -403,6 +401,5 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         cache.snapshotsBySource = undefined
         cache.previousSourceKeys = undefined
         cache.lastSourcesChangeTime = undefined
-        cache.lastTargetTimestamp = undefined
     }),
 ])

@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import posthogEE from '@posthog/ee/exports'
 import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
 
-import { isObject } from 'lib/utils'
+import { isEmptyObject, isObject } from 'lib/utils'
 import { getDecompressionWorkerManager } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import {
     CHROME_EXTENSION_DENY_LIST,
@@ -119,7 +119,7 @@ export function processAllSnapshots(
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string
 ): RecordingSnapshot[] {
-    if (!sources || !snapshotsBySource) {
+    if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
         return []
     }
 
@@ -149,9 +149,13 @@ export function processAllSnapshots(
             continue
         }
 
-        // sorting is very cheap for already sorted lists
         const sourceSnapshots = snapshotsBySource[sourceKey].snapshots || []
+        if (!sourceSnapshots.length) {
+            continue
+        }
+
         const sourceResult: RecordingSnapshot[] = []
+        // sorting is very cheap for already sorted lists
         const sortedSnapshots = sourceSnapshots.sort((a, b) => a.timestamp - b.timestamp)
         let snapshotIndex = 0
         let previousTimestamp = null
@@ -292,6 +296,7 @@ export function processAllSnapshots(
                     })
                 }
             }
+
             result.push(snapshot)
             sourceResult.push(snapshot)
             previousTimestamp = currentTimestamp
