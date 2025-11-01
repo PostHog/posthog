@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
+import { scopesArrayToObject } from 'lib/scopes'
 
 import type { cliAuthorizeLogicType } from './cliAuthorizeLogicType'
 
@@ -207,18 +207,11 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                 return
             }
 
-            // Convert current scopes array to object for easier manipulation
-            const scopesObject = scopesArrayToObject(values.authorize.scopes)
+            // Remove existing scope with this key
+            const filteredScopes = values.authorize.scopes.filter((scope) => !scope.startsWith(`${key}:`))
 
-            // Update the specific scope
-            if (action === 'none') {
-                delete scopesObject[key]
-            } else {
-                scopesObject[key] = action
-            }
-
-            // Convert back to array format
-            const newScopes = scopesObjectToArray(scopesObject)
+            // Add new scope if not 'none'
+            const newScopes = action === 'none' ? filteredScopes : [...filteredScopes, `${key}:${action}`]
 
             actions.setAuthorizeValue('scopes', newScopes)
         },
