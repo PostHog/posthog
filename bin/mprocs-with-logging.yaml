@@ -59,7 +59,7 @@ procs:
             dagster dev --workspace $DAGSTER_HOME/workspace.yaml -p $DAGSTER_UI_PORT 2>&1 | tee /tmp/posthog-dagster.log
 
     docker-compose:
-        shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f 2>&1 | tee /tmp/posthog-docker-compose.log'
+        shell: 'docker compose -p $COMPOSE_PROJECT_NAME -f docker-compose.dev.yml up --pull always -d && docker compose -p $COMPOSE_PROJECT_NAME -f docker-compose.dev.yml logs --tail=0 -f 2>&1 | tee /tmp/posthog-docker-compose.log'
 
     cyclotron-janitor:
         shell: |-
