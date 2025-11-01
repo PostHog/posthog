@@ -197,22 +197,26 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
         },
     })),
     listeners(({ sharedListeners, values }) => ({
-        setSceneState: sharedListeners.ensureExperimentLogicMounted,
-        setEditMode: ({ editing }) => {
-            sharedListeners.ensureExperimentLogicMounted()
-            values.experimentLogicRef?.logic.actions.setEditExperiment(editing)
+        setSceneState: (payload, breakpoint, action, previousState) => {
+            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
         },
-        resetExperimentState: ({ experimentConfig }) => {
-            sharedListeners.ensureExperimentLogicMounted()
-            values.experimentLogicRef?.logic.actions.resetExperiment(experimentConfig)
+        setEditMode: (payload, breakpoint, action, previousState) => {
+            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
+            values.experimentLogicRef?.logic.actions.setEditExperiment(payload.editing)
         },
-        loadExperimentData: () => {
-            sharedListeners.ensureExperimentLogicMounted()
+        resetExperimentState: (payload, breakpoint, action, previousState) => {
+            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
+            if (payload.experimentConfig) {
+                values.experimentLogicRef?.logic.actions.resetExperiment(payload.experimentConfig)
+            }
+        },
+        loadExperimentData: (payload, breakpoint, action, previousState) => {
+            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
             values.experimentLogicRef?.logic.actions.loadExperiment()
         },
-        loadExposuresData: ({ forceRefresh }) => {
-            sharedListeners.ensureExperimentLogicMounted()
-            values.experimentLogicRef?.logic.actions.loadExposures(forceRefresh)
+        loadExposuresData: (payload, breakpoint, action, previousState) => {
+            sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
+            values.experimentLogicRef?.logic.actions.loadExposures(payload.forceRefresh)
         },
     })),
     tabAwareActionToUrl(({ values }) => {
