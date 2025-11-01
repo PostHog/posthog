@@ -1,6 +1,7 @@
 import { ExperimentDeleteSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = ExperimentDeleteSchema
 
@@ -18,7 +19,7 @@ export const deleteHandler = async (context: Context, { experimentId }: Params) 
     }
 
     return {
-        content: [{ type: 'text', text: JSON.stringify(deleteResult.data) }],
+        content: [{ type: 'text', text: formatResponse(deleteResult.data) }],
     }
 }
 

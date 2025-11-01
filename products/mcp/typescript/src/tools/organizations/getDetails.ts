@@ -1,6 +1,7 @@
 import { OrganizationGetDetailsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = OrganizationGetDetailsSchema
 
@@ -22,7 +23,7 @@ export const getDetailsHandler = async (context: Context, _params: Params) => {
     }
 
     return {
-        content: [{ type: 'text', text: JSON.stringify(orgResult.data) }],
+        content: [{ type: 'text', text: formatResponse(orgResult.data) }],
     }
 }
 

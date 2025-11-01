@@ -3,6 +3,7 @@ import { ExperimentUpdateSchema } from '@/schema/tool-inputs'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import type { Context, Tool } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = ExperimentUpdateSchema
 
@@ -30,7 +31,7 @@ export const updateHandler = async (context: Context, params: Params) => {
     }
 
     return {
-        content: [{ type: 'text', text: JSON.stringify(experimentWithUrl, null, 2) }],
+        content: [{ type: 'text', text: formatResponse(experimentWithUrl) }],
     }
 }
 

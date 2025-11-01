@@ -2,6 +2,7 @@ import { PropertyDefinitionSchema } from '@/schema/properties'
 import { ProjectPropertyDefinitionsInputSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = ProjectPropertyDefinitionsInputSchema
 
@@ -33,7 +34,7 @@ export const propertyDefinitionsHandler = async (context: Context, params: Param
     const simplifiedProperties = PropertyDefinitionSchema.array().parse(propDefsResult.data)
 
     return {
-        content: [{ type: 'text', text: JSON.stringify(simplifiedProperties) }],
+        content: [{ type: 'text', text: formatResponse(simplifiedProperties) }],
     }
 }
 

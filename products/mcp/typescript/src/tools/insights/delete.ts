@@ -2,6 +2,7 @@ import { InsightDeleteSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import { resolveInsightId } from './utils'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = InsightDeleteSchema
 
@@ -18,7 +19,7 @@ export const deleteHandler = async (context: Context, params: Params) => {
         throw new Error(`Failed to delete insight: ${result.error.message}`)
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(result.data) }] }
+    return { content: [{ type: 'text', text: formatResponse(result.data) }] }
 }
 
 const tool = (): ToolBase<typeof schema> => ({

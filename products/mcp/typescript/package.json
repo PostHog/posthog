@@ -56,6 +56,7 @@
         "langchain": "^0.3.31"
     },
     "dependencies": {
+        "@byjohann/toon": "^0.4.0",
         "@modelcontextprotocol/sdk": "^1.17.3",
         "agents": "^0.0.113",
         "ai": "^5.0.18",

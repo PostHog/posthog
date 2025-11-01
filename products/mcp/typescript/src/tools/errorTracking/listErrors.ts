@@ -1,6 +1,7 @@
 import { ErrorTrackingListSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = ErrorTrackingListSchema
 
@@ -29,7 +30,7 @@ export const listErrorsHandler = async (context: Context, params: Params) => {
     }
 
     return {
-        content: [{ type: 'text', text: JSON.stringify(errorsResult.data.results) }],
+        content: [{ type: 'text', text: formatResponse(errorsResult.data.results) }],
     }
 }
 

@@ -1,6 +1,7 @@
 import { DashboardUpdateSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = DashboardUpdateSchema
 
@@ -22,7 +23,7 @@ export const updateHandler = async (context: Context, params: Params) => {
         url: `${context.api.getProjectBaseUrl(projectId)}/dashboard/${dashboardResult.data.id}`,
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(dashboardWithUrl) }] }
+    return { content: [{ type: 'text', text: formatResponse(dashboardWithUrl) }] }
 }
 
 const tool = (): ToolBase<typeof schema> => ({

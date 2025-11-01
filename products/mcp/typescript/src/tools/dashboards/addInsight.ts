@@ -2,6 +2,7 @@ import { DashboardAddInsightSchema } from '@/schema/tool-inputs'
 import { resolveInsightId } from '@/tools/insights/utils'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = DashboardAddInsightSchema
 
@@ -38,7 +39,7 @@ export const addInsightHandler = async (context: Context, params: Params) => {
         insight_url: `${context.api.getProjectBaseUrl(projectId)}/insights/${insightResult.data.short_id}`,
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(resultWithUrls) }] }
+    return { content: [{ type: 'text', text: formatResponse(resultWithUrls) }] }
 }
 
 const tool = (): ToolBase<typeof schema> => ({

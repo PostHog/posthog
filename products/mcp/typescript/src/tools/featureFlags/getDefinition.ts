@@ -1,6 +1,7 @@
 import { FeatureFlagGetDefinitionSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = FeatureFlagGetDefinitionSchema
 
@@ -28,7 +29,7 @@ export const getDefinitionHandler = async (context: Context, { flagId, flagKey }
             throw new Error(`Failed to get feature flag: ${flagResult.error.message}`)
         }
         return {
-            content: [{ type: 'text', text: JSON.stringify(flagResult.data) }],
+            content: [{ type: 'text', text: formatResponse(flagResult.data) }],
         }
     }
 
@@ -40,7 +41,7 @@ export const getDefinitionHandler = async (context: Context, { flagId, flagKey }
         }
         if (flagResult.data) {
             return {
-                content: [{ type: 'text', text: JSON.stringify(flagResult.data) }],
+                content: [{ type: 'text', text: formatResponse(flagResult.data) }],
             }
         }
         return {

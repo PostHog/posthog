@@ -1,6 +1,7 @@
 import { QueryRunInputSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = QueryRunInputSchema
 
@@ -19,7 +20,7 @@ export const queryRunHandler = async (context: Context, params: Params) => {
         throw new Error(`Failed to query insight: ${queryResult.error.message}`)
     }
 
-    return { content: [{ type: 'text', text: JSON.stringify(queryResult.data.results) }] }
+    return { content: [{ type: 'text', text: formatResponse(queryResult.data.results) }] }
 }
 
 const tool = (): ToolBase<typeof schema> => ({

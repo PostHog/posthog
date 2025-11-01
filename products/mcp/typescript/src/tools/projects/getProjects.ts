@@ -1,6 +1,7 @@
 import { ProjectGetAllSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 import type { z } from 'zod'
+import { formatResponse } from '@/integrations/mcp/utils/formatResponse'
 
 const schema = ProjectGetAllSchema
 
@@ -22,7 +23,7 @@ export const getProjectsHandler = async (context: Context, _params: Params) => {
     }
 
     return {
-        content: [{ type: 'text', text: JSON.stringify(projectsResult.data) }],
+        content: [{ type: 'text', text: formatResponse(projectsResult.data) }],
     }
 }
 
