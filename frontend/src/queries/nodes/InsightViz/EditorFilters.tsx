@@ -23,6 +23,7 @@ import { PoeFilter } from 'scenes/insights/EditorFilters/PoeFilter'
 import { RetentionCondition } from 'scenes/insights/EditorFilters/RetentionCondition'
 import { RetentionOptions } from 'scenes/insights/EditorFilters/RetentionOptions'
 import { SamplingFilter } from 'scenes/insights/EditorFilters/SamplingFilter'
+import { WebAnalyticsEditorFilters } from 'scenes/insights/EditorFilters/WebAnalyticsEditorFilters'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { compareInsightTopLevelSections } from 'scenes/insights/utils'
@@ -99,9 +100,9 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
         return null
     }
 
-    // Web Analytics insights use their own filter UI integrated into the visualization
+    // Web Analytics insights use their custom filter UI
     if (isWebAnalyticsInsightQuery(query)) {
-        return null
+        return <WebAnalyticsEditorFilters query={query} showing={showing} embedded={embedded} />
     }
 
     // MaxTool should not be active when insights are embedded (e.g., in notebooks)

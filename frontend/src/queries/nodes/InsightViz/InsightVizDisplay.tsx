@@ -192,7 +192,8 @@ export function InsightVizDisplay({
                         'visitors',
                         'views',
                         querySource.includeBounceRate ? 'bounce_rate' : null,
-                        'cross_sell',
+                        querySource.includeScrollDepth ? 'average_scroll_percentage' : null,
+                        // No cross_sell column in Product Analytics - we don't show cross-sell buttons here
                     ].filter((col): col is string => col !== null)
 
                     const wrappedQuery: DataTableNode = {
@@ -205,9 +206,12 @@ export function InsightVizDisplay({
                     }
 
                     // Use the Web Analytics query context for custom column rendering and formatting
+                    // but exclude the cross_sell column to hide cross-sell buttons in Product Analytics
+                    const { cross_sell, ...columnsWithoutCrossSell } = webAnalyticsDataTableQueryContext.columns || {}
                     const webAnalyticsContext: QueryContext = {
                         ...context,
                         ...webAnalyticsDataTableQueryContext,
+                        columns: columnsWithoutCrossSell,
                     }
 
                     return <Query query={wrappedQuery} context={webAnalyticsContext} readOnly={!editMode} />
