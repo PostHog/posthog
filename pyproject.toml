@@ -176,6 +176,7 @@ dependencies = [
     "cachetools>=5.5.2",
     "textcase>=0.4.5",
     "gitpython>=3.1.44",
+    "libdebugger",
 ]
 
 [dependency-groups]
@@ -252,7 +253,7 @@ required-version = ">=0.7.0"
 
 [tool.uv.sources]
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
-
+libdebugger = { git = "https://github.com/PostHog/libdebugger" }
 
 [tool.black]
 line-length = 120
