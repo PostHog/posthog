@@ -13,7 +13,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
@@ -348,7 +347,7 @@ async def run_s3_batch_export_workflow(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -362,7 +361,7 @@ async def run_s3_batch_export_workflow(
                 S3BatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(minutes=10),
             )

@@ -17,7 +17,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.models import Team
 from posthog.temporal.data_imports.external_data_job import (
     Any_Source_Errors,
@@ -691,7 +690,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
                 async with Worker(
                     activity_environment.client,
-                    task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     workflows=[ExternalDataJobWorkflow],
                     activities=[
                         create_external_data_job_model_activity,
@@ -710,7 +709,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         ExternalDataJobWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 

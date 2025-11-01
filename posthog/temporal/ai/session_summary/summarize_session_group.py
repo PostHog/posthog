@@ -17,7 +17,6 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import CachedSessionBatchEventsQueryResponse
 
-from posthog import constants
 from posthog.hogql_queries.ai.session_batch_events_query_runner import (
     SessionBatchEventsQueryRunner,
     create_session_batch_events_query,
@@ -582,7 +581,7 @@ async def _start_session_group_summary_workflow(
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=constants.MAX_AI_TASK_QUEUE,
+        task_queue=settings.MAX_AI_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 

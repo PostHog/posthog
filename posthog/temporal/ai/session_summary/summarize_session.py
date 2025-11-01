@@ -16,7 +16,6 @@ from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog import constants
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
@@ -365,7 +364,7 @@ async def _execute_single_session_summary_workflow(inputs: SingleSessionSummaryI
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=constants.MAX_AI_TASK_QUEUE,
+        task_queue=settings.MAX_AI_TASK_QUEUE,
         retry_policy=retry_policy,
     )
 
@@ -381,7 +380,7 @@ async def _start_single_session_summary_workflow_stream(
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-        task_queue=constants.MAX_AI_TASK_QUEUE,
+        task_queue=settings.MAX_AI_TASK_QUEUE,
         retry_policy=retry_policy,
     )
     return handle

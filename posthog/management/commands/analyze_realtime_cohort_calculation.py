@@ -2,12 +2,12 @@ import time
 import asyncio
 import logging
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
 import structlog
 from temporalio.common import WorkflowIDReusePolicy
 
-from posthog.constants import MESSAGING_TASK_QUEUE
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
     RealtimeCohortCalculationCoordinatorWorkflowInputs,
@@ -119,7 +119,7 @@ class Command(BaseCommand):
                     inputs,
                     id=workflow_id,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                    task_queue=MESSAGING_TASK_QUEUE,
+                    task_queue=settings.MESSAGING_TASK_QUEUE,
                 )
 
                 logger.info(f"Workflow {workflow_id} started successfully")

@@ -11,6 +11,7 @@ from uuid import uuid4
 import pytest
 import unittest.mock
 
+from django.conf import settings
 from django.test import override_settings
 
 from temporalio import activity
@@ -20,7 +21,6 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
@@ -65,7 +65,7 @@ async def _run_workflow(
         await WorkflowEnvironment.start_time_skipping() as activity_environment,
         Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -81,7 +81,7 @@ async def _run_workflow(
             inputs,
             id=workflow_id,
             execution_timeout=dt.timedelta(seconds=10),
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
@@ -372,7 +372,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
         await WorkflowEnvironment.start_time_skipping() as activity_environment,
         Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -387,7 +387,7 @@ async def test_snowflake_export_workflow_handles_cancellation_mocked(ateam, snow
             SnowflakeBatchExportWorkflow.run,
             inputs,
             id=workflow_id,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         await asyncio.sleep(5)

@@ -19,7 +19,6 @@ from temporalio.client import (
 )
 from temporalio.common import RetryPolicy
 
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
     a_create_schedule,
@@ -84,7 +83,7 @@ def to_temporal_schedule(
         "external-data-job",
         asdict(inputs),
         id=str(external_data_schema.id),
-        task_queue=str(DATA_WAREHOUSE_TASK_QUEUE),
+        task_queue=str(settings.DATA_WAREHOUSE_TASK_QUEUE),
         retry_policy=RetryPolicy(
             initial_interval=timedelta(seconds=10),
             maximum_interval=timedelta(seconds=60),
