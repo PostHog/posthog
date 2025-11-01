@@ -7,7 +7,7 @@ import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException, ErrorTrackingStackFrame } from 'lib/components/Errors/types'
-import { formatResolvedName, formatType } from 'lib/components/Errors/utils'
+import { formatExceptionDisplay, formatResolvedName } from 'lib/components/Errors/utils'
 import { cn } from 'lib/utils/css-classes'
 
 import { exceptionCardLogic } from '../exceptionCardLogic'
@@ -22,11 +22,10 @@ export function StacktraceTextDisplay({
     const { exceptionList, hasStacktrace } = useValues(errorPropertiesLogic)
     const { loading } = useValues(exceptionCardLogic)
     const renderExceptionHeader = useCallback(
-        ({ type, value, loading, part }: ExceptionHeaderProps): JSX.Element => {
+        ({ exception, loading, part }: ExceptionHeaderProps): JSX.Element => {
             return (
                 <StacktraceTextExceptionHeader
-                    type={type}
-                    value={value}
+                    exception={exception}
                     part={part}
                     loading={loading}
                     truncate={truncateMessage}
@@ -47,11 +46,7 @@ export function StacktraceTextDisplay({
     )
 }
 
-export function StacktraceTextExceptionHeader({
-    type,
-    value,
-    loading,
-}: StacktraceBaseExceptionHeaderProps): JSX.Element {
+export function StacktraceTextExceptionHeader({ exception, loading }: StacktraceBaseExceptionHeaderProps): JSX.Element {
     return (
         <div className={cn('font-mono')}>
             {loading ? (
@@ -59,9 +54,7 @@ export function StacktraceTextExceptionHeader({
                     <LemonSkeleton className="h-2 w-1/2" />
                 </div>
             ) : (
-                <>
-                    {type}: {value}
-                </>
+                formatExceptionDisplay(exception)
             )}
         </div>
     )
@@ -71,9 +64,7 @@ function ExceptionTextDisplay({ exception }: { exception: ErrorTrackingException
     const { showAllFrames } = useValues(exceptionCardLogic)
     return (
         <div>
-            <p className="font-mono mb-0 font-bold line-clamp-1">
-                {formatType(exception)}: {exception.value}
-            </p>
+            <p className="font-mono mb-0 font-bold line-clamp-1">{formatExceptionDisplay(exception)}</p>
             {(exception.stacktrace?.frames || [])
                 .filter((frame: ErrorTrackingStackFrame) => (showAllFrames ? true : frame.in_app))
                 .map((frame, idx) => (
