@@ -14,19 +14,11 @@ import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
-import {
-    CookielessServerHashMode,
-    EventHeaders,
-    IncomingEventWithTeam,
-    PipelineEvent,
-    PluginsServerConfig,
-    Team,
-} from '../../types'
+import { CookielessServerHashMode, IncomingEventWithTeam, PipelineEvent, PluginsServerConfig, Team } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
-import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { PipelineResult, drop, ok } from '../pipelines/results'
 import { RedisHelpers } from './redis-helpers'
@@ -306,11 +298,12 @@ export class CookielessManager {
         // do a first pass just to extract properties and compute the base hash for stateful cookieless events
         const eventsWithStatus: EventWithStatus[] = []
         for (let i = 0; i < events.length; i++) {
-            const { event, team, message, headers } = events[i]
+            const inputEvent = events[i]
+            const { event, team, message } = inputEvent
 
             if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 // push the event as is, we don't need to do anything with it, but preserve the ordering
-                eventsWithStatus.push({ event, team, message, headers, originalIndex: i })
+                eventsWithStatus.push({ event, team, message, originalIndex: i })
                 continue
             }
 
@@ -345,16 +338,6 @@ export class CookielessManager {
                 continue
             }
 
-            // Compare timestamp from headers with current parsing logic
-            compareTimestamps(
-                timestamp,
-                headers,
-                team.id,
-                event.uuid,
-                'cookieless_processing',
-                this.config.timestampLoggingSampleRate
-            )
-
             const {
                 userAgent,
                 ip,
@@ -386,7 +369,6 @@ export class CookielessManager {
                 event,
                 team,
                 message,
-                headers,
                 originalIndex: i,
                 firstPass: {
                     timestampMs,
@@ -427,7 +409,7 @@ export class CookielessManager {
                     ...eventWithProcessing.event.properties,
                     $distinct_id: distinctId,
                     $device_id: deviceId,
-                    $session_id: sessionId,
+                    $session_id: sessionId.toString(),
                 }
                 eventWithProcessing.event = stripPIIProperties({
                     ...eventWithProcessing.event,
@@ -593,8 +575,8 @@ export class CookielessManager {
         }
 
         // Update results with successfully processed events
-        for (const { event, team, message, headers, originalIndex } of eventsWithStatus) {
-            results[originalIndex] = ok({ event, team, message, headers })
+        for (const { event, team, message, originalIndex } of eventsWithStatus) {
+            results[originalIndex] = ok({ event, team, message })
         }
 
         return results
@@ -618,7 +600,6 @@ type EventWithStatus = {
     message: Message
     event: PipelineEvent
     team: Team
-    headers: EventHeaders
     originalIndex: number
     // Store temporary processing state. Nest the passes to make type-checking easier
     firstPass?: {

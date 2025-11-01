@@ -51,7 +51,6 @@ async function resolveTeam(
             event,
             team,
             message,
-            headers,
         },
     }
 }

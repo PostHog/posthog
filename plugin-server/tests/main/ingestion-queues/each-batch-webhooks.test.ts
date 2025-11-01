@@ -40,6 +40,7 @@ const kafkaEvent: RawKafkaEvent = {
     person_created_at: '2020-02-20 02:15:00' as ClickHouseTimestampSecondPrecision, // Match createEvent ts format
     person_properties: '{}',
     person_mode: 'full',
+    historical_migration: false,
 }
 
 describe('eachMessageWebhooksHandlers', () => {

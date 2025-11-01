@@ -198,7 +198,12 @@ export class EventsProcessor {
         return res
     }
 
-    createEvent(preIngestionEvent: PreIngestionEvent, person: Person, processPerson: boolean): RawKafkaEvent {
+    createEvent(
+        preIngestionEvent: PreIngestionEvent,
+        person: Person,
+        processPerson: boolean,
+        historicalMigration = false
+    ): RawKafkaEvent {
         const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
         let elementsChain = ''
@@ -252,6 +257,7 @@ export class EventsProcessor {
             person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
             person_mode: personMode,
+            historical_migration: historicalMigration,
         }
 
         return rawEvent

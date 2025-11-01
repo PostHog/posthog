@@ -57,6 +57,7 @@ describe('emit-event-step', () => {
             person_properties: JSON.stringify({}),
             person_created_at: testTimestamp,
             person_mode: 'full',
+            historical_migration: false,
         }
     })
 

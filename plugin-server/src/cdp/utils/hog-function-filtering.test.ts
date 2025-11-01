@@ -115,6 +115,7 @@ describe('hog-function-filtering', () => {
                 properties: JSON.stringify({ test_prop: 'test_value' }),
                 elements_chain: 'a:href="https://example.com"',
                 person_mode: 'full',
+                historical_migration: false,
             }
 
             const result = convertClickhouseRawEventToFilterGlobals(rawEvent)
@@ -143,6 +144,7 @@ describe('hog-function-filtering', () => {
                 person_id: 'person_123',
                 person_properties: JSON.stringify({ name: 'John Doe' }),
                 person_mode: 'full',
+                historical_migration: false,
             }
 
             const result = convertClickhouseRawEventToFilterGlobals(rawEvent)
@@ -175,6 +177,7 @@ describe('hog-function-filtering', () => {
                 group0_properties: JSON.stringify({ name: 'Acme Corp' }),
                 group1_properties: JSON.stringify({ name: 'Project X' }),
                 person_mode: 'full',
+                historical_migration: false,
             }
 
             const result = convertClickhouseRawEventToFilterGlobals(rawEvent)
@@ -204,6 +207,7 @@ describe('hog-function-filtering', () => {
                 properties: JSON.stringify({}),
                 elements_chain: '',
                 person_mode: 'full',
+                historical_migration: false,
             }
 
             const result = convertClickhouseRawEventToFilterGlobals(rawEvent)
@@ -223,6 +227,7 @@ describe('hog-function-filtering', () => {
                 properties: JSON.stringify({}),
                 elements_chain: 'a:href="https://example.com":text="Click me":attr_id="button1";button',
                 person_mode: 'full',
+                historical_migration: false,
             }
 
             const result = convertClickhouseRawEventToFilterGlobals(rawEvent)

@@ -24,9 +24,6 @@ describe('createValidateEventUuidStep', () => {
                 person_processing_opt_out: false,
             } as any,
             message: {} as any,
-            headers: {
-                force_disable_person_processing: false,
-            },
         }
 
         step = createValidateEventUuidStep()
