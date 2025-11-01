@@ -37,13 +37,15 @@ function SceneTitlePanelButton(): JSX.Element | null {
 
     return (
         <SceneShortcut
-            keys={['option', 'i']}
-            description="Open Info & actions panel"
+            keys={['command', 'option', 'i']}
+            description="Toggle Info & actions panel"
             onAction={() => {
                 scenePanelIsRelative
                     ? setForceScenePanelClosedWhenRelative(!forceScenePanelClosedWhenRelative)
                     : setScenePanelOpen(!scenePanelOpen)
             }}
+            type="toggle"
+            active={scenePanelOpen}
             sceneKey={sceneKey as Scene}
         >
             <LemonButton

@@ -1205,9 +1205,14 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
 
-                // Skip if we're in an input/textarea/contenteditable (except action palette)
+                // Skip if we're in an input/textarea/contenteditable (except action palette and command bar)
                 const element = event.target as HTMLElement
                 const isInActionPalette = element && element.closest('#scene-action-palette')
+                const isInCommandBar =
+                    element &&
+                    (element.closest('.CommandBar__input') ||
+                        element.closest('[data-attr="search-bar-input"]') ||
+                        element.closest('[data-attr="action-bar-input"]'))
 
                 if (
                     element &&
@@ -1215,7 +1220,8 @@ export const sceneLogic = kea<sceneLogicType>([
                         element.tagName === 'TEXTAREA' ||
                         element.contentEditable === 'true' ||
                         element.closest('.NotebookEditor')) &&
-                    !isInActionPalette
+                    !isInActionPalette &&
+                    !isInCommandBar
                 ) {
                     return
                 }

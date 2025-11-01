@@ -22,6 +22,7 @@ import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { SHORTCUTS } from 'lib/shortcutsLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
@@ -254,18 +255,25 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {dashboard && canEditDashboard && (
                         <SceneShortcut
-                            keys={['option', 'e']}
-                            description="Toggle dashboard edit mode"
-                            sceneKey={Scene.Dashboard}
-                            enabled={canEditDashboard && dashboardMode !== DashboardMode.Edit}
-                            onAction={() =>
-                                setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
-                            }
-                        >
-                            <ButtonPrimitive
-                                onClick={() =>
+                            {...SHORTCUTS[Scene.Dashboard]!.toggleEditMode}
+                            onActionToggle={(active) => {
+                                if (active) {
+                                    setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
+                                } else {
                                     setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
                                 }
+                            }}
+                            active={dashboardMode === DashboardMode.Edit}
+                            enabled={canEditDashboard}
+                        >
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    if (dashboardMode === DashboardMode.Edit) {
+                                        setDashboardMode(null, DashboardEventSource.SceneCommonButtons)
+                                    } else {
+                                        setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)
+                                    }
+                                }}
                                 menuItem
                                 active={dashboardMode === DashboardMode.Edit}
                                 data-attr={`${RESOURCE_TYPE}-edit-layout`}

@@ -1,7 +1,6 @@
-import { actions, afterMount, connect, kea, path, reducers } from 'kea'
+import { actions, connect, kea, path, reducers } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
-import { shouldIgnoreInput } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import type { commandBarLogicType } from './commandBarLogicType'
@@ -50,28 +49,4 @@ export const commandBarLogic = kea<commandBarLogicType>([
             }
         },
     })),
-    afterMount(({ actions, cache }) => {
-        // register keyboard shortcuts
-        cache.disposables.add(() => {
-            const onKeyDown = (event: KeyboardEvent): void => {
-                if (shouldIgnoreInput(event)) {
-                    return
-                }
-                if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
-                    event.preventDefault()
-                    if (event.shiftKey) {
-                        // cmd+shift+k opens actions
-                        actions.toggleActionsBar()
-                    } else {
-                        // cmd+k opens search
-                        actions.toggleSearchBar()
-                    }
-                } else if (event.shiftKey && event.key === '?') {
-                    actions.toggleShortcutOverview()
-                }
-            }
-            window.addEventListener('keydown', onKeyDown)
-            return () => window.removeEventListener('keydown', onKeyDown)
-        }, 'keyboardShortcuts')
-    }),
 ])

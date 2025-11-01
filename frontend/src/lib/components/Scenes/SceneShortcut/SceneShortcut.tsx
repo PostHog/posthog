@@ -1,24 +1,15 @@
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { HotKeyOrModifier } from '~/types'
 
-export interface SceneShortcut {
-    id: string
-    keys: HotKeyOrModifier[]
-    description: string
-    enabled: boolean
-    action: () => void
-    sceneKey?: Scene
-    element?: HTMLElement
-    closeActionPaletteOnAction?: boolean
-}
-
-export interface SceneShortcutProps {
+interface BaseShortcut {
     /** Array of keys that make up the shortcut (e.g., ['command', 'e']) */
     keys: HotKeyOrModifier[]
     /** Description of what this shortcut does */
@@ -27,14 +18,31 @@ export interface SceneShortcutProps {
     sceneKey?: Scene
     /** Whether the shortcut is currently enabled */
     enabled?: boolean
+    /** Whether the shortcut is currently in active state (required for toggle shortcuts) */
+    active?: boolean
+    /** Whether the action palette should close when this action is triggered @default true */
+    closeActionPaletteOnAction?: boolean
+    /** Type of shortcut for icon display */
+    type?: 'action' | 'toggle' | 'link'
+}
+
+export interface SceneShortcut extends BaseShortcut {
+    id: string
+    enabled: boolean
+    action: () => void
+    element?: HTMLElement
+    actionToggle?: (active: boolean) => void
+}
+
+export interface SceneShortcutProps extends BaseShortcut {
     /** The action to perform when the shortcut is triggered */
-    onAction: () => void
+    onAction?: () => void
+    /** Toggle action that receives the current active state - requires active prop to be set */
+    onActionToggle?: (active: boolean) => void
     /** Optional unique identifier - will auto-generate if not provided */
     id?: string
     /** The child element to wrap */
     children: React.ReactNode
-    /** Whether the action palette should close when this action is triggered @default true */
-    closeActionPaletteOnAction?: boolean
 }
 
 export function SceneShortcut({
@@ -43,9 +51,12 @@ export function SceneShortcut({
     sceneKey,
     enabled = true,
     onAction,
+    onActionToggle,
+    active,
     id,
     children,
     closeActionPaletteOnAction = true,
+    type,
 }: SceneShortcutProps): JSX.Element {
     const elementRef = useRef<HTMLElement>(null)
     const { registerSceneShortcut, unregisterSceneShortcut } = useActions(sceneLogic)
@@ -57,8 +68,16 @@ export function SceneShortcut({
         [id, sceneKey, keys]
     )
 
-    // Stable action callback
-    const stableOnAction = useCallback(onAction, [onAction])
+    // Stable action callback with toggle logic
+    const stableOnAction = useCallback(() => {
+        if (onActionToggle && active !== undefined) {
+            // Toggle logic: pass current active state to the toggle function
+            onActionToggle(active)
+        } else if (onAction) {
+            // Fallback to traditional onAction
+            onAction()
+        }
+    }, [onAction, onActionToggle, active])
 
     // Stable shortcut object
     const shortcut = useMemo(
@@ -71,8 +90,22 @@ export function SceneShortcut({
             sceneKey,
             element: elementRef.current || undefined,
             closeActionPaletteOnAction,
+            active,
+            actionToggle: onActionToggle,
+            type,
         }),
-        [shortcutId, keys, description, enabled, stableOnAction, sceneKey, closeActionPaletteOnAction]
+        [
+            shortcutId,
+            keys,
+            description,
+            enabled,
+            stableOnAction,
+            sceneKey,
+            closeActionPaletteOnAction,
+            active,
+            onActionToggle,
+            type,
+        ]
     )
 
     // Register/unregister shortcut
@@ -89,17 +122,17 @@ export function SceneShortcut({
     }, [activeTabId, shortcut, shortcutId, registerSceneShortcut, unregisterSceneShortcut])
 
     return (
-        <div className="relative inline-block">
+        <Tooltip
+            title={
+                <>
+                    <KeyboardShortcut {...Object.fromEntries(keys.map((key) => [key, true]))} className="text-xs" />
+                </>
+            }
+            visible={optionKeyHeld && enabled}
+        >
             {React.cloneElement(children as React.ReactElement, {
                 ref: elementRef,
             })}
-            {optionKeyHeld && enabled && (
-                <div className="absolute left-0 top-0 transform -translate-x-1/2 -translate-y-1/2 z-50">
-                    <div className="bg-surface-secondary border border-border rounded px-px py-px shadow-md">
-                        <KeyboardShortcut {...Object.fromEntries(keys.map((key) => [key, true]))} className="text-xs" />
-                    </div>
-                </div>
-            )}
-        </div>
+        </Tooltip>
     )
 }
