@@ -15,6 +15,22 @@ export interface CLIAuthorizeForm {
     scopes: string[]
 }
 
+// Utility functions for scope conversion
+const scopesArrayToObject = (scopes: string[]): Record<string, string> => {
+    const result: Record<string, string> = {}
+    scopes.forEach((scope) => {
+        const [key, action] = scope.split(':')
+        if (key && action) {
+            result[key] = action
+        }
+    })
+    return result
+}
+
+const scopesObjectToArray = (scopesObj: Record<string, string>): string[] => {
+    return Object.entries(scopesObj).map(([key, action]) => `${key}:${action}`)
+}
+
 // Map use cases to their required scopes
 const USE_CASE_SCOPES: Record<CLIUseCase, string[]> = {
     schema: ['event_definition:read', 'property_definition:read'],
@@ -121,18 +137,10 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         formScopeRadioValues: [
             (s) => [s.authorize],
             (authorize): Record<string, string> => {
-                const result: Record<string, string> = {}
-
                 if (!authorize || !authorize.scopes) {
-                    return result
+                    return {}
                 }
-
-                authorize.scopes.forEach((scope) => {
-                    const [key, action] = scope.split(':')
-                    result[key] = action
-                })
-
-                return result
+                return scopesArrayToObject(authorize.scopes)
             },
         ],
         missingSchemaScopes: [
@@ -185,10 +193,10 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
         setAuthorizeValue: (payload) => {
             // Initialize displayed scope values when scopes are first set
             if (payload.name === 'scopes' && Object.keys(values.displayedScopeValues).length === 0) {
-                // Small delay to ensure formScopeRadioValues selector has updated
-                setTimeout(() => {
-                    actions.setDisplayedScopeValues(values.formScopeRadioValues)
-                }, 0)
+                // Directly compute scope values from the scopes array being set
+                const scopesArray = payload.value as string[]
+                const scopeValues = scopesArrayToObject(scopesArray)
+                actions.setDisplayedScopeValues(scopeValues)
             }
         },
         updateDisplayedScopeSnapshot: () => {
@@ -205,10 +213,9 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             // Update scopes when requested use cases change
             const newScopes = getDefaultScopesForUseCases(useCases)
             actions.setAuthorizeValue('scopes', newScopes)
-            // Update snapshot after setting scopes
-            setTimeout(() => {
-                actions.setDisplayedScopeValues(values.formScopeRadioValues)
-            }, 0)
+            // Directly compute and update displayed scope values
+            const scopeValues = scopesArrayToObject(newScopes)
+            actions.setDisplayedScopeValues(scopeValues)
         },
         setScopeRadioValue: ({ key, action }) => {
             if (!values.authorize || !values.authorize.scopes) {
@@ -216,13 +223,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             }
 
             // Convert current scopes array to object for easier manipulation
-            const scopesObject: Record<string, string> = {}
-            values.authorize.scopes.forEach((scope) => {
-                const [scopeKey, scopeAction] = scope.split(':')
-                if (scopeKey && scopeAction) {
-                    scopesObject[scopeKey] = scopeAction
-                }
-            })
+            const scopesObject = scopesArrayToObject(values.authorize.scopes)
 
             // Update the specific scope
             if (action === 'none') {
@@ -232,7 +233,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             }
 
             // Convert back to array format
-            const newScopes = Object.entries(scopesObject).map(([k, a]) => `${k}:${a}`)
+            const newScopes = scopesObjectToArray(scopesObject)
 
             actions.setAuthorizeValue('scopes', newScopes)
         },
