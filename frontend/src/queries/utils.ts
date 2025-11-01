@@ -196,6 +196,10 @@ export function isWebStatsTableQuery(node?: Record<string, any> | null): node is
     return node?.kind === NodeKind.WebStatsTableQuery
 }
 
+export function isWebAnalyticsInsightQuery(node?: Record<string, any> | null): boolean {
+    return isWebStatsTableQuery(node) || isWebOverviewQuery(node)
+}
+
 export function isWebExternalClicksQuery(node?: Record<string, any> | null): boolean {
     return node?.kind === NodeKind.WebExternalClicksTableQuery
 }
@@ -350,7 +354,9 @@ export function isInsightQueryNode(node?: Record<string, any> | null): node is I
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node)
+        isLifecycleQuery(node) ||
+        isWebStatsTableQuery(node) ||
+        isWebOverviewQuery(node)
     )
 }
 
@@ -548,6 +554,8 @@ export const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProp
     [NodeKind.PathsQuery]: 'pathsFilter',
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
+    [NodeKind.WebStatsTableQuery]: 'trendsFilter' as InsightFilterProperty, // Web Analytics queries don't have filter properties
+    [NodeKind.WebOverviewQuery]: 'trendsFilter' as InsightFilterProperty, // Web Analytics queries don't have filter properties
 }
 
 export function filterKeyForQuery(node: InsightQueryNode): InsightFilterProperty {

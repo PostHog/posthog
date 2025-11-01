@@ -188,7 +188,10 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
 
     if (isInsightVizNode(query) || isInsightQueryNode(query)) {
         const querySource = isInsightVizNode(query) ? query.source : query
-        const { dateRange, filterTestAccounts, samplingFactor, properties } = querySource
+        const dateRange = querySource.dateRange
+        const filterTestAccounts = querySource.filterTestAccounts
+        const samplingFactor = 'samplingFactor' in querySource ? querySource.samplingFactor : undefined
+        const properties = querySource.properties
 
         // date range and sampling
         payload.date_from = dateRange?.date_from || undefined

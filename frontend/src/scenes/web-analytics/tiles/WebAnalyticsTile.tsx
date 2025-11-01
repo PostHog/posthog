@@ -79,8 +79,11 @@ const VariationCell = (
     const formatNumber = (value: number): string =>
         isPercentage ? `${(value * 100).toFixed(1)}%` : (value?.toLocaleString() ?? '(empty)')
 
-    return function Cell({ value }) {
-        const { compareFilter } = useValues(webAnalyticsLogic)
+    return function Cell({ value, context }) {
+        // Try to get compareFilter from context first (Product Analytics), fall back to webAnalyticsLogic (Web Analytics dashboard)
+        const compareFilterFromContext = context?.compareFilter
+        const { compareFilter: compareFilterFromLogic } = useValues(webAnalyticsLogic)
+        const compareFilter = compareFilterFromContext ?? compareFilterFromLogic
 
         if (!value) {
             return null

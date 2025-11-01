@@ -213,6 +213,22 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     })
                 }
 
+                if (activeView === InsightType.WEB_ANALYTICS) {
+                    // Temporary tab for Web Analytics insights, similar to JSON tab
+                    tabs.push({
+                        label: (
+                            <>
+                                Web Analytics{' '}
+                                <LemonTag type="warning" className="uppercase ml-2">
+                                    Beta
+                                </LemonTag>
+                            </>
+                        ),
+                        type: InsightType.WEB_ANALYTICS,
+                        dataAttr: 'insight-web-analytics-tab',
+                    })
+                }
+
                 if (activeView === InsightType.JSON) {
                     // only display this tab when it is selected by the provided insight query
                     // don't display it otherwise... humans shouldn't be able to click to select this tab

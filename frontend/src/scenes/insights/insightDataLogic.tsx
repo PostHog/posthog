@@ -145,10 +145,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 if (savedInsight.query) {
                     savedOrDefaultQuery = savedInsight.query as InsightVizNode | DataVisualizationNode
                 } else if (isInsightVizNode(query)) {
-                    savedOrDefaultQuery = getDefaultQuery(
-                        nodeKindToInsightType[query.source.kind],
-                        filterTestAccountsDefault
-                    )
+                    const insightType = nodeKindToInsightType[query.source.kind]
+                    // Web Analytics insights don't have traditional defaults, they come from tiles
+                    if (insightType === InsightType.WEB_ANALYTICS) {
+                        return false
+                    }
+                    savedOrDefaultQuery = getDefaultQuery(insightType, filterTestAccountsDefault)
                 } else if (isDataVisualizationNode(query)) {
                     savedOrDefaultQuery = getDefaultQuery(InsightType.SQL, filterTestAccountsDefault)
                 } else if (isDataTableNode(query)) {

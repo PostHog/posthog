@@ -1147,6 +1147,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             showActions: true,
                             columns,
                         },
+                        canOpenInsight: true,
+                        canOpenModal: false,
                     }
                 }
 
@@ -1265,6 +1267,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             includeRevenue,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
+                        canOpenInsight: true,
                     },
                     {
                         kind: 'tabs',
@@ -1872,7 +1875,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   embedded: true,
                               },
                               insightProps: createInsightProps(TileId.RETENTION),
-                              canOpenInsight: false,
+                              canOpenInsight: true,
                               canOpenModal: true,
                               docs: {
                                   url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
@@ -2154,7 +2157,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
                               canOpenModal: true,
-                              canOpenInsight: false,
+                              canOpenInsight: true,
                               docs: {
                                   title: 'Frustrating Pages',
                                   description: (

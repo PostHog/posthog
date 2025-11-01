@@ -28,11 +28,13 @@ import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
+import { webAnalyticsDataTableQueryContext } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode, QuerySchema } from '~/queries/schema/schema-general'
+import { Query } from '~/queries/Query/Query'
+import { DataTableNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { shouldQueryBeAsync } from '~/queries/utils'
+import { isWebOverviewQuery, isWebStatsTableQuery, shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
@@ -68,7 +70,6 @@ export function InsightVizDisplay({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
     const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
@@ -84,10 +85,12 @@ export function InsightVizDisplay({
         timedOutQueryId,
         vizSpecificOptions,
         query,
+        querySource,
         display,
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
+    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -180,6 +183,32 @@ export function InsightVizDisplay({
                 )
             case InsightType.PATHS:
                 return isUsingPathsV2 ? <PathsV2 /> : <Paths />
+            case InsightType.WEB_ANALYTICS:
+                if (isWebStatsTableQuery(querySource)) {
+                    // Wrap WebStatsTableQuery in DataTableNode with the same structure as Web Analytics uses
+                    // Hide the cross_sell column to remove cross-sell buttons in Product Analytics
+                    const wrappedQuery: DataTableNode = {
+                        kind: NodeKind.DataTableNode,
+                        source: querySource,
+                        full: true,
+                        showActions: false,
+                        embedded: false,
+                        hiddenColumns: ['cross_sell'],
+                    }
+
+                    // Use the Web Analytics query context for custom column rendering and formatting
+                    // Pass compareFilter so VariationCell can access it when webAnalyticsLogic is not mounted
+                    const webAnalyticsContext: QueryContext = {
+                        ...context,
+                        ...webAnalyticsDataTableQueryContext,
+                        compareFilter: querySource.compareFilter,
+                    } as QueryContext
+
+                    return <Query query={wrappedQuery} context={webAnalyticsContext} readOnly={!editMode} />
+                } else if (isWebOverviewQuery(querySource)) {
+                    return <Query query={querySource} context={context} readOnly={!editMode} />
+                }
+                return null
             default:
                 return null
         }

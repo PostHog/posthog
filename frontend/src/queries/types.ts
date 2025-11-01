@@ -52,6 +52,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     expandable?: ExpandableConfig<DataTableRow>
     /** Ignore action/event names in series labels (show only breakdown/compare values) */
     ignoreActionsInSeriesLabels?: boolean
+    /** Compare filter for Web Analytics queries */
+    compareFilter?: any
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{
@@ -66,6 +68,7 @@ export type QueryContextColumnComponent = ComponentType<{
     recordIndex: number
     rowCount: number
     value: unknown
+    context?: QueryContext
 }>
 
 export interface QueryContextColumn {

@@ -1769,6 +1769,8 @@ class InsightNodeKind(StrEnum):
     PATHS_QUERY = "PathsQuery"
     STICKINESS_QUERY = "StickinessQuery"
     LIFECYCLE_QUERY = "LifecycleQuery"
+    WEB_STATS_TABLE_QUERY = "WebStatsTableQuery"
+    WEB_OVERVIEW_QUERY = "WebOverviewQuery"
 
 
 class InsightThresholdType(StrEnum):
@@ -14732,9 +14734,16 @@ class InsightVizNode(BaseModel):
     showLastComputationRefresh: Optional[bool] = None
     showResults: Optional[bool] = None
     showTable: Optional[bool] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
-        ..., discriminator="kind"
-    )
+    source: Union[
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        WebStatsTableQuery,
+        WebOverviewQuery,
+    ] = Field(..., discriminator="kind")
     suppressSessionAnalysisWarning: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
     vizSpecificOptions: Optional[VizSpecificOptions] = None
@@ -14769,9 +14778,16 @@ class WebVitalsQuery(BaseModel):
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebGoalsQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
-        ..., discriminator="kind"
-    )
+    source: Union[
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        WebStatsTableQuery,
+        WebOverviewQuery,
+    ] = Field(..., discriminator="kind")
     tags: Optional[QueryLogTags] = None
     useSessionsTable: Optional[bool] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -14799,7 +14815,19 @@ class EndpointRequest(BaseModel):
     is_active: Optional[bool] = None
     name: Optional[str] = None
     query: Optional[
-        Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
+        Union[
+            HogQLQuery,
+            Union[
+                TrendsQuery,
+                FunnelsQuery,
+                RetentionQuery,
+                PathsQuery,
+                StickinessQuery,
+                LifecycleQuery,
+                WebStatsTableQuery,
+                WebOverviewQuery,
+            ],
+        ]
     ] = None
 
 
@@ -14861,9 +14889,16 @@ class InsightActorsQuery(BaseModel):
     )
     response: Optional[ActorsQueryResponse] = None
     series: Optional[int] = None
-    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery] = Field(
-        ..., discriminator="kind"
-    )
+    source: Union[
+        TrendsQuery,
+        FunnelsQuery,
+        RetentionQuery,
+        PathsQuery,
+        StickinessQuery,
+        LifecycleQuery,
+        WebStatsTableQuery,
+        WebOverviewQuery,
+    ] = Field(..., discriminator="kind")
     status: Optional[str] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
