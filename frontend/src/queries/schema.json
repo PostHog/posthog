@@ -17208,11 +17208,27 @@
         "MatchedRecordingEvent": {
             "additionalProperties": false,
             "properties": {
+                "timestamp": {
+                    "type": "string"
+                },
                 "uuid": {
                     "type": "string"
                 }
             },
-            "required": ["uuid"],
+            "required": ["uuid", "timestamp"],
+            "type": "object"
+        },
+        "MatchingEventsResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MatchedRecordingEvent"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "MathType": {
@@ -24867,9 +24883,12 @@
                 },
                 "session_id": {
                     "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
                 }
             },
-            "required": ["person_id", "session_id", "event_uuid"],
+            "required": ["person_id", "session_id", "event_uuid", "timestamp"],
             "type": "object"
         },
         "SessionEventsItem": {
@@ -25188,6 +25207,9 @@
                         "$ref": "#/definitions/SourceFieldConfig"
                     },
                     "type": "array"
+                },
+                "iconClassName": {
+                    "type": "string"
                 },
                 "iconPath": {
                     "type": "string"
