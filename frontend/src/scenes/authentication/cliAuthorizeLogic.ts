@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
 
 import type { cliAuthorizeLogicType } from './cliAuthorizeLogicType'
 
@@ -13,22 +14,6 @@ export interface CLIAuthorizeForm {
     userCode: string
     projectId: number | null
     scopes: string[]
-}
-
-// Utility functions for scope conversion
-const scopesArrayToObject = (scopes: string[]): Record<string, string> => {
-    const result: Record<string, string> = {}
-    scopes.forEach((scope) => {
-        const [key, action] = scope.split(':')
-        if (key && action) {
-            result[key] = action
-        }
-    })
-    return result
-}
-
-const scopesObjectToArray = (scopesObj: Record<string, string>): string[] => {
-    return Object.entries(scopesObj).map(([key, action]) => `${key}:${action}`)
 }
 
 // Map use cases to their required scopes
