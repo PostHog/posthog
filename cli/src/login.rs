@@ -85,7 +85,7 @@ pub fn login_with_use_cases(
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
     println!("To authenticate, visit this URL in your browser:");
-    println!("  {}", verification_url);
+    println!("  {verification_url}");
     println!();
     println!("Your authorization code:");
     println!("  ✨ {} ✨", device_data.user_code);
