@@ -367,6 +367,9 @@ pub struct Config {
     #[envconfig(from = "SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS", default = "none")]
     pub session_replay_rrweb_script_allowed_teams: TeamIdCollection,
 
+    #[envconfig(from = "SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE", default = "0.01")]
+    pub session_replay_rrweb_script_sample_rate: f64,
+
     #[envconfig(from = "FLAGS_SESSION_REPLAY_QUOTA_CHECK", default = "false")]
     pub flags_session_replay_quota_check: bool,
 
@@ -486,6 +489,7 @@ impl Config {
             debug: FlexBool(false),
             session_replay_rrweb_script: "".to_string(),
             session_replay_rrweb_script_allowed_teams: TeamIdCollection::None,
+            session_replay_rrweb_script_sample_rate: 0.01,
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),

@@ -25,6 +25,7 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
+from posthog.sampling import sample_on_property
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
@@ -196,13 +197,16 @@ class RemoteConfig(UUIDTModel):
 
             rrweb_script_config = None
 
-            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
-                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-            ):
-                rrweb_script_config = {
-                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
-                }
+            if settings.SESSION_REPLAY_RRWEB_SCRIPT is not None:
+                is_team_allowed = (
+                    "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+                    or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+                    or sample_on_property(str(team.id), settings.SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE)
+                )
+                if is_team_allowed:
+                    rrweb_script_config = {
+                        "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
+                    }
 
             session_recording_config_response = {
                 "endpoint": "/s/",

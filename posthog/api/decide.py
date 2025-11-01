@@ -32,6 +32,7 @@ from posthog.models.filters.mixins.utils import process_bool
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.utils import execute_with_timeout
 from posthog.plugins.site import get_decide_site_apps
+from posthog.sampling import sample_on_property
 from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_from_request
 from posthog.utils_cors import cors_response
 
@@ -590,13 +591,16 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
 
             rrweb_script_config = None
 
-            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
-                "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-                or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
-            ):
-                rrweb_script_config = {
-                    "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
-                }
+            if settings.SESSION_REPLAY_RRWEB_SCRIPT is not None:
+                is_team_allowed = (
+                    "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+                    or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
+                    or sample_on_property(str(team.id), settings.SESSION_REPLAY_RRWEB_SCRIPT_SAMPLE_RATE)
+                )
+                if is_team_allowed:
+                    rrweb_script_config = {
+                        "script": settings.SESSION_REPLAY_RRWEB_SCRIPT,
+                    }
 
             session_recording_config_response = {
                 "endpoint": "/s/",
