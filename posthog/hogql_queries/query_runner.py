@@ -597,6 +597,19 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == "ErrorTrackingBreakdownsQuery":
+        from products.error_tracking.backend.hogql_queries.error_tracking_breakdowns_query_runner import (
+            ErrorTrackingBreakdownsQueryRunner,
+        )
+
+        return ErrorTrackingBreakdownsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "ExperimentFunnelsQuery":
         from .experiments.experiment_funnels_query_runner import ExperimentFunnelsQueryRunner
 

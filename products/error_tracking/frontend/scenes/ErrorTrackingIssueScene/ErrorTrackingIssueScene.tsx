@@ -22,7 +22,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
-import { errorTrackingBreakdownsLogic } from '../../components/Breakdowns/errorTrackingBreakdownsLogic'
+import { breakdownFiltersLogic } from '../../components/Breakdowns/breakdownFiltersLogic'
+import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -64,8 +65,10 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         return (
             <ErrorTrackingSetupPrompt>
                 <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                    <BindLogic logic={errorTrackingBreakdownsLogic} props={{ id: issueId }}>
-                        <V2Layout />
+                    <BindLogic logic={breakdownFiltersLogic} props={{}}>
+                        <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
+                            <V2Layout />
+                        </BindLogic>
                     </BindLogic>
                 </BindLogic>
             </ErrorTrackingSetupPrompt>

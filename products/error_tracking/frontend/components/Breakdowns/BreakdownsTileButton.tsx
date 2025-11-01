@@ -1,45 +1,27 @@
 import { useActions, useValues } from 'kea'
 
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
+import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
 
-import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { InsightQueryNode } from '~/queries/schema/schema-general'
-import { FilterLogicalOperator } from '~/types'
-
-import { errorTrackingIssueBreakdownQuery } from '../../queries'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { BreakdownsStackedBar } from './BreakdownsStackedBar'
 import { breakdownFiltersLogic } from './breakdownFiltersLogic'
-import { breakdownPreviewLogic } from './breakdownPreviewLogic'
-import {
-    BreakdownPreset,
-    ERROR_TRACKING_BREAKDOWNS_DATA_COLLECTION_NODE_ID,
-    POSTHOG_BREAKDOWN_NULL_VALUE,
-} from './consts'
-import { errorTrackingBreakdownsLogic } from './errorTrackingBreakdownsLogic'
+import { BreakdownPreset } from './consts'
+import { miniBreakdownsLogic } from './miniBreakdownsLogic'
 
 interface BreakdownsTileButtonProps {
     item: BreakdownPreset
 }
 
 export function BreakdownsTileButton({ item }: BreakdownsTileButtonProps): JSX.Element {
-    const { dateRange, filterTestAccounts } = useValues(breakdownFiltersLogic)
-    const { breakdownProperty, issueId } = useValues(errorTrackingBreakdownsLogic)
-    const { setBreakdownProperty } = useActions(errorTrackingBreakdownsLogic)
+    const { breakdownProperty } = useValues(breakdownFiltersLogic)
+    const { setBreakdownProperty } = useActions(breakdownFiltersLogic)
     const { category } = useValues(errorTrackingIssueSceneLogic)
     const { setCategory } = useActions(errorTrackingIssueSceneLogic)
 
     const isSelected = category === 'breakdowns' && breakdownProperty === item.property
-
-    const query = errorTrackingIssueBreakdownQuery({
-        breakdownProperty: item.property,
-        dateRange: dateRange,
-        filterTestAccounts: filterTestAccounts,
-        filterGroup: { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: [] }] },
-        issueId,
-    })
 
     return (
         <button
@@ -52,30 +34,16 @@ export function BreakdownsTileButton({ item }: BreakdownsTileButtonProps): JSX.E
                 isSelected ? 'border-l-brand-yellow' : 'border-l-transparent'
             )}
         >
-            <BreakdownPreview query={query.source} title={item.title} property={item.property} />
+            <BreakdownPreview title={item.title} property={item.property} />
         </button>
     )
 }
 
-function BreakdownPreview({
-    query,
-    title,
-    property,
-}: {
-    query: InsightQueryNode
-    title: string
-    property: string
-}): JSX.Element {
-    const key = `BreakdownPreview.${title}`
-    const dataNodeLogicProps: DataNodeLogicProps = {
-        query: query,
-        key: key,
-        dataNodeCollectionId: ERROR_TRACKING_BREAKDOWNS_DATA_COLLECTION_NODE_ID,
-    }
-    const logic = breakdownPreviewLogic({ dataNodeLogicProps })
-    const { properties, totalCount, responseLoading } = useValues(logic)
+function BreakdownPreview({ title, property }: { title: string; property: string }): JSX.Element {
+    const { getBreakdownForProperty, responseLoading } = useValues(miniBreakdownsLogic)
+    const { properties, totalCount } = getBreakdownForProperty(property)
 
-    const hasOnlyNullBreakdown = properties.length === 1 && properties[0].label === POSTHOG_BREAKDOWN_NULL_VALUE
+    const hasOnlyNullBreakdown = properties.length === 1 && properties[0].label === BREAKDOWN_NULL_STRING_LABEL
 
     return (
         <div className="flex items-center gap-2">
@@ -83,7 +51,7 @@ function BreakdownPreview({
             <div className="w-[70%]">
                 {responseLoading ? (
                     <div className="h-4 flex items-center justify-center">
-                        <Spinner className="text-xs" />
+                        <LemonSkeleton />
                     </div>
                 ) : properties.length === 0 || hasOnlyNullBreakdown ? (
                     <div className="text-muted text-xs h-4 flex items-center justify-center">No data</div>

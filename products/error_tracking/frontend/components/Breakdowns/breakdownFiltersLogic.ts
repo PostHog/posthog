@@ -17,6 +17,7 @@ export const breakdownFiltersLogic = kea<breakdownFiltersLogicType>([
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
         setFilterOpen: (filterOpen: boolean) => ({ filterOpen }),
+        setBreakdownProperty: (breakdownProperty: string) => ({ breakdownProperty }),
     }),
     reducers({
         dateRange: [
@@ -31,6 +32,13 @@ export const breakdownFiltersLogic = kea<breakdownFiltersLogicType>([
             { persist: true },
             {
                 setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
+            },
+        ],
+        breakdownProperty: [
+            '$browser' as string,
+            { persist: true },
+            {
+                setBreakdownProperty: (_, { breakdownProperty }) => breakdownProperty,
             },
         ],
         filterOpen: [
@@ -48,6 +56,9 @@ export const breakdownFiltersLogic = kea<breakdownFiltersLogicType>([
             }
             if (params.filterTestAccounts && !equal(params.filterTestAccounts, values.filterTestAccounts)) {
                 actions.setFilterTestAccounts(params.filterTestAccounts)
+            }
+            if (params.breakdownProperty && !equal(params.breakdownProperty, values.breakdownProperty)) {
+                actions.setBreakdownProperty(params.breakdownProperty)
             }
         }
         return {
@@ -67,6 +78,7 @@ export const breakdownFiltersLogic = kea<breakdownFiltersLogicType>([
             return syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'filterTestAccounts', values.filterTestAccounts, DEFAULT_TEST_ACCOUNT)
                 updateSearchParams(params, 'dateRange', values.dateRange, DEFAULT_DATE_RANGE)
+                updateSearchParams(params, 'breakdownProperty', values.breakdownProperty, '$browser')
                 return params
             })
         }
@@ -74,6 +86,7 @@ export const breakdownFiltersLogic = kea<breakdownFiltersLogicType>([
         return {
             setDateRange: () => buildURL(),
             setFilterTestAccounts: () => buildURL(),
+            setBreakdownProperty: () => buildURL(),
         }
     }),
 ])
