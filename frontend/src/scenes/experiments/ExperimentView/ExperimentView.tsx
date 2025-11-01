@@ -33,6 +33,7 @@ import {
 } from '../components/ResultsBreakdown'
 import { CreateExperiment } from '../create/CreateExperiment'
 import { experimentLogic } from '../experimentLogic'
+import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { isLegacyExperiment, isLegacyExperimentQuery, removeMetricFromOrderingArray } from '../utils'
@@ -203,14 +204,18 @@ const VariantsTab = (): JSX.Element => {
     )
 }
 
-export function ExperimentView(): JSX.Element {
+export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
         useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
         useActions(experimentLogic)
 
-    const { activeTabKey } = useValues(experimentSceneLogic)
-    const { setActiveTabKey } = useActions(experimentSceneLogic)
+    if (!tabId) {
+        throw new Error('<ExperimentView /> must receive a tabId prop')
+    }
+
+    const { activeTabKey } = useValues(experimentSceneLogic({ tabId }))
+    const { setActiveTabKey } = useActions(experimentSceneLogic({ tabId }))
 
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)

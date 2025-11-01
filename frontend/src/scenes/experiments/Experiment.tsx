@@ -58,7 +58,7 @@ export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
             {formMode && ([FORM_MODES.create, FORM_MODES.duplicate] as string[]).includes(formMode) ? (
                 <ExperimentForm />
             ) : (
-                <ExperimentView />
+                <ExperimentView tabId={tabId} />
             )}
         </BindLogic>
     )
