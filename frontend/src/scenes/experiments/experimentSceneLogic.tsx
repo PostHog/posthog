@@ -162,8 +162,8 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             },
         ],
     }),
-    sharedListeners(({ actions, values }) => {
-        const ensureLogic = (): BuiltLogic<experimentLogicType> | null => {
+    sharedListeners(({ actions, values }) => ({
+        ensureExperimentLogicMounted: () => {
             if (!values.tabId) {
                 throw new Error('Tab-aware scene logic must have a tabId prop')
             }
@@ -194,42 +194,26 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                     oldRef.unmount()
                 }
             }
-
-            return values.experimentLogicRef?.logic ?? null
-        }
-
-        return {
-            mountExperimentLogic: () => {
-                ensureLogic()
-            },
-            syncEditMode: ({ editing }: { editing?: boolean } = {}) => {
-                const logic = ensureLogic()
-                if (logic && typeof editing === 'boolean') {
-                    logic.actions.setEditExperiment(editing)
-                }
-            },
-            resetExperimentState: ({ experimentConfig }: { experimentConfig?: Experiment } = {}) => {
-                const logic = ensureLogic()
-                if (logic && experimentConfig) {
-                    logic.actions.resetExperiment(experimentConfig)
-                }
-            },
-            loadExperimentData: () => {
-                const logic = ensureLogic()
-                logic?.actions.loadExperiment()
-            },
-            loadExposuresData: ({ forceRefresh }: { forceRefresh?: boolean } = {}) => {
-                const logic = ensureLogic()
-                logic?.actions.loadExposures(forceRefresh)
-            },
-        }
-    }),
-    listeners(({ sharedListeners }) => ({
-        setSceneState: sharedListeners.mountExperimentLogic,
-        setEditMode: sharedListeners.syncEditMode,
-        resetExperimentState: sharedListeners.resetExperimentState,
-        loadExperimentData: sharedListeners.loadExperimentData,
-        loadExposuresData: sharedListeners.loadExposuresData,
+        },
+    })),
+    listeners(({ sharedListeners, values }) => ({
+        setSceneState: sharedListeners.ensureExperimentLogicMounted,
+        setEditMode: ({ editing }) => {
+            sharedListeners.ensureExperimentLogicMounted()
+            values.experimentLogicRef?.logic.actions.setEditExperiment(editing)
+        },
+        resetExperimentState: ({ experimentConfig }) => {
+            sharedListeners.ensureExperimentLogicMounted()
+            values.experimentLogicRef?.logic.actions.resetExperiment(experimentConfig)
+        },
+        loadExperimentData: () => {
+            sharedListeners.ensureExperimentLogicMounted()
+            values.experimentLogicRef?.logic.actions.loadExperiment()
+        },
+        loadExposuresData: ({ forceRefresh }) => {
+            sharedListeners.ensureExperimentLogicMounted()
+            values.experimentLogicRef?.logic.actions.loadExposures(forceRefresh)
+        },
     })),
     tabAwareActionToUrl(({ values }) => {
         const actionToUrl = ({

@@ -23,7 +23,6 @@ import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { urls } from 'scenes/urls'
@@ -75,6 +74,7 @@ import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, MetricInsightId } from './constants'
 import type { experimentLogicType } from './experimentLogicType'
+import { experimentSceneLogic } from './experimentSceneLogic'
 import { experimentsLogic } from './experimentsLogic'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
@@ -952,16 +952,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 const experimentId = response.id
                 refreshTreeItem('experiment', String(experimentId))
                 const navigateToExperiment = (): void => {
-                    const targetUrl = urls.experiment(experimentId)
                     const tabId = values.props.tabId
-                    const activeTabId = sceneLogic.values.activeTabId
-
-                    if (tabId && activeTabId && activeTabId !== tabId) {
-                        sceneLogic.actions.setTabs(
-                            sceneLogic.values.tabs.map((tab) => (tab.id === tabId ? { ...tab, url: targetUrl } : tab))
-                        )
+                    const scene = tabId ? experimentSceneLogic.findMounted({ tabId }) : null
+                    if (scene) {
+                        scene.actions.setSceneState(experimentId, FORM_MODES.update)
                     } else {
-                        router.actions.push(targetUrl)
+                        router.actions.push(urls.experiment(experimentId))
                     }
                 }
 
