@@ -45,6 +45,7 @@ import { EventType } from '~/types'
 
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
+import { LLMAnalyticsSessions } from './LLMAnalyticsSessions'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
@@ -130,14 +131,37 @@ function LLMAnalyticsGenerations(): JSX.Element {
         setPropertyFilters,
         setGenerationsColumns,
         toggleGenerationExpanded,
+        setGenerationsSort,
     } = useActions(llmAnalyticsLogic)
     const {
         generationsQuery,
         propertyFilters: currentPropertyFilters,
         expandedGenerationIds,
         loadedTraces,
+        generationsSort,
     } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const handleColumnClick = (column: string): void => {
+        // Toggle sort direction if clicking same column, otherwise default to DESC
+        const newDirection = generationsSort.column === column && generationsSort.direction === 'DESC' ? 'ASC' : 'DESC'
+        setGenerationsSort(column, newDirection)
+    }
+
+    const renderSortableColumnTitle = (column: string, title: string): JSX.Element => {
+        const isSorted = generationsSort.column === column
+        const direction = generationsSort.direction
+        return (
+            <span
+                onClick={() => handleColumnClick(column)}
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+                className="flex items-center gap-1"
+            >
+                {title}
+                {isSorted && (direction === 'DESC' ? ' ▼' : ' ▲')}
+            </span>
+        )
+    }
 
     return (
         <DataTable
@@ -190,6 +214,22 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 </strong>
                             )
                         },
+                    },
+                    "f'{properties.$ai_model}' -- Model": {
+                        renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
+                    },
+                    "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency": {
+                        renderTitle: () => renderSortableColumnTitle('properties.$ai_latency', 'Latency'),
+                    },
+                    "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Cost": {
+                        renderTitle: () => (
+                            <Tooltip title="Cost of this generation">
+                                {renderSortableColumnTitle('properties.$ai_total_cost_usd', 'Cost')}
+                            </Tooltip>
+                        ),
+                    },
+                    timestamp: {
+                        renderTitle: () => renderSortableColumnTitle('timestamp', 'Time'),
                     },
                 },
                 expandable: {
@@ -464,6 +504,16 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsUsers(), searchParams).url,
+        },
+        {
+            key: 'sessions',
+            label: 'Sessions',
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsSessions />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
         },
     ]
 

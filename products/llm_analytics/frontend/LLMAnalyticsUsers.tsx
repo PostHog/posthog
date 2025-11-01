@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
@@ -27,8 +28,29 @@ const mapPerson = (person: any): { distinct_id: string; created_at: string; prop
 }
 
 export function LLMAnalyticsUsers(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
-    const { usersQuery } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setUsersSort } = useActions(llmAnalyticsLogic)
+    const { usersQuery, usersSort } = useValues(llmAnalyticsLogic)
+
+    const handleColumnClick = (column: string): void => {
+        // Toggle sort direction if clicking same column, otherwise default to DESC
+        const newDirection = usersSort.column === column && usersSort.direction === 'DESC' ? 'ASC' : 'DESC'
+        setUsersSort(column, newDirection)
+    }
+
+    const renderSortableColumnTitle = (column: string, title: string): JSX.Element => {
+        const isSorted = usersSort.column === column
+        const direction = usersSort.direction
+        return (
+            <span
+                onClick={() => handleColumnClick(column)}
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+                className="flex items-center gap-1"
+            >
+                {title}
+                {isSorted && (direction === 'DESC' ? ' ▼' : ' ▲')}
+            </span>
+        )
+    }
 
     return (
         <DataTable
@@ -74,19 +96,38 @@ export function LLMAnalyticsUsers(): JSX.Element {
                         },
                     },
                     first_seen: {
-                        title: 'First Seen',
+                        renderTitle: () => renderSortableColumnTitle('first_seen', 'First Seen'),
                     },
                     last_seen: {
-                        title: 'Last Seen',
+                        renderTitle: () => renderSortableColumnTitle('last_seen', 'Last Seen'),
                     },
                     traces: {
-                        title: 'Traces (count)',
+                        renderTitle: () => (
+                            <Tooltip title="Number of traces created by this user">
+                                {renderSortableColumnTitle('traces', 'Traces')}
+                            </Tooltip>
+                        ),
                     },
                     generations: {
-                        title: 'Generations (count)',
+                        renderTitle: () => (
+                            <Tooltip title="Number of generations created by this user">
+                                {renderSortableColumnTitle('generations', 'Generations')}
+                            </Tooltip>
+                        ),
+                    },
+                    errors: {
+                        renderTitle: () => (
+                            <Tooltip title="Number of errors encountered by this user">
+                                {renderSortableColumnTitle('errors', 'Errors')}
+                            </Tooltip>
+                        ),
                     },
                     total_cost: {
-                        title: 'Total Cost (USD)',
+                        renderTitle: () => (
+                            <Tooltip title="Total cost of all generations for this user">
+                                {renderSortableColumnTitle('total_cost', 'Cost')}
+                            </Tooltip>
+                        ),
                         render: function RenderCost({ value }) {
                             if (!value || !Number(value)) {
                                 return <span>N/A</span>

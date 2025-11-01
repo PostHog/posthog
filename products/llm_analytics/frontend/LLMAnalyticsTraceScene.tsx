@@ -84,21 +84,6 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
     )
 }
 
-function getSessionFilterUrl(sessionId: string): string {
-    const filter = [
-        {
-            key: '$ai_session_id',
-            value: [sessionId],
-            operator: 'exact',
-            type: 'event',
-        },
-    ]
-    // Build URL with filters as query params
-    const params = new URLSearchParams()
-    params.set('filters', JSON.stringify(filter))
-    return `${urls.llmAnalyticsTraces()}?${params.toString()}`
-}
-
 function TraceSceneWrapper(): JSX.Element {
     const { eventId } = useValues(llmAnalyticsTraceLogic)
     const {
@@ -196,8 +181,8 @@ function TraceMetadata({
                 </Chip>
             )}
             {trace.aiSessionId && (
-                <Chip title="AI Session ID - Click to filter traces by this session">
-                    <Link to={getSessionFilterUrl(trace.aiSessionId)} subtle>
+                <Chip title="AI Session ID - Click to view session details">
+                    <Link to={urls.llmAnalyticsSession(trace.aiSessionId)} subtle>
                         <span className="font-mono">{trace.aiSessionId.slice(0, 8)}...</span>
                     </Link>
                 </Chip>

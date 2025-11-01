@@ -73,16 +73,22 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             person: {
                 title: 'Person',
             },
+            errors: {
+                renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
+                render: ErrorsColumn,
+            },
             totalLatency: {
-                title: 'Latency',
+                renderTitle: () => <Tooltip title="Total latency of all generations in this trace">Latency</Tooltip>,
                 render: LatencyColumn,
             },
             usage: {
-                title: 'Token Usage',
+                renderTitle: () => (
+                    <Tooltip title="Total token usage (input + output) for this trace">Token Usage</Tooltip>
+                ),
                 render: UsageColumn,
             },
             totalCost: {
-                title: 'Total Cost',
+                renderTitle: () => <Tooltip title="Total cost of all generations in this trace">Cost</Tooltip>,
                 render: CostColumn,
             },
         },
@@ -149,6 +155,15 @@ const CostColumn: QueryContextColumnComponent = ({ record }) => {
     return <>–</>
 }
 CostColumn.displayName = 'CostColumn'
+
+const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    const errorCount = Array.isArray(row.events)
+        ? row.events.filter((e) => e.properties?.$ai_error || e.properties?.$ai_is_error).length
+        : 0
+    return <>{errorCount > 0 ? errorCount : '–'}</>
+}
+ErrorsColumn.displayName = 'ErrorsColumn'
 
 const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
