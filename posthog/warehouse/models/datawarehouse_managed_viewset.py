@@ -21,7 +21,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from posthog.warehouse.models.modeling import DataWarehouseModelPath
 
 logger = structlog.get_logger(__name__)
 
@@ -61,7 +60,6 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         Deletes views that are no longer referenced.
         Materializes views by default.
         """
-        from posthog.warehouse.data_load.saved_query_service import sync_saved_query_workflow
 
         expected_views: list[ExpectedView] = []
         if self.kind == self.Kind.REVENUE_ANALYTICS:
@@ -96,35 +94,13 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 saved_query.sync_frequency_interval = timedelta(hours=12)
                 saved_query.save()
 
-                # Make sure paths properly exist both on creation and update
-                # This is required for Temporal to properly build the DAG
-                if not DataWarehouseModelPath.objects.filter(team=saved_query.team, saved_query=saved_query).exists():
-                    DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
-                else:
-                    DataWarehouseModelPath.objects.update_from_saved_query(saved_query)
+                saved_query.setup_model_paths()
+                saved_query.enable_materialization()
 
                 if created:
                     views_created += 1
                 else:
                     views_updated += 1
-
-                if created:
-                    try:
-                        sync_saved_query_workflow(saved_query, create=True)
-                    except Exception as e:
-                        capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
-                        logger.warning(
-                            "failed_to_schedule_saved_query",
-                            team_id=self.team_id,
-                            saved_query_id=str(saved_query.id),
-                            error=str(e),
-                        )
-
-                        # Disable materialization for this view if we failed to schedule the workflow
-                        # TODO: Should we have a cron job that re-enables materialization for managed viewset-based views
-                        # that failed to schedule?
-                        saved_query.is_materialized = False
-                        saved_query.save(update_fields=["is_materialized"])
 
             views_deleted = 0
             orphaned_views = self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
