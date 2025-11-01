@@ -5,4 +5,8 @@ assert_eq(arrayExists(x -> x ilike '%test%', JSONExtract(stringified, 'Array(Str
 
 assert_eq(arrayExists(x -> x ilike '%test%', JSONExtract(json, 'Array(String)')), true)
 
+assert_eq((1 in null) and true, false)
+assert_eq((1 in null) or true, true)
+assert_eq(1 in null, null)
+
 return true

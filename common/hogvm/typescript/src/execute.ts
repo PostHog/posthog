@@ -442,12 +442,16 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     pushStack(!like(popStack(), popStack(), true, options?.external?.regex?.match))
                     break
                 case Operation.IN:
-                    temp = popStack()
-                    pushStack(popStack().includes(temp))
+                    temp = popStack() // The container (e.g., person.properties - could be null)
+                    temp2 = popStack() // The value to search for (e.g., 'icp_score')
+                    // Handle null/undefined containers - return false if container is null
+                    pushStack(temp != null && temp.includes ? temp.includes(temp2) : false)
                     break
                 case Operation.NOT_IN:
-                    temp = popStack()
-                    pushStack(!popStack().includes(temp))
+                    temp = popStack() // The container (e.g., person.properties - could be null)
+                    temp2 = popStack() // The value to search for (e.g., 'icp_score')
+                    // Handle null/undefined containers - return true if container is null (item not in null = true)
+                    pushStack(temp != null && temp.includes ? !temp.includes(temp2) : true)
                     break
                 case Operation.REGEX:
                     temp = popStack()
