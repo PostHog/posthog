@@ -118,6 +118,67 @@ if ! grep -q "SESSION_RECORDING_V2_METADATA_SWITCHOVER" .env; then
   source .env
 fi
 
+# Check if session recording storage migration marker exists
+if ! grep -q "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS" .env; then
+  echo ""
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "📦 SESSION RECORDING STORAGE UPDATE"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  echo "PostHog now uses SeaweedFS for session recording storage."
+  echo "Your existing session recordings are stored in MinIO."
+  echo ""
+  echo "You have TWO options:"
+  echo ""
+  echo "1. 🔄 MIGRATE your existing session recordings to SeaweedFS"
+  echo "   - Keeps all your existing recordings accessible"
+  echo "   - Run migration script after upgrade"
+  echo "   - New recordings will be stored in SeaweedFS"
+  echo ""
+  echo "2. ⚠️  ACCEPT DATA LOSS of existing session recordings"
+  echo "   - Existing recordings will become inaccessible"
+  echo "   - Only new recordings will be available"
+  echo "   - Faster upgrade, no migration needed"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo ""
+  read -r -p "Do you want to MIGRATE existing session recordings? [y/N] " response
+  if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+  then
+    echo ""
+    echo "✅ You chose to MIGRATE existing recordings."
+    echo ""
+    echo "After the upgrade completes, run this command to migrate:"
+    echo ""
+    echo "  ./bin/migrate-session-recordings-hobby"
+    echo ""
+    echo "Options:"
+    echo "  --dry-run          Preview what would be migrated"
+    echo "  --resume           Resume from last checkpoint if interrupted"
+    echo "  --force            Overwrite existing objects in destination"
+    echo "  --workers <n>      Number of concurrent workers (default: 5)"
+    echo ""
+    read -r -p "Press ENTER to acknowledge and continue..."
+    echo "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS=pending_migration" >> .env
+  else
+    echo ""
+    echo "⚠️  You chose to ACCEPT DATA LOSS."
+    echo "Existing session recordings will not be accessible after upgrade."
+    echo ""
+    read -r -p "Are you sure? This cannot be undone. [y/N] " confirm
+    if [[ "$confirm" =~ ^([yY][eE][sS]|[yY])+$ ]]
+    then
+      echo "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS=data_loss_accepted" >> .env
+      echo "✅ Proceeding without migration."
+    else
+      echo "Upgrade cancelled. No changes made."
+      exit 1
+    fi
+  fi
+  source .env
+fi
+
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
 
 cd posthog
