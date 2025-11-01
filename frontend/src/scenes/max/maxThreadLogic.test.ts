@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import * as notebooksModel from '~/models/notebooksModel'
-import { AssistantMessage, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
+import { AssistantEventType, AssistantMessage, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
@@ -1001,6 +1001,515 @@ describe('maxThreadLogic', () => {
                     },
                 ],
             })
+        })
+    })
+
+    describe('onEventImplementation message streaming', () => {
+        beforeEach(() => {
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+        })
+
+        it('handles streaming message with temp- ID by adding it first time', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+
+            await expectLogic(logic, async () => {
+                // Start with a human message
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'human-1',
+                        type: AssistantMessageType.Human,
+                        content: 'User question',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+
+                // Assistant responds with temp ID
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'temp-0',
+                        type: AssistantMessageType.Assistant,
+                        content: 'Partial response',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+            })
+
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    id: 'human-1',
+                    type: AssistantMessageType.Human,
+                    content: 'User question',
+                    status: 'completed',
+                },
+                {
+                    id: 'temp-0',
+                    type: AssistantMessageType.Assistant,
+                    content: 'Partial response',
+                    status: 'loading',
+                },
+            ])
+        })
+
+        it('handles streaming message with temp- ID by replacing it on subsequent updates', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+
+            await expectLogic(logic, async () => {
+                // Start with a human message
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'human-1',
+                        type: AssistantMessageType.Human,
+                        content: 'User question',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+
+                // First streaming chunk
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'temp-0',
+                        type: AssistantMessageType.Assistant,
+                        content: 'Partial',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+
+                // Second streaming chunk updates the same temp message
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'temp-0',
+                        type: AssistantMessageType.Assistant,
+                        content: 'Partial response updated',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+            })
+
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    id: 'human-1',
+                    type: AssistantMessageType.Human,
+                    content: 'User question',
+                    status: 'completed',
+                },
+                {
+                    id: 'temp-0',
+                    type: AssistantMessageType.Assistant,
+                    content: 'Partial response updated',
+                    status: 'loading',
+                },
+            ])
+        })
+
+        it('handles multiple streaming messages with different temp IDs (web search scenario)', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+
+            await expectLogic(logic, async () => {
+                // Human asks a question
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'human-1',
+                        type: AssistantMessageType.Human,
+                        content: 'What is the latest on topic X?',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+
+                // First assistant message starts
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'temp-0',
+                        type: AssistantMessageType.Assistant,
+                        content: 'First message',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+
+                // Web search happens, new message starts
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'temp-1',
+                        type: AssistantMessageType.Assistant,
+                        content: 'Second message after web search',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+            })
+
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    id: 'human-1',
+                    type: AssistantMessageType.Human,
+                    content: 'What is the latest on topic X?',
+                    status: 'completed',
+                },
+                {
+                    id: 'temp-0',
+                    type: AssistantMessageType.Assistant,
+                    content: 'First message',
+                    status: 'loading',
+                },
+                {
+                    id: 'temp-1',
+                    type: AssistantMessageType.Assistant,
+                    content: 'Second message after web search',
+                    status: 'loading',
+                },
+            ])
+        })
+
+        it('finalizes message by replacing temp message with final UUID', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+
+            await expectLogic(logic, async () => {
+                // Human message
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'human-1',
+                        type: AssistantMessageType.Human,
+                        content: 'User question',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+
+                // Start with temp message
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'temp-0',
+                        type: AssistantMessageType.Assistant,
+                        content: 'Streaming...',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+
+                // Finalize with real UUID
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: '550e8400-e29b-41d4-a716-446655440000',
+                        type: AssistantMessageType.Assistant,
+                        content: 'Complete response',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+            })
+
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    id: 'human-1',
+                    type: AssistantMessageType.Human,
+                    content: 'User question',
+                    status: 'completed',
+                },
+                {
+                    id: '550e8400-e29b-41d4-a716-446655440000',
+                    type: AssistantMessageType.Assistant,
+                    content: 'Complete response',
+                    status: 'completed',
+                },
+            ])
+        })
+
+        it('finalizes multiple messages from web search generation', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+
+            await expectLogic(logic, async () => {
+                // Human asks a question
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'human-1',
+                        type: AssistantMessageType.Human,
+                        content: 'What are the latest developments?',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+
+                // First temp message
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'temp-0',
+                        type: AssistantMessageType.Assistant,
+                        content: 'First part',
+                        meta: { thinking: [{ type: 'thinking', thinking: 'Processing' }] },
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+
+                // Second temp message (after web search)
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'temp-1',
+                        type: AssistantMessageType.Assistant,
+                        content: 'Second part',
+                        meta: {
+                            thinking: [
+                                { type: 'server_tool_use', name: 'web_search' },
+                                { type: 'web_search_tool_result', content: 'Search results' },
+                            ],
+                        },
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+            })
+
+            // At this point we should have human message + 2 temp messages
+            expect(logic.values.threadRaw).toHaveLength(3)
+            expect(logic.values.threadRaw[0].id).toBe('human-1')
+            expect(logic.values.threadRaw[1].id).toBe('temp-0')
+            expect(logic.values.threadRaw[2].id).toBe('temp-1')
+
+            await expectLogic(logic, async () => {
+                // Finalize first message - replaces first temp message (index 1)
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'uuid-1',
+                        type: AssistantMessageType.Assistant,
+                        content: 'First part finalized',
+                        meta: { thinking: [{ type: 'thinking', thinking: 'Processing' }] },
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+            })
+
+            // Human message + first finalized + second still temp
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    id: 'human-1',
+                    type: AssistantMessageType.Human,
+                    content: 'What are the latest developments?',
+                    status: 'completed',
+                },
+                {
+                    id: 'uuid-1',
+                    type: AssistantMessageType.Assistant,
+                    content: 'First part finalized',
+                    meta: { thinking: [{ type: 'thinking', thinking: 'Processing' }] },
+                    status: 'completed',
+                },
+                {
+                    id: 'temp-1',
+                    type: AssistantMessageType.Assistant,
+                    content: 'Second part',
+                    meta: {
+                        thinking: [
+                            { type: 'server_tool_use', name: 'web_search' },
+                            { type: 'web_search_tool_result', content: 'Search results' },
+                        ],
+                    },
+                    status: 'loading',
+                },
+            ])
+
+            await expectLogic(logic, async () => {
+                // Finalize second message - replaces second temp message (index 2)
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'uuid-2',
+                        type: AssistantMessageType.Assistant,
+                        content: 'Second part finalized',
+                        meta: {
+                            thinking: [
+                                { type: 'server_tool_use', name: 'web_search' },
+                                { type: 'web_search_tool_result', content: 'Search results' },
+                            ],
+                        },
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+            })
+
+            // All messages finalized
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    id: 'human-1',
+                    type: AssistantMessageType.Human,
+                    content: 'What are the latest developments?',
+                    status: 'completed',
+                },
+                {
+                    id: 'uuid-1',
+                    type: AssistantMessageType.Assistant,
+                    content: 'First part finalized',
+                    meta: { thinking: [{ type: 'thinking', thinking: 'Processing' }] },
+                    status: 'completed',
+                },
+                {
+                    id: 'uuid-2',
+                    type: AssistantMessageType.Assistant,
+                    content: 'Second part finalized',
+                    meta: {
+                        thinking: [
+                            { type: 'server_tool_use', name: 'web_search' },
+                            { type: 'web_search_tool_result', content: 'Search results' },
+                        ],
+                    },
+                    status: 'completed',
+                },
+            ])
+        })
+
+        it('handles message without ID by adding it when finalized', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+
+            await expectLogic(logic, async () => {
+                // Human message
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'human-1',
+                        type: AssistantMessageType.Human,
+                        content: 'User question',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+
+                // Message without ID should be added as loading
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        type: AssistantMessageType.Assistant,
+                        content: 'Streaming without ID',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+            })
+
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    id: 'human-1',
+                    type: AssistantMessageType.Human,
+                    content: 'User question',
+                    status: 'completed',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'Streaming without ID',
+                    status: 'loading',
+                },
+            ])
+        })
+
+        it('replaces existing message when final ID matches already present ID', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+
+            const finalId = 'uuid-final'
+
+            await expectLogic(logic, async () => {
+                // Human message
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: 'human-1',
+                        type: AssistantMessageType.Human,
+                        content: 'User question',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+
+                // Add a message with final ID
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: finalId,
+                        type: AssistantMessageType.Assistant,
+                        content: 'First version',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+
+                // Update the same message
+                await onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id: finalId,
+                        type: AssistantMessageType.Assistant,
+                        content: 'Updated version',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+            })
+
+            expect(logic.values.threadRaw).toEqual([
+                {
+                    id: 'human-1',
+                    type: AssistantMessageType.Human,
+                    content: 'User question',
+                    status: 'completed',
+                },
+                {
+                    id: finalId,
+                    type: AssistantMessageType.Assistant,
+                    content: 'Updated version',
+                    status: 'completed',
+                },
+            ])
+        })
+
+        it('handles conversation event by setting conversation', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+
+            const newConversation = {
+                id: 'new-conv-id',
+                status: ConversationStatus.InProgress,
+                title: '',
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                type: ConversationType.Assistant,
+            }
+
+            await expectLogic(logic, async () => {
+                await onEventImplementation(AssistantEventType.Conversation, JSON.stringify(newConversation), {
+                    actions: logic.actions,
+                    values: logic.values,
+                    props: logic.props,
+                })
+            })
+
+            expect(logic.values.conversation).toEqual({
+                ...newConversation,
+                title: 'New chat', // Default title
+            })
+        })
+
+        it('handles status event with generation error', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+
+            await expectLogic(logic, async () => {
+                // Add a message first
+                logic.actions.addMessage({
+                    id: 'msg-1',
+                    type: AssistantMessageType.Assistant,
+                    content: 'Failed message',
+                    status: 'loading',
+                })
+
+                // Trigger error status
+                await onEventImplementation(
+                    AssistantEventType.Status,
+                    JSON.stringify({
+                        type: 'generation_error',
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props }
+                )
+            })
+
+            expect(logic.values.threadRaw[logic.values.threadRaw.length - 1].status).toBe('error')
         })
     })
 

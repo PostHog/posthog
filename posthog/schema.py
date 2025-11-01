@@ -3523,7 +3523,12 @@ class AssistantMessageMetadata(BaseModel):
         extra="forbid",
     )
     form: Optional[AssistantForm] = None
-    thinking: Optional[list[dict[str, Any]]] = None
+    thinking: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        description=(
+            "Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks."
+        ),
+    )
 
 
 class AssistantNumericValuePropertyFilter(BaseModel):

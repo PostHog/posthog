@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Literal, TypeVar, Union
 from uuid import uuid4
 
 import posthoganalytics
@@ -159,14 +159,12 @@ class RootNode(AssistantNode):
 
         # Mark the longest default prefix as cacheable
         add_cache_control(system_prompts[-1])
+        message: LangchainAIMessage = await model.ainvoke(system_prompts + langchain_messages, config)
 
-        message = await model.ainvoke(system_prompts + langchain_messages, config)
-        assistant_message = normalize_ai_message(message)
-
-        new_messages: list[AssistantMessageUnion] = [assistant_message]
+        new_messages = normalize_ai_message(message)
         # Replace the messages with the new message window
         if messages_to_replace:
-            new_messages = ReplaceMessages([*messages_to_replace, assistant_message])
+            new_messages = ReplaceMessages([*messages_to_replace, *new_messages])
 
         return PartialAssistantState(
             messages=new_messages,
@@ -226,7 +224,9 @@ class RootNode(AssistantNode):
         if self._is_hard_limit_reached(state.root_tool_calls_count):
             return base_model
 
-        return base_model.bind_tools(tools, parallel_tool_calls=False)
+        return base_model.bind_tools(
+            [*tools, {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}], parallel_tool_calls=False
+        )
 
     async def _get_tools(self, state: AssistantState, config: RunnableConfig) -> list[RootTool]:
         from ee.hogai.tool import get_contextual_tool_class
@@ -369,7 +369,6 @@ class RootNodeTools(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
-            # Reset tools.
             return PartialAssistantState(root_tool_calls_count=0)
 
         tool_call_count = state.root_tool_calls_count or 0

@@ -234,33 +234,53 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                             (message.tool_calls && message.tool_calls.length > 0)
                         )
 
-                        let thinkingElement = null
-                        const thinkingContent = getThinkingMessageFromResponse(message)
-                        if (thinkingContent) {
+                        let thinkingElements = null
+                        const thinkingBlocks = getThinkingMessageFromResponse(message)
+                        if (thinkingBlocks) {
                             // Thinking should be collapsed (show "Thought") if:
+                            // 1. The thread has finished streaming (thinking might be at the end), OR
                             // 1. The message has content or tool_calls, OR
                             // 2. The message is not the last in group (there are subsequent messages)
                             // Otherwise, keep expanded to show active thinking progress
-                            const isThinkingComplete = hasContent || !isLastInGroup || !threadLoading
-                            thinkingElement = (
-                                <ReasoningAnswer
-                                    key={`${key}-thinking`}
-                                    content={thinkingContent}
-                                    id={message.id || key}
-                                    completed={isThinkingComplete}
-                                    showCompletionIcon={false}
-                                />
+                            const isThinkingComplete = !threadLoading || hasContent || !isLastInGroup
+                            thinkingElements = thinkingBlocks.map((block, index) =>
+                                block.type === 'server_tool_use' ? (
+                                    <ToolCallsAnswer
+                                        key={`thinking-${index}`}
+                                        toolCalls={[
+                                            {
+                                                type: 'tool_call',
+                                                id: block.id,
+                                                name: block.name,
+                                                args: block.input,
+                                                status: block.results
+                                                    ? ExecutionStatus.Completed
+                                                    : ExecutionStatus.InProgress,
+                                                updates: block.results
+                                                    ? block.results.map((result) => `[${result.title}](${result.url})`)
+                                                    : [],
+                                            },
+                                        ]}
+                                    />
+                                ) : (
+                                    <ReasoningAnswer
+                                        key={`thinking-${index}`}
+                                        content={block.thinking}
+                                        id={message.id || key}
+                                        completed={isThinkingComplete}
+                                        showCompletionIcon={false}
+                                    />
+                                )
                             )
                         }
 
                         // Render tool calls if present (tool_calls are enhanced with status by threadGrouped selector)
-                        const toolCallElements =
-                            message.tool_calls && message.tool_calls.length > 0 ? (
-                                <ToolCallsAnswer
-                                    key={`${key}-tools`}
-                                    toolCalls={message.tool_calls as EnhancedToolCall[]}
-                                />
-                            ) : null
+                        const toolCallElements = message.tool_calls?.length ? (
+                            <ToolCallsAnswer
+                                key={`${key}-tools`}
+                                toolCalls={message.tool_calls as EnhancedToolCall[]}
+                            />
+                        ) : null
 
                         // Render main text content
                         const textElement = message.content ? (
@@ -295,7 +315,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
 
                         return (
                             <div key={key} className="flex flex-col gap-1.5">
-                                {thinkingElement}
+                                {thinkingElements}
                                 {textElement}
                                 {toolCallElements}
                                 {actionsElement}
@@ -607,7 +627,10 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     return (
         <div className="flex flex-col">
             <div
-                className={clsx('flex items-center', !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer')}
+                className={clsx(
+                    'flex items-center select-none',
+                    !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer'
+                )}
                 onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
                 aria-label={!hasMultipleSteps ? undefined : isExpanded ? 'Collapse plan' : 'Expand plan'}
             >
@@ -692,6 +715,10 @@ function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Ele
 }
 
 function handleThreeDots(content: string, isInProgress: boolean): string {
+    if (content.at(0) === '[' && content.at(-1) === ')') {
+        // Skip ... for web search `updates`, where each is a Markdown-formatted link to a search results, _not_ an action
+        return content
+    }
     if (!content.endsWith('...') && !content.endsWith('…') && !content.endsWith('.') && isInProgress) {
         return content + '...'
     } else if ((content.endsWith('...') || content.endsWith('…')) && !isInProgress) {
@@ -721,7 +748,7 @@ function AssistantActionComponent({
     const isCompleted = state === 'completed'
     const isInProgress = state === 'in_progress'
     const isFailed = state === 'failed'
-    const showChevron = substeps.length > 0 ? (showCompletionIcon ? isPending || isInProgress : true) : false
+    const showChevron = !!substeps.length
     // Initialize with the same logic as the effect to prevent flickering
     const [isExpanded, setIsExpanded] = useState(showChevron && !(isCompleted || isFailed))
 
@@ -735,7 +762,7 @@ function AssistantActionComponent({
         <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1">
             <div
                 className={clsx(
-                    'transition-all duration-500 flex',
+                    'transition-all duration-500 flex select-none',
                     (isPending || isFailed) && 'text-muted',
                     !isInProgress && !isPending && !isFailed && 'text-default',
                     !showChevron ? 'cursor-default' : 'cursor-pointer'
@@ -760,8 +787,6 @@ function AssistantActionComponent({
                             markdownContent
                         )}
                     </div>
-                    {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
-                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
                     {showChevron && (
                         <div className="relative flex-shrink-0 flex items-start justify-center h-full pt-px">
                             <button className="inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0 cursor-pointer">
@@ -771,6 +796,8 @@ function AssistantActionComponent({
                             </button>
                         </div>
                     )}
+                    {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
+                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
                 </div>
             </div>
             {isExpanded && substeps && substeps.length > 0 && (
@@ -785,13 +812,7 @@ function AssistantActionComponent({
                         const isCompletedSubstep = substepIndex < substeps.length - 1 || isCompleted
 
                         return (
-                            <div
-                                key={substepIndex}
-                                className="animate-fade-in"
-                                style={{
-                                    animationDelay: `${substepIndex * 50}ms`,
-                                }}
-                            >
+                            <div key={substepIndex} className="animate-fade-in">
                                 <MarkdownMessage
                                     id={id}
                                     className={clsx(
