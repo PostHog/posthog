@@ -83,7 +83,7 @@ class Migration(migrations.Migration):
             model_name="externaldatasource",
             name="source_type",
             field=models.CharField(
-                choices=[ {choices} ],
+                choices={choices},
                 max_length=128,
             ),
         ),
