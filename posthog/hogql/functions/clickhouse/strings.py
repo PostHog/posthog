@@ -99,6 +99,7 @@ STRING_SPLIT_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "alphaTokens": HogQLFunctionMeta("alphaTokens", 1, 2),
     "extractAllGroups": HogQLFunctionMeta("extractAllGroups", 2, 2),
     "ngrams": HogQLFunctionMeta("ngrams", 2, 2),
+    "sparseGrams": HogQLFunctionMeta("sparseGrams", 3, 3),
     "tokens": HogQLFunctionMeta("tokens", 1, 1),
 }
 

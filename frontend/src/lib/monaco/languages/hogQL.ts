@@ -487,6 +487,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'alphaTokens',
         'extractAllGroups',
         'ngrams',
+        'sparseGrams',
         'tokens',
         'bitAnd',
         'bitOr',

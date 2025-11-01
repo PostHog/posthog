@@ -613,6 +613,7 @@ You can find their full definitions in the [ClickHouse documentation](https://cl
 - `alphaTokens`
 - `extractAllGroups`
 - `ngrams`
+- `sparseGrams`
 - `tokens`
 
 ## Bit

@@ -144,7 +144,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         query.order_by = [
             parse_order_expr("team_id"),
             parse_order_expr(f"time_bucket {order_dir}"),
-            parse_order_expr(f"toUnixTimestamp(timestamp) {order_dir}"),
             parse_order_expr(f"timestamp {order_dir}"),
         ]
         final_query = parse_select(
@@ -205,6 +204,25 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                     placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%")},
                 )
             )
+            # ip addresses are particularly bad at full text searches with our ngram 3 index
+            # match them separately against a materialized column of ip addresses
+            exprs.append(
+                parse_expr(
+                    "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
+                    placeholders={"searchTerm": ast.Constant(value=f"{self.query.searchTerm}")},
+                )
+            )
+
+            # ngrambf_v1 indexes are extremely cpu intensive on merges
+            # so we have a workaround where we have a materialized ngram3 column with regular
+            # bloom filter index on it, and we match all the search term ngrams against it manually
+            # (basically we reinvented our own ngrambf_v1 index that doesn't use massive cpu on merge)
+            exprs.append(
+                parse_expr(
+                    "indexHint(hasAll(mat_body_ngram, arrayFlatten([ngrams({searchTerm}, 3), sparseGrams({searchTerm}, 3, 10)])))",
+                    placeholders={"searchTerm": ast.Constant(value=f"{self.query.searchTerm}")},
+                )
+            )
 
         if self.query.filterGroup:
             exprs.append(property_to_expr(self.query.filterGroup, team=self.team))
@@ -249,7 +267,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         # the min interval is 1 minute and max interval is 1 day
         interval_count = find_closest(
             _step.total_seconds(),
-            [1, 5] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
+            [1, 5, 10] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
         )
 
         if _step >= dt.timedelta(minutes=1):
