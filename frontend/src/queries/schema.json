@@ -10098,6 +10098,9 @@
                 "last_synced_at": {
                     "type": "string"
                 },
+                "latest_error": {
+                    "type": "string"
+                },
                 "prefix": {
                     "type": "string"
                 },

@@ -908,6 +908,7 @@ class DatabaseSchemaSource(BaseModel):
     )
     id: str
     last_synced_at: Optional[str] = None
+    latest_error: Optional[str] = None
     prefix: str
     source_type: str
     status: str

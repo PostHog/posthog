@@ -41,6 +41,7 @@ import {
     QueryBasedInsightModel,
 } from '~/types'
 
+import { DataWarehouseSyncNotice } from './DataWarehouseSyncNotice'
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
 
@@ -175,6 +176,7 @@ export function InsightMeta({
                         loading={loading}
                         loadingQueued={loadingQueued}
                         tags={[]}
+                        query={undefined}
                     />
                 }
                 metaDetails={null}
@@ -220,6 +222,7 @@ export function InsightMeta({
                     loading={loading}
                     loadingQueued={loadingQueued}
                     tags={insight.tags}
+                    query={insight.query}
                 />
             }
             metaDetails={
@@ -426,6 +429,7 @@ export function InsightMetaContent({
     loading,
     loadingQueued,
     tags,
+    query,
 }: {
     title: string
     fallbackTitle?: string
@@ -434,6 +438,7 @@ export function InsightMetaContent({
     loading?: boolean
     loadingQueued?: boolean
     tags?: string[]
+    query?: QueryBasedInsightModel['query']
 }): JSX.Element {
     let titleEl: JSX.Element = (
         <h4 title={title} data-attr="insight-card-title">
@@ -458,6 +463,9 @@ export function InsightMetaContent({
     return (
         <>
             {titleEl}
+            <div className="self-stretch">
+                <DataWarehouseSyncNotice query={query} />
+            </div>
             {!!description && (
                 <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
                     {description}
