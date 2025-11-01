@@ -16,6 +16,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { ConnectionsTab } from './scene/ConnectionsTab'
 import { OverviewTab } from './scene/OverviewTab'
 import { SourcesTab } from './scene/SourcesTab'
 
@@ -69,6 +70,11 @@ export function DataWarehouseScene(): JSX.Element {
                         key: DataWarehouseTab.SOURCES,
                         label: 'Sources',
                         content: <SourcesTab />,
+                    },
+                    {
+                        key: DataWarehouseTab.CONNECTIONS,
+                        label: 'Connections',
+                        content: <ConnectionsTab />,
                     },
                 ]}
             />
