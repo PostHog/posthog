@@ -420,7 +420,7 @@ const rawSnappyDecompress = async (uint8Data: Uint8Array): Promise<string> => {
     return textDecoder.decode(decompressedData)
 }
 
-export const parseEncodedSnapshots = async (
+export const parseEncodedSnapshotsImpl = async (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
     sessionId: string
 ): Promise<RecordingSnapshot[]> => {
@@ -437,7 +437,7 @@ export const parseEncodedSnapshots = async (
                 const combinedText = await lengthPrefixedSnappyDecompress(uint8Data)
 
                 const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                return parseEncodedSnapshots(lines, sessionId)
+                return parseEncodedSnapshotsImpl(lines, sessionId)
             } catch (error) {
                 console.error('Length-prefixed Snappy decompression failed:', error)
                 posthog.captureException(new Error('Failed to decompress length-prefixed snapshot data'), {
@@ -460,7 +460,7 @@ export const parseEncodedSnapshots = async (
                 const combinedText = textDecoder.decode(uint8Data)
 
                 const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                return parseEncodedSnapshots(lines, sessionId)
+                return parseEncodedSnapshotsImpl(lines, sessionId)
             } catch (decodeError) {
                 console.error('Failed to decompress or decode binary data:', error, decodeError)
                 posthog.captureException(new Error('Failed to process snapshot data'), {
@@ -562,4 +562,25 @@ const cyrb53 = function (str: string, seed = 0): number {
     h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507)
     h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909)
     return 4294967296 * (2097151 & h2) + (h1 >>> 0)
+}
+
+export async function parseEncodedSnapshots(
+    items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[] | ArrayBuffer | Uint8Array,
+    sessionId: string
+): Promise<RecordingSnapshot[]> {
+    const useWorker = posthog.isFeatureEnabled('replay-snapshot-processing-worker')
+
+    if (useWorker) {
+        try {
+            const { getSnapshotProcessingWorkerManager } = await import('./SnapshotProcessingWorkerManager')
+            const workerManager = getSnapshotProcessingWorkerManager()
+            await workerManager.initialize()
+            return await workerManager.parseEncodedSnapshots(items, sessionId)
+        } catch (error) {
+            console.warn('[parseEncodedSnapshots] Worker failed, falling back to main thread:', error)
+            return parseEncodedSnapshotsImpl(items, sessionId)
+        }
+    }
+
+    return parseEncodedSnapshotsImpl(items, sessionId)
 }

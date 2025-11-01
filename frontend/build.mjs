@@ -49,6 +49,13 @@ await buildInParallel(
             ...common,
         },
         {
+            name: 'Snapshot Processing Worker',
+            entryPoints: ['src/scenes/session-recordings/player/snapshot-processing/snapshotProcessingWorker.ts'],
+            format: 'esm',
+            outfile: path.resolve(__dirname, 'dist', 'snapshotProcessingWorker.js'),
+            ...common,
+        },
+        {
             name: 'Exporter',
             globalName: 'posthogExporter',
             entryPoints: ['src/exporter/index.tsx'],
