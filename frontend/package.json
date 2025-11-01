@@ -19,8 +19,9 @@
     "scripts": {
         "copy-scripts": "mkdir -p dist/ && ./bin/copy-posthog-js",
         "clean": "rm -rf dist && mkdir dist",
-        "build": "pnpm copy-scripts && pnpm build:esbuild",
+        "build": "pnpm copy-scripts && if [ \"$POSTHOG_USE_VITE_PROD\" = \"1\" ]; then pnpm build:vite; else pnpm build:esbuild; fi",
         "build:esbuild": "DEBUG=0 node ./build.mjs",
+        "build:vite": "pnpm build:products && vite build",
         "build:products": "DEBUG=0 node build-products.mjs",
         "build:tailwind": "pnpm --filter=@posthog/tailwind build",
         "watch:tailwind": "pnpm --filter=@posthog/tailwind start",
@@ -312,6 +313,7 @@
         "ts-clone-node": "^4.0.0",
         "ts-json-schema-generator": "^v2.4.0-next.6",
         "ts-node": "^10.9.1",
+        "vite-plugin-node-polyfills": "^0.24.0",
         "whatwg-fetch": "^3.6.2"
     },
     "optionalDependencies": {
