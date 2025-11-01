@@ -3,6 +3,7 @@ import logging
 from functools import lru_cache
 from typing import Any, Optional, Union, cast
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, F, Max, Prefetch, QuerySet
 from django.db.models.query_utils import Q
@@ -1287,6 +1288,8 @@ When set, the specified dashboard's filters and date range override will be appl
         Update insight view timestamps.
         Expects: {"insight_ids": [1, 2, 3, ...]}
         """
+        if settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
+            return Response(status=status.HTTP_204_NO_CONTENT)  # In the prod PG in debug mode, we can't write to PG
         insight_ids = request.data.get("insight_ids")
 
         if not insight_ids or not isinstance(insight_ids, list):

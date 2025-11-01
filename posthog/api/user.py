@@ -61,7 +61,6 @@ from posthog.event_usage import (
 )
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
-from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications
@@ -178,6 +177,8 @@ class UserSerializer(serializers.ModelSerializer):
     def get_is_impersonated_until(self, _) -> Optional[str]:
         if "request" not in self.context or not is_impersonated_session(self.context["request"]):
             return None
+
+        from posthog.middleware import get_impersonated_session_expires_at
 
         expires_at_time = get_impersonated_session_expires_at(self.context["request"])
 

@@ -1,5 +1,6 @@
-from typing import Any
+from typing import Any, cast
 
+from django.conf import settings
 from django.db import models
 
 from posthog.models.activity_logging.utils import activity_storage, get_changed_fields_local
@@ -70,9 +71,10 @@ class ModelActivityMixin(models.Model):
         return before_update
 
     def _should_log_activity_for_update(self, **kwargs) -> tuple[bool, Any]:
-        from typing import cast
-
         from posthog.models.activity_logging.activity_log import ActivityScope, signal_exclusions
+
+        if settings.IS_CONNECTED_TO_PROD_PG_IN_DEBUG:
+            return False, None  # In the special prod PG in debug mode, we can't write to PG!
 
         model_name = cast(ActivityScope, self.__class__.__name__)
         signal_excluded_fields = signal_exclusions.get(model_name, [])

@@ -2,6 +2,8 @@ import uuid
 import datetime
 from typing import TYPE_CHECKING, Optional
 
+from django.conf import settings
+
 import orjson as json
 import structlog
 import posthoganalytics
@@ -237,6 +239,7 @@ def execute_process_query(
         if (
             isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError)
             or is_staff_user
+            or settings.DEBUG
         ):
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)

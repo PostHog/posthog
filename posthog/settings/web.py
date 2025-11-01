@@ -97,7 +97,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.middleware.OverridableAuthenticationMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
