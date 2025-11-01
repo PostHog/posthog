@@ -41,10 +41,16 @@ import {
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
+import { createCreateEventStep } from './event-processing/create-event-step'
+import { createDisablePersonProcessingStep } from './event-processing/disable-person-processing-step'
 import { createEmitEventStep } from './event-processing/emit-event-step'
+import { createEventPipelineRunnerHeatmapStep } from './event-processing/event-pipeline-runner-heatmap-step'
 import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
+import { createExtractHeatmapDataStep } from './event-processing/extract-heatmap-data-step'
 import { createHandleClientIngestionWarningStep } from './event-processing/handle-client-ingestion-warning-step'
+import { createNormalizeEventStep } from './event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from './event-processing/normalize-process-person-flag-step'
+import { createSkipEmitEventStep } from './event-processing/skip-emit-event-step'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
@@ -323,16 +329,71 @@ export class IngestionConsumer {
                         b.sequentially((seq) =>
                             seq.retry(
                                 (retry) =>
-                                    retry
-                                        .pipe(createNormalizeProcessPersonFlagStep())
-                                        .pipe(createHandleClientIngestionWarningStep())
-                                        .pipe(createEventPipelineRunnerV1Step(this.hub, this.hogTransformer))
-                                        .pipe(
-                                            createEmitEventStep({
-                                                kafkaProducer: this.kafkaProducer!,
-                                                clickhouseJsonEventsTopic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
-                                            })
-                                        ),
+                                    retry.branching<'client_ingestion_warning' | 'heatmap' | 'event', void>(
+                                        (input) => {
+                                            switch (input.event.event) {
+                                                case '$$client_ingestion_warning':
+                                                    return 'client_ingestion_warning'
+                                                case '$$heatmap':
+                                                    return 'heatmap'
+                                                default:
+                                                    return 'event'
+                                            }
+                                        },
+                                        (branches) => {
+                                            branches
+                                                .branch('client_ingestion_warning', (b) =>
+                                                    b.pipe(createHandleClientIngestionWarningStep())
+                                                )
+                                                .branch('heatmap', (b) =>
+                                                    b
+                                                        .pipe(createDisablePersonProcessingStep())
+                                                        .pipe(createNormalizeEventStep(this.hub))
+                                                        .pipe(
+                                                            createEventPipelineRunnerHeatmapStep(
+                                                                this.hub,
+                                                                this.hogTransformer
+                                                            )
+                                                        )
+                                                        .pipe(
+                                                            createExtractHeatmapDataStep({
+                                                                kafkaProducer: this.kafkaProducer!,
+                                                                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
+                                                                    this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                                                            })
+                                                        )
+                                                        .pipe(createSkipEmitEventStep())
+                                                )
+                                                .branch('event', (b) =>
+                                                    b
+                                                        .pipe(createNormalizeProcessPersonFlagStep())
+                                                        .pipe(
+                                                            createEventPipelineRunnerV1Step(
+                                                                this.hub,
+                                                                this.hogTransformer
+                                                            )
+                                                        )
+                                                        // TRICKY: Older client versions may still send $heatmap_data as properties on regular events.
+                                                        // This step extracts and processes that data even though up-to-date clients send dedicated $$heatmap events.
+                                                        // TODO: Verify if we still receive $heatmap_data on regular events and consider removing this step if not.
+                                                        .pipe(
+                                                            createExtractHeatmapDataStep({
+                                                                kafkaProducer: this.kafkaProducer!,
+                                                                CLICKHOUSE_HEATMAPS_KAFKA_TOPIC:
+                                                                    this.hub.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
+                                                            })
+                                                        )
+                                                        .pipe(createCreateEventStep())
+                                                        .pipe(
+                                                            createEmitEventStep({
+                                                                kafkaProducer: this.kafkaProducer!,
+                                                                clickhouseJsonEventsTopic:
+                                                                    this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                                                            })
+                                                        )
+                                                )
+                                        }
+                                    ),
                                 {
                                     tries: 3,
                                     sleepMs: 100,

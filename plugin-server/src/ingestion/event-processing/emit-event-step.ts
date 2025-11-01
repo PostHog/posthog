@@ -11,7 +11,11 @@ export interface EmitEventStepConfig {
     clickhouseJsonEventsTopic: string
 }
 
-export function createEmitEventStep<T extends { eventToEmit?: RawKafkaEvent }>(
+export interface EmitEventStepInput {
+    eventToEmit?: RawKafkaEvent
+}
+
+export function createEmitEventStep<T extends EmitEventStepInput>(
     config: EmitEventStepConfig
 ): ProcessingStep<T, void> {
     return function emitEventStep(input: T): Promise<PipelineResult<void>> {

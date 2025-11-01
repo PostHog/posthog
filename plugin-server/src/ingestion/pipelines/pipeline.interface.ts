@@ -5,6 +5,7 @@ import { PipelineResult } from './results'
 export interface PipelineWarning {
     type: string
     details: Record<string, any>
+    key?: string
     alwaysSend?: boolean
 }
 
