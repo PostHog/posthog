@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import uuid4
 
 
 class ShopifyGraphQLObject:
@@ -47,7 +48,35 @@ def safe_unwrap(payload: Any, path: str):
     keys = path.split(".")
     ref = payload
     for key in keys:
+        if not isinstance(ref, dict):
+            return payload, False
         ref = ref.get(key, None)
         if ref is None:
             return payload, False
     return ref, True
+
+
+def safe_set(payload: Any, path: str, value: Any):
+    """Drill down into a graphql response payload with safe key lookup and then set a value there only if it doesn't overwrite"""
+    # we use a sentinel to differentiate between when a key is truly unset vs
+    # when a key is present but the value is None
+    uuid = uuid4()
+    sentinel = f"sentinel_{uuid}"
+    keys = path.split(".")
+    ref = payload
+    for i, key in enumerate(keys):
+        if not isinstance(ref, dict):
+            break
+
+        tmp = ref.get(key, sentinel)
+        is_final_key = i == len(keys) - 1
+
+        if tmp == sentinel:
+            if is_final_key:
+                ref[key] = value
+            else:
+                ref[key] = {}
+            ref = ref[key]
+        else:
+            ref = tmp
+    return payload

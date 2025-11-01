@@ -63,6 +63,8 @@ def _make_paginated_shopify_request(
     logger: FilteringBoundLogger,
     query: str | None = None,
 ):
+    endpoint_config = ENDPOINT_CONFIGS.get(graphql_object.name)
+
     @retry(
         retry=retry_if_exception_type(ShopifyRetryableError),
         stop=stop_after_attempt(5),
@@ -95,8 +97,13 @@ def _make_paginated_shopify_request(
     while has_next_page:
         logger.debug(f"Querying shopify endpoint {graphql_object.name} with vars: {vars}")
         payload = execute(vars)
-        data_iter = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
-        yield data_iter
+        data = unwrap(payload, path=f"data.{graphql_object.name}.nodes")
+        if endpoint_config is not None:
+            if endpoint_config.incremental_field_resolver:
+                data = [endpoint_config.incremental_field_resolver(row) for row in data if row.get("discount")]
+            if endpoint_config.partition_key_resolver:
+                data = [endpoint_config.partition_key_resolver(row) for row in data if row.get("discount")]
+        yield data
         page_info = unwrap(payload, path=f"data.{graphql_object.name}.pageInfo")
         has_next_page = page_info.get("hasNextPage", False)
         if has_next_page:
