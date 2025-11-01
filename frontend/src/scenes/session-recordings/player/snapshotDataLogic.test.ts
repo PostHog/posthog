@@ -14,7 +14,7 @@ import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 import { overrideSessionRecordingMocks, setupSessionRecordingTest } from './__mocks__/test-setup'
 import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
 import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations'
-import { DEFAULT_LOADING_BUFFER, snapshotDataLogic } from './snapshotDataLogic'
+import { snapshotDataLogic } from './snapshotDataLogic'
 
 const BLOB_SOURCE: SessionRecordingSnapshotSource = {
     source: 'blob_v2',
@@ -73,7 +73,7 @@ describe('snapshotDataLogic', () => {
                 .toFinishAllListeners()
 
             const snapshotsBySources = logic.values.snapshotsBySources
-            expect(Object.keys(snapshotsBySources).length).toBe(2)
+            expect(Object.keys(snapshotsBySources)).toEqual(['blob_v2-0', 'blob_v2-1', '_count'])
         })
 
         it('fetch metadata success and snapshots error', async () => {
@@ -236,69 +236,6 @@ describe('snapshotDataLogic', () => {
             }
             const chunks = chunkMutationSnapshot(snapshot)
             expect(chunks).toEqual([snapshot])
-        })
-    })
-
-    describe('progressive loading and polling', () => {
-        const baseTimestamp = new Date('2023-08-11T12:00:00.000Z').getTime()
-        const createSource = (index: number): SessionRecordingSnapshotSource => ({
-            source: 'blob_v2',
-            start_timestamp: new Date(baseTimestamp + index * 60000).toISOString(),
-            end_timestamp: new Date(baseTimestamp + (index + 1) * 60000 - 1).toISOString(),
-            blob_key: `${index}`,
-        })
-
-        const testCases: Array<{
-            description: string
-            sources: SessionRecordingSnapshotSource[]
-            targetTimestamp: number | null
-            expectedAllSourcesLoaded: boolean
-        }> = [
-            {
-                description:
-                    'allSourcesLoaded should be true - quick fix loads all sources regardless of targetTimestamp',
-                sources: [createSource(0), createSource(1), createSource(20)],
-                targetTimestamp: baseTimestamp + DEFAULT_LOADING_BUFFER,
-                expectedAllSourcesLoaded: true, // Changed from false - we now load all sources to prevent buffering issues
-            },
-            {
-                description: 'allSourcesLoaded should be true when all sources are loaded without targetTimestamp',
-                sources: [createSource(0), createSource(1)],
-                targetTimestamp: null,
-                expectedAllSourcesLoaded: true,
-            },
-            {
-                description:
-                    'allSourcesLoaded should be true when all sources are loaded with targetTimestamp beyond all sources',
-                sources: [createSource(0), createSource(1)],
-                targetTimestamp: baseTimestamp + 10 * 60000,
-                expectedAllSourcesLoaded: true,
-            },
-        ]
-
-        testCases.forEach(({ description, sources, targetTimestamp, expectedAllSourcesLoaded }) => {
-            it(description, async () => {
-                setupSessionRecordingTest({
-                    snapshotSources: sources,
-                })
-                logic = snapshotDataLogic({
-                    sessionRecordingId: '2',
-                    blobV2PollingDisabled: true,
-                })
-                logic.mount()
-
-                if (targetTimestamp) {
-                    logic.actions.loadUntilTimestamp(targetTimestamp)
-                }
-
-                await expectLogic(logic, () => {
-                    logic.actions.loadSnapshots()
-                })
-                    .toDispatchActions(['loadSnapshotsForSourceSuccess'])
-                    .toFinishAllListeners()
-
-                expect(logic.values.allSourcesLoaded).toBe(expectedAllSourcesLoaded)
-            })
         })
     })
 })

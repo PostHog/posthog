@@ -1691,17 +1691,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const doExport = async (): Promise<void> => {
                 actions.setPause()
 
-                const endTime = values.sessionPlayerData.end?.valueOf()
-                if (endTime) {
-                    actions.loadUntilTimestamp(endTime)
-                }
-
                 const delayTime = 1000
                 let maxWaitTime = 30000
                 while (!values.sessionPlayerData.fullyLoaded) {
                     if (maxWaitTime <= 0) {
                         throw new Error('Timeout waiting for recording to load')
                     }
+                    actions.loadNextSnapshotSource()
                     maxWaitTime -= delayTime
                     await delay(delayTime)
                 }
