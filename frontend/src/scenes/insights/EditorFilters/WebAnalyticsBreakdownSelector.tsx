@@ -1,5 +1,6 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { LemonLabel } from '~/lib/lemon-ui/LemonLabel'
 import { WebStatsBreakdown } from '~/queries/schema/schema-general'
 
 export interface WebAnalyticsBreakdownSelectorProps {
@@ -52,15 +53,20 @@ const BREAKDOWN_OPTIONS = [
 
 export function WebAnalyticsBreakdownSelector({ value, onChange }: WebAnalyticsBreakdownSelectorProps): JSX.Element {
     return (
-        <div className="flex flex-row items-center gap-2">
-            <span className="text-muted">Break down by</span>
-            <LemonSelect
-                value={value}
-                onChange={onChange}
-                options={BREAKDOWN_OPTIONS}
-                placeholder="Select breakdown"
-                fullWidth
-            />
-        </div>
+        <>
+            <div className="flex items-center justify-between gap-2">
+                <LemonLabel info="Break down your Web Analytics data by different dimensions such as pages, traffic sources, devices, or geography to analyze patterns and trends.">
+                    Breakdown by
+                </LemonLabel>
+            </div>
+            <div className="flex flex-wrap gap-2 items-center">
+                <LemonSelect
+                    value={value}
+                    onChange={onChange}
+                    options={BREAKDOWN_OPTIONS}
+                    placeholder="Select breakdown"
+                />
+            </div>
+        </>
     )
 }
