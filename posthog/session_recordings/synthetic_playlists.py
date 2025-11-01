@@ -211,7 +211,7 @@ class SummarisedPlaylistSource(SyntheticPlaylistSource):
             id=-5,
             short_id="synthetic-summarised",
             name="Summarised sessions",
-            description="Sessions with AI-generated summaries. Ask PostHog AI to summarize sessions for you.",
+            description="Sessions with AI-generated summaries. Ask Intelligence to summarize sessions for you.",
             type="collection",
             get_session_ids=self.get_session_ids,
             count_session_ids=self.count_session_ids,

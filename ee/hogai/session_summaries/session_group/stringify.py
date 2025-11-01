@@ -59,7 +59,7 @@ class SessionGroupSummaryStringifier(SessionSummaryEventStringifier):
         indicators_str = "\n".join([f"- {x}" for x in pattern["indicators"]])
         # Collect segment examples data
         pattern_segments = []
-        # Limit examples for pattern, as PostHog AI doesn't need to see all them for meaningful context
+        # Limit examples for pattern, as Intelligence doesn't need to see all them for meaningful context
         for segment in pattern["events"][: self.examples_per_pattern_limit]:
             pattern_segments.append(self._stringify_segment_example(segment))
         examples_str = "\n".join(pattern_segments)

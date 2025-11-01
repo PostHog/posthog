@@ -32,7 +32,7 @@ export function AIConsentPopoverWrapper({
             overlay={
                 <div className="flex flex-col m-1.5">
                     <p className="font-medium text-pretty mb-0">
-                        PostHog AI needs your approval to potentially process
+                        Intelligence needs your approval to potentially process
                         <br />
                         identifying user data with{' '}
                         <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: OpenAI`}>

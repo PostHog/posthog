@@ -177,7 +177,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         >
                             {chatTitle || (
                                 <>
-                                    PostHog AI
+                                    Intelligence
                                     <LemonTag size="small" type="warning" className="ml-2">
                                         BETA
                                     </LemonTag>

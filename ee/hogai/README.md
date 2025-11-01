@@ -1,12 +1,12 @@
-# PostHog AI
+# Intelligence
 
-This directory contains the PostHog AI platform and its core features.
+This directory contains the PostHog Intelligence platform and its core features.
 
-[Getting started with PostHog AI.](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJFUP)
+[Getting started with Intelligence.](https://posthog.slack.com/docs/TSS5W8YQZ/F08UU1LJFUP)
 
 ## For product teams: MaxTool
 
-Add new PostHog AI capabilities using the MaxTool API. You can allow our AI agent to do anything in your product: both perform backend actions and control the UI. A tool can itself involve an LLM call based on a prompt tailored to the tool's task, using arguments provided to the tool by the root node + context passed from the frontend.
+Add new Intelligence capabilities using the MaxTool API. You can allow our AI agent to do anything in your product: both perform backend actions and control the UI. A tool can itself involve an LLM call based on a prompt tailored to the tool's task, using arguments provided to the tool by the root node + context passed from the frontend.
 
 To implement a MaxTool you first define it in the backend, then you mount it in the frontend. The backend definition contains the tool's metadata for the LLM (what is it, how to use it, when to use it, what arguments it takes) and its actual implementation. The frontend React mount point makes the tool available - i.e. the tool can only be called when the UI being automated is present.
 

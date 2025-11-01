@@ -297,11 +297,13 @@ export function SidePanelSupport(): JSX.Element {
                     ) : (
                         <>
                             {showMaxAI && isBillingLoaded && (
-                                <Section title="Ask PostHog AI">
+                                <Section title="Ask Intelligence">
                                     <div>
-                                        <p>PostHog AI can now answer 80%+ of the support questions we receive! Nice.</p>
                                         <p>
-                                            Let PostHog AI read 100s of pages of docs for you, write SQL queries and
+                                            Intelligence can now answer 80%+ of the support questions we receive! Nice.
+                                        </p>
+                                        <p>
+                                            Let Intelligence read 100s of pages of docs for you, write SQL queries and
                                             expressions, regex patterns, etc.
                                         </p>
                                         <LemonButton
@@ -314,7 +316,7 @@ export function SidePanelSupport(): JSX.Element {
                                             targetBlank={false}
                                             className="mt-2"
                                         >
-                                            Chat with PostHog AI
+                                            Chat with Intelligence
                                         </LemonButton>
                                     </div>
                                 </Section>
@@ -322,7 +324,7 @@ export function SidePanelSupport(): JSX.Element {
 
                             {showEmailSupport && isBillingLoaded && (
                                 <Section title="Contact us">
-                                    <p>Can't find what you need and PostHog AI unable to help?</p>
+                                    <p>Can't find what you need and Intelligence unable to help?</p>
                                     <LemonButton
                                         type="secondary"
                                         fullWidth

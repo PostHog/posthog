@@ -38,7 +38,7 @@ export const SIDE_PANEL_TABS: Record<
     { label: string; Icon: any; Content: any; noModalSupport?: boolean }
 > = {
     [SidePanelTab.Max]: {
-        label: 'PostHog AI',
+        label: 'Intelligence',
         Icon: IconLogomark,
         Content: SidePanelMax,
     },

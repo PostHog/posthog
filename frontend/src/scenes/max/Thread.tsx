@@ -209,7 +209,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                         <Tooltip
                                             title={
                                                 <>
-                                                    This is a PostHog AI command:
+                                                    This is an Intelligence command:
                                                     <br />
                                                     <i>{maybeCommand.description}</i>
                                                 </>
@@ -333,7 +333,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                         <div className="flex items-center gap-1.5">
                             <IconWarning className="text-xl text-warning" />
                             <i>
-                                PostHog AI is generating this answer one more time because the previous attempt has
+                                Intelligence is generating this answer one more time because the previous attempt has
                                 failed.
                             </i>
                         </div>
@@ -454,7 +454,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
                 <MarkdownMessage content={message.content} id={message.id || 'in-progress'} />
             ) : (
                 <MarkdownMessage
-                    content={message.content || '*PostHog AI has failed to generate an answer. Please try again.*'}
+                    content={message.content || '*Intelligence has failed to generate an answer. Please try again.*'}
                     id={message.id || 'error'}
                 />
             )}
@@ -1324,7 +1324,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                     {feedbackInputStatus === 'pending' && (
                         <div className="flex w-full gap-1.5 items-center mt-1.5">
                             <LemonInput
-                                placeholder="Help us improve PostHog AI…"
+                                placeholder="Help us improve Intelligence…"
                                 fullWidth
                                 value={feedback}
                                 onChange={(newValue) => setFeedback(newValue)}

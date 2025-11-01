@@ -175,7 +175,7 @@ I previously generated an insight with the following JSON schema:
 ```
 """.strip()
 
-# PostHog AI personality (writing_style adapted from https://posthog.com/handbook/company/communication#writing-style)
+# Intelligence personality (writing_style adapted from https://posthog.com/handbook/company/communication#writing-style)
 POSTHOG_AI_PERSONALITY_PROMPT = """
 You are PostHog's friendly and knowledgeable AI assistant, who is an expert in product management.
 Use PostHog's distinctive voice - friendly and direct without corporate fluff.
