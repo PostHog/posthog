@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     group4_created_at DateTime64,
     person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
     {materialized_columns}
+    {session_on_events_columns}
     {extra_fields}
     {indexes}
 ) ENGINE = {engine}
@@ -125,6 +126,40 @@ EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS = f"""
     , {", ".join(property_groups.get_create_table_pieces("events"))}
 """
 
+EVENTS_TABLE_SESSION_ON_EVENTS_COLUMNS = f"""
+    , soe_min_timestamp Nullable(DateTime64(6, 'UTC'))
+    , soe_max_timestamp Nullable(DateTime64(6, 'UTC'))
+
+    , soe_pageview_prio_timestamp_min Nullable(DateTime64(6, 'UTC'))
+    , soe_pageview_prio_timestamp_max Nullable(DateTime64(6, 'UTC'))
+
+    , soe_entry_url Nullable(String)
+    , soe_end_url Nullable(String)
+    , soe_last_external_click_url Nullable(String)
+
+    -- attribution
+    , soe_entry_referring_domain Nullable(String)
+    , soe_entry_utm_source Nullable(String)
+    , soe_entry_utm_campaign Nullable(String)
+    , soe_entry_utm_medium Nullable(String)
+    , soe_entry_utm_term Nullable(String)
+    , soe_entry_utm_content Nullable(String)
+    , soe_entry_gclid Nullable(String)
+    , soe_entry_gad_source Nullable(String)
+    , soe_entry_fbclid Nullable(String)
+
+    -- for channel type calculation, it's enough to know if these were present
+    , soe_entry_has_gclid Boolean
+    , soe_entry_has_fbclid Boolean
+
+    -- for lower-tier ad ids, just put them in a map, and set of the ones present
+    , soe_entry_ad_ids_map Map(String, String)
+    , soe_entry_ad_ids_set Array(String)
+
+    -- bounce rate
+    , soe_page_screen_autocapture_uniq_up_to Array(UUID)
+"""
+
 
 def EVENTS_DATA_TABLE_ENGINE():
     return ReplacingMergeTree("events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED)
@@ -144,6 +179,7 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
         engine=EVENTS_DATA_TABLE_ENGINE(),
         extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
+        session_on_events_columns=EVENTS_TABLE_SESSION_ON_EVENTS_COLUMNS,
         indexes=f"""
     , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
     """,
@@ -180,6 +216,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
         table_name="kafka_events_json",
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
+        session_on_events_columns="",
         extra_fields="",
         materialized_columns="",
         indexes="",
@@ -243,6 +280,7 @@ def KAFKA_EVENTS_RECENT_TABLE_JSON_SQL(on_cluster=True):
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON, group="group1_recent"),
         extra_fields="",
         materialized_columns="",
+        session_on_events_columns="",
         indexes="",
     )
 
@@ -300,6 +338,7 @@ TTL toDateTime(inserted_at) + INTERVAL 7 DAY
         engine=ReplacingMergeTree(EVENTS_RECENT_DATA_TABLE(), ver="_timestamp"),
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_NOT_NULLABLE_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
         materialized_columns="",
+        session_on_events_columns="",
         indexes="",
         storage_policy=STORAGE_POLICY(),
     )
@@ -316,6 +355,7 @@ def DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
         ),
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION + INSERTED_AT_COLUMN + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
         materialized_columns="",
+        session_on_events_columns="",
         indexes="",
     )
 
@@ -330,6 +370,7 @@ def WRITABLE_EVENTS_RECENT_TABLE_SQL(on_cluster=True):
         ),
         extra_fields=KAFKA_COLUMNS_WITH_PARTITION + f", {KAFKA_TIMESTAMP_MS_COLUMN}",
         materialized_columns="",
+        session_on_events_columns="",
         indexes="",
     )
 
@@ -346,6 +387,7 @@ def WRITABLE_EVENTS_TABLE_SQL():
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
         extra_fields=KAFKA_COLUMNS + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns="",
+        session_on_events_columns="",
         indexes="",
     )
 
@@ -360,6 +402,7 @@ def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
         extra_fields=KAFKA_COLUMNS + INSERTED_AT_COLUMN + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
         materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
+        session_on_events_columns=EVENTS_TABLE_SESSION_ON_EVENTS_COLUMNS,
         indexes="",
     )
 
