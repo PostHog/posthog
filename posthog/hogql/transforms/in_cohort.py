@@ -57,6 +57,9 @@ class MultipleInCohortResolver(TraversingVisitor):
         self.context = context
         self.dialect = dialect
 
+    def visit_cte(self, node: ast.CTE):
+        self.visit(node.expr)
+
     def visit_select_query(self, node: ast.SelectQuery):
         self.stack.append(node)
 

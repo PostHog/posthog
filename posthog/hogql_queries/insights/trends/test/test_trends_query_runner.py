@@ -98,6 +98,8 @@ class SeriesTestData:
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    maxDiff = None
+
     default_date_from = "2020-01-09"
     default_date_to = "2020-01-19"
 
