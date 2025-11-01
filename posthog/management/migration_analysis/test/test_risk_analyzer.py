@@ -409,7 +409,7 @@ class TestRunSQLOperations:
         assert "validate" in risk.reason.lower()
 
     def test_run_sql_drop_constraint(self):
-        """Test DROP CONSTRAINT - fast metadata operation (score 1)."""
+        """Test DROP CONSTRAINT - fast but needs deployment safety review (score 2)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="ALTER TABLE users DROP CONSTRAINT check_age;",
@@ -417,9 +417,10 @@ class TestRunSQLOperations:
 
         risk = self.analyzer.analyze_operation(op)
 
-        assert risk.score == 1
-        assert risk.level == RiskLevel.SAFE
-        assert "fast" in risk.reason.lower() or "metadata" in risk.reason.lower()
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert "fast" in risk.reason.lower()
+        assert "deployment safety" in risk.reason.lower() or "deployment" in risk.guidance.lower()
 
     def test_run_sql_drop_constraint_cascade(self):
         """Test DROP CONSTRAINT CASCADE - may be slow (score 3)."""
