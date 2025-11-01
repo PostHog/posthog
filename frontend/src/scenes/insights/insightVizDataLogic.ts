@@ -154,7 +154,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
     selectors({
         querySource: [
             (s) => [s.query],
-            (query) => (isNodeWithSource(query) && isInsightQueryNode(query.source) ? query.source : null),
+            (query) => {
+                if (!isNodeWithSource(query) || !isInsightQueryNode(query.source)) {
+                    return null
+                }
+
+                const source = query.source
+
+                // Clean up Web Analytics queries by removing invalid fields that might have been saved
+                if (isWebStatsTableQuery(source) || isWebOverviewQuery(source)) {
+                    const { interval, series, breakdownFilter, ...cleanSource } = source as any
+                    return cleanSource
+                }
+
+                return source
+            },
         ],
         localQuerySource: [
             (s) => [s.querySource, s.filterTestAccountsDefault],

@@ -10,14 +10,8 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { WebConversionGoal } from 'scenes/web-analytics/WebConversionGoal'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
-import {
-    InsightVizNode,
-    WebOverviewQuery,
-    WebStatsBreakdown,
-    WebStatsTableQuery,
-} from '~/queries/schema/schema-general'
+import { WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery } from '~/queries/schema/schema-general'
 import { isWebStatsTableQuery } from '~/queries/utils'
-import { InsightLogicProps } from '~/types'
 
 import { WebAnalyticsBreakdownSelector } from './WebAnalyticsBreakdownSelector'
 
@@ -29,20 +23,7 @@ export interface WebAnalyticsEditorFiltersProps {
 
 export function WebAnalyticsEditorFilters({ query, showing }: WebAnalyticsEditorFiltersProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { setQuery } = useActions(insightVizDataLogic(insightProps))
-    const { query: insightVizNode } = useValues(insightVizDataLogic(insightProps as InsightLogicProps))
-
-    const updateQuery = (updates: Partial<WebStatsTableQuery | WebOverviewQuery>): void => {
-        if (insightVizNode && 'source' in insightVizNode) {
-            setQuery({
-                ...insightVizNode,
-                source: {
-                    ...insightVizNode.source,
-                    ...updates,
-                },
-            } as InsightVizNode)
-        }
-    }
+    const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     const isStatsTable = isWebStatsTableQuery(query)
     const isPathBased =
@@ -60,7 +41,7 @@ export function WebAnalyticsEditorFilters({ query, showing }: WebAnalyticsEditor
                     {isStatsTable && (
                         <WebAnalyticsBreakdownSelector
                             value={query.breakdownBy}
-                            onChange={(breakdownBy) => updateQuery({ breakdownBy })}
+                            onChange={(breakdownBy) => updateQuerySource({ breakdownBy })}
                         />
                     )}
                 </>
@@ -72,29 +53,24 @@ export function WebAnalyticsEditorFilters({ query, showing }: WebAnalyticsEditor
                         dateFrom={query.dateRange?.date_from ?? '-7d'}
                         dateTo={query.dateRange?.date_to ?? null}
                         onChange={(date_from, date_to) =>
-                            updateQuery({
+                            updateQuerySource({
                                 dateRange: { date_from, date_to },
                             })
                         }
                     />
                     <CompareFilter
-                        compare={query.compareFilter?.compare ?? false}
-                        compareLabel={query.compareFilter?.compare_to}
-                        onChange={(compare, compare_to) =>
-                            updateQuery({
-                                compareFilter: { compare, compare_to },
-                            })
-                        }
+                        compareFilter={query.compareFilter}
+                        updateCompareFilter={(compareFilter) => updateQuerySource({ compareFilter })}
                     />
                     <WebConversionGoal
                         value={query.conversionGoal ?? null}
-                        onChange={(conversionGoal) => updateQuery({ conversionGoal })}
+                        onChange={(conversionGoal) => updateQuerySource({ conversionGoal })}
                     />
-                    {isPathBased && <PathCleaningToggle query={query} updateQuery={updateQuery} />}
-                    <FilterTestAccountsToggle query={query} updateQuery={updateQuery} />
+                    {isPathBased && <PathCleaningToggle query={query} updateQuerySource={updateQuerySource} />}
+                    <FilterTestAccountsToggle query={query} updateQuerySource={updateQuerySource} />
                     <WebPropertyFilters
                         webAnalyticsFilters={query.properties ?? []}
-                        setWebAnalyticsFilters={(properties) => updateQuery({ properties })}
+                        setWebAnalyticsFilters={(properties) => updateQuerySource({ properties })}
                     />
                 </>
             }
@@ -104,10 +80,10 @@ export function WebAnalyticsEditorFilters({ query, showing }: WebAnalyticsEditor
 
 function PathCleaningToggle({
     query,
-    updateQuery,
+    updateQuerySource,
 }: {
     query: WebStatsTableQuery | WebOverviewQuery
-    updateQuery: (updates: Partial<WebStatsTableQuery | WebOverviewQuery>) => void
+    updateQuerySource: (updates: Partial<WebStatsTableQuery | WebOverviewQuery>) => void
 }): JSX.Element {
     return (
         <Tooltip title="Clean paths by removing query parameters and standardizing URLs">
@@ -115,7 +91,7 @@ function PathCleaningToggle({
                 <span className="text-xs">Path cleaning</span>
                 <LemonSwitch
                     checked={query.doPathCleaning ?? false}
-                    onChange={(doPathCleaning) => updateQuery({ doPathCleaning })}
+                    onChange={(doPathCleaning) => updateQuerySource({ doPathCleaning })}
                 />
             </div>
         </Tooltip>
@@ -124,10 +100,10 @@ function PathCleaningToggle({
 
 function FilterTestAccountsToggle({
     query,
-    updateQuery,
+    updateQuerySource,
 }: {
     query: WebStatsTableQuery | WebOverviewQuery
-    updateQuery: (updates: Partial<WebStatsTableQuery | WebOverviewQuery>) => void
+    updateQuerySource: (updates: Partial<WebStatsTableQuery | WebOverviewQuery>) => void
 }): JSX.Element {
     return (
         <Tooltip title="Filter out events from test accounts">
@@ -135,7 +111,7 @@ function FilterTestAccountsToggle({
                 <span className="text-xs">Filter test accounts</span>
                 <LemonSwitch
                     checked={query.filterTestAccounts ?? false}
-                    onChange={(filterTestAccounts) => updateQuery({ filterTestAccounts })}
+                    onChange={(filterTestAccounts) => updateQuerySource({ filterTestAccounts })}
                 />
             </div>
         </Tooltip>

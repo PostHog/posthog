@@ -70,7 +70,6 @@ export function InsightVizDisplay({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
     const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
@@ -91,6 +90,7 @@ export function InsightVizDisplay({
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
+    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -187,31 +187,20 @@ export function InsightVizDisplay({
             case InsightType.WEB_ANALYTICS:
                 if (isWebStatsTableQuery(querySource)) {
                     // Wrap WebStatsTableQuery in DataTableNode with the same structure as Web Analytics uses
-                    const columns = [
-                        'breakdown_value',
-                        'visitors',
-                        'views',
-                        querySource.includeBounceRate ? 'bounce_rate' : null,
-                        querySource.includeScrollDepth ? 'average_scroll_percentage' : null,
-                        // No cross_sell column in Product Analytics - we don't show cross-sell buttons here
-                    ].filter((col): col is string => col !== null)
-
+                    // Hide the cross_sell column to remove cross-sell buttons in Product Analytics
                     const wrappedQuery: DataTableNode = {
                         kind: NodeKind.DataTableNode,
                         source: querySource,
                         full: true,
-                        showActions: true,
+                        showActions: false,
                         embedded: false,
-                        columns,
+                        hiddenColumns: ['cross_sell'],
                     }
 
                     // Use the Web Analytics query context for custom column rendering and formatting
-                    // but exclude the cross_sell column to hide cross-sell buttons in Product Analytics
-                    const { cross_sell, ...columnsWithoutCrossSell } = webAnalyticsDataTableQueryContext.columns || {}
                     const webAnalyticsContext: QueryContext = {
                         ...context,
                         ...webAnalyticsDataTableQueryContext,
-                        columns: columnsWithoutCrossSell,
                     }
 
                     return <Query query={wrappedQuery} context={webAnalyticsContext} readOnly={!editMode} />
