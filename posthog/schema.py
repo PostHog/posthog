@@ -270,7 +270,6 @@ class AssistantTool(StrEnum):
     EDIT_CURRENT_INSIGHT = "edit_current_insight"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
-    EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
     ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
     SESSION_SUMMARIZATION = "session_summarization"
