@@ -4032,6 +4032,7 @@ class ExperimentMetricBaseProperties(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownFilter: Optional[BreakdownFilter] = None
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     fingerprint: Optional[str] = None
@@ -4393,14 +4394,6 @@ class MaxBillingContextBillingPeriod(BaseModel):
     current_period_end: str
     current_period_start: str
     interval: MaxBillingContextBillingPeriodInterval
-
-
-class NewExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBaseValidated
-    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class NotebookUpdateMessage(BaseModel):
@@ -6748,27 +6741,6 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     types: Optional[list] = None
 
 
-class CachedNewExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBaseValidated
-    cache_key: str
-    cache_target_age: Optional[datetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    is_cached: bool
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
-    query_metadata: Optional[dict[str, Any]] = None
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    timezone: str
-    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
-
-
 class CachedPathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -8977,6 +8949,22 @@ class EventsQueryResponse(BaseModel):
     types: list[str]
 
 
+class ExperimentBreakdownResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated = Field(..., description="Control variant stats for this breakdown")
+    breakdown_value: list[str] = Field(
+        ...,
+        description=(
+            'The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single)'
+        ),
+    )
+    variants: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]] = Field(
+        ..., description="Test variant results with statistical comparisons for this breakdown"
+    )
+
+
 class ExperimentDataWarehouseNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9642,6 +9630,16 @@ class MultipleBreakdownOptions(BaseModel):
         extra="forbid",
     )
     values: list[BreakdownItem]
+
+
+class NewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated
+    breakdown_results: Optional[list[ExperimentBreakdownResult]] = None
+    breakdown_values: Optional[list[list[str]]] = None
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class PathsQueryResponse(BaseModel):
@@ -12225,6 +12223,29 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     timezone: str
 
 
+class CachedNewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated
+    breakdown_results: Optional[list[ExperimentBreakdownResult]] = None
+    breakdown_values: Optional[list[list[str]]] = None
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    is_cached: bool
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    timezone: str
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
+
+
 class CachedRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12543,6 +12564,7 @@ class ExperimentRatioMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownFilter: Optional[BreakdownFilter] = None
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     denominator: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
@@ -13476,6 +13498,7 @@ class ExperimentFunnelMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownFilter: Optional[BreakdownFilter] = None
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     fingerprint: Optional[str] = None
@@ -13496,6 +13519,7 @@ class ExperimentMeanMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownFilter: Optional[BreakdownFilter] = None
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     fingerprint: Optional[str] = None
@@ -13540,6 +13564,19 @@ class ExperimentQueryResponse(BaseModel):
         extra="forbid",
     )
     baseline: Optional[ExperimentStatsBaseValidated] = None
+    breakdown_results: Optional[list[ExperimentBreakdownResult]] = Field(
+        default=None,
+        description=(
+            "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
+        ),
+    )
+    breakdown_values: Optional[list[list[str]]] = Field(
+        default=None,
+        description=(
+            'List of all breakdown combinations found in the results (e.g., [["MacOS", "Chrome"], ["Windows",'
+            ' "Safari"]])'
+        ),
+    )
     credible_intervals: Optional[dict[str, list[float]]] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
@@ -14043,6 +14080,19 @@ class QueryResponseAlternative18(BaseModel):
         extra="forbid",
     )
     baseline: Optional[ExperimentStatsBaseValidated] = None
+    breakdown_results: Optional[list[ExperimentBreakdownResult]] = Field(
+        default=None,
+        description=(
+            "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
+        ),
+    )
+    breakdown_values: Optional[list[list[str]]] = Field(
+        default=None,
+        description=(
+            'List of all breakdown combinations found in the results (e.g., [["MacOS", "Chrome"], ["Windows",'
+            ' "Safari"]])'
+        ),
+    )
     credible_intervals: Optional[dict[str, list[float]]] = None
     insight: Optional[list[dict[str, Any]]] = None
     kind: Literal["ExperimentQuery"] = "ExperimentQuery"
@@ -14212,6 +14262,19 @@ class CachedExperimentQueryResponse(BaseModel):
         extra="forbid",
     )
     baseline: Optional[ExperimentStatsBaseValidated] = None
+    breakdown_results: Optional[list[ExperimentBreakdownResult]] = Field(
+        default=None,
+        description=(
+            "Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data."
+        ),
+    )
+    breakdown_values: Optional[list[list[str]]] = Field(
+        default=None,
+        description=(
+            'List of all breakdown combinations found in the results (e.g., [["MacOS", "Chrome"], ["Windows",'
+            ' "Safari"]])'
+        ),
+    )
     cache_key: str
     cache_target_age: Optional[datetime] = None
     calculation_trigger: Optional[str] = Field(
