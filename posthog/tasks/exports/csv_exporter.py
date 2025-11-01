@@ -22,6 +22,12 @@ from posthog.utils import absolute_uri
 from ...exceptions import QuerySizeExceeded
 from ...hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, CSV_EXPORT_BREAKDOWN_LIMIT_LOW, CSV_EXPORT_LIMIT
 from ...hogql.query import LimitContext
+from ...hogql_queries.insights.trends.breakdown import (
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_DISPLAY,
+    BREAKDOWN_OTHER_STRING_LABEL,
+)
 from ..exporter import EXPORT_ASSET_UNKNOWN_COUNTER, EXPORT_FAILED_COUNTER, EXPORT_SUCCEEDED_COUNTER, EXPORT_TIMER
 from .ordered_csv_renderer import OrderedCsvRenderer
 
@@ -78,7 +84,7 @@ def add_query_params(url: str, params: dict[str, str]) -> str:
     return urlunparse(parsed)
 
 
-def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
+def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = None) -> Generator[Any, None, None]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
         if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and data.get("types"):
@@ -166,7 +172,9 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
 
                 yield line
             return
-        elif isinstance(first_result.get("data"), list):
+        elif isinstance(first_result.get("data"), list) or (
+            first_result.get("data") is None and "aggregated_value" in first_result
+        ):
             is_comparison = first_result.get("compare_label")
 
             # take date labels from current results, when comparing against previous
@@ -186,9 +194,33 @@ def _convert_response_to_csv_data(data: Any) -> Generator[Any, None, None]:
 
                 if isinstance(action, dict) and action.get("custom_name"):
                     line["custom name"] = action.get("custom_name")
-                if item.get("aggregated_value"):
-                    line["total count"] = item.get("aggregated_value")
-                else:
+
+                if "breakdown_value" in item:
+                    breakdown_value = item.get("breakdown_value")
+                    breakdown_values = breakdown_value if isinstance(breakdown_value, list) else [breakdown_value]
+
+                    # Get breakdown property names from filter
+                    breakdowns = breakdown_filter.get("breakdowns", []) if breakdown_filter else []
+                    # For single breakdown, check legacy "breakdown" field
+                    if not breakdowns and breakdown_filter and "breakdown" in breakdown_filter:
+                        breakdowns = [{"property": breakdown_filter.get("breakdown")}]
+
+                    for idx, val in enumerate(breakdown_values):
+                        # Get the property name from the breakdown filter
+                        prop_name = breakdowns[idx].get("property") if idx < len(breakdowns) else None
+                        if not prop_name:
+                            continue
+                        # Format special breakdown values for display
+                        formatted_val = str(val) if val is not None else ""
+                        if formatted_val == BREAKDOWN_OTHER_STRING_LABEL:
+                            formatted_val = BREAKDOWN_OTHER_DISPLAY
+                        elif formatted_val == BREAKDOWN_NULL_STRING_LABEL:
+                            formatted_val = BREAKDOWN_NULL_DISPLAY
+                        line[prop_name] = formatted_val
+
+                if item.get("aggregated_value") is not None:
+                    line["Total Sum"] = item.get("aggregated_value")
+                elif item.get("data"):
                     for index, data in enumerate(item["data"]):
                         line[label_item["labels"][index]] = data
 
@@ -289,7 +321,9 @@ def get_from_hogql_query(exported_asset: ExportedAsset, limit: int, resource: di
 
         if isinstance(query_response, BaseModel):
             query_response = query_response.model_dump(by_alias=True)
-        yield from _convert_response_to_csv_data(query_response)
+
+        breakdown_filter = query.get("breakdownFilter") if query else None
+        yield from _convert_response_to_csv_data(query_response, breakdown_filter=breakdown_filter)
         return
 
 
