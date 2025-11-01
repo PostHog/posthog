@@ -267,6 +267,13 @@ services:
             file: docker-compose.base.yml
             service: localstack
 
+    seaweedfs:
+        extends:
+            file: docker-compose.base.yml
+            service: seaweedfs
+        volumes:
+            - './data/seaweedfs:/data'
+
 networks:
     otel_network:
         driver: bridge
