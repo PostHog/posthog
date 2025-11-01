@@ -24,6 +24,7 @@ import { cn } from 'lib/utils/css-classes'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
 
 import {
@@ -176,6 +177,12 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                     <ScenePanelActionsSection>
                         <SceneAddToNotebookDropdownMenu
                             dataAttrKey={RESOURCE_TYPE}
+                            resource={{
+                                type: NotebookNodeType.Cohort,
+                                attrs: {
+                                    id: cohort.id,
+                                },
+                            }}
                             disabledReasons={{
                                 'Save the cohort first': isNewCohort,
                             }}
@@ -531,10 +538,10 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                     dataNodeLogicKey: dataNodeLogicKey,
                                                     columns: canRemovePersonFromCohort
                                                         ? {
-                                                              'person.$delete': {
-                                                                  render: renderRemovePersonFromCohortButton,
-                                                              },
-                                                          }
+                                                            'person.$delete': {
+                                                                render: renderRemovePersonFromCohortButton,
+                                                            },
+                                                        }
                                                         : undefined,
                                                 }}
                                             />

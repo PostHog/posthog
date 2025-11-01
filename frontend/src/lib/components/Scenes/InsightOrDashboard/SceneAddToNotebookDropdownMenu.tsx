@@ -7,20 +7,18 @@ import {
     DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { NotebookNodeType } from 'scenes/notebooks/types'
-
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NotebookNodeResource } from 'scenes/notebooks/types'
 
 import { SceneDataAttrKeyProps } from '../utils'
 import { SceneNotebookMenuItems } from './SceneNotebookMenuItems'
 
 type SceneNotebookDropdownMenuProps = SceneDataAttrKeyProps &
     Pick<ButtonPrimitiveProps, 'disabledReasons'> & {
-        shortId?: string
+        resource: NotebookNodeResource
     }
 
 export function SceneAddToNotebookDropdownMenu({
-    shortId,
+    resource,
     dataAttrKey,
     disabledReasons,
 }: SceneNotebookDropdownMenuProps): JSX.Element {
@@ -40,15 +38,7 @@ export function SceneAddToNotebookDropdownMenu({
             <DropdownMenuContent align="end" matchTriggerWidth className="min-w-none max-w-none">
                 <SceneNotebookMenuItems
                     notebookSelectButtonProps={{
-                        resource: {
-                            type: NotebookNodeType.Query,
-                            attrs: {
-                                query: {
-                                    kind: NodeKind.SavedInsightNode,
-                                    shortId: shortId,
-                                },
-                            },
-                        },
+                        resource: resource,
                     }}
                     dataAttrKey={dataAttrKey}
                 />
