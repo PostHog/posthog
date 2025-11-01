@@ -170,6 +170,7 @@ def relative_date_parse_with_delta_mapping(
     human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
+    team_week_start_day: Optional[int] = 0,
 ) -> tuple[datetime.datetime, Optional[dict[str, int]], str | None]:
     """
     Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string.
@@ -202,10 +203,28 @@ def relative_date_parse_with_delta_mapping(
     if not match:
         return parsed_dt, delta_mapping, None
 
+    match_group_dict = match.groupdict()
+
     delta_mapping = get_delta_mapping_for(
-        **match.groupdict(),
+        **match_group_dict,
         human_friendly_comparison_periods=human_friendly_comparison_periods,
     )
+
+    if match_group_dict["kind"] == "w":
+        current_dt = (now or dt.datetime.now()).astimezone(timezone_info)
+        # Get the weekday index (Monday=0, Sunday=6)
+        weekday_index = current_dt.weekday()
+        if team_week_start_day == 0:
+            # Get the weekday index for monday (Monday=1, Sunday=7)
+            weekday_index = current_dt.isoweekday()
+            # Sunday should be set as zero when week start day is sunday
+            if weekday_index == 7:
+                weekday_index = 0
+        if match_group_dict["position"] == "Start":
+            parsed_dt -= datetime.timedelta(days=weekday_index)
+        elif match_group_dict["position"] == "End":
+            days_to_add = 6 - weekday_index
+            parsed_dt += datetime.timedelta(days=days_to_add)
 
     if increase:
         parsed_dt += relativedelta(**delta_mapping)  # type: ignore
@@ -300,6 +319,7 @@ def relative_date_parse(
     human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
     increase: bool = False,
+    team_week_start_day: Optional[int] = None,
 ) -> datetime.datetime:
     return relative_date_parse_with_delta_mapping(
         input,
@@ -308,6 +328,7 @@ def relative_date_parse(
         human_friendly_comparison_periods=human_friendly_comparison_periods,
         now=now,
         increase=increase,
+        team_week_start_day=team_week_start_day,
     )[0]
 
 
