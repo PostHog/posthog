@@ -203,9 +203,7 @@ class Table(FieldOrTable):
         return asterisk
 
 
-class TableNode(
-    BaseModel,
-):
+class TableNode(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: Literal["root"] | str = "root"  # Default to root for ease of use
@@ -404,6 +402,7 @@ class SavedQuery(Table):
     id: str
     query: str
     name: str
+    metadata: dict[str, Any] = {}
 
     # Note: redundancy for safety. This validation is used in the data model already
     def to_printed_clickhouse(self, context):

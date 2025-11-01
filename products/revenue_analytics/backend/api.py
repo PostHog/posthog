@@ -30,20 +30,27 @@ def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str
     view_class = KIND_TO_CLASS[DatabaseSchemaManagedViewTableKind(scope)]
 
     # Try and find the union view for this class
-    union_view: RevenueAnalyticsBaseView | None = None
+    views: list[RevenueAnalyticsBaseView] = []
     for view_name in database.get_view_names():
         view = database.get_table(view_name)
-        if isinstance(view, view_class) and view.union_all:
-            union_view = view
-            break
+        if isinstance(view, view_class):
+            views.append(view)
 
-    if union_view is None:
+    if len(views) == 0:
         return []
+
+    selects = [
+        ast.SelectQuery(select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=view.name)) for view in views
+    ]
+    if len(selects) == 1:
+        select_from = selects[0]
+    else:
+        select_from = ast.SelectSetQuery.create_from_queries(selects, set_operator="UNION ALL")
 
     query = ast.SelectQuery(
         select=[ast.Field(chain=chain)],  # type: ignore
         distinct=True,
-        select_from=ast.JoinExpr(table=ast.Field(chain=[union_view.name])),
+        select_from=ast.JoinExpr(table=select_from),
         order_by=[ast.OrderExpr(expr=ast.Constant(value=1), order="ASC")],
     )
 

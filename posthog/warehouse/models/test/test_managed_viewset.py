@@ -5,6 +5,7 @@ from django.db import IntegrityError
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
 from posthog.warehouse.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
+from posthog.warehouse.types import DataWarehouseManagedViewSetKind
 
 
 class TestDataWarehouseManagedViewSetModel(BaseTest):
@@ -33,7 +34,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         """Test that enabling managed viewset creates the expected views"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         # Call sync_views to create the views
@@ -42,7 +43,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         # Check that views were created
         views = DataWarehouseSavedQuery.objects.filter(
             team=self.team,
-            managed_viewset__kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            managed_viewset__kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         ).exclude(deleted=True)
 
         # Should have views for each event (purchase, subscription_charge) and each view type
@@ -86,7 +87,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         # First, create a managed viewset and some views
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         # Create a view with old query/columns
@@ -116,7 +117,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         """Test that delete_with_views properly deletes the managed viewset and marks views as deleted"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         # Create some views associated with the managed viewset
@@ -153,11 +154,11 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         """Test basic managed viewset creation"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         self.assertEqual(managed_viewset.team, self.team)
-        self.assertEqual(managed_viewset.kind, DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS)
+        self.assertEqual(managed_viewset.kind, DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
         self.assertIsNotNone(managed_viewset.id)
         self.assertIsNotNone(managed_viewset.created_at)
 
@@ -166,12 +167,12 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         # Create first managed viewset
         DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         # Try to create another with same team and kind - should raise IntegrityError
         with self.assertRaises(IntegrityError):
             DataWarehouseManagedViewSet.objects.create(
                 team=self.team,
-                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+                kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )
