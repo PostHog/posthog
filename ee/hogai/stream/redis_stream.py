@@ -1,27 +1,20 @@
 import pickle
 import asyncio
 from collections.abc import AsyncGenerator, Callable
-from typing import Literal, Optional, cast
+from typing import Literal, Optional
 from uuid import UUID
 
 from django.conf import settings
 
 import structlog
 import redis.exceptions as redis_exceptions
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from posthog.schema import (
-    AssistantEventType,
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
-    AssistantUpdateEvent,
-)
+from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent, AssistantUpdateEvent
 
 from posthog.redis import get_async_client
 
-from ee.hogai.utils.types import AssistantOutput
-from ee.hogai.utils.types.base import AssistantMessageUnion
-from ee.models.assistant import Conversation
+from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMessageUnion
 
 logger = structlog.get_logger(__name__)
 
@@ -53,21 +46,12 @@ class GenerationStatusEvent(BaseModel):
     payload: AssistantGenerationStatusEvent
 
 
-class StatusPayload(BaseModel):
+class StreamStatusEvent(BaseModel):
     status: Literal["complete", "error"]
     error: Optional[str] = None
 
 
-class StreamStatusEvent(BaseModel):
-    type: Literal["STREAM_STATUS"] = "STREAM_STATUS"
-    payload: StatusPayload
-
-
-StreamEventUnion = ConversationEvent | MessageEvent | GenerationStatusEvent | UpdateEvent | StreamStatusEvent
-
-
-class StreamEvent(BaseModel):
-    event: StreamEventUnion = Field(discriminator="type")
+StreamEventUnion = AssistantDispatcherEvent | StreamStatusEvent
 
 
 def get_conversation_stream_key(conversation_id: UUID) -> str:
@@ -78,76 +62,26 @@ def get_conversation_stream_key(conversation_id: UUID) -> str:
 class ConversationStreamSerializer:
     serialization_key = "data"
 
-    def dumps(self, event: AssistantOutput | StatusPayload) -> dict[str, bytes] | None:
+    def dumps(self, event: StreamEventUnion) -> dict[str, bytes] | None:
         """Serialize an event to a dictionary of bytes.
 
         Args:
-            event: AssistantOutput or RedisStreamStatus
+            event: AssistantDispatcherEvent or StreamStatusEvent
 
         Returns:
             Dictionary of bytes
         """
-        if isinstance(event, StatusPayload):
-            return self._serialize(
-                StreamStatusEvent(
-                    payload=event,
-                )
-            )
-        else:
-            event_type, event_data = event
-            if event_type == AssistantEventType.MESSAGE:
-                return self._serialize(self._to_message_event(cast(AssistantMessageUnion, event_data)))
-            elif event_type == AssistantEventType.CONVERSATION:
-                return self._serialize(self._to_conversation_event(cast(Conversation, event_data)))
-            elif event_type == AssistantEventType.STATUS:
-                return self._serialize(self._to_status_event(cast(AssistantGenerationStatusEvent, event_data)))
-            elif event_type == AssistantEventType.UPDATE:
-                return self._serialize(self._to_update_event(cast(AssistantUpdateEvent, event_data)))
-            else:
-                raise ValueError(f"Unknown event type: {event_type}")
+        return self._serialize(event)
 
     def _serialize(self, event: StreamEventUnion | None) -> dict[str, bytes] | None:
         if event is None:
             return None
 
         return {
-            self.serialization_key: pickle.dumps(
-                StreamEvent(
-                    event=event,
-                )
-            ),
+            self.serialization_key: pickle.dumps(event),
         }
 
-    def _to_message_event(self, message: AssistantMessageUnion) -> MessageEvent:
-        return MessageEvent(
-            type=AssistantEventType.MESSAGE,
-            payload=message,
-        )
-
-    def _to_conversation_event(self, conversation: Conversation) -> ConversationEvent:
-        return ConversationEvent(
-            type="conversation",
-            payload=conversation.id,
-        )
-
-    def _to_status_event(self, event: AssistantGenerationStatusEvent) -> GenerationStatusEvent | None:
-        if isinstance(event, AssistantGenerationStatusEvent) and event.type == AssistantGenerationStatusType.ACK:
-            # we don't need to send ACK messages to the client
-            # they are only used to trigger temporal heartbeats
-            return None
-
-        return GenerationStatusEvent(
-            type=AssistantEventType.STATUS,
-            payload=event,
-        )
-
-    def _to_update_event(self, update: AssistantUpdateEvent) -> UpdateEvent:
-        return UpdateEvent(
-            type=AssistantEventType.UPDATE,
-            payload=update,
-        )
-
-    def deserialize(self, data: dict[bytes, bytes]) -> StreamEvent:
+    def deserialize(self, data: dict[bytes, bytes]) -> StreamEventUnion:
         return pickle.loads(data[bytes(self.serialization_key, "utf-8")])
 
 
@@ -204,7 +138,7 @@ class ConversationRedisStream:
         start_id: str = "0",
         block_ms: int = 50,  # Block for 50ms waiting for new messages
         count: Optional[int] = CONVERSATION_STREAM_CONCURRENT_READ_COUNT,
-    ) -> AsyncGenerator[StreamEvent, None]:
+    ) -> AsyncGenerator[StreamEventUnion, None]:
         """
         Read updates from Redis stream.
 
@@ -214,7 +148,7 @@ class ConversationRedisStream:
             count: Maximum number of messages to read
 
         Yields:
-            RedisStreamEvent
+            StreamEventUnion (AssistantDispatcherEvent or StreamStatusEvent)
         """
         current_id = start_id
         start_time = asyncio.get_event_loop().time()
@@ -239,11 +173,11 @@ class ConversationRedisStream:
                         current_id = stream_id
                         data = self._serializer.deserialize(message)
 
-                        if isinstance(data.event, StreamStatusEvent):
-                            if data.event.payload.status == "complete":
+                        if isinstance(data, StreamStatusEvent):
+                            if data.status == "complete":
                                 return
-                            elif data.event.payload.status == "error":
-                                error = data.event.payload.error or "Unknown error"
+                            elif data.status == "error":
+                                error = data.error or "Unknown error"
                                 if error:
                                     raise StreamError(error)
                                 continue
@@ -274,19 +208,19 @@ class ConversationRedisStream:
                 return False
 
     async def write_to_stream(
-        self, generator: AsyncGenerator[AssistantOutput, None], callback: Callable[[], None] | None = None
+        self, generator: AsyncGenerator[AssistantDispatcherEvent, None], callback: Callable[[], None] | None = None
     ) -> None:
-        """Write to the Redis stream.
+        """Write raw dispatcher events to the Redis stream.
 
         Args:
-            generator: AsyncGenerator of AssistantOutput
+            generator: AsyncGenerator of raw AssistantDispatcherEvent objects
             callback: Callback to trigger after each message is written to the stream
         """
         try:
             await self._redis_client.expire(self._stream_key, CONVERSATION_STREAM_TIMEOUT)
 
-            async for chunk in generator:
-                message = self._serializer.dumps(chunk)
+            async for event in generator:
+                message = self._serializer.dumps(event)
                 if message is not None:
                     await self._redis_client.xadd(
                         self._stream_key,
@@ -298,23 +232,23 @@ class ConversationRedisStream:
                     callback()
 
             # Mark the stream as complete
-            status_message = StatusPayload(status="complete")
-            completion_message = self._serializer.dumps(status_message)
-            await self._redis_client.xadd(
-                self._stream_key,
-                completion_message,
-                maxlen=CONVERSATION_STREAM_MAX_LENGTH,
-                approximate=True,
-            )
+            completion_message = self._serializer.dumps(StreamStatusEvent(status="complete"))
+            if completion_message is not None:
+                await self._redis_client.xadd(
+                    self._stream_key,
+                    completion_message,
+                    maxlen=CONVERSATION_STREAM_MAX_LENGTH,
+                    approximate=True,
+                )
 
         except Exception as e:
             # Mark the stream as failed
-            error_message = StatusPayload(status="error", error=str(e))
-            message = self._serializer.dumps(error_message)
-            await self._redis_client.xadd(
-                self._stream_key,
-                message,
-                maxlen=CONVERSATION_STREAM_MAX_LENGTH,
-                approximate=True,
-            )
+            error_message = self._serializer.dumps(StreamStatusEvent(status="error", error=str(e)))
+            if error_message is not None:
+                await self._redis_client.xadd(
+                    self._stream_key,
+                    error_message,
+                    maxlen=CONVERSATION_STREAM_MAX_LENGTH,
+                    approximate=True,
+                )
             raise StreamError("Failed to write to stream")
