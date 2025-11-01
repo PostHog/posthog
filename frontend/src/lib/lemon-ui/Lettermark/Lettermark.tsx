@@ -23,6 +23,7 @@ export interface LettermarkProps {
     outlined?: boolean
     /** @default 'medium' */
     size?: 'xsmall' | 'small' | 'medium' | 'xlarge'
+    className?: string
 }
 
 /** An icon-sized lettermark.
@@ -30,7 +31,7 @@ export interface LettermarkProps {
  * When given a string, the initial letter is shown. Numbers up to 99 are displayed in full, in integer form.
  */
 export const Lettermark = React.forwardRef<HTMLDivElement, LettermarkProps>(function Lettermark(
-    { name, index, color, outlined = false, rounded = false, size = 'medium' },
+    { name, index, color, outlined = false, rounded = false, size = 'medium', className },
     ref
 ) {
     const representation = name
@@ -48,7 +49,8 @@ export const Lettermark = React.forwardRef<HTMLDivElement, LettermarkProps>(func
                 colorIndex && `Lettermark--variant-${colorIndex}`,
                 outlined && 'Lettermark--outlined',
                 rounded && 'Lettermark--rounded',
-                representation === '?' && 'Lettermark--unknown'
+                representation === '?' && 'Lettermark--unknown',
+                className
             )}
             ref={ref}
         >

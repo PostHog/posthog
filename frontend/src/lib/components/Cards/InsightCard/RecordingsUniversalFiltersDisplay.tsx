@@ -31,7 +31,7 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { DateRangeSummary } from './InsightDetails'
+import { DateRangeSummary, InsightDetailSectionDisplay } from './InsightDetails'
 
 function isActionFilter(filter: UniversalFiltersGroupValue): filter is ActionFilter {
     return (filter as ActionFilter).type !== undefined && 'id' in filter
@@ -150,6 +150,7 @@ export function CompactUniversalFiltersDisplay({
                                         {isFirstFilterOverall && !embedded
                                             ? capitalizeFirstLetter(leafFilter.type || 'event')
                                             : leafFilter.type || 'event'}
+                                        's
                                         <span className="SeriesDisplay__raw-name">
                                             {isAnyPropertyfilter(leafFilter) && leafFilter.key && (
                                                 <PropertyKeyInfo
@@ -180,9 +181,9 @@ export function CompactUniversalFiltersDisplay({
                                                                 1 && ' or '}
                                                     </React.Fragment>
                                                 ))
-                                            ) : (
+                                            ) : leafFilter.value != undefined ? (
                                                 <code className="SeriesDisplay__value">{leafFilter.value}</code>
-                                            ))}
+                                            ) : null)}
                                     </>
                                 )}
                             </span>
@@ -200,22 +201,16 @@ function DurationSummary({ filters }: { filters: RecordingUniversalFilters }): J
     }
 
     return (
-        <div className="flex items-start gap-2 text-xs">
-            <IconClock className="text-muted-alt mt-0.5 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-                <div className="text-muted-alt mb-0.5">Duration</div>
-                <div>
-                    {filters.duration.map((durationFilter, index) => (
-                        <React.Fragment key={index}>
-                            <span className="font-medium">
-                                {humanFriendlyDurationFilter(durationFilter, durationFilter.key as DurationType)}
-                            </span>
-                            {index < filters.duration.length - 1 && ' and '}
-                        </React.Fragment>
-                    ))}
-                </div>
-            </div>
-        </div>
+        <InsightDetailSectionDisplay icon={<IconClock />} label="Duration">
+            {filters.duration.map((durationFilter, index) => (
+                <React.Fragment key={index}>
+                    <span className="font-medium">
+                        {humanFriendlyDurationFilter(durationFilter, durationFilter.key as DurationType)}
+                    </span>
+                    {index < filters.duration.length - 1 && ' and '}
+                </React.Fragment>
+            ))}
+        </InsightDetailSectionDisplay>
     )
 }
 
@@ -227,22 +222,14 @@ function FiltersSummary({ filters }: { filters: RecordingUniversalFilters }): JS
     }
 
     return (
-        <div className="flex items-start gap-2 text-xs">
-            <IconFilter className="text-muted-alt mt-0.5 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-                <div className="text-muted-alt mb-0.5">Filters</div>
+        <InsightDetailSectionDisplay icon={<IconFilter />} label="Filters">
+            <CompactUniversalFiltersDisplay groupFilter={filters.filter_group} />
+            {filters.filter_test_accounts && (
                 <div>
-                    <CompactUniversalFiltersDisplay groupFilter={filters.filter_group} />
-                    {filters.filter_test_accounts && (
-                        <div className="mt-1">
-                            <LemonTag type="warning" size="small">
-                                Test accounts excluded
-                            </LemonTag>
-                        </div>
-                    )}
+                    <LemonTag size="small">Test accounts excluded</LemonTag>
                 </div>
-            </div>
-        </div>
+            )}
+        </InsightDetailSectionDisplay>
     )
 }
 
@@ -265,15 +252,11 @@ function OrderingSummary({ filters }: { filters: RecordingUniversalFilters }): J
     const direction = filters.order_direction === 'ASC' ? 'ascending' : 'descending'
 
     return (
-        <div className="flex items-start gap-2 text-xs">
-            <IconSort className="text-muted-alt mt-0.5 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-                <div className="text-muted-alt mb-0.5">Sort order</div>
-                <div className="font-medium">
-                    {orderLabel} ({direction})
-                </div>
+        <InsightDetailSectionDisplay icon={<IconSort />} label="Sort order">
+            <div className="font-medium">
+                {orderLabel} ({direction})
             </div>
-        </div>
+        </InsightDetailSectionDisplay>
     )
 }
 
