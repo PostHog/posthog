@@ -395,7 +395,7 @@ class TestGetVariantResult:
 
     def test_breakdown_with_posthog_null_label(self):
         """Test that the special PostHog NULL label is preserved."""
-        from posthog.hogql_queries.experiments.breakdown_constants import BREAKDOWN_NULL_STRING_LABEL
+        from posthog.hogql_queries.experiments.experiment_query_builder import BREAKDOWN_NULL_STRING_LABEL
 
         metric = ExperimentMeanMetric(
             source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
