@@ -415,6 +415,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         # We kind of cheat here set the request user to the user who created the scheduled change
         # It's not the correct type, but it matches enough to get the job done
         http_request.user = user or self.created_by  # type: ignore
+        http_request.method = "PATCH"  # This is a partial update, not a new creation
         context = {
             "request": http_request,
             "team_id": self.team_id,

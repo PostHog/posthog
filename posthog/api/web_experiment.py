@@ -147,6 +147,9 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             "multivariate": self.get_variants_for_feature_flag(validated_data),
         }
 
+        # Ensure the request method is set correctly for validation
+        self.context["request"].method = "POST"
+
         feature_flag_serializer = FeatureFlagSerializer(
             data={
                 "key": self.get_feature_flag_name(validated_data.get("name", "")),
@@ -182,6 +185,8 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
                 "multivariate": self.get_variants_for_feature_flag(validated_data),
             }
 
+            # Ensure the request method is set correctly for validation
+            self.context["request"].method = "PATCH"
             existing_flag_serializer = FeatureFlagSerializer(
                 feature_flag,
                 data={"filters": filters},
