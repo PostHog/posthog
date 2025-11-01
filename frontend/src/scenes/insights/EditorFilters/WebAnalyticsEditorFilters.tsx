@@ -1,17 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch, Tooltip } from '@posthog/lemon-ui'
+import { IconFilter, IconGear } from '@posthog/icons'
+import { LemonButton, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
+import { IconBranch } from 'lib/lemon-ui/icons/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 import { WebConversionGoal } from 'scenes/web-analytics/WebConversionGoal'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery } from '~/queries/schema/schema-general'
 import { isWebStatsTableQuery } from '~/queries/utils'
+import { AvailableFeature } from '~/types'
 
 import { WebAnalyticsBreakdownSelector } from './WebAnalyticsBreakdownSelector'
 
@@ -48,16 +52,6 @@ export function WebAnalyticsEditorFilters({ query, showing }: WebAnalyticsEditor
             }
             right={
                 <>
-                    <DateFilter
-                        allowTimePrecision
-                        dateFrom={query.dateRange?.date_from ?? '-7d'}
-                        dateTo={query.dateRange?.date_to ?? null}
-                        onChange={(date_from, date_to) =>
-                            updateQuerySource({
-                                dateRange: { date_from, date_to },
-                            })
-                        }
-                    />
                     <CompareFilter
                         compareFilter={query.compareFilter}
                         updateCompareFilter={(compareFilter) => updateQuerySource({ compareFilter })}
@@ -84,16 +78,51 @@ function PathCleaningToggle({
 }: {
     query: WebStatsTableQuery | WebOverviewQuery
     updateQuerySource: (updates: Partial<WebStatsTableQuery | WebOverviewQuery>) => void
-}): JSX.Element {
+}): JSX.Element | null {
+    const { hasAvailableFeature } = useValues(userLogic)
+    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
+
+    if (!hasAdvancedPaths) {
+        return null
+    }
+
+    const isPathCleaningEnabled = query.doPathCleaning ?? false
+
     return (
-        <Tooltip title="Clean paths by removing query parameters and standardizing URLs">
-            <div className="flex items-center gap-2 px-2 py-1 border rounded">
-                <span className="text-xs">Path cleaning</span>
-                <LemonSwitch
-                    checked={query.doPathCleaning ?? false}
-                    onChange={(doPathCleaning) => updateQuerySource({ doPathCleaning })}
-                />
-            </div>
+        <Tooltip
+            title={
+                <div className="p-2">
+                    <p className="mb-2">
+                        Path cleaning helps standardize URLs by removing unnecessary parameters and fragments.
+                    </p>
+                    <div className="mb-2">
+                        <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
+                            Learn more about path cleaning rules
+                        </Link>
+                    </div>
+                    <LemonButton
+                        icon={<IconGear />}
+                        type="primary"
+                        size="small"
+                        to={urls.settings('project-product-analytics', 'path-cleaning')}
+                        targetBlank
+                        className="w-full"
+                    >
+                        Edit path cleaning settings
+                    </LemonButton>
+                </div>
+            }
+            placement="top"
+            interactive={true}
+        >
+            <LemonButton
+                icon={<IconBranch />}
+                onClick={() => updateQuerySource({ doPathCleaning: !isPathCleaningEnabled })}
+                type="secondary"
+                size="small"
+            >
+                Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" />
+            </LemonButton>
         </Tooltip>
     )
 }
@@ -105,15 +134,18 @@ function FilterTestAccountsToggle({
     query: WebStatsTableQuery | WebOverviewQuery
     updateQuerySource: (updates: Partial<WebStatsTableQuery | WebOverviewQuery>) => void
 }): JSX.Element {
+    const isFilterTestAccountsEnabled = query.filterTestAccounts ?? false
+
     return (
         <Tooltip title="Filter out events from test accounts">
-            <div className="flex items-center gap-2 px-2 py-1 border rounded">
-                <span className="text-xs">Filter test accounts</span>
-                <LemonSwitch
-                    checked={query.filterTestAccounts ?? false}
-                    onChange={(filterTestAccounts) => updateQuerySource({ filterTestAccounts })}
-                />
-            </div>
+            <LemonButton
+                icon={<IconFilter />}
+                onClick={() => updateQuerySource({ filterTestAccounts: !isFilterTestAccountsEnabled })}
+                type="secondary"
+                size="small"
+            >
+                Filter test accounts: <LemonSwitch checked={isFilterTestAccountsEnabled} className="ml-1" />
+            </LemonButton>
         </Tooltip>
     )
 }

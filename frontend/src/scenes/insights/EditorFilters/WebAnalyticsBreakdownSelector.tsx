@@ -52,12 +52,15 @@ const BREAKDOWN_OPTIONS = [
 
 export function WebAnalyticsBreakdownSelector({ value, onChange }: WebAnalyticsBreakdownSelectorProps): JSX.Element {
     return (
-        <LemonSelect
-            value={value}
-            onChange={onChange}
-            options={BREAKDOWN_OPTIONS}
-            placeholder="Select breakdown"
-            fullWidth
-        />
+        <div className="flex flex-row items-center gap-2">
+            <span className="text-muted">Break down by</span>
+            <LemonSelect
+                value={value}
+                onChange={onChange}
+                options={BREAKDOWN_OPTIONS}
+                placeholder="Select breakdown"
+                fullWidth
+            />
+        </div>
     )
 }

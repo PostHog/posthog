@@ -198,10 +198,12 @@ export function InsightVizDisplay({
                     }
 
                     // Use the Web Analytics query context for custom column rendering and formatting
+                    // Pass compareFilter so VariationCell can access it when webAnalyticsLogic is not mounted
                     const webAnalyticsContext: QueryContext = {
                         ...context,
                         ...webAnalyticsDataTableQueryContext,
-                    }
+                        compareFilter: querySource.compareFilter,
+                    } as QueryContext
 
                     return <Query query={wrappedQuery} context={webAnalyticsContext} readOnly={!editMode} />
                 } else if (isWebOverviewQuery(querySource)) {

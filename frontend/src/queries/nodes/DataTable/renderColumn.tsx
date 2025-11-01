@@ -91,6 +91,7 @@ export function renderColumn(
                 query={query}
                 recordIndex={recordIndex}
                 rowCount={rowCount}
+                context={context}
             />
         )
     } else if (context?.columns?.[key] && context?.columns?.[key].render) {
@@ -103,6 +104,7 @@ export function renderColumn(
                 query={query}
                 recordIndex={recordIndex}
                 rowCount={rowCount}
+                context={context}
             />
         ) : (
             String(value)
