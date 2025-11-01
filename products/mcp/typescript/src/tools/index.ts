@@ -31,6 +31,7 @@ import searchDocs from './documentation/searchDocs'
 import errorDetails from './errorTracking/errorDetails'
 // Error Tracking
 import listErrors from './errorTracking/listErrors'
+import updateIssue from './errorTracking/updateIssue'
 
 // Experiments
 import createExperiment from './experiments/create'
@@ -100,6 +101,7 @@ const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Error Tracking
     'list-errors': listErrors,
     'error-details': errorDetails,
+    'update-issue': updateIssue,
 
     // Experiments
     'experiment-get-all': getAllExperiments,
