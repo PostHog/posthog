@@ -3,7 +3,7 @@ import './Cohorts.scss'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -139,7 +139,22 @@ export function Cohorts(): JSX.Element {
                                 <LemonButton
                                     status="danger"
                                     onClick={() => {
-                                        deleteCohort({ id: cohort.id, name: cohort.name, deleted: true })
+                                        LemonDialog.open({
+                                            title: 'Delete cohort?',
+                                            description: `Are you sure you want to delete "${cohort.name}"?`,
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () =>
+                                                    deleteCohort({ id: cohort.id, name: cohort.name, deleted: true }),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
                                     }}
                                     fullWidth
                                 >
