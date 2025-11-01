@@ -59,7 +59,7 @@ dependencies = [
     "google-genai==1.10.0",
     "gspread==6.2.1",
     "gunicorn==20.1.0",
-    "hogql-parser==1.2.0",
+    "hogql-parser==1.2.11",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
     "kafka-python==2.0.6",
