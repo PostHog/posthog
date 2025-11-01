@@ -205,6 +205,20 @@ export async function sendMessageToDLQ(
     const step = stepName
     const messageInfo = getEventMetadata(originalMessage)
 
+    // Check if DLQ topic is configured
+    if (!dlqTopic) {
+        logger.warn('DLQ topic not configured - message would be sent to DLQ but no topic specified', {
+            step,
+            team_id: messageInfo.teamId,
+            distinct_id: messageInfo.distinctId,
+            event: messageInfo.event,
+            uuid: messageInfo.uuid,
+            error: error instanceof Error ? error.message : String(error),
+        })
+        pipelineStepDLQCounter.labels(step).inc()
+        return
+    }
+
     logger.warn('Event sent to DLQ', {
         step,
         team_id: messageInfo.teamId,

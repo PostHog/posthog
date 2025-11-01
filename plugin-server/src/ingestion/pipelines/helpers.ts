@@ -10,6 +10,11 @@ import { StartPipeline } from './start-pipeline'
 export type DefaultContext = { message: Message }
 
 /**
+ * Minimal team type for team-aware pipelines that only need the team ID
+ */
+export type PipelineTeam = { id: number }
+
+/**
  * Helper function to create a new processing pipeline for single items
  */
 export function createNewPipeline<T = { message: Message }, C = DefaultContext>(): StartPipeline<T, C> {

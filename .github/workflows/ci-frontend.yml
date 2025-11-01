@@ -54,6 +54,8 @@ jobs:
                         - stylelint*
                         - '**/*.md'
                         - '**/*.mdx'
+                        - '!plugin-server/**/*.md'
+                        - '!plugin-server/**/*.mdx'
                         - .config/.markdownlint-cli2.jsonc
 
     frontend-format:

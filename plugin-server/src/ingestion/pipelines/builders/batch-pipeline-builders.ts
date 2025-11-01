@@ -8,6 +8,7 @@ import { BatchPipeline } from '../batch-pipeline.interface'
 import { ConcurrentBatchProcessingPipeline } from '../concurrent-batch-pipeline'
 import { FilterOkBatchPipeline } from '../filter-ok-batch-pipeline'
 import { GatheringBatchPipeline } from '../gathering-batch-pipeline'
+import { PipelineTeam } from '../helpers'
 import { IngestionWarningHandlingBatchPipeline } from '../ingestion-warning-handling-batch-pipeline'
 import { MappingBatchPipeline, MappingFunction } from '../mapping-batch-pipeline'
 import { Pipeline } from '../pipeline.interface'
@@ -86,12 +87,12 @@ export class BatchPipelineBuilder<TInput, TOutput, CInput, COutput = CInput> {
         return new MessageAwareBatchPipelineBuilder(builtPipeline.build())
     }
 
-    teamAware<TOut, COut = COutput>(
-        this: BatchPipelineBuilder<TInput, TOutput, CInput & { team: Team }, COutput & { team: Team }>,
+    teamAware<TOut, COut = COutput, TTeam extends PipelineTeam = Team>(
+        this: BatchPipelineBuilder<TInput, TOutput, CInput & { team: TTeam }, COutput & { team: TTeam }>,
         callback: (
-            builder: BatchPipelineBuilder<TInput, TOutput, CInput & { team: Team }, COutput & { team: Team }>
-        ) => BatchPipelineBuilder<TInput, TOut, CInput & { team: Team }, COut & { team: Team }>
-    ): TeamAwareBatchPipelineBuilder<TInput, TOut, CInput & { team: Team }, COut & { team: Team }> {
+            builder: BatchPipelineBuilder<TInput, TOutput, CInput & { team: TTeam }, COutput & { team: TTeam }>
+        ) => BatchPipelineBuilder<TInput, TOut, CInput & { team: TTeam }, COut & { team: TTeam }>
+    ): TeamAwareBatchPipelineBuilder<TInput, TOut, CInput & { team: TTeam }, COut & { team: TTeam }> {
         const builtPipeline = callback(this)
         return new TeamAwareBatchPipelineBuilder(builtPipeline.build())
     }
@@ -117,8 +118,8 @@ export class MessageAwareBatchPipelineBuilder<
 export class TeamAwareBatchPipelineBuilder<
     TInput,
     TOutput,
-    CInput extends { team: Team },
-    COutput extends { team: Team },
+    CInput extends { team: PipelineTeam },
+    COutput extends { team: PipelineTeam },
 > extends BatchPipelineBuilder<TInput, TOutput, CInput, COutput> {
     constructor(pipeline: BatchPipeline<TInput, TOutput, CInput, COutput>) {
         super(pipeline)
