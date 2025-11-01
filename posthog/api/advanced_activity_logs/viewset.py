@@ -82,6 +82,8 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
     filter_rewrite_rules = {"project_id": "team_id"}
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        from posthog.models.activity_logging.activity_log import apply_activity_visibility_restrictions
+
         params = self.request.GET.dict()
 
         if params.get("user"):
@@ -100,6 +102,8 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         lookback_date = get_activity_log_lookback_restriction(self.organization)
         if lookback_date:
             queryset = queryset.filter(created_at__gte=lookback_date)
+
+        queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
 
         return queryset
 
@@ -194,6 +198,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return filename_base
 
     def dangerously_get_queryset(self) -> QuerySet[ActivityLog]:
+        from posthog.models.activity_logging.activity_log import apply_activity_visibility_restrictions
+
         include_organization_scoped = self.request.query_params.get("include_organization_scoped")
 
         base_queryset = ActivityLog.objects.select_related("user")
@@ -210,6 +216,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         lookback_date = get_activity_log_lookback_restriction(self.organization)
         if lookback_date:
             base_queryset = base_queryset.filter(created_at__gte=lookback_date)
+
+        base_queryset = apply_activity_visibility_restrictions(base_queryset, self.request.user)
 
         return base_queryset.order_by("-created_at")
 
