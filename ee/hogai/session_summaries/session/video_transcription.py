@@ -16,6 +16,8 @@ logger = structlog.get_logger(__name__)
 
 # Recording (2 hours 37 minutes): https://us.posthog.com/project/2/replay/0199e6a1-a8ce-7466-9243-3aaf52af0d9a
 
+# Local recording (18 minutes): http://localhost:8010/project/5/replay/0199ec66-137a-77c2-8f47-9052d9909125
+
 VIDEO_TRANSCRIPTION_MODEL_ID = "gemini-2.5-flash-preview-09-2025"
 VIDEO_TRANSCRIPTION_MEDIA_RESOLUTION = MediaResolution.MEDIA_RESOLUTION_MEDIUM
 VIDEO_TRANSCRIPTION_FRAMES_PER_SECOND = 1
@@ -80,7 +82,7 @@ class VideoTranscriptioner:
                 raise ValueError(f"File {media_file_name} not found when transcribing video")
             return media_file
         if media_file_path:
-            return self.upload_media_to_gemini(media_file_path=media_file_path)
+            return self._upload_media_to_gemini_files(media_file_path=media_file_path)
 
     def _upload_media_to_gemini_files(self, media_file_path: str) -> File:
         client = self._get_client()
@@ -89,6 +91,8 @@ class VideoTranscriptioner:
             raise ValueError("Failed to upload video to Gemini when transcribing video")
         if not uploaded_file.name:
             raise ValueError("Failed to get name of uploaded video when transcribing video")
+        logger.info(f"Uploaded file {uploaded_file.name} to Gemini")
+        # TODO: Check status if the file is in active state, or can be processed safely
         return uploaded_file
 
     def _get_file_from_gemini_files(self, file_name: str) -> File | None:
@@ -114,6 +118,20 @@ class VideoTranscriptioner:
         logger.info(f"Splitting video into {len(parts)} parts")
         return parts
 
+    def _remove_static_parts(self, part: str) -> str | None:
+        if len(part.split("\n")) == 1 and (part.endswith("Static.") or part.endswith("Static")):
+            logger.warning(f"Skipping static part: {part}")
+            return None
+        non_static_lines = []
+        for line in part.split("\n"):
+            if "Static" in line:
+                logger.warning(f"Skipping static line: {line}")
+                continue
+            non_static_lines.append(line)
+        if not non_static_lines:
+            return None
+        return "\n".join(non_static_lines)
+
     async def analyze_part(
         self,
         start_offset: str,
@@ -121,9 +139,6 @@ class VideoTranscriptioner:
     ) -> str | None:
         # Analyze the part
         client = self._get_client()
-        logger.info(
-            f"Analyzing part with model: {self._model_id}, start_offset: {start_offset}s, end_offset: {end_offset}s"
-        )
         response = await client.aio.models.generate_content(
             model=self._model_id,
             contents=Content(
@@ -137,15 +152,17 @@ class VideoTranscriptioner:
             ),
             config=GenerateContentConfig(media_resolution=self._media_resolution),
         )
-        # Check if the response is static
-        if "Static" in response.text:
-            # TODO: Replace with programmatic filter, instead of generating empty summaries (if no events happened during the part)
+        # Check if the response is static (single line, ends with static)
+        # TODO: Replace with programmatic filter, instead of generating empty summaries (if no events happened during the part)
+        cleaned_response = self._remove_static_parts(response.text)
+        if not cleaned_response:
             return None
+        # TODO: Remove "the", "a", and other text parts that don't add clarity, but consume tokens (~15% savings on the next input)
         # Calculate stats
         tokens_per_frame = VIDEO_TRANSCRIPTION_MEDIA_RESOLUTION_TO_FRAME_TOKENS_MAPPING[self._media_resolution]
         video_input_tokens = tokens_per_frame * (end_offset - start_offset) * VIDEO_TRANSCRIPTION_FRAMES_PER_SECOND
         input_tokens = video_input_tokens + self._prompt_tokens
-        output_tokens = self._calculate_tokens_from_text(response.text)
+        output_tokens = self._calculate_tokens_from_text(cleaned_response)
         self._input_output_tokens_per_part.append((input_tokens, output_tokens))
         # Store the result
         timestamp = datetime.now().isoformat()
@@ -154,8 +171,8 @@ class VideoTranscriptioner:
             f"transcript_{self._model_id}_{self._media_resolution.name}_{start_offset}s-{end_offset}s_{timestamp}.txt",
             "w",
         ) as f:
-            f.write(response.text)
-        return response.text
+            f.write(cleaned_response)
+        return cleaned_response
 
     async def analyze_video_in_parts(self) -> dict[str, str]:
         parts = self._split_duration_into_parts()
@@ -212,17 +229,20 @@ if __name__ == "__main__":
     # flash at low shows also the same results, but flash at medium actually understands what happening (chart recalculation)
     # sticking to flash at medium for the MVP
 
-    input_media_duration_s = 2137
+    input_media_duration_s = 1078
     input_media_part_duration_s = 15
     # input_video_path = (
-    #     "/Users/woutut/Desktop/test_videos/replay-0199e6a9-2a17-7209-bcb8-ad1001225d04-2025-11-01-16-50.mp4"
+    #     "/Users/woutut/Desktop/test_videos/local_replay-0199ec66-137a-77c2-8f47-9052d9909125-2025-11-02-14-48.mp4"
     # )
-    input_file_name = "files/1cygz2sk56fn"
+    input_video_path = None
+    input_file_name = "files/cs4kfnv045wu"  # "files/1cygz2sk56fn" - for prod
+    # input_file_name = None
     # Define transcriptioner
     transcriptioner = VideoTranscriptioner(
         media_duration_s=input_media_duration_s,
         media_part_duration_s=input_media_part_duration_s,
         media_file_name=input_file_name,
+        media_file_path=input_video_path,
     )
     # Analyze the video
     time_now = time.time()
