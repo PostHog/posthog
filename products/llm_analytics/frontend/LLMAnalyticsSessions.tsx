@@ -9,15 +9,15 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { LLMTrace, NodeKind, TraceQuery, TracesQuery } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
-import { EventType, PropertyFilterType } from '~/types'
+import { PropertyFilterType } from '~/types'
 
+import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { formatLLMCost } from './utils'
 
@@ -343,158 +343,12 @@ export function LLMAnalyticsSessions(): JSX.Element {
                                                 {isTraceExpanded && (
                                                     <div className="border-t bg-bg-light">
                                                         <div className="p-3 space-y-2">
-                                                            {loadingFullTraces.has(trace.id) ? (
-                                                                <Spinner />
-                                                            ) : fullTraces[trace.id] ? (
-                                                                (() => {
-                                                                    const fullTrace = fullTraces[trace.id]
-                                                                    const allEvents =
-                                                                        fullTrace.events
-                                                                            ?.filter(
-                                                                                (e) =>
-                                                                                    e.event === '$ai_generation' ||
-                                                                                    e.event === '$ai_span'
-                                                                            )
-                                                                            .sort(
-                                                                                (a, b) =>
-                                                                                    new Date(a.createdAt).getTime() -
-                                                                                    new Date(b.createdAt).getTime()
-                                                                            ) || []
-
-                                                                    return allEvents.length > 0 ? (
-                                                                        <>
-                                                                            {allEvents.map((event) => {
-                                                                                const isGeneration =
-                                                                                    event.event === '$ai_generation'
-                                                                                const eventForDetails: EventType = {
-                                                                                    id: event.id,
-                                                                                    distinct_id: '',
-                                                                                    properties: event.properties,
-                                                                                    event: event.event,
-                                                                                    timestamp: event.createdAt,
-                                                                                    elements: [],
-                                                                                }
-                                                                                const isExpanded =
-                                                                                    expandedGenerationIds.has(event.id)
-                                                                                const latency =
-                                                                                    event.properties.$ai_latency
-                                                                                const hasError =
-                                                                                    event.properties.$ai_error ||
-                                                                                    event.properties.$ai_is_error
-
-                                                                                // Generation-specific properties
-                                                                                const model =
-                                                                                    event.properties.$ai_model ||
-                                                                                    'Unknown model'
-                                                                                const cost =
-                                                                                    event.properties.$ai_total_cost_usd
-
-                                                                                // Span-specific properties
-                                                                                const spanName =
-                                                                                    event.properties.$ai_span_name ||
-                                                                                    'Unnamed span'
-
-                                                                                return (
-                                                                                    <div
-                                                                                        key={event.id}
-                                                                                        className="border rounded bg-bg-3000"
-                                                                                    >
-                                                                                        <div
-                                                                                            className="p-2 hover:bg-side-light cursor-pointer flex items-center gap-2"
-                                                                                            onClick={() =>
-                                                                                                handleGenerationExpand(
-                                                                                                    event.id
-                                                                                                )
-                                                                                            }
-                                                                                        >
-                                                                                            <div className="flex-shrink-0">
-                                                                                                {isExpanded ? (
-                                                                                                    <IconChevronDown className="text-base" />
-                                                                                                ) : (
-                                                                                                    <IconChevronRight className="text-base" />
-                                                                                                )}
-                                                                                            </div>
-                                                                                            <div className="flex-1 flex items-center gap-2 flex-wrap min-w-0">
-                                                                                                <LemonTag
-                                                                                                    type={
-                                                                                                        isGeneration
-                                                                                                            ? 'success'
-                                                                                                            : 'default'
-                                                                                                    }
-                                                                                                    size="small"
-                                                                                                    className="uppercase"
-                                                                                                >
-                                                                                                    {isGeneration
-                                                                                                        ? 'Generation'
-                                                                                                        : 'Span'}
-                                                                                                </LemonTag>
-                                                                                                {hasError && (
-                                                                                                    <LemonTag
-                                                                                                        type="danger"
-                                                                                                        size="small"
-                                                                                                    >
-                                                                                                        Error
-                                                                                                    </LemonTag>
-                                                                                                )}
-                                                                                                <span className="text-xs truncate">
-                                                                                                    {isGeneration
-                                                                                                        ? model
-                                                                                                        : spanName}
-                                                                                                </span>
-                                                                                                {typeof latency ===
-                                                                                                    'number' && (
-                                                                                                    <LemonTag
-                                                                                                        type="muted"
-                                                                                                        size="small"
-                                                                                                    >
-                                                                                                        {latency.toFixed(
-                                                                                                            2
-                                                                                                        )}
-                                                                                                        s
-                                                                                                    </LemonTag>
-                                                                                                )}
-                                                                                                {isGeneration &&
-                                                                                                    typeof cost ===
-                                                                                                        'number' && (
-                                                                                                        <LemonTag
-                                                                                                            type="muted"
-                                                                                                            size="small"
-                                                                                                        >
-                                                                                                            {formatLLMCost(
-                                                                                                                cost
-                                                                                                            )}
-                                                                                                        </LemonTag>
-                                                                                                    )}
-                                                                                            </div>
-                                                                                        </div>
-                                                                                        {isExpanded && (
-                                                                                            <div className="border-t">
-                                                                                                <EventDetails
-                                                                                                    event={
-                                                                                                        eventForDetails
-                                                                                                    }
-                                                                                                />
-                                                                                            </div>
-                                                                                        )}
-                                                                                    </div>
-                                                                                )
-                                                                            })}
-                                                                        </>
-                                                                    ) : (
-                                                                        <div className="text-muted text-sm">
-                                                                            No generation or span events found in this
-                                                                            trace.
-                                                                            {fullTrace.events
-                                                                                ? ` (Trace has ${fullTrace.events.length} total events)`
-                                                                                : ' (No events loaded)'}
-                                                                        </div>
-                                                                    )
-                                                                })()
-                                                            ) : (
-                                                                <div className="text-muted text-sm">
-                                                                    Failed to load trace details
-                                                                </div>
-                                                            )}
+                                                            <LLMAnalyticsTraceEvents
+                                                                trace={fullTraces[trace.id]}
+                                                                isLoading={loadingFullTraces.has(trace.id)}
+                                                                expandedEventIds={expandedGenerationIds}
+                                                                onToggleEventExpand={handleGenerationExpand}
+                                                            />
                                                         </div>
                                                     </div>
                                                 )}
