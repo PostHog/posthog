@@ -2,18 +2,18 @@
  * Text view display component for generation events
  * Shows a formatted text representation with copy functionality and expandable truncated sections
  */
+import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconCopy, IconExternal } from '@posthog/icons'
-import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
-
-import { formatTraceTextRepr } from './formatters/traceFormatter'
-import { formatEventTextRepr } from './textFormatter'
 
 interface TextSegment {
     type: 'text' | 'truncated' | 'gen_expandable'
@@ -178,6 +178,24 @@ function getPlainText(segments: TextSegment[]): string {
     return segments.map((seg) => (seg.type === 'truncated' ? seg.content : seg.content)).join('')
 }
 
+/**
+ * Get expanded tree text for copying trace views
+ * Expands all gen_expandable nodes but keeps truncation markers collapsed
+ */
+function getExpandedTreeText(segments: TextSegment[]): string {
+    return segments
+        .map((seg) => {
+            if (seg.type === 'gen_expandable' && seg.fullContent) {
+                // Expand this node but keep any nested truncation markers collapsed
+                const nestedSegments = parseTruncatedSegments(seg.fullContent)
+                return nestedSegments.map((nestedSeg) => nestedSeg.content).join('')
+            }
+            // For truncated and text segments, use content as-is
+            return seg.content
+        })
+        .join('')
+}
+
 interface TextPart {
     type: 'text' | 'url'
     content: string
@@ -324,10 +342,10 @@ function NestedContentRenderer({
     content: string
     traceId?: string
     parentKey: string
-    expandedSegments: Set<string>
-    setExpandedSegments: React.Dispatch<React.SetStateAction<Set<string>>>
-    popoutSegment: string | null
-    setPopoutSegment: React.Dispatch<React.SetStateAction<string | null>>
+    expandedSegments: Set<number | string>
+    setExpandedSegments: React.Dispatch<React.SetStateAction<Set<number | string>>>
+    popoutSegment: number | string | null
+    setPopoutSegment: React.Dispatch<React.SetStateAction<number | string | null>>
 }): JSX.Element {
     const nestedSegments = parseTruncatedSegments(content)
 
@@ -426,20 +444,86 @@ export function TextViewDisplay({
     trace?: LLMTrace
     tree?: TraceTreeNode[]
 }): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
     const [copied, setCopied] = useState(false)
+    const [textRepr, setTextRepr] = useState<string>('')
+    const [loading, setLoading] = useState<boolean>(true)
+    const [error, setError] = useState<string | null>(null)
 
     // Get trace ID for event links
     const traceId = trace?.id
 
-    // Determine what to display
-    const textRepr =
-        trace && tree
-            ? formatTraceTextRepr(trace, tree) // Full trace view
-            : event
-              ? formatEventTextRepr(event) // Single event view
-              : ''
+    // Fetch text representation from API
+    useEffect(() => {
+        const fetchTextRepr = async (): Promise<void> => {
+            try {
+                setLoading(true)
+                setError(null)
+                // Reset expanded state when switching events
+                setExpandedSegments(new Set())
+                setPopoutSegment(null)
+
+                // Prepare request based on what data we have
+                let requestData: any
+
+                if (trace && tree) {
+                    // Full trace view - need to send tree structure with children
+                    // Recursively convert tree nodes to { event, children } format
+                    const convertTreeNode = (node: TraceTreeNode): any => ({
+                        event: node.event,
+                        children: node.children ? node.children.map(convertTreeNode) : [],
+                    })
+
+                    requestData = {
+                        event_type: '$ai_trace',
+                        data: {
+                            trace: {
+                                ...trace,
+                                trace_id: trace.id,
+                                name: trace.traceName || 'Trace',
+                            },
+                            hierarchy: tree.map(convertTreeNode),
+                        },
+                        options: {
+                            truncated: true,
+                            include_markers: true,
+                        },
+                    }
+                } else if (event) {
+                    // Single event view
+                    requestData = {
+                        event_type: event.event,
+                        data: event,
+                        options: {
+                            truncated: true,
+                            include_markers: true,
+                        },
+                    }
+                } else {
+                    setTextRepr('')
+                    setLoading(false)
+                    return
+                }
+
+                // Call Django API
+                const response = await api.create(
+                    `api/environments/${currentTeamId}/llm_analytics/text_repr/`,
+                    requestData
+                )
+                setTextRepr(response.text || '')
+            } catch (err) {
+                console.error('Error fetching text representation:', err)
+                setError(err instanceof Error ? err.message : 'Failed to load text representation')
+            } finally {
+                setLoading(false)
+            }
+        }
+
+        void fetchTextRepr()
+    }, [event, trace, tree])
 
     const segments = parseTextSegments(textRepr)
+
     const [expandedSegments, setExpandedSegments] = useState<Set<number | string>>(new Set())
     const [popoutSegment, setPopoutSegment] = useState<number | string | null>(null)
 
@@ -479,8 +563,14 @@ export function TextViewDisplay({
     }, [popoutSegment])
 
     const handleCopy = (): void => {
-        const plainText = getPlainText(segments)
-        copyToClipboard(plainText, 'generation text')
+        // Check if we have gen_expandable segments (trace view)
+        const hasGenExpandable = segments.some((seg) => seg.type === 'gen_expandable')
+
+        // For trace views, copy the full expanded tree with truncation markers
+        // For single events, copy the plain text as-is
+        const textToCopy = hasGenExpandable ? getExpandedTreeText(segments) : getPlainText(segments)
+
+        copyToClipboard(textToCopy, 'generation text')
         setCopied(true)
         setTimeout(() => setCopied(false), 2000)
     }
@@ -509,6 +599,23 @@ export function TextViewDisplay({
 
     const togglePopout = (index: number): void => {
         setPopoutSegment((prev) => (prev === index ? null : index))
+    }
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center p-8 bg-bg-light rounded border border-border">
+                <Spinner className="text-2xl" />
+                <span className="ml-2">Loading text representation...</span>
+            </div>
+        )
+    }
+
+    if (error) {
+        return (
+            <div className="p-4 bg-bg-light rounded border border-border border-danger text-danger">
+                <strong>Error:</strong> {error}
+            </div>
+        )
     }
 
     return (

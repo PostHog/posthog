@@ -400,7 +400,10 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
         if (parentId !== undefined && parentId !== null) {
             const existingEvents = childrenMap.get(parentId)
             if (existingEvents) {
-                existingEvents.push(eventId)
+                // Only add if not already present (prevents duplicate keys in React)
+                if (!existingEvents.includes(eventId)) {
+                    existingEvents.push(eventId)
+                }
             } else {
                 childrenMap.set(parentId, [eventId])
             }
