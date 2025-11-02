@@ -114,7 +114,7 @@ function SessionSceneWrapper(): JSX.Element {
                                                     {trace.traceName && (
                                                         <span className="text-sm">{trace.traceName}</span>
                                                     )}
-                                                    {trace.errorCount > 0 && (
+                                                    {(trace.errorCount ?? 0) > 0 && (
                                                         <LemonTag type="danger" size="small">
                                                             {trace.errorCount === 1
                                                                 ? '1 error'
