@@ -1,10 +1,8 @@
-import { BindLogic, useValues } from 'kea'
-import { useState } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonTag, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -13,7 +11,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
-import { LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
 import { EventDetails } from '~/scenes/activity/explore/EventDetails'
 import { EventType } from '~/types'
 
@@ -37,58 +34,17 @@ export function LLMAnalyticsSessionScene(): JSX.Element {
 }
 
 function SessionSceneWrapper(): JSX.Element {
-    const { traces, responseLoading, responseError } = useValues(llmAnalyticsSessionDataLogic)
+    const {
+        traces,
+        responseLoading,
+        responseError,
+        expandedTraceIds,
+        expandedGenerationIds,
+        fullTraces,
+        loadingFullTraces,
+    } = useValues(llmAnalyticsSessionDataLogic)
     const { sessionId } = useValues(llmAnalyticsSessionLogic)
-    const [expandedTraceIds, setExpandedTraceIds] = useState<Set<string>>(new Set())
-    const [expandedGenerationIds, setExpandedGenerationIds] = useState<Set<string>>(new Set())
-    const [fullTraces, setFullTraces] = useState<Record<string, LLMTrace>>({})
-    const [loadingFullTraces, setLoadingFullTraces] = useState<Set<string>>(new Set())
-
-    const handleTraceExpand = async (traceId: string): Promise<void> => {
-        const newExpanded = new Set(expandedTraceIds)
-        if (newExpanded.has(traceId)) {
-            newExpanded.delete(traceId)
-            setExpandedTraceIds(newExpanded)
-        } else {
-            newExpanded.add(traceId)
-            setExpandedTraceIds(newExpanded)
-
-            if (!fullTraces[traceId] && !loadingFullTraces.has(traceId)) {
-                setLoadingFullTraces(new Set(loadingFullTraces).add(traceId))
-
-                const traceQuery: TraceQuery = {
-                    kind: NodeKind.TraceQuery,
-                    traceId,
-                }
-
-                try {
-                    const response = await api.query(traceQuery)
-                    if (response.results && response.results[0]) {
-                        setFullTraces({
-                            ...fullTraces,
-                            [traceId]: response.results[0],
-                        })
-                    }
-                } catch (error) {
-                    console.error('Error loading full trace:', error)
-                } finally {
-                    const newLoading = new Set(loadingFullTraces)
-                    newLoading.delete(traceId)
-                    setLoadingFullTraces(newLoading)
-                }
-            }
-        }
-    }
-
-    const handleGenerationExpand = (generationId: string): void => {
-        const newExpanded = new Set(expandedGenerationIds)
-        if (newExpanded.has(generationId)) {
-            newExpanded.delete(generationId)
-        } else {
-            newExpanded.add(generationId)
-        }
-        setExpandedGenerationIds(newExpanded)
-    }
+    const { toggleTraceExpanded, toggleGenerationExpanded } = useActions(llmAnalyticsSessionDataLogic)
 
     // Calculate session aggregates
     const sessionStats = traces.reduce(
@@ -143,7 +99,7 @@ function SessionSceneWrapper(): JSX.Element {
                                     <div key={trace.id} className="border rounded">
                                         <div
                                             className="p-3 hover:bg-side-light cursor-pointer flex items-start gap-2"
-                                            onClick={() => handleTraceExpand(trace.id)}
+                                            onClick={() => toggleTraceExpanded(trace.id)}
                                         >
                                             <div className="flex-shrink-0 mt-0.5">
                                                 {isTraceExpanded ? (
@@ -244,7 +200,9 @@ function SessionSceneWrapper(): JSX.Element {
                                                                                 <div
                                                                                     className="p-2 hover:bg-side-light cursor-pointer flex items-center gap-2"
                                                                                     onClick={() =>
-                                                                                        handleGenerationExpand(event.id)
+                                                                                        toggleGenerationExpanded(
+                                                                                            event.id
+                                                                                        )
                                                                                     }
                                                                                 >
                                                                                     <div className="flex-shrink-0">
