@@ -4282,7 +4282,7 @@ class LLMTrace(BaseModel):
     )
     aiSessionId: Optional[str] = None
     createdAt: str
-    errorCount: Optional[int] = None
+    errorCount: Optional[float] = None
     events: list[LLMTraceEvent]
     id: str
     inputCost: Optional[float] = None
