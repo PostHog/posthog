@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconFilter, IconGear } from '@posthog/icons'
@@ -17,15 +18,13 @@ import { WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery } from '~/queri
 import { isWebStatsTableQuery } from '~/queries/utils'
 import { AvailableFeature } from '~/types'
 
-import { WebAnalyticsBreakdownSelector } from './WebAnalyticsBreakdownSelector'
-
 export interface WebAnalyticsEditorFiltersProps {
     query: WebStatsTableQuery | WebOverviewQuery
     showing: boolean
     embedded: boolean
 }
 
-export function WebAnalyticsEditorFilters({ query, showing }: WebAnalyticsEditorFiltersProps): JSX.Element | null {
+export function WebAnalyticsEditorFilters({ query, embedded }: WebAnalyticsEditorFiltersProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
@@ -34,41 +33,37 @@ export function WebAnalyticsEditorFilters({ query, showing }: WebAnalyticsEditor
         isStatsTable &&
         [WebStatsBreakdown.Page, WebStatsBreakdown.InitialPage, WebStatsBreakdown.ExitPage].includes(query.breakdownBy)
 
-    if (!showing) {
-        return null
-    }
-
     return (
-        <FilterBar
-            left={
-                <>
-                    {isStatsTable && (
-                        <WebAnalyticsBreakdownSelector
-                            value={query.breakdownBy}
-                            onChange={(breakdownBy) => updateQuerySource({ breakdownBy })}
-                        />
-                    )}
-                </>
-            }
-            right={
-                <>
-                    <CompareFilter
-                        compareFilter={query.compareFilter}
-                        updateCompareFilter={(compareFilter) => updateQuerySource({ compareFilter })}
-                    />
-                    <WebConversionGoal
-                        value={query.conversionGoal ?? null}
-                        onChange={(conversionGoal) => updateQuerySource({ conversionGoal })}
-                    />
-                    {isPathBased && <PathCleaningToggle query={query} updateQuerySource={updateQuerySource} />}
-                    <FilterTestAccountsToggle query={query} updateQuerySource={updateQuerySource} />
-                    <WebPropertyFilters
-                        webAnalyticsFilters={query.properties ?? []}
-                        setWebAnalyticsFilters={(properties) => updateQuerySource({ properties })}
-                    />
-                </>
-            }
-        />
+        <div className="EditorFiltersWrapper">
+            <div
+                className={clsx('bg-surface-primary', {
+                    'p-4 rounded border': !embedded,
+                })}
+            >
+                <FilterBar
+                    showBorderBottom={false}
+                    className={clsx('bg-surface-primary')}
+                    right={
+                        <>
+                            <CompareFilter
+                                compareFilter={query.compareFilter}
+                                updateCompareFilter={(compareFilter) => updateQuerySource({ compareFilter })}
+                            />
+                            <WebConversionGoal
+                                value={query.conversionGoal ?? null}
+                                onChange={(conversionGoal) => updateQuerySource({ conversionGoal })}
+                            />
+                            {isPathBased && <PathCleaningToggle query={query} updateQuerySource={updateQuerySource} />}
+                            <FilterTestAccountsToggle query={query} updateQuerySource={updateQuerySource} />
+                            <WebPropertyFilters
+                                webAnalyticsFilters={query.properties ?? []}
+                                setWebAnalyticsFilters={(properties) => updateQuerySource({ properties })}
+                            />
+                        </>
+                    }
+                />
+            </div>
+        </div>
     )
 }
 

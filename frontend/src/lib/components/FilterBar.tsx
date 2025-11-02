@@ -11,13 +11,14 @@ export interface FilterBarProps {
     left?: React.ReactNode
     right?: React.ReactNode
     className?: string
+    showBorderBottom?: boolean
 }
 
-export const FilterBar = ({ top, left, right, className }: FilterBarProps): JSX.Element => {
+export const FilterBar = ({ top, left, right, className, showBorderBottom }: FilterBarProps): JSX.Element => {
     const [expanded, setExpanded] = useState(false)
 
     return (
-        <SceneStickyBar className={className}>
+        <SceneStickyBar className={className} showBorderBottom={showBorderBottom}>
             {top}
 
             <div className="flex flex-col md:flex-row md:justify-between gap-2">

@@ -80,10 +80,7 @@ const VariationCell = (
         isPercentage ? `${(value * 100).toFixed(1)}%` : (value?.toLocaleString() ?? '(empty)')
 
     return function Cell({ value, context }) {
-        // Try to get compareFilter from context first (Product Analytics), fall back to webAnalyticsLogic (Web Analytics dashboard)
-        const compareFilterFromContext = context?.compareFilter
-        const { compareFilter: compareFilterFromLogic } = useValues(webAnalyticsLogic)
-        const compareFilter = compareFilterFromContext ?? compareFilterFromLogic
+        const compareFilter = context?.compareFilter
 
         if (!value) {
             return null
@@ -483,6 +480,7 @@ export const WebStatsTrendTile = ({
                 ...insightProps,
                 query,
             },
+            compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
         }
 
         // World maps need custom click handler for country filtering, trend lines use default persons modal
@@ -625,8 +623,9 @@ export const WebStatsTableTile = ({
             ...webAnalyticsDataTableQueryContext,
             insightProps,
             rowProps,
+            compareFilter: 'compareFilter' in query.source ? query.source.compareFilter : undefined,
         }
-    }, [onClick, insightProps, breakdownBy, key, type])
+    }, [onClick, insightProps, breakdownBy, key, type, query])
 
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">
