@@ -5,6 +5,10 @@ from pathlib import Path
 
 from unittest import TestCase
 
+from infi.clickhouse_orm.utils import import_submodules
+
+from posthog.clickhouse.client.connection import NodeRole
+
 
 class TestUniqueMigrationPrefixes(TestCase):
     def test_migration_prefixes_are_unique(self):
@@ -92,3 +96,95 @@ class TestUniqueMigrationPrefixes(TestCase):
             f"max_migration.txt contains {max_migration_name!r} but the latest migration "
             f"is {latest_migration!r}. Update max_migration.txt to contain {latest_migration!r}.",
         )
+
+    def test_alter_on_replicated_tables_has_correct_flag(self):
+        """Test that ALTER TABLE on replicated non-sharded tables uses is_alter_on_replicated_table=True."""
+        MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
+
+        # Load all migration modules
+        modules = import_submodules(MIGRATIONS_PACKAGE_NAME)
+
+        violations = []
+
+        for migration_name, module in sorted(modules.items()):
+            # Skip if not a numbered migration
+            if not re.match(r"^\d+_", migration_name):
+                continue
+
+            # Skip migrations before 0167 (validation applies to new migrations only)
+            # Migrations 0083-0166 may not follow this rule as they were created before this validation
+            migration_number = int(re.match(r"^(\d+)_", migration_name).group(1))
+            if migration_number < 167:
+                continue
+
+            # Get operations from the module
+            if not hasattr(module, "operations"):
+                continue
+
+            operations = module.operations
+
+            for idx, operation in enumerate(operations):
+                # Check if this operation has our metadata (from run_sql_with_exceptions)
+                if not hasattr(operation, "_sql"):
+                    continue
+
+                sql = operation._sql
+                node_roles = operation._node_roles
+                sharded = operation._sharded
+                is_alter_on_replicated_table = operation._is_alter_on_replicated_table
+
+                # Check if this is an ALTER TABLE statement
+                if not re.search(r"\bALTER\s+TABLE\b", sql, re.IGNORECASE):
+                    continue
+
+                # Skip sharded tables (they use sharded=True)
+                if sharded:
+                    continue
+
+                # Skip if it's not a likely replicated table pattern
+                # Replicated non-sharded tables typically use [NodeRole.DATA, NodeRole.COORDINATOR]
+                if node_roles != [NodeRole.DATA, NodeRole.COORDINATOR]:
+                    continue
+
+                # Skip Distributed tables (they don't need the flag)
+                # Distributed tables typically have "Distributed(" in their name or SQL
+                if re.search(r"\bDistributed\b", sql, re.IGNORECASE):
+                    continue
+
+                # At this point, we have an ALTER TABLE on what's likely a replicated non-sharded table
+                # Check if the flag is set correctly
+                if not is_alter_on_replicated_table:
+                    # Extract table name for better error message
+                    table_match = re.search(r"ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?([^\s(]+)", sql, re.IGNORECASE)
+                    table_name = table_match.group(1) if table_match else "unknown"
+
+                    violations.append(
+                        {
+                            "migration": migration_name,
+                            "operation_index": idx,
+                            "table_name": table_name,
+                            "sql_preview": sql[:200] + "..." if len(sql) > 200 else sql,
+                        }
+                    )
+
+        if violations:
+            error_message = (
+                "Found ALTER TABLE statements on replicated tables without is_alter_on_replicated_table=True:\n\n"
+            )
+
+            for v in violations:
+                error_message += f"Migration: {v['migration']}\n"
+                error_message += f"  Operation index: {v['operation_index']}\n"
+                error_message += f"  Table: {v['table_name']}\n"
+                error_message += f"  SQL preview: {v['sql_preview']}\n"
+                error_message += "\n"
+
+            error_message += (
+                "When running ALTER TABLE on replicated non-sharded tables, you must set:\n"
+                "  is_alter_on_replicated_table=True\n\n"
+                "This ensures the ALTER runs on just one host per shard (or one host total), "
+                "and replication will propagate the change to all replicas automatically.\n\n"
+                "For more information, see posthog/clickhouse/migrations/AGENTS.md\n"
+            )
+
+            self.fail(error_message)
