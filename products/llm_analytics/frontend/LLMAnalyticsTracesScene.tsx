@@ -160,10 +160,10 @@ CostColumn.displayName = 'CostColumn'
 
 const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
-    const errorCount = Array.isArray(row.events)
-        ? row.events.filter((e) => e.properties?.$ai_error || e.properties?.$ai_is_error).length
-        : 0
-    return <>{errorCount > 0 ? errorCount : '–'}</>
+    if (typeof row.errorCount === 'number' && row.errorCount > 0) {
+        return <LemonTag type="danger">{row.errorCount}</LemonTag>
+    }
+    return <>–</>
 }
 ErrorsColumn.displayName = 'ErrorsColumn'
 
