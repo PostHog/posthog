@@ -112,7 +112,6 @@ const threeThousand = [
 
     ['bg-link-3000-light', 'bg-red-500'],
     ['bg-primary-3000-frame-bg-light', 'bg-red-500'],
-    ['bg-', 'bg-red-500'],
     ['bg-primary-3000-button-border-light', 'bg-red-500'],
     ['bg-primary-3000-button-border-hover-light', 'bg-red-500'],
 
