@@ -162,7 +162,7 @@ describe('llmAnalyticsSessionLogic', () => {
             })
         })
 
-        it('generates default date range when dateRange has dateFrom but no dateTo', async () => {
+        it('generates date range when dateRange has dateFrom but no dateTo', async () => {
             logic.actions.setSessionId('test-session-789')
             logic.actions.setDateRange('2024-01-01T00:00:00Z')
             await expectLogic(logic).toFinishAllListeners()
@@ -171,22 +171,20 @@ describe('llmAnalyticsSessionLogic', () => {
             const source = query.source as TracesQuery
 
             expect(source.dateRange?.date_from).toBe('2024-01-01T00:00:00Z')
-            expect(source.dateRange?.date_to).toBeTruthy()
-            // date_to should be 30 days after date_from
-            expect(new Date(source.dateRange!.date_to!).getTime()).toBeGreaterThan(
-                new Date('2024-01-01T00:00:00Z').getTime()
-            )
+            // date_to is optional when only date_from is provided
+            expect(source.dateRange?.date_to).toBeUndefined()
         })
 
-        it('generates query with fallback date when no dateRange is set', async () => {
+        it('generates query without dateRange when no dateRange is explicitly set', async () => {
             logic.actions.setSessionId('test-session-no-dates')
             await expectLogic(logic).toFinishAllListeners()
 
             const query = logic.values.query
             const source = query.source as TracesQuery
 
-            expect(source.dateRange?.date_from).toBeTruthy()
-            // Should have a default starting date
+            // When no explicit dateRange is set, the query should not have a dateRange
+            // (it will use the global dateFilter from parent logic when displayed)
+            expect(source.dateRange).toBeUndefined()
         })
 
         it('updates query when session ID changes', async () => {
@@ -220,12 +218,11 @@ describe('llmAnalyticsSessionLogic', () => {
                 path: urls.llmAnalyticsDashboard(),
                 iconType: 'llm_analytics',
             })
-            expect(breadcrumbs[1]).toEqual({
-                key: 'LLMAnalyticsSessions',
-                name: 'Sessions',
-                path: urls.llmAnalyticsSessions(),
-                iconType: 'llm_analytics',
-            })
+            // Breadcrumbs path includes the date filter from parent logic
+            expect(breadcrumbs[1].key).toBe('LLMAnalyticsSessions')
+            expect(breadcrumbs[1].name).toBe('Sessions')
+            expect(breadcrumbs[1].path).toContain(urls.llmAnalyticsSessions())
+            expect(breadcrumbs[1].iconType).toBe('llm_analytics')
             expect(breadcrumbs[2]).toEqual({
                 key: ['LLMAnalyticsSession', 'test-session-breadcrumbs'],
                 name: 'test-session-breadcrumbs',
@@ -289,7 +286,8 @@ describe('llmAnalyticsSessionLogic', () => {
             router.actions.push(addProjectIdIfMissing(sessionUrl.url, MOCK_TEAM_ID))
             await expectLogic(logic).toMatchValues({
                 sessionId: sessionId,
-                dateRange: null,
+                // When navigating without explicit date params, falls back to parent dateFilter
+                dateRange: { dateFrom: '-1d', dateTo: null },
             })
         })
     })
