@@ -21,7 +21,7 @@ import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { formatLLMCost } from './utils'
 
-export function LLMAnalyticsSessions(): JSX.Element {
+export function LLMAnalyticsSessionsScene(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setSessionsSort } = useActions(llmAnalyticsLogic)
     const { sessionsQuery, dateFilter, sessionsSort } = useValues(llmAnalyticsLogic)
     const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(new Set())

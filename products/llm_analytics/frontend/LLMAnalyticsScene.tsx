@@ -45,7 +45,7 @@ import { EventType } from '~/types'
 
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
-import { LLMAnalyticsSessions } from './LLMAnalyticsSessions'
+import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
@@ -510,7 +510,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             label: 'Sessions',
             content: (
                 <LLMAnalyticsSetupPrompt>
-                    <LLMAnalyticsSessions />
+                    <LLMAnalyticsSessionsScene />
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
