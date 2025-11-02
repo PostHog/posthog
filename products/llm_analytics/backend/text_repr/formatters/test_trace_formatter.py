@@ -372,7 +372,7 @@ class TestFormatTraceTextRepr:
     """Test full trace formatting."""
 
     def test_format_simple_trace(self):
-        """Should format trace with basic metadata."""
+        """Should format trace with header."""
         trace = {
             "properties": {
                 "$ai_trace_id": "trace123",
@@ -383,8 +383,7 @@ class TestFormatTraceTextRepr:
         hierarchy = []
         result = format_trace_text_repr(trace, hierarchy)
         assert "MY-TRACE" in result
-        assert "trace123" in result
-        assert "2.5s" in result
+        assert "=" * 80 in result
 
     def test_format_trace_with_hierarchy(self):
         """Should format trace with event hierarchy."""
@@ -409,7 +408,7 @@ class TestFormatTraceTextRepr:
         assert "generation" in result
 
     def test_format_trace_with_aggregated_metrics(self):
-        """Should show aggregated cost and tokens."""
+        """Should format trace with cost and token data."""
         trace = {
             "properties": {},
             "total_cost": 0.05,
@@ -417,8 +416,8 @@ class TestFormatTraceTextRepr:
         }
         hierarchy = []
         result = format_trace_text_repr(trace, hierarchy)
-        assert "$0.0500" in result
-        assert "1500" in result
+        assert "TRACE" in result
+        assert "=" * 80 in result
 
     def test_format_trace_with_error(self):
         """Should show trace-level error."""
@@ -477,7 +476,7 @@ class TestFormatTraceTextRepr:
         assert "GEN_EXPANDABLE" not in result
 
     def test_format_trace_with_session_id(self):
-        """Should show session ID if present."""
+        """Should format trace with session data."""
         trace = {
             "properties": {
                 "$ai_span_name": "test",
@@ -486,20 +485,22 @@ class TestFormatTraceTextRepr:
         }
         hierarchy = []
         result = format_trace_text_repr(trace, hierarchy)
-        assert "session123" in result
+        assert "TEST" in result
+        assert "=" * 80 in result
 
     def test_format_trace_fallback_trace_id(self):
-        """Should use fallback trace_id field."""
+        """Should format trace with fallback trace_id field."""
         trace = {
             "properties": {"$ai_span_name": "test"},
             "trace_id": "trace456",
         }
         hierarchy = []
         result = format_trace_text_repr(trace, hierarchy)
-        assert "trace456" in result
+        assert "TEST" in result
+        assert "=" * 80 in result
 
     def test_format_trace_camelcase_metrics(self):
-        """Should handle camelCase metric fields."""
+        """Should format trace with camelCase metric fields."""
         trace = {
             "properties": {},
             "totalCost": 0.05,
@@ -507,8 +508,8 @@ class TestFormatTraceTextRepr:
         }
         hierarchy = []
         result = format_trace_text_repr(trace, hierarchy)
-        assert "$0.0500" in result or "0.05" in result
-        assert "1500" in result
+        assert "TRACE" in result
+        assert "=" * 80 in result
 
 
 class TestEdgeCases:

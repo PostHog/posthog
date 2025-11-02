@@ -206,7 +206,9 @@ def extract_text_content(content: Any) -> str:
 
                 # Handle tool_use type (Anthropic format)
                 if block.get("type") == "tool_use":
-                    text_parts.append(f"[Tool use: {block.get('name', 'unknown')}]")
+                    tool_name = block.get("name", "unknown")
+                    tool_input = block.get("input", {})
+                    text_parts.append(format_single_tool_call(tool_name, tool_input))
                     continue
 
             # For regular blocks, use safe extraction

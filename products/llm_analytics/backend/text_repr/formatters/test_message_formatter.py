@@ -200,10 +200,29 @@ class TestExtractTextContent:
         assert "function" not in result
 
     def test_extract_from_tool_use_block(self):
-        """Should show placeholder for tool_use blocks."""
+        """Should format tool_use blocks as function calls."""
         content = [{"type": "tool_use", "name": "get_weather"}]
         result = extract_text_content(content)
-        assert "[Tool use: get_weather]" in result
+        assert "get_weather()" in result
+
+    def test_extract_from_tool_use_block_with_args(self):
+        """Should format tool_use blocks with arguments as function calls."""
+        content = [
+            {
+                "type": "tool_use",
+                "name": "tell_joke",
+                "input": {
+                    "setup": "Why don't scientists trust atoms?",
+                    "punchline": "Because they make up everything!",
+                },
+            }
+        ]
+        result = extract_text_content(content)
+        assert "tell_joke(" in result
+        assert "setup=" in result
+        assert "Why don't scientists trust atoms?" in result
+        assert "punchline=" in result
+        assert "Because they make up everything!" in result
 
     def test_mixed_content_blocks(self):
         """Should handle mixed content with text and tools."""

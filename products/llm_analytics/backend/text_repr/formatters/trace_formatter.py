@@ -252,31 +252,6 @@ def format_trace_text_repr(
     lines.append(trace_name.upper())
     lines.append("=" * 80)
 
-    # Trace-level metadata section
-    metadata: list[str] = []
-    trace_id = props.get("$ai_trace_id") or trace.get("trace_id")
-    if trace_id:
-        metadata.append(f"Trace ID: {trace_id}")
-
-    if props.get("$ai_session_id"):
-        metadata.append(f"Session ID: {props['$ai_session_id']}")
-
-    if props.get("$ai_latency") is not None:
-        metadata.append(f"Total Latency: {props['$ai_latency']}s")
-
-    # Add aggregated metrics from trace if available
-    total_cost = trace.get("total_cost") or trace.get("totalCost")
-    if total_cost is not None and total_cost > 0:
-        metadata.append(f"Total Cost: ${total_cost:.4f}")
-
-    total_tokens = trace.get("total_tokens") or trace.get("totalTokens")
-    if total_tokens is not None and total_tokens > 0:
-        metadata.append(f"Total Tokens: {total_tokens}")
-
-    if metadata:
-        lines.append("")
-        lines.extend(metadata)
-
     # Error information (if at trace level)
     if props.get("$ai_error"):
         lines.append("")

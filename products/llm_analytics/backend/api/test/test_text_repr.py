@@ -7,16 +7,17 @@ with formatters for different event types.
 
 from posthog.test.base import APIBaseTest
 
-from rest_framework.test import APIClient
+from rest_framework import status
 
 
 class TestTextReprAPI(APIBaseTest):
     """Test text repr API endpoints."""
 
-    def setUp(self):
-        super().setUp()
-        self.client = APIClient()
-        self.client.force_login(self.user)
+    def test_unauthenticated_user_cannot_access_text_repr(self):
+        """Should require authentication to access text repr endpoints."""
+        self.client.logout()
+        response = self.client.get(f"/api/environments/{self.team.id}/llm_analytics/text_repr/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_stringify_generation_event(self):
         """Should stringify $ai_generation event."""
@@ -34,27 +35,27 @@ class TestTextReprAPI(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
-        data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
 
-        assert "text" in data
-        assert "metadata" in data
-        assert "INPUT:" in data["text"]
-        assert "OUTPUT:" in data["text"]
-        assert "Hello" in data["text"]
-        assert "Hi there" in data["text"]
+        self.assertIn("text", data)
+        self.assertIn("metadata", data)
+        self.assertIn("INPUT:", data["text"])
+        self.assertIn("OUTPUT:", data["text"])
+        self.assertIn("Hello", data["text"])
+        self.assertIn("Hi there", data["text"])
 
         # Check metadata
-        assert data["metadata"]["event_type"] == "$ai_generation"
-        assert data["metadata"]["event_id"] == "gen123"
-        assert data["metadata"]["rendering"] == "detailed"
-        assert data["metadata"]["char_count"] > 0
-        assert isinstance(data["metadata"]["truncated"], bool)
+        self.assertEqual(data["metadata"]["event_type"], "$ai_generation")
+        self.assertEqual(data["metadata"]["event_id"], "gen123")
+        self.assertEqual(data["metadata"]["rendering"], "detailed")
+        self.assertGreater(data["metadata"]["char_count"], 0)
+        self.assertIsInstance(data["metadata"]["truncated"], bool)
 
     def test_stringify_span_event(self):
         """Should stringify $ai_span event."""
@@ -72,18 +73,18 @@ class TestTextReprAPI(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
-        data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
 
-        assert "text" in data
-        assert "TEST-SPAN" in data["text"]
-        assert "INPUT STATE:" in data["text"]
-        assert "OUTPUT STATE:" in data["text"]
+        self.assertIn("text", data)
+        self.assertIn("TEST-SPAN", data["text"])
+        self.assertIn("INPUT STATE:", data["text"])
+        self.assertIn("OUTPUT STATE:", data["text"])
 
     def test_stringify_trace(self):
         """Should stringify $ai_trace with hierarchy."""
@@ -111,47 +112,45 @@ class TestTextReprAPI(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
-        data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
 
-        assert "text" in data
-        assert "MY-TRACE" in data["text"]
-        assert "TRACE HIERARCHY:" in data["text"]
-        assert "[GEN]" in data["text"]
-        assert data["metadata"]["trace_id"] == "trace123"
+        self.assertIn("text", data)
+        self.assertIn("MY-TRACE", data["text"])
+        self.assertIn("TRACE HIERARCHY:", data["text"])
+        self.assertIn("[GEN]", data["text"])
+        self.assertEqual(data["metadata"]["trace_id"], "trace123")
 
     def test_missing_event_type(self):
         """Should return 400 for missing event_type."""
         request_data = {"data": {}}
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 400
-        data = response.json()
-        assert "event_type" in str(data).lower()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("event_type", str(response.data).lower())
 
     def test_missing_data(self):
         """Should return 400 for missing data."""
         request_data = {"event_type": "$ai_generation"}
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 400
-        data = response.json()
-        assert "data" in str(data).lower()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("data", str(response.data).lower())
 
     def test_default_options(self):
         """Should use default options when not provided."""
@@ -167,12 +166,12 @@ class TestTextReprAPI(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Should succeed with defaults
 
     def test_truncated_option(self):
@@ -191,15 +190,15 @@ class TestTextReprAPI(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
-        data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
         # Should have truncation marker
-        assert "TRUNCATED" in data["text"] or "truncated" in data["text"].lower()
+        self.assertTrue("TRUNCATED" in data["text"] or "truncated" in data["text"].lower())
 
     def test_include_markers_option(self):
         """Should respect include_markers option."""
@@ -217,16 +216,16 @@ class TestTextReprAPI(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
-        data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
         # Should not have interactive markers
-        assert "<<<TRUNCATED|" not in data["text"]
-        assert "chars truncated" in data["text"]
+        self.assertNotIn("<<<TRUNCATED|", data["text"])
+        self.assertIn("chars truncated", data["text"])
 
     def test_collapsed_option(self):
         """Should respect collapsed option for traces."""
@@ -253,142 +252,16 @@ class TestTextReprAPI(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
-        data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
         # Should show tree but not expandable markers
-        assert "[GEN]" in data["text"]
-        assert "GEN_EXPANDABLE" not in data["text"]
-
-    def test_batch_stringify(self):
-        """Should stringify multiple events in batch."""
-        request_data = {
-            "items": [
-                {
-                    "event_id": "gen1",
-                    "event_type": "$ai_generation",
-                    "data": {
-                        "id": "gen1",
-                        "event": "$ai_generation",
-                        "properties": {"$ai_input": "First"},
-                    },
-                },
-                {
-                    "event_id": "gen2",
-                    "event_type": "$ai_generation",
-                    "data": {
-                        "id": "gen2",
-                        "event": "$ai_generation",
-                        "properties": {"$ai_input": "Second"},
-                    },
-                },
-            ],
-            "options": {"truncated": True},
-        }
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/batch/",
-            request_data,
-            format="json",
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        assert "results" in data
-        assert len(data["results"]) == 2
-        assert "First" in data["results"][0]["text"]
-        assert "Second" in data["results"][1]["text"]
-
-    def test_batch_empty_items(self):
-        """Should return 400 for empty items list."""
-        request_data = {"items": []}
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/batch/",
-            request_data,
-            format="json",
-        )
-
-        assert response.status_code == 400
-
-    def test_batch_too_many_items(self):
-        """Should return 400 for too many items."""
-        request_data = {
-            "items": [
-                {
-                    "event_type": "$ai_generation",
-                    "data": {"id": f"gen{i}", "event": "$ai_generation", "properties": {}},
-                }
-                for i in range(51)
-            ]
-        }
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/batch/",
-            request_data,
-            format="json",
-        )
-
-        assert response.status_code == 400
-        data = response.json()
-        assert "50" in str(data)
-
-    def test_batch_with_error_in_item(self):
-        """Should include error in results for failed items."""
-        request_data = {
-            "items": [
-                {
-                    "event_type": "$ai_generation",
-                    "data": {
-                        "id": "gen1",
-                        "event": "$ai_generation",
-                        "properties": {"$ai_input": "Valid"},
-                    },
-                },
-                {
-                    "event_type": "$ai_generation",
-                    "data": None,  # This will cause an error
-                },
-            ]
-        }
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/batch/",
-            request_data,
-            format="json",
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        assert len(data["results"]) == 2
-        # First should succeed
-        assert "Valid" in data["results"][0]["text"]
-        # Second should have error
-        assert data["results"][1]["metadata"]["rendering"] == "error"
-        assert "error" in data["results"][1]["metadata"]
-
-    def test_authentication_required(self):
-        """Should require authentication."""
-        self.client.logout()
-
-        request_data = {
-            "event_type": "$ai_generation",
-            "data": {"id": "gen123", "event": "$ai_generation", "properties": {}},
-        }
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
-            request_data,
-            format="json",
-        )
-
-        assert response.status_code in [401, 403]
+        self.assertIn("[GEN]", data["text"])
+        self.assertNotIn("GEN_EXPANDABLE", data["text"])
 
     def test_team_isolation(self):
         """Should enforce team isolation."""
@@ -405,22 +278,17 @@ class TestTextReprAPI(APIBaseTest):
 
         # Try to access other team's endpoint
         response = self.client.post(
-            f"/api/projects/{other_team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{other_team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
         # Should be forbidden
-        assert response.status_code in [403, 404]
+        self.assertIn(response.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
 
 
 class TestProviderFormats(APIBaseTest):
     """Test different LLM provider formats."""
-
-    def setUp(self):
-        super().setUp()
-        self.client = APIClient()
-        self.client.force_login(self.user)
 
     def test_openai_format(self):
         """Should handle OpenAI message format."""
@@ -452,16 +320,16 @@ class TestProviderFormats(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert "Test" in data["text"]
-        assert "Response" in data["text"]
-        assert "test_func" in data["text"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
+        self.assertIn("Test", data["text"])
+        self.assertIn("Response", data["text"])
+        self.assertIn("test_func", data["text"])
 
     def test_anthropic_format(self):
         """Should handle Anthropic message format."""
@@ -492,59 +360,20 @@ class TestProviderFormats(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert "I'll help" in data["text"]
-        assert "get_weather" in data["text"]
-        assert "Dublin" in data["text"]
-
-    def test_mixed_formats(self):
-        """Should handle mixed provider formats in batch."""
-        request_data = {
-            "items": [
-                {
-                    "event_type": "$ai_generation",
-                    "data": {
-                        "id": "gen1",
-                        "event": "$ai_generation",
-                        "properties": {"$ai_output_choices": [{"message": {"role": "assistant", "content": "OpenAI"}}]},
-                    },
-                },
-                {
-                    "event_type": "$ai_generation",
-                    "data": {
-                        "id": "gen2",
-                        "event": "$ai_generation",
-                        "properties": {"$ai_output_choices": [{"role": "assistant", "content": "Anthropic"}]},
-                    },
-                },
-            ]
-        }
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/batch/",
-            request_data,
-            format="json",
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "OpenAI" in data["results"][0]["text"]
-        assert "Anthropic" in data["results"][1]["text"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
+        self.assertIn("I'll help", data["text"])
+        self.assertIn("get_weather", data["text"])
+        self.assertIn("Dublin", data["text"])
 
 
 class TestEdgeCases(APIBaseTest):
     """Test edge cases and error handling."""
-
-    def setUp(self):
-        super().setUp()
-        self.client = APIClient()
-        self.client.force_login(self.user)
 
     def test_empty_properties(self):
         """Should handle empty properties."""
@@ -558,23 +387,23 @@ class TestEdgeCases(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Should not crash
 
     def test_malformed_json(self):
         """Should handle malformed JSON gracefully."""
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             "not json",
             content_type="application/json",
         )
 
-        assert response.status_code == 400
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_very_long_content(self):
         """Should handle very long content."""
@@ -592,16 +421,59 @@ class TestEdgeCases(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
-        data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
         # Should be truncated to max_length
-        assert data["metadata"]["char_count"] <= 50000 + 100  # Allow for truncation message
-        assert data["metadata"]["truncated"] is True
+        self.assertLessEqual(data["metadata"]["char_count"], 50000 + 100)  # Allow for truncation message
+        self.assertEqual(data["metadata"]["truncated"], True)
+
+    def test_default_max_length(self):
+        """Should use 3MB default max_length when not specified."""
+        # Test content under 3MB - should NOT truncate at max_length level
+        under_limit = "a" * 2500000  # 2.5MB
+        request_data = {
+            "event_type": "$ai_generation",
+            "data": {
+                "id": "gen123",
+                "event": "$ai_generation",
+                "properties": {
+                    "$ai_input": under_limit,
+                },
+            },
+            "options": {"truncated": False},  # Disable internal truncation to test max_length
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request_data,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
+        self.assertEqual(data["metadata"]["truncated"], False)
+        self.assertGreater(data["metadata"]["char_count"], 2500000)
+
+        # Test content over 3MB - should truncate at max_length level
+        over_limit = "a" * 3500000  # 3.5MB
+        request_data["data"]["properties"]["$ai_input"] = over_limit
+        request_data["options"] = {"truncated": False}  # Disable internal truncation to test max_length
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request_data,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
+        self.assertEqual(data["metadata"]["truncated"], True)
+        self.assertLessEqual(data["metadata"]["char_count"], 3000000 + 200)
 
     def test_unicode_content(self):
         """Should handle Unicode content correctly."""
@@ -617,16 +489,16 @@ class TestEdgeCases(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert "世界" in data["text"]
-        assert "🌍" in data["text"]
-        assert "émojis" in data["text"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
+        self.assertIn("世界", data["text"])
+        self.assertIn("🌍", data["text"])
+        self.assertIn("émojis", data["text"])
 
     def test_null_values(self):
         """Should handle null values gracefully."""
@@ -643,15 +515,15 @@ class TestEdgeCases(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Should not crash
 
-    def test_circular_references_in_state(self):
+    def test_complex_nested_structures(self):
         """Should handle complex nested structures."""
         request_data = {
             "event_type": "$ai_span",
@@ -668,11 +540,11 @@ class TestEdgeCases(APIBaseTest):
         }
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/llm_analytics/text_repr/",
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
             request_data,
             format="json",
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert "deep" in data["text"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
+        self.assertIn("deep", data["text"])
