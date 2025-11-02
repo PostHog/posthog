@@ -127,6 +127,36 @@ def _convert_to_gif(
         raise RuntimeError(error_msg) from e
 
 
+def _clean_up_webm_without_reencoding(tmp_webm: str, image_path: str, pre_roll: float, recording_duration: int) -> None:
+    """Remove pre-roll from webm to include only the actual recording."""
+    # Works, but need time adjustment still (because Playwrigt keyframes are longer than 1s), so could be excessive
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-ss",
+        f"{pre_roll:.2f}",
+        "-i",
+        tmp_webm,
+        "-t",
+        f"{float(recording_duration):.2f}",
+        "-c",
+        "copy",  # Copy streams without re-encoding, but doesn't support speed change
+        "-f",
+        "webm",
+    ]
+    cmd.append(image_path)
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        error_msg = f"ffmpeg failed with exit code {e.returncode}"
+        if e.stderr:
+            error_msg += f": {e.stderr.strip()}"
+        raise RuntimeError(error_msg) from e
+
+
 def _scale_dimensions_if_needed(width: int, height: int, max_size: int = 1400) -> tuple[int, int]:
     """Scale down dimensions while maintaining aspect ratio if either dimension exceeds max_size."""
     if width <= max_size and height <= max_size:
@@ -340,6 +370,11 @@ def record_replay_to_file(
                     _convert_to_gif(tmp_webm, image_path, pre_roll, recording_duration, measured_width)
                 else:
                     shutil.move(tmp_webm, image_path)
+                    # time_before = time.time()
+                    # _clean_up_webm_without_reencoding(tmp_webm, image_path, pre_roll, recording_duration, playback_speed)
+                    # completion_time = (time.time() - time_before) * 1000
+                    # logger.info("*"*50)
+                    # logger.info("video_exporter.clean_up_webm_without_reencoding_time", completion_time=completion_time)
             finally:
                 try:
                     context.close()
