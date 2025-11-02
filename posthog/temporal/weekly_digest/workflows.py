@@ -1,5 +1,4 @@
 import os
-import json
 import asyncio
 import itertools
 from datetime import UTC, datetime, timedelta
@@ -41,8 +40,7 @@ class WeeklyDigestWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(input: list[str]) -> WeeklyDigestInput:
         """Parse input from the management command CLI."""
-        loaded = json.loads(input[0])
-        parsed_input = WeeklyDigestInput(**loaded)
+        parsed_input = WeeklyDigestInput.model_validate_json(input[0])
 
         if parsed_input.common.django_redis_url is None:
             parsed_input.common.django_redis_url = settings.REDIS_URL
@@ -104,8 +102,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(input: list[str]) -> GenerateDigestDataInput:
         """Parse input from the management command CLI."""
-        loaded = json.loads(input[0])
-        return GenerateDigestDataInput(**loaded)
+        return GenerateDigestDataInput.model_validate_json(input[0])
 
     @workflow.run
     async def run(self, input: GenerateDigestDataInput) -> None:
@@ -145,7 +142,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
                         digest=input.digest,
                         common=input.common,
                     ),
-                    start_to_close_timeout=timedelta(minutes=30),
+                    start_to_close_timeout=timedelta(hours=1),
                     retry_policy=common.RetryPolicy(
                         maximum_attempts=2,
                         initial_interval=timedelta(minutes=1),
@@ -194,8 +191,7 @@ class SendWeeklyDigestWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(input: list[str]) -> SendWeeklyDigestInput:
         """Parse input from the management command CLI."""
-        loaded = json.loads(input[0])
-        return SendWeeklyDigestInput(**loaded)
+        return SendWeeklyDigestInput.model_validate_json(input[0])
 
     @workflow.run
     async def run(self, input: SendWeeklyDigestInput) -> None:

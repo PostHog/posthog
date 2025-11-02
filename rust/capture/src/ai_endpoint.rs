@@ -267,7 +267,10 @@ fn build_kafka_event(
         now: now.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
         sent_at: parsed.sent_at,
         token: token.to_string(),
+        event: parsed.event_name.clone(),
+        timestamp: computed_timestamp,
         is_cookieless_mode: false,
+        historical_migration: false,
     };
 
     // Create metadata

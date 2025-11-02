@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, TypeAlias
 from uuid import UUID
@@ -6,57 +5,49 @@ from uuid import UUID
 from pydantic import BaseModel, RootModel
 
 
-@dataclass
-class CommonInput:
+class CommonInput(BaseModel):
     redis_ttl: int = 3600 * 24 * 3  # 3 days
     redis_host: str | None = None
     redis_port: int | None = None
-    batch_size: int = 1000
+    batch_size: int = 2500
     django_redis_url: str | None = None
 
 
-@dataclass
-class Digest:
+class Digest(BaseModel):
     key: str
     period_start: datetime
     period_end: datetime
 
 
-@dataclass
-class WeeklyDigestInput:
+class WeeklyDigestInput(BaseModel):
     dry_run: bool
-    common: CommonInput = field(default_factory=CommonInput)
+    common: CommonInput = CommonInput()
 
 
-@dataclass
-class GenerateDigestDataInput:
+class GenerateDigestDataInput(BaseModel):
     digest: Digest
     common: CommonInput
 
 
-@dataclass
-class GenerateDigestDataBatchInput:
+class GenerateDigestDataBatchInput(BaseModel):
     batch: tuple[int, int]
     digest: Digest
     common: CommonInput
 
 
-@dataclass
-class GenerateOrganizationDigestInput:
+class GenerateOrganizationDigestInput(BaseModel):
     batch: tuple[int, int]
     digest: Digest
     common: CommonInput
 
 
-@dataclass
-class SendWeeklyDigestInput:
+class SendWeeklyDigestInput(BaseModel):
     dry_run: bool
     digest: Digest
     common: CommonInput
 
 
-@dataclass
-class SendWeeklyDigestBatchInput:
+class SendWeeklyDigestBatchInput(BaseModel):
     batch: tuple[int, int]
     dry_run: bool
     digest: Digest

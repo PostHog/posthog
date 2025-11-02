@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconButton } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -10,9 +11,11 @@ import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const logic = workflowLogic(props)
     const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors } = useValues(logic)
-    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue } = useActions(logic)
+    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, triggerManualWorkflow } =
+        useActions(logic)
 
     const isSavedWorkflow = props.id && props.id !== 'new'
+    const isManualWorkflow = workflow?.trigger?.type === 'manual'
 
     return (
         <>
@@ -27,6 +30,17 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 renameDebounceMs={200}
                 actions={
                     <>
+                        {isManualWorkflow && (
+                            <LemonButton
+                                type="primary"
+                                disabledReason={workflow?.status !== 'active' && 'Must enable workflow to use trigger'}
+                                icon={<IconButton />}
+                                tooltip="Triggers workflow immediately"
+                                onClick={triggerManualWorkflow}
+                            >
+                                Trigger
+                            </LemonButton>
+                        )}
                         {isSavedWorkflow && (
                             <>
                                 <LemonButton
