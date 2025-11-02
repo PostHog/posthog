@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 interface TextSegment {
-    type: 'text' | 'truncated' | 'gen_expandable'
+    type: 'text' | 'truncated' | 'gen_expandable' | 'tools_expandable'
     content: string
     fullContent?: string
     charCount?: number
@@ -74,16 +74,22 @@ function parseTruncatedSegments(text: string): TextSegment[] {
 }
 
 /**
- * Parse text to find truncation and generation expandable markers and split into segments
+ * Parse text to find truncation, generation expandable, and tools expandable markers and split into segments
  */
 function parseTextSegments(text: string): TextSegment[] {
     const segments: TextSegment[] = []
 
-    // Combined regex to match both TRUNCATED and GEN_EXPANDABLE markers
+    // Combined regex to match TRUNCATED, GEN_EXPANDABLE, and TOOLS_EXPANDABLE markers
     const truncatedRegex = /<<<TRUNCATED\|([^|]+)\|(\d+)>>>/g
     const genExpandableRegex = /<<<GEN_EXPANDABLE\|([^|]+)\|([^|]+)\|([^>]+)>>>/g
+    const toolsExpandableRegex = /<<<TOOLS_EXPANDABLE\|([^|]+)\|([^>]+)>>>/g
 
-    const allMatches: Array<{ index: number; length: number; type: 'truncated' | 'gen_expandable'; data: any }> = []
+    const allMatches: Array<{
+        index: number
+        length: number
+        type: 'truncated' | 'gen_expandable' | 'tools_expandable'
+        data: any
+    }> = []
 
     // Find all truncated markers
     let truncMatch: RegExpExecArray | null
@@ -104,6 +110,17 @@ function parseTextSegments(text: string): TextSegment[] {
             length: genMatch[0].length,
             type: 'gen_expandable',
             data: { eventId: genMatch[1], displayText: genMatch[2], encodedContent: genMatch[3] },
+        })
+    }
+
+    // Find all tools expandable markers
+    let toolsMatch: RegExpExecArray | null
+    while ((toolsMatch = toolsExpandableRegex.exec(text)) !== null) {
+        allMatches.push({
+            index: toolsMatch.index,
+            length: toolsMatch[0].length,
+            type: 'tools_expandable',
+            data: { displayText: toolsMatch[1], encodedContent: toolsMatch[2] },
         })
     }
 
@@ -147,6 +164,22 @@ function parseTextSegments(text: string): TextSegment[] {
                     content: match.data.displayText,
                     fullContent,
                     eventId: match.data.eventId,
+                })
+            } catch {
+                // If decoding fails, show as regular text
+                segments.push({
+                    type: 'text',
+                    content: text.slice(match.index, match.index + match.length),
+                })
+            }
+        } else if (match.type === 'tools_expandable') {
+            // Add tools expandable segment
+            try {
+                const fullContent = decodeURIComponent(atob(match.data.encodedContent))
+                segments.push({
+                    type: 'tools_expandable',
+                    content: match.data.displayText,
+                    fullContent,
                 })
             } catch {
                 // If decoding fails, show as regular text
@@ -684,6 +717,76 @@ export function TextViewDisplay({
                                             setPopoutSegment={setPopoutSegment}
                                         />
                                     </div>
+                                )}
+                            </span>
+                        )
+                    }
+                    if (segment.type === 'tools_expandable') {
+                        const isExpanded = expandedSegments.has(index)
+
+                        // Parse full content to split into individual tools
+                        const fullContent = segment.fullContent || ''
+                        const lines = fullContent.split('\n')
+
+                        // Find header line (e.g., "AVAILABLE TOOLS: 10")
+                        const headerLine = lines[0]
+                        const toolLines = lines.slice(1) // Skip header
+
+                        // Parse individual tool blocks (tool_name(), description, blank line)
+                        const toolBlocks: string[] = []
+                        let currentBlock: string[] = []
+
+                        for (const line of toolLines) {
+                            if (line.trim() === '' && currentBlock.length > 0) {
+                                // End of a tool block
+                                toolBlocks.push(currentBlock.join('\n'))
+                                currentBlock = []
+                            } else if (line.trim() !== '') {
+                                currentBlock.push(line)
+                            }
+                        }
+                        // Add last block if exists
+                        if (currentBlock.length > 0) {
+                            toolBlocks.push(currentBlock.join('\n'))
+                        }
+
+                        // Split into first 5 and remaining
+                        const visibleTools = toolBlocks.slice(0, 5)
+                        const hiddenTools = toolBlocks.slice(5)
+
+                        return (
+                            <span key={index}>
+                                {headerLine}
+                                {'\n\n'}
+                                {/* Show first 5 tools inline */}
+                                {visibleTools.map((toolBlock, i) => (
+                                    <span key={i}>
+                                        {renderTextWithLinks(toolBlock, traceId)}
+                                        {'\n\n'}
+                                    </span>
+                                ))}
+                                {/* Show expandable for remaining tools */}
+                                {hiddenTools.length > 0 && (
+                                    <>
+                                        <button
+                                            onClick={() => toggleSegment(index)}
+                                            className="text-link hover:underline cursor-pointer"
+                                            title={isExpanded ? 'Collapse' : 'Expand'}
+                                        >
+                                            {isExpanded ? '[−]' : '[+]'} {hiddenTools.length} more tool
+                                            {hiddenTools.length > 1 ? 's' : ''}
+                                        </button>
+                                        {isExpanded && (
+                                            <div className="ml-4 mt-2 mb-2">
+                                                {hiddenTools.map((toolBlock, i) => (
+                                                    <span key={i}>
+                                                        {renderTextWithLinks(toolBlock, traceId)}
+                                                        {'\n\n'}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                             </span>
                         )

@@ -548,3 +548,178 @@ class TestEdgeCases(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.data
         self.assertIn("deep", data["text"])
+
+    def test_available_tools_dictionary_format(self):
+        """Should handle available tools in dictionary format."""
+        request_data = {
+            "event_type": "$ai_generation",
+            "data": {
+                "id": "gen123",
+                "event": "$ai_generation",
+                "properties": {
+                    "$ai_tools": {
+                        "lov-view": {
+                            "name": "lov-view",
+                            "description": "Use this tool to read the contents of a file.",
+                            "input_schema": {
+                                "type": "object",
+                                "properties": {
+                                    "file_path": {"type": "string"},
+                                    "lines": {"type": "string"},
+                                },
+                                "required": ["file_path"],
+                            },
+                        },
+                        "supabase--migration": {
+                            "name": "supabase--migration",
+                            "description": "Create a Supabase migration file.",
+                            "input_schema": {
+                                "type": "object",
+                                "properties": {
+                                    "migration_name": {"type": "string"},
+                                },
+                                "required": ["migration_name"],
+                            },
+                        },
+                    },
+                    "$ai_input": "Test input",
+                },
+            },
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request_data,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
+        # Should show available tools section
+        self.assertIn("AVAILABLE TOOLS: 2", data["text"])
+        self.assertIn("lov-view(file_path: string, lines?: string)", data["text"])
+        self.assertIn("Use this tool to read the contents of a file.", data["text"])
+        self.assertIn("supabase--migration(migration_name: string)", data["text"])
+        self.assertIn("Create a Supabase migration file.", data["text"])
+
+    def test_available_tools_array_format(self):
+        """Should handle available tools in array format."""
+        request_data = {
+            "event_type": "$ai_generation",
+            "data": {
+                "id": "gen123",
+                "event": "$ai_generation",
+                "properties": {
+                    "$ai_tools": [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "get_weather",
+                                "description": "Get current weather for a location.",
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": {
+                                        "location": {"type": "string"},
+                                    },
+                                    "required": ["location"],
+                                },
+                            },
+                        }
+                    ],
+                    "$ai_input": "Test input",
+                },
+            },
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request_data,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
+        # Should show available tools section
+        self.assertIn("AVAILABLE TOOLS: 1", data["text"])
+        self.assertIn("get_weather(location: string)", data["text"])
+        self.assertIn("Get current weather for a location.", data["text"])
+
+    def test_long_tools_list_collapsed(self):
+        """Should collapse long tool lists (>5 tools) with expandable marker."""
+        # Create 10 tools
+        tools = {}
+        for i in range(10):
+            tools[f"tool{i}"] = {
+                "name": f"tool{i}",
+                "description": f"Tool number {i} description.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "param": {"type": "string"},
+                    },
+                    "required": ["param"],
+                },
+            }
+
+        request_data = {
+            "event_type": "$ai_generation",
+            "data": {
+                "id": "gen123",
+                "event": "$ai_generation",
+                "properties": {
+                    "$ai_tools": tools,
+                    "$ai_input": "Test input",
+                },
+            },
+            "options": {"include_markers": True},
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request_data,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
+        # Should show collapsed marker
+        self.assertIn("<<<TOOLS_EXPANDABLE|", data["text"])
+        self.assertIn("AVAILABLE TOOLS: 10", data["text"])
+        # Should not show individual tools in main output
+        self.assertNotIn("tool0(param: string)", data["text"])
+
+    def test_long_tools_list_collapsed_without_markers(self):
+        """Should collapse long tool lists with plain text when include_markers=False."""
+        # Create 10 tools
+        tools = {}
+        for i in range(10):
+            tools[f"tool{i}"] = {
+                "name": f"tool{i}",
+                "description": f"Tool number {i} description.",
+            }
+
+        request_data = {
+            "event_type": "$ai_generation",
+            "data": {
+                "id": "gen123",
+                "event": "$ai_generation",
+                "properties": {
+                    "$ai_tools": tools,
+                    "$ai_input": "Test input",
+                },
+            },
+            "options": {"include_markers": False},
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request_data,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data
+        # Should show plain text indicator
+        self.assertIn("[+] AVAILABLE TOOLS: 10", data["text"])
+        # Should not have interactive marker
+        self.assertNotIn("<<<TOOLS_EXPANDABLE|", data["text"])

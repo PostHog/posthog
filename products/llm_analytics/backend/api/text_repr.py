@@ -60,6 +60,10 @@ class TextReprOptionsSerializer(serializers.Serializer):
         required=False,
         help_text="Maximum depth for hierarchical rendering",
     )
+    tools_collapse_threshold = serializers.IntegerField(
+        required=False,
+        help_text="Number of tools before collapsing the list (default: 5)",
+    )
 
 
 class TextReprRequestSerializer(serializers.Serializer):
@@ -200,6 +204,9 @@ into formatted text representations suitable for display, logging, or analysis.
 - `collapsed`: Show summary vs full trace tree (default: false)
 - `include_hierarchy`: Include tree structure for traces (default: true)
 - `max_depth`: Maximum depth for hierarchical rendering (default: unlimited)
+- `tools_collapse_threshold`: Number of tools before auto-collapsing list (default: 5)
+  - Tool lists >5 items show `<<<TOOLS_EXPANDABLE|...>>>` marker for frontend
+  - Or `[+] AVAILABLE TOOLS: N` for backend when `include_markers: false`
 
 **Use Cases:**
 - Frontend display: `truncated: true, include_markers: true`

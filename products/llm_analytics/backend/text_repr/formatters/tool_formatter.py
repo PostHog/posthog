@@ -5,7 +5,9 @@ Ports TypeScript toolFormatter.ts to Python for pure Python text repr implementa
 """
 
 import json
+import base64
 from typing import Any, TypedDict
+from urllib.parse import quote
 
 
 class Tool(TypedDict, total=False):
@@ -21,24 +23,14 @@ class Tool(TypedDict, total=False):
     parameters: dict[str, Any]  # Google/Gemini format (unwrapped)
 
 
-def format_tools(ai_tools: Any) -> list[str]:
+def _format_tools_list(tools_list: list[dict[str, Any]]) -> str:
     """
-    Format available tools section.
-
-    Supports multiple LLM provider formats:
-    - OpenAI: {type: 'function', function: {name, description, parameters}}
-    - Anthropic: {name, description, input_schema}
-    - Google/Gemini: {functionDeclarations: [...]} or unwrapped
+    Format a list of tools into text representation.
+    Returns the formatted text as a single string.
     """
     lines: list[str] = []
 
-    if not ai_tools or not isinstance(ai_tools, list) or len(ai_tools) == 0:
-        return lines
-
-    lines.append("")
-    lines.append(f"AVAILABLE TOOLS: {len(ai_tools)}")
-
-    for tool in ai_tools:
+    for tool in tools_list:
         if not isinstance(tool, dict):
             continue
 
@@ -104,5 +96,67 @@ def format_tools(ai_tools: Any) -> list[str]:
                 first_sentence = first_line.split(". ")[0]
                 final_sentence = first_sentence if first_sentence.endswith(".") else f"{first_sentence}."
                 lines.append(f"    {final_sentence}")
+
+    return "\n".join(lines)
+
+
+def format_tools(ai_tools: Any, options: dict[str, Any] | None = None) -> list[str]:
+    """
+    Format available tools section.
+
+    Supports multiple LLM provider formats:
+    - OpenAI: {type: 'function', function: {name, description, parameters}}
+    - Anthropic: {name, description, input_schema}
+    - Google/Gemini: {functionDeclarations: [...]} or unwrapped
+    - Dictionary format: {"tool_name": {name, description, ...}, ...}
+
+    For tool lists > 5 items, creates a collapsed/expandable section by default.
+    Use include_markers=False to show plain text "[+]" indicators instead.
+    """
+    lines: list[str] = []
+
+    if not ai_tools:
+        return lines
+
+    # Convert dictionary format to list
+    tools_list: list[dict[str, Any]]
+    if isinstance(ai_tools, dict):
+        # Handle dictionary format: {tool_name: tool_spec, ...}
+        tools_list = list(ai_tools.values())
+    elif isinstance(ai_tools, list):
+        tools_list = ai_tools
+    else:
+        return lines
+
+    if len(tools_list) == 0:
+        return lines
+
+    options = options or {}
+    include_markers = options.get("include_markers", True)
+    collapse_threshold = options.get("tools_collapse_threshold", 5)
+
+    lines.append("")
+
+    # For long tool lists (> threshold), create expandable section
+    if len(tools_list) > collapse_threshold:
+        display_text = f"AVAILABLE TOOLS: {len(tools_list)}"
+
+        if include_markers:
+            # Format all tools and encode for frontend to expand
+            tools_content = _format_tools_list(tools_list)
+            full_content = f"{display_text}\n{tools_content}"
+            encoded_content = base64.b64encode(quote(full_content).encode()).decode()
+            expandable_marker = f"<<<TOOLS_EXPANDABLE|{display_text}|{encoded_content}>>>"
+            lines.append(expandable_marker)
+        else:
+            # Plain text for backend/LLM
+            lines.append(f"[+] {display_text}")
+
+        return lines
+
+    # For short tool lists (<= threshold), show full list
+    lines.append(f"AVAILABLE TOOLS: {len(tools_list)}")
+    tools_content = _format_tools_list(tools_list)
+    lines.append(tools_content)
 
     return lines

@@ -26,7 +26,7 @@ def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions
     props = event.get("properties", {})
 
     # Tools (if available)
-    tools_lines = format_tools(props.get("$ai_tools"))
+    tools_lines = format_tools(props.get("$ai_tools"), options)
     if tools_lines:
         lines.append(SEPARATOR)
         lines.extend(tools_lines)
