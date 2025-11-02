@@ -12,7 +12,7 @@
 .sparkles-container:hover .sparkle,
 .sparkles-container.animate .sparkle {
     transform: scale(1);
-    animation: sparkle-pulse 1.3s ease-in-out infinite;
+    animation: Sparkle__pulse 1.3s ease-in-out infinite;
 }
 
 .sparkle--small {
@@ -33,18 +33,21 @@
     animation-delay: 0.2s;
 }
 
-@keyframes sparkle-pulse {
+@keyframes Sparkle__pulse {
     0% {
         opacity: 1;
         transform: scale(1);
     }
+
     20% {
         opacity: 1;
         transform: scale(1.1);
     }
+
     90% {
         opacity: 0.3;
     }
+
     100% {
         opacity: 1;
         transform: scale(1);
