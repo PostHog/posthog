@@ -114,6 +114,13 @@ function SessionSceneWrapper(): JSX.Element {
                                                     {trace.traceName && (
                                                         <span className="text-sm">{trace.traceName}</span>
                                                     )}
+                                                    {trace.errorCount && trace.errorCount > 0 && (
+                                                        <LemonTag type="danger" size="small">
+                                                            {trace.errorCount === 1
+                                                                ? '1 error'
+                                                                : `${trace.errorCount} errors`}
+                                                        </LemonTag>
+                                                    )}
                                                     {typeof trace.totalLatency === 'number' && (
                                                         <LemonTag type="muted">
                                                             {trace.totalLatency.toFixed(2)}s
