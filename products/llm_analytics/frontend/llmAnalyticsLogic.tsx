@@ -727,13 +727,13 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 featureFlagLogic.selectors.featureFlags,
             ],
             (
-                dateFilter,
-                shouldFilterTestAccounts,
-                propertyFilters,
-                personId,
-                group,
-                groupsTaxonomicTypes,
-                featureFlags
+                dateFilter: { dateFrom: string | null; dateTo: string | null },
+                shouldFilterTestAccounts: boolean,
+                propertyFilters: AnyPropertyFilter[],
+                personId: string | undefined,
+                group: { groupKey: string; groupTypeIndex: number } | undefined,
+                groupsTaxonomicTypes: TaxonomicFilterGroupType[],
+                featureFlags: { [flag: string]: boolean | string | undefined }
             ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {

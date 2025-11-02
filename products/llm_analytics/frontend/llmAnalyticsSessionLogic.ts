@@ -65,7 +65,10 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
     selectors({
         query: [
             (s) => [s.sessionId, s.dateRange],
-            (sessionId, dateRange): DataTableNode => {
+            (
+                sessionId: string,
+                dateRange: { dateFrom: string | null; dateTo: string | null } | null
+            ): DataTableNode => {
                 const tracesQuery: TracesQuery = {
                     kind: NodeKind.TracesQuery,
                     dateRange: dateRange?.dateFrom
@@ -93,7 +96,7 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
 
         breadcrumbs: [
             (s) => [s.sessionId, s.dateFilter],
-            (sessionId, dateFilter): Breadcrumb[] => {
+            (sessionId: string, dateFilter: { dateFrom: string | null; dateTo: string | null }): Breadcrumb[] => {
                 const sessionsUrl = urls.llmAnalyticsSessions()
                 const searchParams = router.values.searchParams
                 const sessionsPath =
@@ -134,9 +137,9 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
                 actions.setDateRange(timestamp || null)
             } else if (date_from || date_to) {
                 actions.setDateRange(date_from || null, date_to || null)
-            } else if (values.dateFilter.dateFrom) {
+            } else if (values.dateRange?.dateFrom) {
                 // Keep existing date range if no params provided
-                actions.setDateRange(values.dateFilter.dateFrom, values.dateFilter.dateTo || null)
+                actions.setDateRange(values.dateRange.dateFrom, values.dateRange.dateTo || null)
             }
         },
     })),

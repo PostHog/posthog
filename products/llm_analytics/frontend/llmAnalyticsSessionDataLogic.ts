@@ -117,7 +117,7 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
     selectors({
         traces: [
             (s) => [s.response],
-            (response) => {
+            (response: AnyResponseType | null): LLMTrace[] => {
                 const tracesResponse = response as TracesQueryResponse | null
                 return tracesResponse?.results || []
             },
