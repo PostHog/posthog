@@ -186,13 +186,14 @@ export function LLMAnalyticsSessions(): JSX.Element {
                         render: function RenderSessionId(x) {
                             const sessionId = x.value as string
                             const truncated = `${sessionId.slice(0, 4)}...${sessionId.slice(-4)}`
+                            const sessionUrl = `${urls.llmAnalyticsSession(sessionId)}?${new URLSearchParams({
+                                ...(dateFilter.dateFrom && { date_from: dateFilter.dateFrom }),
+                                ...(dateFilter.dateTo && { date_to: dateFilter.dateTo }),
+                            }).toString()}`
                             return (
                                 <strong>
                                     <Tooltip title={sessionId}>
-                                        <Link
-                                            className="ph-no-capture font-mono"
-                                            to={urls.llmAnalyticsSession(sessionId)}
-                                        >
+                                        <Link className="ph-no-capture font-mono" to={sessionUrl}>
                                             {truncated}
                                         </Link>
                                     </Tooltip>

@@ -1,7 +1,7 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
 import { urlToAction } from 'kea-router'
 
-import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -9,6 +9,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { Breadcrumb, InsightLogicProps, PropertyFilterType } from '~/types'
 
+import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import type { llmAnalyticsSessionLogicType } from './llmAnalyticsSessionLogicType'
 
 export interface LLMAnalyticsSessionDataNodeLogicParams {
@@ -39,6 +40,10 @@ export function getDataNodeLogicProps({
 export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
     path(['scenes', 'llm-analytics', 'llmAnalyticsSessionLogic']),
 
+    connect({
+        values: [llmAnalyticsLogic, ['dateFilter']],
+    }),
+
     actions({
         setSessionId: (sessionId: string) => ({ sessionId }),
         setDateRange: (dateFrom: string | null, dateTo?: string | null) => ({ dateFrom, dateTo }),
@@ -66,11 +71,9 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
                     dateRange: dateRange?.dateFrom
                         ? {
                               date_from: dateRange.dateFrom,
-                              date_to: dateRange?.dateTo || dayjs(dateRange.dateFrom).add(30, 'days').toISOString(),
+                              date_to: dateRange?.dateTo || undefined,
                           }
-                        : {
-                              date_from: dayjs.utc(new Date(2025, 0, 10)).toISOString(),
-                          },
+                        : undefined,
                     properties: [
                         {
                             type: PropertyFilterType.Event,
@@ -89,8 +92,18 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.sessionId],
-            (sessionId): Breadcrumb[] => {
+            (s) => [s.sessionId, s.dateFilter],
+            (sessionId, dateFilter): Breadcrumb[] => {
+                const sessionsUrl = urls.llmAnalyticsSessions()
+                const searchParams = router.values.searchParams
+                const sessionsPath =
+                    dateFilter?.dateFrom || dateFilter?.dateTo || Object.keys(searchParams).length > 0
+                        ? `${sessionsUrl}?${new URLSearchParams({
+                              ...searchParams,
+                              ...(dateFilter?.dateFrom && { date_from: dateFilter.dateFrom }),
+                              ...(dateFilter?.dateTo && { date_to: dateFilter.dateTo }),
+                          }).toString()}`
+                        : sessionsUrl
                 return [
                     {
                         key: 'LLMAnalytics',
@@ -101,7 +114,7 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
                     {
                         key: 'LLMAnalyticsSessions',
                         name: 'Sessions',
-                        path: urls.llmAnalyticsSessions(),
+                        path: sessionsPath,
                         iconType: 'llm_analytics',
                     },
                     {
@@ -114,11 +127,16 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
         ],
     }),
 
-    urlToAction(({ actions }) => ({
-        [urls.llmAnalyticsSession(':id')]: ({ id }, { timestamp }) => {
+    urlToAction(({ actions, values }) => ({
+        [urls.llmAnalyticsSession(':id')]: ({ id }, { timestamp, date_from, date_to }) => {
             actions.setSessionId(id ?? '')
             if (timestamp) {
                 actions.setDateRange(timestamp || null)
+            } else if (date_from || date_to) {
+                actions.setDateRange(date_from || null, date_to || null)
+            } else if (values.dateFilter.dateFrom) {
+                // Keep existing date range if no params provided
+                actions.setDateRange(values.dateFilter.dateFrom, values.dateFilter.dateTo || null)
             }
         },
     })),
