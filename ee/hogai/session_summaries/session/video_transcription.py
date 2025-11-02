@@ -229,6 +229,7 @@ if __name__ == "__main__":
     transcription = asyncio.run(transcriptioner.analyze_video_in_parts())
     time_after = time.time()
     logger.info(f"Time taken: {time_after - time_now} seconds")
+    # Store the result
     with open(
         f"/Users/woutut/Documents/Code/posthog/playground/video_transcription/"
         f"full-transcription_{transcriptioner._model_id}_{transcriptioner._media_resolution.name}_"
@@ -236,3 +237,11 @@ if __name__ == "__main__":
         "w",
     ) as f:
         json.dump(transcription, f, indent=4)
+    transcription_str = "\n".join([value for value in transcription.values() if value is not None])
+    with open(
+        f"/Users/woutut/Documents/Code/posthog/playground/video_transcription/"
+        f"full-transcription_{transcriptioner._model_id}_{transcriptioner._media_resolution.name}_"
+        f"{transcriptioner._media_duration_s}s_{transcriptioner._media_part_duration_s}s_{datetime.now().isoformat()}.txt",
+        "w",
+    ) as f:
+        f.write(transcription_str)
