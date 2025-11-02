@@ -9,6 +9,7 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { isHogQLQuery } from '~/queries/utils'
 import { PropertyFilterType } from '~/types'
 
+import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 
 const mapPerson = (person: any): { distinct_id: string; created_at: string; properties: Record<string, any> } => {
@@ -31,26 +32,7 @@ export function LLMAnalyticsUsers(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setUsersSort } = useActions(llmAnalyticsLogic)
     const { usersQuery, usersSort } = useValues(llmAnalyticsLogic)
 
-    const handleColumnClick = (column: string): void => {
-        // Toggle sort direction if clicking same column, otherwise default to DESC
-        const newDirection = usersSort.column === column && usersSort.direction === 'DESC' ? 'ASC' : 'DESC'
-        setUsersSort(column, newDirection)
-    }
-
-    const renderSortableColumnTitle = (column: string, title: string): JSX.Element => {
-        const isSorted = usersSort.column === column
-        const direction = usersSort.direction
-        return (
-            <span
-                onClick={() => handleColumnClick(column)}
-                style={{ cursor: 'pointer', userSelect: 'none' }}
-                className="flex items-center gap-1"
-            >
-                {title}
-                {isSorted && (direction === 'DESC' ? ' ▼' : ' ▲')}
-            </span>
-        )
-    }
+    const { renderSortableColumnTitle } = useSortableColumns(usersSort, setUsersSort)
 
     return (
         <DataTable

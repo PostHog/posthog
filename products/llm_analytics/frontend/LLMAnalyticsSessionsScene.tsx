@@ -18,6 +18,7 @@ import { isHogQLQuery } from '~/queries/utils'
 import { PropertyFilterType } from '~/types'
 
 import { LLMAnalyticsTraceEvents } from './components/LLMAnalyticsTraceEvents'
+import { useSortableColumns } from './hooks/useSortableColumns'
 import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { formatLLMCost } from './utils'
 
@@ -90,26 +91,7 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
         setExpandedGenerationIds(newExpanded)
     }
 
-    const handleColumnClick = (column: string): void => {
-        // Toggle sort direction if clicking same column, otherwise default to DESC
-        const newDirection = sessionsSort.column === column && sessionsSort.direction === 'DESC' ? 'ASC' : 'DESC'
-        setSessionsSort(column, newDirection)
-    }
-
-    const renderSortableColumnTitle = (column: string, title: string): JSX.Element => {
-        const isSorted = sessionsSort.column === column
-        const direction = sessionsSort.direction
-        return (
-            <span
-                onClick={() => handleColumnClick(column)}
-                style={{ cursor: 'pointer', userSelect: 'none' }}
-                className="flex items-center gap-1"
-            >
-                {title}
-                {isSorted && (direction === 'DESC' ? ' ▼' : ' ▲')}
-            </span>
-        )
-    }
+    const { renderSortableColumnTitle } = useSortableColumns(sessionsSort, setSessionsSort)
 
     const handleTraceExpand = async (traceId: string): Promise<void> => {
         const newExpanded = new Set(expandedTraceIds)

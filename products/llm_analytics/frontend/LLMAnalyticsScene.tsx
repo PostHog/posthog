@@ -52,6 +52,7 @@ import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
+import { useSortableColumns } from './hooks/useSortableColumns'
 import {
     LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
     getDefaultGenerationsColumns,
@@ -142,26 +143,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
     } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const handleColumnClick = (column: string): void => {
-        // Toggle sort direction if clicking same column, otherwise default to DESC
-        const newDirection = generationsSort.column === column && generationsSort.direction === 'DESC' ? 'ASC' : 'DESC'
-        setGenerationsSort(column, newDirection)
-    }
-
-    const renderSortableColumnTitle = (column: string, title: string): JSX.Element => {
-        const isSorted = generationsSort.column === column
-        const direction = generationsSort.direction
-        return (
-            <span
-                onClick={() => handleColumnClick(column)}
-                style={{ cursor: 'pointer', userSelect: 'none' }}
-                className="flex items-center gap-1"
-            >
-                {title}
-                {isSorted && (direction === 'DESC' ? ' ▼' : ' ▲')}
-            </span>
-        )
-    }
+    const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
 
     return (
         <DataTable
