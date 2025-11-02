@@ -560,7 +560,7 @@ export function TextViewDisplay({
     const [expandedSegments, setExpandedSegments] = useState<Set<number | string>>(new Set())
     const [popoutSegment, setPopoutSegment] = useState<number | string | null>(null)
 
-    // Get indices of all truncated and gen_expandable segments
+    // Get indices of all expandable segments (truncated, gen_expandable, tools_expandable)
     const truncatedIndices = segments
         .map((seg, idx) => (seg.type === 'truncated' ? idx : -1))
         .filter((idx) => idx !== -1)
@@ -569,7 +569,11 @@ export function TextViewDisplay({
         .map((seg, idx) => (seg.type === 'gen_expandable' ? idx : -1))
         .filter((idx) => idx !== -1)
 
-    const allExpandableIndices = [...truncatedIndices, ...genExpandableIndices]
+    const toolsExpandableIndices = segments
+        .map((seg, idx) => (seg.type === 'tools_expandable' ? idx : -1))
+        .filter((idx) => idx !== -1)
+
+    const allExpandableIndices = [...truncatedIndices, ...genExpandableIndices, ...toolsExpandableIndices]
 
     const allExpanded =
         allExpandableIndices.length > 0 && allExpandableIndices.every((idx) => expandedSegments.has(idx))
@@ -625,7 +629,7 @@ export function TextViewDisplay({
             // Collapse all
             setExpandedSegments(new Set())
         } else {
-            // Expand all (both truncated and gen_expandable segments)
+            // Expand all (truncated, gen_expandable, and tools_expandable segments)
             setExpandedSegments(new Set(allExpandableIndices))
         }
     }
