@@ -136,12 +136,6 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                         'p-1 flex flex-row items-center gap-1 cursor-pointer rounded-lg border-b z-20 ml-px',
                                     iconOnly: true,
                                 }}
-                                tooltip={
-                                    <>
-                                        New tab <KeyboardShortcut command option t />
-                                    </>
-                                }
-                                tooltipPlacement="bottom"
                             >
                                 <IconPlus className="!ml-0" fontSize={14} />
                             </Link>
@@ -178,10 +172,10 @@ interface SceneTabProps {
 
 function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
-    const canRemoveTab = true
     const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
     const { editingTabId, tabs } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
+    const canRemoveTab = tabs.length > 1
 
     const isEditing = editingTabId === tab.id
 
@@ -213,7 +207,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 fullWidth
                 className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
             >
-                {canRemoveTab && (
+                {canRemoveTab && tab.active && (
                     <SceneShortcut {...SHORTCUTS.app.closeCurrentTab} enabled={tab.active && tabs.length > 1}>
                         <ButtonPrimitive
                             onClick={(e) => {
@@ -225,19 +219,26 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                             iconOnly
                             size="xs"
                             className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
-                            tooltip={
-                                tab.active ? (
-                                    <>
-                                        Close active tab <KeyboardShortcut shift command b />
-                                    </>
-                                ) : (
-                                    'Close tab'
-                                )
-                            }
                         >
                             <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
                         </ButtonPrimitive>
                     </SceneShortcut>
+                )}
+                {canRemoveTab && !tab.active && (
+                    <ButtonPrimitive
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            e.preventDefault()
+                            removeTab(tab)
+                        }}
+                        isSideActionRight
+                        iconOnly
+                        size="xs"
+                        className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
+                        tooltip="Close tab"
+                    >
+                        <IconX className="text-tertiary size-3 group-hover:text-primary z-10" />
+                    </ButtonPrimitive>
                 )}
                 <ButtonPrimitive
                     onClick={(e) => {

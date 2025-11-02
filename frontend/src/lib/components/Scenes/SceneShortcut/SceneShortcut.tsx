@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useCallback, useEffect, useMemo, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
@@ -64,6 +64,7 @@ export function SceneShortcut({
     const elementRef = useRef<HTMLElement>(null)
     const { registerSceneShortcut, unregisterSceneShortcut } = useActions(sceneLogic)
     const { activeTabId, optionKeyHeld } = useValues(sceneLogic)
+    const [showTooltip, setShowTooltip] = useState(false)
 
     // Stable ID that doesn't change on re-renders
     const shortcutId = useMemo(
@@ -127,17 +128,33 @@ export function SceneShortcut({
     }, [activeTabId, shortcut, shortcutId, registerSceneShortcut, unregisterSceneShortcut])
 
     return (
-        <Tooltip
-            title={
-                <>
-                    <KeyboardShortcut {...Object.fromEntries(keys.map((key) => [key, true]))} className="text-xs" />
-                </>
-            }
-            visible={optionKeyHeld && enabled}
+        <div
+            className="contents"
+            onMouseOver={() => {
+                setShowTooltip(true)
+            }}
+            onMouseOut={() => {
+                setShowTooltip(false)
+            }}
         >
-            {React.cloneElement(children as React.ReactElement, {
-                ref: elementRef,
-            })}
-        </Tooltip>
+            <Tooltip
+                title={
+                    showTooltip ? (
+                        <>
+                            {description}{' '}
+                            <KeyboardShortcut
+                                {...Object.fromEntries(keys.map((key) => [key, true]))}
+                                className="text-xs"
+                            />
+                        </>
+                    ) : undefined
+                }
+                visible={(optionKeyHeld || showTooltip) && enabled}
+            >
+                {React.cloneElement(children as React.ReactElement, {
+                    ref: elementRef,
+                })}
+            </Tooltip>
+        </div>
     )
 }
