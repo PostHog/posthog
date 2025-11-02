@@ -140,6 +140,9 @@ export const llmAnalyticsSessionLogic = kea<llmAnalyticsSessionLogicType>([
             } else if (values.dateRange?.dateFrom) {
                 // Keep existing date range if no params provided
                 actions.setDateRange(values.dateRange.dateFrom, values.dateRange.dateTo || null)
+            } else if (values.dateFilter) {
+                // Fall back to parent dateFilter when navigating without explicit date params
+                actions.setDateRange(values.dateFilter.dateFrom, values.dateFilter.dateTo)
             }
         },
     })),
