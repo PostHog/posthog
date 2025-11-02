@@ -4294,7 +4294,6 @@ class LLMTrace(BaseModel):
     totalCost: Optional[float] = None
     totalLatency: Optional[float] = None
     traceName: Optional[str] = None
-    errorCount: Optional[int] = None
 
 
 class LifecycleFilter(BaseModel):
