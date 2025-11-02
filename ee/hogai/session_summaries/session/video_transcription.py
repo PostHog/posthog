@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import asyncio
 from datetime import datetime
 
@@ -17,6 +18,15 @@ logger = structlog.get_logger(__name__)
 
 VIDEO_TRANSCRIPTION_MODEL_ID = "gemini-2.5-flash-preview-09-2025"
 VIDEO_TRANSCRIPTION_MEDIA_RESOLUTION = MediaResolution.MEDIA_RESOLUTION_MEDIUM
+VIDEO_TRANSCRIPTION_FRAMES_PER_SECOND = 1
+VIDEO_TRANSCRIPTION_MEDIA_RESOLUTION_TO_FRAME_TOKENS_MAPPING = {
+    MediaResolution.MEDIA_RESOLUTION_LOW: 66,
+    MediaResolution.MEDIA_RESOLUTION_MEDIUM: 258,
+    MediaResolution.MEDIA_RESOLUTION_HIGH: 258,
+}
+VIDEO_TRANSCRIPTION_MODEL_TO_1KK_PRICE_MAPPING = {
+    "gemini-2.5-flash-preview-09-2025": {"input": 0.3, "output": 2.5},
+}
 
 BASE_PROMPT = """
 - Describe what's happening in the video as a a list of salient moments.
@@ -48,10 +58,15 @@ class VideoTranscriptioner:
         self._media_file = self._init_media_file(media_file_name, media_file_path)
         # Stats
         self._input_output_tokens_per_part: list[
-            tuple[int, int] | None
+            tuple[int, int]
         ] = []  # Static parts (nothing happened) should not have tokens counted
+        self._prompt_tokens = self._calculate_tokens_from_text(
+            BASE_PROMPT
+        )  # Defining once, no need to recalculate, as it's static
 
     def _get_client(self) -> Client:
+        # Initializing client on every call to avoid aiohttp "Uncloseed client session" errors for async call
+        # Could be fixed in later Gemini library versions
         return Client(api_key=os.getenv("GEMINI_API_KEY"))
 
     def _init_media_file(self, media_file_name: str | None, media_file_path: str | None) -> File:
@@ -103,7 +118,8 @@ class VideoTranscriptioner:
         self,
         start_offset: str,
         end_offset: str,
-    ) -> str:
+    ) -> str | None:
+        # Analyze the part
         client = self._get_client()
         logger.info(
             f"Analyzing part with model: {self._model_id}, start_offset: {start_offset}s, end_offset: {end_offset}s"
@@ -121,6 +137,17 @@ class VideoTranscriptioner:
             ),
             config=GenerateContentConfig(media_resolution=self._media_resolution),
         )
+        # Check if the response is static
+        if "Static" in response.text:
+            # TODO: Replace with programmatic filter, instead of generating empty summaries (if no events happened during the part)
+            return None
+        # Calculate stats
+        tokens_per_frame = VIDEO_TRANSCRIPTION_MEDIA_RESOLUTION_TO_FRAME_TOKENS_MAPPING[self._media_resolution]
+        video_input_tokens = tokens_per_frame * (end_offset - start_offset) * VIDEO_TRANSCRIPTION_FRAMES_PER_SECOND
+        input_tokens = video_input_tokens + self._prompt_tokens
+        output_tokens = self._calculate_tokens_from_text(response.text)
+        self._input_output_tokens_per_part.append((input_tokens, output_tokens))
+        # Store the result
         timestamp = datetime.now().isoformat()
         with open(
             f"/Users/woutut/Documents/Code/posthog/playground/video_transcription/"
@@ -134,10 +161,7 @@ class VideoTranscriptioner:
         parts = self._split_duration_into_parts()
         tasks = {}
         async with asyncio.TaskGroup() as tg:
-            for start_offset, end_offset in parts:
-                # TODO: Remove after testing; Analyzing a single chunk
-                if start_offset != 255:
-                    continue
+            for _, (start_offset, end_offset) in enumerate(parts):
                 part_key = f"{start_offset}s-{end_offset}s"
                 tasks[part_key] = tg.create_task(
                     self.analyze_part(
@@ -145,7 +169,41 @@ class VideoTranscriptioner:
                         end_offset=end_offset,
                     )
                 )
-        return {part_key: task.result() for part_key, task in tasks.items()}
+        transcription = {part_key: task.result() for part_key, task in tasks.items()}
+        # Calculate stats
+        # Static
+        static_parts = len(transcription.keys()) - len(
+            self._input_output_tokens_per_part
+        )  # Only non-static parts have tokens counted
+        logger.info(f"Static parts: {static_parts}")
+        logger.info(f"Non-static parts: {len(self._input_output_tokens_per_part)}")
+        # Total tokens
+        total_input_tokens = sum(tokens[0] for tokens in self._input_output_tokens_per_part)
+        total_output_tokens = sum(tokens[1] for tokens in self._input_output_tokens_per_part)
+        logger.info(f"Total input tokens: {total_input_tokens}")
+        logger.info(f"Total output tokens: {total_output_tokens}")
+        # Tokens per part
+        input_tokens_per_part = total_input_tokens / len(self._input_output_tokens_per_part)
+        output_tokens_per_part = total_output_tokens / len(self._input_output_tokens_per_part)
+        logger.info(f"Input tokens per part: {input_tokens_per_part}")
+        logger.info(f"Output tokens per part: {output_tokens_per_part}")
+        # Tokens price
+        input_tokens_price = round(
+            total_input_tokens * VIDEO_TRANSCRIPTION_MODEL_TO_1KK_PRICE_MAPPING[self._model_id]["input"] / 1000000, 4
+        )
+        output_tokens_price = round(
+            total_output_tokens * VIDEO_TRANSCRIPTION_MODEL_TO_1KK_PRICE_MAPPING[self._model_id]["output"] / 1000000, 4
+        )
+        logger.info(f"Input tokens price: {input_tokens_price}")
+        logger.info(f"Output tokens price: {output_tokens_price}")
+        logger.info(f"Total price: {input_tokens_price + output_tokens_price}")
+        # Tokens price per part
+        input_tokens_price_per_part = round(input_tokens_price / len(self._input_output_tokens_per_part), 4)
+        output_tokens_price_per_part = round(output_tokens_price / len(self._input_output_tokens_per_part), 4)
+        logger.info(f"Input tokens price per part: {input_tokens_price_per_part}")
+        logger.info(f"Output tokens price per part: {output_tokens_price_per_part}")
+        logger.info(f"Total price per part: {input_tokens_price_per_part + output_tokens_price_per_part}")
+        return transcription
 
 
 if __name__ == "__main__":
@@ -167,7 +225,10 @@ if __name__ == "__main__":
         media_file_name=input_file_name,
     )
     # Analyze the video
+    time_now = time.time()
     transcription = asyncio.run(transcriptioner.analyze_video_in_parts())
+    time_after = time.time()
+    logger.info(f"Time taken: {time_after - time_now} seconds")
     with open(
         f"/Users/woutut/Documents/Code/posthog/playground/video_transcription/"
         f"full-transcription_{transcriptioner._model_id}_{transcriptioner._media_resolution.name}_"
