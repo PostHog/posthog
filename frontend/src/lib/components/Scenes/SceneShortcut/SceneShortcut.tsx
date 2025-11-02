@@ -24,6 +24,8 @@ interface BaseShortcut {
     closeActionPaletteOnAction?: boolean
     /** Type of shortcut for icon display */
     type?: 'action' | 'toggle' | 'link'
+    /** Order for sorting within groups. Lower numbers appear first. -1 = first, 0 = default, 1+ = later */
+    order?: number
 }
 
 export interface SceneShortcut extends BaseShortcut {
@@ -57,6 +59,7 @@ export function SceneShortcut({
     children,
     closeActionPaletteOnAction = true,
     type,
+    order,
 }: SceneShortcutProps): JSX.Element {
     const elementRef = useRef<HTMLElement>(null)
     const { registerSceneShortcut, unregisterSceneShortcut } = useActions(sceneLogic)
@@ -93,6 +96,7 @@ export function SceneShortcut({
             active,
             actionToggle: onActionToggle,
             type,
+            order,
         }),
         [
             shortcutId,
@@ -105,6 +109,7 @@ export function SceneShortcut({
             active,
             onActionToggle,
             type,
+            order,
         ]
     )
 

@@ -1206,32 +1206,35 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
 
                 // Skip if we're in an input/textarea/contenteditable (except action palette and command bar)
-                const element = event.target as HTMLElement
-                const isInActionPalette = element && element.closest('#scene-action-palette')
-                const isInCommandBar =
-                    element &&
-                    (element.closest('.CommandBar__input') ||
-                        element.closest('[data-attr="search-bar-input"]') ||
-                        element.closest('[data-attr="action-bar-input"]'))
+                // const element = event.target as HTMLElement
+                // const isInActionPalette = element && element.closest('#scene-action-palette')
+                // const isInCommandBar =
+                //     element &&
+                //     (element.closest('.CommandBar__input') ||
+                //         element.closest('[data-attr="search-bar-input"]') ||
+                //         element.closest('[data-attr="action-bar-input"]'))
 
-                if (
-                    element &&
-                    (element.tagName === 'INPUT' ||
-                        element.tagName === 'TEXTAREA' ||
-                        element.contentEditable === 'true' ||
-                        element.closest('.NotebookEditor')) &&
-                    !isInActionPalette &&
-                    !isInCommandBar
-                ) {
-                    return
-                }
+                // const isInNewTabSearch = element && element.getAttribute('data-attr') === 'new-tab-search-input'
 
-                // Special handling for action palette input - prevent accented characters
-                if (isInActionPalette && event.altKey && element.tagName === 'INPUT') {
-                    // Don't return here - let the shortcut system handle it
-                    // But prevent the default behavior to avoid accented characters
-                    event.preventDefault()
-                }
+                // if (
+                //     element &&
+                //     (element.tagName === 'INPUT' ||
+                //         element.tagName === 'TEXTAREA' ||
+                //         element.contentEditable === 'true' ||
+                //         element.closest('.NotebookEditor')) &&
+                //     !isInActionPalette &&
+                //     !isInCommandBar &&
+                //     !isInNewTabSearch
+                // ) {
+                //     return
+                // }
+
+                // // Special handling for action palette input - prevent accented characters
+                // if (isInActionPalette && event.altKey && element.tagName === 'INPUT') {
+                //     // Don't return here - let the shortcut system handle it
+                //     // But prevent the default behavior to avoid accented characters
+                //     event.preventDefault()
+                // }
 
                 // Build current key combination
                 const pressedKeys: string[] = []

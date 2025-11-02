@@ -387,6 +387,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                     autoComplete="off"
                     className="pl-1 w-full border-none flex-1 h-full min-h-full rounded-r-lg"
                     size="lg"
+                    data-attr="new-tab-search-input"
                     suffix={
                         (inputValue !== '' || selectedCommands.length > 0) && (
                             <ListBox.Item asChild>

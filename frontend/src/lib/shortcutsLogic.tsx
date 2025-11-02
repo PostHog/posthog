@@ -51,11 +51,13 @@ export const SHORTCUTS: SceneShortcuts = {
             keys: ['command', 'option', 't'],
             description: 'New tab',
             onAction: () => shortcutsLogic.actions.triggerNewTab(),
+            order: -2,
         },
         closeCurrentTab: {
             keys: ['command', 'option', 'w'],
             description: 'Close current tab',
             onAction: () => shortcutsLogic.actions.triggerCloseCurrentTab(),
+            order: -1,
         },
         toggleSearchBar: {
             keys: ['command', 'option', 'k'],

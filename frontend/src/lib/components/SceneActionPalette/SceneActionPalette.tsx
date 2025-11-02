@@ -6,6 +6,8 @@ import { IconArrowRight } from '@posthog/icons'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { Label } from 'lib/ui/Label/Label'
 import { ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -17,12 +19,24 @@ import type { SceneShortcut } from '../Scenes/SceneShortcut/SceneShortcut'
 function getShortcutIcon(shortcut: SceneShortcut): JSX.Element | null {
     switch (shortcut.type) {
         case 'toggle':
-            return <LemonSwitch checked={shortcut.active ?? false} size="small" />
+            return (
+                <div className="flex items-center gap-1 size-4">
+                    <LemonSwitch checked={shortcut.active ?? false} size="xsmall" />
+                </div>
+            )
         case 'link':
-            return <IconArrowRight className="w-4 h-4 text-muted" />
+            return (
+                <div className="flex items-center gap-1 size-4">
+                    <IconArrowRight className="w-4 h-4 text-muted" />
+                </div>
+            )
         case 'action':
         default:
-            return <IconArrowRight className="w-4 h-4 text-muted" />
+            return (
+                <div className="flex items-center gap-1 size-4">
+                    <IconArrowRight className="w-4 h-4 text-muted" />
+                </div>
+            )
     }
 }
 
@@ -30,6 +44,49 @@ export function SceneActionPalette(): JSX.Element | null {
     const { actionPaletteOpen, activeSceneShortcuts } = useValues(sceneLogic)
     const { setActionPaletteOpen } = useActions(sceneLogic)
     const comboboxRef = useRef<ListBoxHandle>(null)
+
+    // Group shortcuts by sceneKey, with scene-specific first and app shortcuts last
+    const groupedShortcuts = React.useMemo(() => {
+        const groups: Record<string, SceneShortcut[]> = {}
+
+        activeSceneShortcuts.forEach((shortcut) => {
+            // Normalize the key - convert Scene enum values to strings and handle undefined
+            let key = 'app'
+            if (shortcut.sceneKey) {
+                // Convert Scene enum to string if needed, or use as-is if already string
+                const rawKey = typeof shortcut.sceneKey === 'string' ? shortcut.sceneKey : String(shortcut.sceneKey)
+                // Normalize to lowercase to handle case inconsistencies
+                key = rawKey.toLowerCase()
+            }
+
+            if (!groups[key]) {
+                groups[key] = []
+            }
+            groups[key].push(shortcut)
+        })
+
+        // Sort groups: scene-specific first, then 'app' last
+        const sortedGroupKeys = Object.keys(groups).sort((a, b) => {
+            if (a === 'app') {
+                return 1
+            }
+            if (b === 'app') {
+                return -1
+            }
+            return a.localeCompare(b)
+        })
+
+        return sortedGroupKeys.map((key) => ({
+            key,
+            shortcuts: groups[key].sort((a, b) => {
+                // Sort by order prop within each group
+                const orderA = a.order ?? 0
+                const orderB = b.order ?? 0
+                return orderA - orderB
+            }),
+            title: key === 'app' ? 'General' : key.charAt(0).toUpperCase() + key.slice(1),
+        }))
+    }, [activeSceneShortcuts])
 
     const handleClose = useCallback(() => {
         setActionPaletteOpen(false)
@@ -81,13 +138,13 @@ export function SceneActionPalette(): JSX.Element | null {
                 // Find the currently focused/selected shortcut by looking at the virtual focus
                 const focusedElement = document.querySelector('#scene-action-palette [data-focused="true"]')
                 if (focusedElement) {
-                    // Get the index of the focused item to find the corresponding shortcut
-                    const allItems = document.querySelectorAll('#scene-action-palette [data-listbox-item]')
-                    const focusedIndex = Array.from(allItems).indexOf(focusedElement)
-
-                    if (focusedIndex >= 0 && focusedIndex < activeSceneShortcuts.length) {
-                        const shortcut = activeSceneShortcuts[focusedIndex]
-                        handleItemClick(shortcut)
+                    // Get the shortcut ID from the data attribute
+                    const shortcutId = focusedElement.getAttribute('data-shortcut-id')
+                    if (shortcutId) {
+                        const shortcut = activeSceneShortcuts.find((s) => s.id === shortcutId)
+                        if (shortcut) {
+                            handleItemClick(shortcut)
+                        }
                     }
                 }
                 return
@@ -162,34 +219,48 @@ export function SceneActionPalette(): JSX.Element | null {
             >
                 <Combobox ref={comboboxRef}>
                     <Combobox.Content>
-                        <Combobox.Empty>No actions available</Combobox.Empty>
-                        {activeSceneShortcuts.length === 0 ? (
-                            <></>
+                        {groupedShortcuts.length === 0 ? (
+                            <Combobox.Empty>No actions available</Combobox.Empty>
                         ) : (
-                            activeSceneShortcuts.map((shortcut, index) => (
-                                <Combobox.Group key={shortcut.id} value={[shortcut.description]}>
-                                    <Combobox.Item focusFirst={index === 0} asChild>
-                                        <ButtonPrimitive
-                                            menuItem
-                                            onClick={(e) => {
-                                                e.preventDefault()
-                                                e.stopPropagation()
-                                                handleItemClick(shortcut)
-                                            }}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                {getShortcutIcon(shortcut)}
-                                                {shortcut.description}
-                                            </div>
-                                            <span className="ml-auto">
-                                                <KeyboardShortcut
-                                                    {...Object.fromEntries(shortcut.keys.map((key) => [key, true]))}
-                                                    className="text-xs"
-                                                />
-                                            </span>
-                                        </ButtonPrimitive>
-                                    </Combobox.Item>
-                                </Combobox.Group>
+                            groupedShortcuts.map((group, groupIndex) => (
+                                <React.Fragment key={group.key}>
+                                    {groupIndex > 0 && <div className="h-px bg-border mx-2 my-1" />}
+                                    <Label intent="menu" className="px-1">
+                                        {group.title}
+                                    </Label>
+                                    <DropdownMenuSeparator />
+                                    {group.shortcuts.map((shortcut, index) => {
+                                        const isFirstItem = groupIndex === 0 && index === 0
+                                        return (
+                                            <Combobox.Group key={shortcut.id} value={[shortcut.description]}>
+                                                <Combobox.Item focusFirst={isFirstItem} asChild>
+                                                    <ButtonPrimitive
+                                                        menuItem
+                                                        data-shortcut-id={shortcut.id}
+                                                        onClick={(e) => {
+                                                            e.preventDefault()
+                                                            e.stopPropagation()
+                                                            handleItemClick(shortcut)
+                                                        }}
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            {getShortcutIcon(shortcut)}
+                                                            {shortcut.description}
+                                                        </div>
+                                                        <span className="ml-auto">
+                                                            <KeyboardShortcut
+                                                                {...Object.fromEntries(
+                                                                    shortcut.keys.map((key) => [key, true])
+                                                                )}
+                                                                className="text-xs"
+                                                            />
+                                                        </span>
+                                                    </ButtonPrimitive>
+                                                </Combobox.Item>
+                                            </Combobox.Group>
+                                        )
+                                    })}
+                                </React.Fragment>
                             ))
                         )}
                     </Combobox.Content>
