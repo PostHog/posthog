@@ -78,7 +78,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 render: ErrorsColumn,
             },
             totalLatency: {
-                renderTitle: () => <Tooltip title="Total latency of all generations in this trace">Latency</Tooltip>,
+                renderTitle: () => <Tooltip title="Total latency of all operations in this trace">Latency</Tooltip>,
                 render: LatencyColumn,
             },
             usage: {
@@ -88,7 +88,9 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 render: UsageColumn,
             },
             totalCost: {
-                renderTitle: () => <Tooltip title="Total cost of all generations in this trace">Cost</Tooltip>,
+                renderTitle: () => (
+                    <Tooltip title="Total cost of all generations and embeddings in this trace">Cost</Tooltip>
+                ),
                 render: CostColumn,
             },
         },
