@@ -333,7 +333,7 @@ jobs:
             fail-fast: false
             matrix:
                 python-version: ['3.12.11']
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.6.9.98']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.11.66']
                 segment: ['Core']
                 person-on-events: [false]
                 # :NOTE: Keep concurrency and groups in sync
@@ -384,121 +384,121 @@ jobs:
                 include:
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 1
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 2
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 3
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 4
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 5
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 6
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 7
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 8
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 9
                     - segment: 'Core'
                       person-on-events: true
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 10
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 1
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 2
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 3
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 4
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 5
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 6
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 7
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 8
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 9
                     - segment: 'Temporal'
                       person-on-events: false
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
+                      clickhouse-server-image: 'clickhouse/clickhouse-server:25.8.11.66'
                       python-version: '3.12.11'
                       concurrency: 10
                       group: 10
@@ -759,7 +759,7 @@ jobs:
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@v4
-              if: ${{ needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.6.9.98' }}
+              if: ${{ needs.changes.outputs.backend == 'true' && !matrix.person-on-events && matrix.clickhouse-server-image == 'clickhouse/clickhouse-server:25.8.11.66' }}
               with:
                   name: timing_data-${{ matrix.segment }}-${{ matrix.group }}
                   path: .test_durations
@@ -838,7 +838,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                clickhouse-server-image: ['clickhouse/clickhouse-server:25.6.9.98']
+                clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.11.66']
         if: needs.changes.outputs.backend == 'true'
         runs-on: ubuntu-latest
         steps:
