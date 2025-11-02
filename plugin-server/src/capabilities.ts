@@ -25,7 +25,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpApi: true,
                 evaluationScheduler: true,
                 logsIngestion: true,
-                llmAnalyticsApi: true,
             }
 
         case PluginServerMode.local_cdp:
