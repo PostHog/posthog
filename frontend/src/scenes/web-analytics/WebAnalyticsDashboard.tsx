@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
+import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconShare, IconX } from '@posthog/icons'
 import { LemonBanner, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -19,6 +19,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
@@ -46,8 +47,8 @@ import { InsightLogicProps, ProductKey } from '~/types'
 
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
-import { WebAnalyticsPageReportsCTA } from './WebAnalyticsPageReportsCTA'
 import { MarketingAnalyticsFilters } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
+import { MarketingAnalyticsSourceStatusBanner } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
@@ -491,6 +492,7 @@ const MarketingDashboard = (): JSX.Element => {
     return (
         <>
             {feedbackBanner}
+            <MarketingAnalyticsSourceStatusBanner />
             {component}
         </>
     )
@@ -547,7 +549,6 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                     {/* Empty fragment so tabs are not part of the sticky bar */}
                     <Filters tabs={<></>} />
 
-                    <WebAnalyticsPageReportsCTA />
                     <WebAnalyticsHealthCheck />
                     <MainContent />
                 </SceneContent>
@@ -562,6 +563,10 @@ const WebAnalyticsTabs = (): JSX.Element => {
 
     const { setProductTab } = useActions(webAnalyticsLogic)
 
+    const handleShare = (): void => {
+        void copyToClipboard(window.location.href, 'link')
+    }
+
     return (
         <LemonTabs<ProductTab>
             activeKey={productTab}
@@ -574,6 +579,17 @@ const WebAnalyticsTabs = (): JSX.Element => {
             ]}
             sceneInset
             className="-mt-4"
+            rightSlot={
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconShare />}
+                    onClick={handleShare}
+                    data-attr="web-analytics-share-button"
+                >
+                    Share
+                </LemonButton>
+            }
         />
     )
 }
