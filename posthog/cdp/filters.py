@@ -196,19 +196,20 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
 # ========= Realtime Cohort helpers ========= #
 
 
-def build_behavioral_event_expr(behavioral_filter: dict, team: Team) -> ast.Expr:
+def build_behavioral_event_expr(behavioral_filter: dict, team: Team) -> ast.Expr | None:
     """Build combined expression for a behavioral event filter (event AND its per-filter properties).
 
     Supports only performed_event and performed_event_multiple (non-temporal bytecode use-case).
+    Returns None for unsupported behavioral filters.
     """
     value = behavioral_filter.get("value")
     if value not in {"performed_event", "performed_event_multiple"}:
         # Unsupported behavioral types do not contribute to realtime bytecode
-        return ast.Constant(value=True)
+        return None
 
     event_name = behavioral_filter.get("key")
     if not isinstance(event_name, str) or not event_name:
-        return ast.Constant(value=True)
+        return None
 
     parts: list[ast.Expr] = [parse_expr("event = {event}", {"event": ast.Constant(value=event_name)})]
     # Optional per-filter event properties
@@ -243,7 +244,9 @@ def cohort_filters_to_expr(filters: dict, team: Team) -> ast.Expr:
                 return ast.Or(exprs=exprs)
 
         if node_type == "behavioral":
-            return build_behavioral_event_expr(node, team)
+            expr = build_behavioral_event_expr(node, team)
+            # Return True for unsupported behavioral filters
+            return expr if expr is not None else ast.Constant(value=True)
 
         # Fallback to standard property handling (event/person/group/etc.)
         return property_to_expr(node, team)

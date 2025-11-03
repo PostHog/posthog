@@ -33,7 +33,7 @@ from posthog.schema import ActorsQuery, HogQLQuery
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.property import ast, property_to_expr
+from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import capture_legacy_api_call
@@ -126,11 +126,11 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
     Returns tuple of (bytecode, error, conditionHash)
     """
     try:
-        # Only treat behavioral as event matcher + optional event properties; unsupported values yield True expr
+        # Only treat behavioral as event matcher + optional event properties; unsupported values return None
         if filter_data.get("type") == "behavioral":
             expr = build_behavioral_event_expr(filter_data, team)
-            # Unsupported behavioral returns Constant(True) → skip bytecode
-            if isinstance(expr, ast.Constant) and expr.value is True:
+            # Unsupported behavioral filters return None → skip bytecode
+            if expr is None:
                 return None, "Unsupported behavioral filter for realtime bytecode", None
             bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
             condition_hash = None
