@@ -1152,6 +1152,8 @@ async fn test_fetch_and_filter_flags() {
         redis_reader_client.clone(),
         redis_writer_client.clone(),
         reader.clone(),
+        432000, // team_cache_ttl_seconds
+        432000, // flags_cache_ttl_seconds
     );
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();

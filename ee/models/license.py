@@ -77,6 +77,7 @@ class License(models.Model):
         *SCALE_FEATURES,
         AvailableFeature.ADVANCED_PERMISSIONS,
         AvailableFeature.SAML,
+        AvailableFeature.SCIM,
         AvailableFeature.SSO_ENFORCEMENT,
         AvailableFeature.ROLE_BASED_ACCESS,
     ]

@@ -30,6 +30,7 @@ from .api import (
     subscription,
 )
 from .api.rbac import role
+from .api.scim import views as scim_views
 
 
 def extend_api_router() -> None:
@@ -128,5 +129,28 @@ urlpatterns: list[Any] = [
     path("max/chat/", csrf_exempt(MaxChatViewSet.as_view({"post": "create"})), name="max_chat"),
     path("login/vercel/", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_redirect"})),
     path("login/vercel/continue", vercel_sso.VercelSSOViewSet.as_view({"get": "sso_continue"})),
+    path("scim/v2/<uuid:domain_id>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
+    path(
+        "scim/v2/<uuid:domain_id>/Users/<int:user_id>",
+        csrf_exempt(scim_views.SCIMUserDetailView.as_view()),
+        name="scim_user_detail",
+    ),
+    path("scim/v2/<uuid:domain_id>/Groups", csrf_exempt(scim_views.SCIMGroupsView.as_view()), name="scim_groups"),
+    path(
+        "scim/v2/<uuid:domain_id>/Groups/<uuid:group_id>",
+        csrf_exempt(scim_views.SCIMGroupDetailView.as_view()),
+        name="scim_group_detail",
+    ),
+    path(
+        "scim/v2/<uuid:domain_id>/ServiceProviderConfig",
+        csrf_exempt(scim_views.SCIMServiceProviderConfigView.as_view()),
+        name="scim_service_provider_config",
+    ),
+    path(
+        "scim/v2/<uuid:domain_id>/ResourceTypes",
+        csrf_exempt(scim_views.SCIMResourceTypesView.as_view()),
+        name="scim_resource_types",
+    ),
+    path("scim/v2/<uuid:domain_id>/Schemas", csrf_exempt(scim_views.SCIMSchemasView.as_view()), name="scim_schemas"),
     *admin_urlpatterns,
 ]
