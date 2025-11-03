@@ -34,6 +34,7 @@ class PartitionSettings(typing.NamedTuple):
 
 
 class ExternalDataSourceType(models.TextChoices):
+    GITHUB = "Github", "Github"
     STRIPE = "Stripe", "Stripe"
     HUBSPOT = "Hubspot", "Hubspot"
     POSTGRES = "Postgres", "Postgres"

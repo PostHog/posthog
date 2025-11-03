@@ -380,12 +380,14 @@ def append_partition_key_to_table(
         is_partition_key_int = pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
         are_incrementing_ints = False
         if is_partition_key_int:
-            min_max: dict[str, int] = cast(
-                dict[str, int], pc.min_max(table.column(normalized_partition_keys[0])).as_py()
-            )
-            min_int_val, max_int_val = min_max["min"], min_max["max"]
-            range_size = max_int_val - min_int_val + 1
-            are_incrementing_ints = table.num_rows / range_size >= 0.2
+            partition_column = table.column(normalized_partition_keys[0])
+            # check if the column has any non-null values before calculating min max
+            if partition_column.null_count < table.num_rows:
+                bounds: dict[str, int | None] = cast(dict[str, int | None], pc.min_max(partition_column).as_py())
+                _min, _max = bounds["min"], bounds["max"]
+                if _min is not None and _max is not None:
+                    range_size = _max - _min + 1
+                    are_incrementing_ints = table.num_rows / range_size >= 0.2
 
         if (
             partition_size is not None
@@ -439,7 +441,9 @@ def append_partition_key_to_table(
                 if partition_format is None:
                     partition_format = "month"
 
-                if partition_format == "day":
+                if partition_format == "hour":
+                    date_format = "%Y-%m-%dT%H"
+                elif partition_format == "day":
                     date_format = "%Y-%m-%d"
                 elif partition_format == "week":
                     date_format = "%G-w%V"
