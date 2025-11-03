@@ -60,19 +60,20 @@ def _redis_url(common: CommonInput) -> str:
 
 
 async def _load_playlist_counts_from_django_cache(r: redis.Redis, filters: FilterList) -> list[PlaylistCount | None]:
-    resp = await r.mget([f"{PLAYLIST_COUNT_REDIS_PREFIX}{_filter.short_id}" for _filter in filters.root])
+    resp: list[str | None] = await r.mget(
+        [f"{PLAYLIST_COUNT_REDIS_PREFIX}{_filter.short_id}" for _filter in filters.root]
+    )
 
-    playlist_counts = []
+    playlist_counts: list[PlaylistCount | None] = []
 
-    for r in resp:
-        if r is None:
+    for count in resp:
+        if count is None:
             playlist_counts.append(None)
-            continue
-
-        try:
-            playlist_counts.append(PlaylistCount.model_validate_json(r))
-        except ValidationError:
-            playlist_counts.append(None)
+        else:
+            try:
+                playlist_counts.append(PlaylistCount.model_validate_json(count))
+            except ValidationError:
+                playlist_counts.append(None)
 
     return playlist_counts
 
