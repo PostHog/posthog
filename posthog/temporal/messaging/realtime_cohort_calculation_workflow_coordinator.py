@@ -3,11 +3,12 @@ import datetime as dt
 import dataclasses
 from typing import Any, TypedDict
 
+from django.conf import settings
+
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 
-from posthog.constants import MESSAGING_TASK_QUEUE
 from posthog.models.action import Action
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -154,7 +155,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                     RealtimeCohortCalculationWorkflow.run,
                     config["inputs"],
                     id=config["id"],
-                    task_queue=MESSAGING_TASK_QUEUE,
+                    task_queue=settings.MESSAGING_TASK_QUEUE,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                 )
                 workflows_scheduled += 1

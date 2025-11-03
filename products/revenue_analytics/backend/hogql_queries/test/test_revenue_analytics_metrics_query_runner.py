@@ -32,9 +32,9 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from posthog.warehouse.models import ExternalDataSchema
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 
+from products.data_warehouse.backend.models import ExternalDataSchema
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_metrics_query_runner import (
     RevenueAnalyticsMetricsQueryRunner,
 )
