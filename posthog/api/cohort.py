@@ -138,8 +138,8 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
                 bytecode_str = json.dumps(bytecode, sort_keys=True)
                 condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
             return bytecode, None, condition_hash
-        else:
-            property_obj = Property(**filter_data)
+
+        property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
         bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
 
