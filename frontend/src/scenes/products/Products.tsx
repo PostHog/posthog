@@ -89,7 +89,7 @@ export function Products(): JSX.Element {
     return (
         <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
             <>
-                <div className="flex flex-col justify-center flex-grow items-center w-full">
+                <div className="flex flex-col justify-center flex-grow items-center">
                     <div className="mb-2">
                         <h2 className="text-center text-4xl">Which products would you like to use?</h2>
                         <p className="text-center">
