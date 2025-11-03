@@ -34,7 +34,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -87,7 +87,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                1 AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -140,7 +140,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(equals(posthog_test_usage.plan, 'premium'), equals(posthog_test_usage.region, 'us-west')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -193,7 +193,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(posthog_test_usage.plan, 'premium'))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -246,7 +246,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -299,7 +299,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), equals(posthog_test_usage.plan, 'premium'))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -352,7 +352,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(equals(posthog_test_usage.plan, 'premium'), equals(posthog_test_usage.region, 'us-west')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -405,7 +405,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(posthog_test_usage.usage, 100.0))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -458,7 +458,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(equals(posthog_test_usage.plan, 'premium'), greater(posthog_test_usage.usage, 50.0)))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -504,7 +504,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                1 AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('2023-01-01 00:00:00.000000', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('2023-01-31 00:00:00.000000', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -567,7 +567,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -620,7 +620,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -673,7 +673,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -726,7 +726,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw0/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -779,7 +779,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -832,7 +832,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -888,7 +888,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -941,7 +941,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -1028,7 +1028,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -1081,7 +1081,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -1142,7 +1142,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -1195,7 +1195,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -1248,7 +1248,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -1301,7 +1301,7 @@
        (SELECT posthog_test_usage.ds AS timestamp,
                posthog_test_usage.userid AS entity_identifier,
                posthog_test_usage.usage AS value
-        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
         WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -1366,11 +1366,11 @@
                1 AS value
         FROM
           (SELECT *
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`subscription_id` String, `subscription_amount` Int64, `subscription_created_at` DateTime, `subscription_customer_id` String')) AS posthog_test_stripe_subscriptions
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_stripe_subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`subscription_id` String, `subscription_amount` Int64, `subscription_created_at` DateTime, `subscription_customer_id` String')) AS posthog_test_stripe_subscriptions
         LEFT JOIN
           (SELECT posthog_test_stripe_customers.customer_email AS customer_email,
                   posthog_test_stripe_customers.customer_id AS posthog_test_stripe_subscriptions__subscription_customer___customer_id
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`customer_id` String, `signup_count` Int32, `customer_name` String, `customer_email` String, `customer_created_at` DateTime') AS posthog_test_stripe_customers) AS posthog_test_stripe_subscriptions__subscription_customer ON equals(posthog_test_stripe_subscriptions.subscription_customer_id, posthog_test_stripe_subscriptions__subscription_customer.posthog_test_stripe_subscriptions__subscription_customer___customer_id)
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`customer_id` String, `signup_count` Int32, `customer_name` String, `customer_email` String, `customer_created_at` DateTime') AS posthog_test_stripe_customers) AS posthog_test_stripe_subscriptions__subscription_customer ON equals(posthog_test_stripe_subscriptions.subscription_customer_id, posthog_test_stripe_subscriptions__subscription_customer.posthog_test_stripe_subscriptions__subscription_customer___customer_id)
         WHERE and(ifNull(greaterOrEquals(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(less(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.variant,
               exposures.entity_id) AS metric_events
@@ -1428,7 +1428,7 @@
           (SELECT posthog_test_usage.ds AS timestamp,
                   posthog_test_usage.userid AS entity_identifier,
                   posthog_test_usage.usage AS value
-           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
+           FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_usage/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`ds` Date, `id` String, `plan` String, `usage` Float64, `region` String, `userid` String') AS posthog_test_usage
            WHERE and(greaterOrEquals(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(posthog_test_usage.ds, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS metric_events ON and(equals(toString(exposures.exposure_identifier), toString(metric_events.entity_identifier)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
         GROUP BY exposures.variant,
                  exposures.entity_id) AS num_agg
@@ -1460,11 +1460,11 @@
                   1 AS value
            FROM
              (SELECT *
-              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`subscription_id` String, `subscription_amount` Int64, `subscription_created_at` DateTime, `subscription_customer_id` String')) AS posthog_test_stripe_subscriptions
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_stripe_subscriptions/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`subscription_id` String, `subscription_amount` Int64, `subscription_created_at` DateTime, `subscription_customer_id` String')) AS posthog_test_stripe_subscriptions
            LEFT JOIN
              (SELECT posthog_test_stripe_customers.customer_email AS customer_email,
                      posthog_test_stripe_customers.customer_id AS posthog_test_stripe_subscriptions__subscription_customer___customer_id
-              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`customer_id` String, `signup_count` Int32, `customer_name` String, `customer_email` String, `customer_created_at` DateTime') AS posthog_test_stripe_customers) AS posthog_test_stripe_subscriptions__subscription_customer ON equals(posthog_test_stripe_subscriptions.subscription_customer_id, posthog_test_stripe_subscriptions__subscription_customer.posthog_test_stripe_subscriptions__subscription_customer___customer_id)
+              FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.experiments.queryrunner_gw2/posthog_test_stripe_customers/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`customer_id` String, `signup_count` Int32, `customer_name` String, `customer_email` String, `customer_created_at` DateTime') AS posthog_test_stripe_customers) AS posthog_test_stripe_subscriptions__subscription_customer ON equals(posthog_test_stripe_subscriptions.subscription_customer_id, posthog_test_stripe_subscriptions__subscription_customer.posthog_test_stripe_subscriptions__subscription_customer___customer_id)
            WHERE and(ifNull(greaterOrEquals(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0), ifNull(less(toTimeZone(posthog_test_stripe_subscriptions.subscription_created_at, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0))) AS denominator_events ON and(equals(toString(exposures.exposure_identifier), toString(denominator_events.entity_identifier)), greaterOrEquals(denominator_events.timestamp, exposures.first_exposure_time))
         GROUP BY exposures.variant,
                  exposures.entity_id) AS denom_agg ON and(equals(num_agg.variant, denom_agg.variant), equals(toString(num_agg.entity_id), toString(denom_agg.entity_id)))) AS metric_events
