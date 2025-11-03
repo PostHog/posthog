@@ -68,8 +68,13 @@ export interface QueryTile {
 }
 
 export interface LLMAnalyticsLogicProps {
-    personId?: string
+    logicKey?: string
     tabId?: string
+    personId?: string
+    group?: {
+        groupKey: string
+        groupTypeIndex: number
+    }
 }
 
 /**
@@ -88,7 +93,7 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
     props({} as LLMAnalyticsLogicProps),
-    key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
+    key(({ logicKey }: LLMAnalyticsLogicProps) => logicKey || 'llmAnalyticsScene'),
     connect(() => ({
         values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']],
         actions: [teamLogic, ['addProductIntent']],
@@ -176,6 +181,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 refreshAllDashboardItems: () => ({}),
             },
         ],
+
         newestRefreshed: [
             null as Date | null,
             {
@@ -688,6 +694,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
                 (_, props) => props.personId,
+                (_, props) => props.group,
                 groupsModel.selectors.groupsTaxonomicTypes,
                 featureFlagLogic.selectors.featureFlags,
             ],
@@ -696,6 +703,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 shouldFilterTestAccounts,
                 propertyFilters,
                 personId,
+                group,
                 groupsTaxonomicTypes,
                 featureFlags
             ): DataTableNode => ({
@@ -708,7 +716,9 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                     filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
-                    ...(personId ? { personId } : {}),
+                    personId: personId ?? undefined,
+                    groupKey: group?.groupKey,
+                    groupTypeIndex: group?.groupTypeIndex,
                 },
                 columns: [
                     'id',
