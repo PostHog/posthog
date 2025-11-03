@@ -16,7 +16,7 @@ procs:
         autorestart: true
 
     temporal-worker:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue development-task-queue'
+        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && bin/check_video_deps && python manage.py start_temporal_worker --task-queue development-task-queue'
 
     dagster:
         shell: |-
