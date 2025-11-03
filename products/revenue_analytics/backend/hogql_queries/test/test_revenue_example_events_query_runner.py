@@ -19,9 +19,9 @@ from posthog.schema import (
 )
 
 from posthog.models.utils import uuid7
-from posthog.warehouse.models import DataWarehouseManagedViewSet
-from posthog.warehouse.types import DataWarehouseManagedViewSetKind
 
+from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
     RevenueExampleEventsQueryRunner,
 )
