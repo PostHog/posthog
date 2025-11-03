@@ -91,9 +91,7 @@ export function Products(): JSX.Element {
             <>
                 <div className="flex flex-col justify-center flex-grow items-center w-full max-w-full">
                     <div className="mb-2">
-                        <h2 className="text-center text-2xl sm:text-3xl lg:text-4xl">
-                            Which products would you like to use?
-                        </h2>
+                        <h2 className="text-center text-4xl">Which products would you like to use?</h2>
                         <p className="text-center">
                             Don't worry &ndash; you can pick more than one! Please select all that apply.
                         </p>
