@@ -4,7 +4,7 @@
 from django.db import migrations
 from django.db.models import Q
 
-from posthog.warehouse.models import ExternalDataSchema as ExternalDataSchemaModel
+from products.data_warehouse.backend.models import ExternalDataSchema as ExternalDataSchemaModel
 
 
 def forwards(apps, _):
