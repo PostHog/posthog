@@ -199,28 +199,64 @@ class BytecodeCompiler(Visitor):
         return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_between_expr(self, node: ast.BetweenExpr):
-        self._start_scope()
-        expr_local = self._declare_local("__H_between_expr_H__")
-
         response: list[Any] = []
+        self._start_scope()
+
+        local_expr = self._declare_local("__expr")
         response.append(Operation.NULL)
         response.extend(self.visit(node.expr))
-        response.extend([Operation.SET_LOCAL, expr_local])
+        response.extend([Operation.SET_LOCAL, local_expr])
 
+        local_low = self._declare_local("__low")
+        response.append(Operation.NULL)
+        response.extend(self.visit(node.low))
+        response.extend([Operation.SET_LOCAL, local_low])
+
+        local_high = self._declare_local("__high")
+        response.append(Operation.NULL)
+        response.extend(self.visit(node.high))
+        response.extend([Operation.SET_LOCAL, local_high])
+
+        cond: list[Any] = []
         if node.negated:
             # expr < low
-            p1 = [*self.visit(node.low), Operation.GET_LOCAL, expr_local, Operation.LT]
+            p1 = [Operation.GET_LOCAL, local_low, Operation.GET_LOCAL, local_expr, Operation.LT]
             # expr > high
-            p2 = [*self.visit(node.high), Operation.GET_LOCAL, expr_local, Operation.GT]
-            response.extend([*p1, *p2, Operation.OR, 2])
+            p2 = [Operation.GET_LOCAL, local_high, Operation.GET_LOCAL, local_expr, Operation.GT]
+            cond.extend([*p1, *p2, Operation.OR, 2])
         else:
             # expr >= low
-            part1 = [*self.visit(node.low), Operation.GET_LOCAL, expr_local, Operation.GT_EQ]
+            part1 = [Operation.GET_LOCAL, local_low, Operation.GET_LOCAL, local_expr, Operation.GT_EQ]
             # expr <= high
-            part2 = [*self.visit(node.high), Operation.GET_LOCAL, expr_local, Operation.LT_EQ]
-            response.extend([*part1, *part2, Operation.AND, 2])
+            part2 = [Operation.GET_LOCAL, local_high, Operation.GET_LOCAL, local_expr, Operation.LT_EQ]
+            cond.extend([*part1, *part2, Operation.AND, 2])
 
-        response.extend([Operation.SET_LOCAL, expr_local, Operation.GET_LOCAL, expr_local])
+        # i
+        response.extend(
+            [
+                Operation.GET_LOCAL,
+                local_low,
+                Operation.NULL,
+                Operation.NOT_EQ,
+                Operation.GET_LOCAL,
+                local_high,
+                Operation.NULL,
+                Operation.NOT_EQ,
+                Operation.GET_LOCAL,
+                local_expr,
+                Operation.NULL,
+                Operation.NOT_EQ,
+                Operation.AND,
+                3,
+                Operation.JUMP_IF_FALSE,
+                len(cond) + 2,
+                *cond,
+                Operation.JUMP,
+                1,
+                Operation.NULL,
+            ]
+        )
+
         response.extend(self._end_scope())
         return response
 
