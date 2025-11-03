@@ -774,11 +774,29 @@ def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500
         return []
 
     activity_logs = []
+    dropped_count = 0
     for entry in log_entries:
         log = log_activity(**entry, instance_only=True)
 
         if log:
             activity_logs.append(log)
+        else:
+            dropped_count += 1
+            logger.info(
+                "bulk_log_activity.entry_dropped",
+                scope=entry.get("scope"),
+                activity=entry.get("activity"),
+                team_id=entry.get("team_id"),
+                organization_id=entry.get("organization_id"),
+            )
+
+    if dropped_count > 0:
+        logger.info(
+            "bulk_log_activity.entries_dropped",
+            total_entries=len(log_entries),
+            dropped_count=dropped_count,
+            created_count=len(activity_logs),
+        )
 
     if not activity_logs:
         return []

@@ -156,7 +156,10 @@ def calculate_scope_change_logs(before_api_key: PersonalAPIKey, after_api_key: P
         filtered_lost.add(location)
 
     for org_id in full_org_revocations:
-        filtered_lost.add(LogScope(org_id, None))
+        # Don't add org-level revocation if we're also gaining org-level access
+        org_scope = LogScope(org_id, None)
+        if org_scope not in filtered_gained and org_scope not in after_access:
+            filtered_lost.add(org_scope)
 
     for location in filtered_lost:
         logs.append(

@@ -440,9 +440,11 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
                 after = self._create_api_key()
                 logs = calculate_scope_change_logs(before, after, [])
 
-                self._assert_logs_count(logs, expected_created=2, expected_revoked=2)
+                # Team 1 is the only team in org-a, so we already had org-a access
+                # No revocation for org-a should be shown since we're gaining org-a in global
+                self._assert_logs_count(logs, expected_created=2, expected_revoked=1)
                 self._assert_activity_locations(logs, "created", [("org-b", None), ("org-c", None)])
-                self._assert_activity_locations(logs, "revoked", [("org-a", None), ("org-b", 3)])
+                self._assert_activity_locations(logs, "revoked", [("org-b", 3)])
 
     def test_team_scoped_to_org_scoped(self):
         teams = self._create_mock_teams()
@@ -452,9 +454,11 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
             after = self._create_api_key(scoped_organizations=["org-a", "org-b"])
             logs = calculate_scope_change_logs(before, after, [])
 
-            self._assert_logs_count(logs, expected_created=1, expected_revoked=2)
+            # Team 1 is the only team in org-a, so we already had org-a access
+            # No revocation for org-a should be shown since we're gaining org-a
+            self._assert_logs_count(logs, expected_created=1, expected_revoked=1)
             self._assert_activity_locations(logs, "created", [("org-b", None)])
-            self._assert_activity_locations(logs, "revoked", [("org-a", None), ("org-b", 3)])
+            self._assert_activity_locations(logs, "revoked", [("org-b", 3)])
 
     def test_team_scoped_to_different_teams(self):
         teams = self._create_mock_teams()
@@ -559,9 +563,11 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
                 after = self._create_api_key()
                 logs = calculate_scope_change_logs(before, after, [])
 
-                self._assert_logs_count(logs, expected_created=2, expected_revoked=2)
+                # Team 1 is the only team in org-a, so we already had org-a access
+                # No revocation for org-a should be shown since we're gaining org-a in global
+                self._assert_logs_count(logs, expected_created=2, expected_revoked=1)
                 self._assert_activity_locations(logs, "created", [("org-b", None), ("org-c", None)])
-                self._assert_activity_locations(logs, "revoked", [("org-a", None), ("org-b", 3)])
+                self._assert_activity_locations(logs, "revoked", [("org-b", 3)])
 
     def test_complete_org_team_revocation(self):
         teams = self._create_mock_teams()
@@ -573,3 +579,17 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
 
             self._assert_logs_count(logs, expected_created=0, expected_revoked=1)
             self._assert_activity_locations(logs, "revoked", [("org-b", None)])
+
+    def test_single_team_to_org_scoped_no_change(self):
+        """Test that transitioning from team-scoped to org-scoped for a single-team org shows no change."""
+        teams = self._create_mock_teams()
+
+        with patch.object(Team.objects, "filter", side_effect=self._mock_team_filter(teams)):
+            # org-a has only team 1, org-c has only team 5
+            # Transitioning from team-scoped to org-scoped should show no net change
+            before = self._create_api_key(scoped_teams=[1, 5])
+            after = self._create_api_key(scoped_organizations=["org-a", "org-c"])
+            logs = calculate_scope_change_logs(before, after, [])
+
+            # Should have no logs - team access to the only team = org access
+            self._assert_logs_count(logs, expected_created=0, expected_revoked=0)
