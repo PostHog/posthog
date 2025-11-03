@@ -38,7 +38,6 @@ export const WebConversionGoal = ({
     const { setConversionGoal: logicSetConversionGoal } = useActions(webAnalyticsLogic)
     const { actions } = useValues(actionsModel)
 
-    // Use props if provided, otherwise use logic values
     const conversionGoal = propsValue !== undefined ? propsValue : logicConversionGoal
     const setConversionGoal = propsOnChange ?? logicSetConversionGoal
 
@@ -46,7 +45,6 @@ export const WebConversionGoal = ({
     const value =
         conversionGoal && 'actionId' in conversionGoal ? conversionGoal.actionId : conversionGoal?.customEventName
 
-    // Only check productTab if using logic (dashboard mode)
     if (propsValue === undefined && productTab !== ProductTab.ANALYTICS) {
         return null
     }

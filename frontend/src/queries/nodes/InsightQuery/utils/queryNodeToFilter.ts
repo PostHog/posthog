@@ -151,10 +151,10 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         date_from: query.dateRange?.date_from,
         explicit_date: query.dateRange?.explicitDate,
         entity_type: 'events',
-        sampling_factor: query.samplingFactor,
+        sampling_factor: 'samplingFactor' in query ? query.samplingFactor : undefined,
     })
 
-    if (!isRetentionQuery(query) && !isPathsQuery(query)) {
+    if (!isRetentionQuery(query) && !isPathsQuery(query) && 'series' in query) {
         const { actions, events, data_warehouse, new_entity } = seriesToActionsAndEvents(query.series)
         if (actions.length > 0) {
             filters.actions = actions
@@ -179,7 +179,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         Object.assign(filters, objectClean<Partial<Record<keyof CompareFilter, unknown>>>(query.compareFilter))
     }
 
-    if (!isStickinessQuery(query)) {
+    if (!isStickinessQuery(query) && 'aggregation_group_type_index' in query) {
         Object.assign(
             filters,
             objectClean({

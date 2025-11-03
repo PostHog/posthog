@@ -37,7 +37,6 @@ export const WebPropertyFilters = ({
     const { rawWebAnalyticsFilters = [], preAggregatedEnabled = false } = useValues(webAnalyticsLogic)
     const { setWebAnalyticsFilters: logicSetFilters } = useActions(webAnalyticsLogic)
 
-    // Use props if provided, otherwise use logic values
     const webAnalyticsFilters = propsFilters ?? rawWebAnalyticsFilters
     const setWebAnalyticsFilters = propsSetFilters ?? logicSetFilters
 
