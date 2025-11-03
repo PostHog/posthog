@@ -34,11 +34,13 @@ const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
 
 type CreateExperimentProps = Partial<{
     draftExperiment: Experiment
+    tabId: string
 }>
 
-export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JSX.Element => {
+export const CreateExperiment = ({ draftExperiment, tabId }: CreateExperimentProps): JSX.Element => {
+    const logic = createExperimentLogic({ experiment: draftExperiment, tabId })
     const { experiment, experimentErrors, canSubmitExperiment, sharedMetrics, isExperimentSubmitting, isEditMode } =
-        useValues(createExperimentLogic({ experiment: draftExperiment }))
+        useValues(logic)
     const {
         setExperimentValue,
         setExperiment,
@@ -47,7 +49,7 @@ export const CreateExperiment = ({ draftExperiment }: CreateExperimentProps): JS
         setFeatureFlagConfig,
         saveExperiment,
         validateField,
-    } = useActions(createExperimentLogic({ experiment: draftExperiment }))
+    } = useActions(logic)
 
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null)
 
