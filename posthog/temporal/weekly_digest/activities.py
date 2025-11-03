@@ -67,6 +67,7 @@ async def _load_playlist_counts_from_django_cache(r: redis.Redis, filters: Filte
     for r in resp:
         if r is None:
             playlist_counts.append(None)
+            continue
 
         try:
             playlist_counts.append(PlaylistCount.model_validate_json(r))
