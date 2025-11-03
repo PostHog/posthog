@@ -133,7 +133,7 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
                     start_timestamp: '2025-05-18T03:51:54.816000Z',
                 },
             ])
-            expect(Object.keys(logic.values.snapshotsBySources)).toEqual(['blob_v2-0', 'blob_v2-1'])
+            expect(Object.keys(logic.values.snapshotsBySources)).toEqual(['blob_v2-0', 'blob_v2-1', '_count'])
             expect(logic.values.snapshotsBySources['blob_v2-0'].snapshots).toHaveLength(11)
             // but blob key 1 is marked empty because its snapshots are on key 0 when loading multi blocks
             expect(logic.values.snapshotsBySources['blob_v2-1']).toEqual({
