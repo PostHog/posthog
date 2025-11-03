@@ -87,7 +87,7 @@ export function Products(): JSX.Element {
     const { hasIngestedEvent } = useValues(teamLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
+        <div className="flex flex-col flex-1 w-full min-h-full pt-4 items-center justify-center bg-primary overflow-x-hidden">
             <>
                 <div className="flex flex-col justify-center flex-grow items-center w-full max-w-full">
                     <div className="mb-2">
