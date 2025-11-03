@@ -73,6 +73,8 @@ async def _load_playlist_counts_from_django_cache(r: redis.Redis, filters: Filte
             try:
                 playlist_counts.append(PlaylistCount.model_validate_json(count))
             except ValidationError:
+                # Failure to parse means the counting job likely had an error
+                # Treat it the same as a missing count
                 playlist_counts.append(None)
 
     return playlist_counts
@@ -431,7 +433,7 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
 
                     organization_count += 1
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate organization-level digest for organization {organization.id}, skipping...",
                         error=str(e),
                         org_id=organization.id,
