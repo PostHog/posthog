@@ -203,7 +203,7 @@ async def test_get_sync_schedule(external_data_source, team, sync_frequency_inte
 def test_jitter_timedelta():
     max_jitter = dt.timedelta(days=1)
     for _ in range(100):
-        hours, minutes = _jitter_timedelta(max_jitter)
+        hours, minutes = _jitter_timedelta(max_jitter, random.Random())
         assert 0 <= hours <= 24
         if hours == 24:
             assert minutes == 0
@@ -212,7 +212,7 @@ def test_jitter_timedelta():
 
     max_jitter = dt.timedelta(hours=12)
     for _ in range(100):
-        hours, minutes = _jitter_timedelta(max_jitter)
+        hours, minutes = _jitter_timedelta(max_jitter, random.Random())
         assert 0 <= hours <= 12
         if hours == 12:
             assert minutes == 0
@@ -221,7 +221,7 @@ def test_jitter_timedelta():
 
     max_jitter = dt.timedelta(hours=6)
     for _ in range(100):
-        hours, minutes = _jitter_timedelta(max_jitter)
+        hours, minutes = _jitter_timedelta(max_jitter, random.Random())
         assert 0 <= hours <= 6
         if hours == 6:
             assert minutes == 0
@@ -230,7 +230,7 @@ def test_jitter_timedelta():
 
     max_jitter = dt.timedelta(hours=1)
     for _ in range(100):
-        hours, minutes = _jitter_timedelta(max_jitter)
+        hours, minutes = _jitter_timedelta(max_jitter, random.Random())
         assert 0 <= hours <= 1
         if hours == 1:
             assert minutes == 0
@@ -239,12 +239,12 @@ def test_jitter_timedelta():
 
     max_jitter = dt.timedelta(minutes=30)
     for _ in range(100):
-        hours, minutes = _jitter_timedelta(max_jitter)
+        hours, minutes = _jitter_timedelta(max_jitter, random.Random())
         assert hours == 0
         assert 0 <= minutes <= 30
 
     max_jitter = dt.timedelta(minutes=5)
     for _ in range(100):
-        hours, minutes = _jitter_timedelta(max_jitter)
+        hours, minutes = _jitter_timedelta(max_jitter, random.Random())
         assert hours == 0
         assert 0 <= minutes <= 5

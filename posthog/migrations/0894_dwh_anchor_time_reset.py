@@ -12,6 +12,6 @@ class Migration(migrations.Migration):
         migrations.RunSQL("""
         UPDATE posthog_externaldataschema
         SET sync_time_of_day = null
-        WHERE sync_time_of_day = '00:00';
+        WHERE sync_time_of_day = '00:00:00';
     """)
     ]

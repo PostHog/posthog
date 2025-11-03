@@ -8,7 +8,7 @@ class Command(BaseCommand):
     help = "Sync data warehouse import pipeline temporal schedules"
 
     def handle(self, *args, **options):
-        # Fetch all ExternalDataSchemas that are not deleted and have syned before
+        # Fetch all ExternalDataSchemas that are not deleted and have synced before
         schemas = ExternalDataSchema.objects.filter(deleted=False, table_id__isnull=False)
 
         schema_count = len(schemas)

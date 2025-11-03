@@ -43,9 +43,9 @@ if TYPE_CHECKING:
     from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 
 
-def _jitter_timedelta(max_jitter: timedelta) -> tuple[int, int]:
+def _jitter_timedelta(max_jitter: timedelta, rng: random.Random) -> tuple[int, int]:
     total_seconds = max_jitter.total_seconds()
-    jitter_seconds = random.uniform(0, total_seconds)
+    jitter_seconds = rng.uniform(0, total_seconds)
 
     return (int(jitter_seconds // 3600), int((jitter_seconds % 3600) // 60))
 
@@ -70,18 +70,20 @@ def get_sync_schedule(external_data_schema: "ExternalDataSchema", should_sync: b
         # Apply a one-time jitter based on the sync frequency to avoid all jobs syncing at the same time
         interval: timedelta | None = external_data_schema.sync_frequency_interval
         if interval is not None:
+            rng = random.Random(str(external_data_schema.id))
+
             if interval <= timedelta(minutes=5):
-                hour, minute = _jitter_timedelta(timedelta(minutes=5))
+                hour, minute = _jitter_timedelta(timedelta(minutes=5), rng)
             elif interval <= timedelta(minutes=30):
-                hour, minute = _jitter_timedelta(timedelta(minutes=30))
+                hour, minute = _jitter_timedelta(timedelta(minutes=30), rng)
             elif interval <= timedelta(hours=1):
-                hour, minute = _jitter_timedelta(timedelta(hours=1))
+                hour, minute = _jitter_timedelta(timedelta(hours=1), rng)
             elif interval <= timedelta(hours=6):
-                hour, minute = _jitter_timedelta(timedelta(hours=6))
+                hour, minute = _jitter_timedelta(timedelta(hours=6), rng)
             elif interval <= timedelta(hours=12):
-                hour, minute = _jitter_timedelta(timedelta(hours=12))
+                hour, minute = _jitter_timedelta(timedelta(hours=12), rng)
             elif interval <= timedelta(days=1):
-                hour, minute = _jitter_timedelta(timedelta(days=1))
+                hour, minute = _jitter_timedelta(timedelta(days=1), rng)
 
     return to_temporal_schedule(
         external_data_schema,
