@@ -322,7 +322,7 @@ CREATE TABLE IF NOT EXISTS {qualified_name} (
     page_screen_autocapture_uniq_up_to Array(UUID)
 )
 ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{qualified_name}', '{{replica}}-{{shard}}', max_inserted_at)
-ORDER BY (team_id, session_id_v7, session_timestamp) -- ordering of these?
+ORDER BY (team_id, session_id_v7)
     """
 
 

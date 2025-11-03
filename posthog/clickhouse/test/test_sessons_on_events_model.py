@@ -1,12 +1,6 @@
 from datetime import datetime, timedelta
 
-from posthog.test.base import (
-    BaseTest,
-    ClickhouseDestroyTablesMixin,
-    ClickhouseTestMixin,
-    _create_event,
-    flush_persons_and_events,
-)
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog import settings
 from posthog.clickhouse.client import query_with_columns, sync_execute
@@ -35,7 +29,7 @@ def create_session_id():
     return str(uuid7(random=session_id_counter))
 
 
-class TestSessionsOnEventsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseTest):
+class TestSessionsOnEventsModel(ClickhouseTestMixin, BaseTest):
     snapshot_replace_all_numbers = True
 
     def tearDown(self):
@@ -131,6 +125,9 @@ class TestSessionsOnEventsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixi
         )
 
         assert len(response) == 1
+
+    def test_it_creates_the_temp_table(self):
+        self.create_snapshot_table()
 
     def test_it_creates_and_populates_the_temp_table(self):
         distinct_id = create_distinct_id()
