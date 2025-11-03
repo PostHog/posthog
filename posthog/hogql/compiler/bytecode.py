@@ -220,72 +220,52 @@ class BytecodeCompiler(Visitor):
         local_high = self._declare_local("__high__")
         response.extend(self.visit(node.high))
 
-        cond: list[Any] = []
-        if node.negated:
-            cond.extend(
-                [
-                    # expr < low
-                    Operation.GET_LOCAL,
-                    local_low,
-                    Operation.GET_LOCAL,
-                    local_expr,
-                    Operation.LT,
-                    # expr > high
-                    Operation.GET_LOCAL,
-                    local_high,
-                    Operation.GET_LOCAL,
-                    local_expr,
-                    Operation.GT,
-                    Operation.OR,
-                    2,
-                ]
-            )
-        else:
-            cond.extend(
-                [
-                    # expr >= low
-                    Operation.GET_LOCAL,
-                    local_low,
-                    Operation.GET_LOCAL,
-                    local_expr,
-                    Operation.GT_EQ,
-                    # expr <= high
-                    Operation.GET_LOCAL,
-                    local_high,
-                    Operation.GET_LOCAL,
-                    local_expr,
-                    Operation.LT_EQ,
-                    Operation.AND,
-                    2,
-                ]
-            )
+        null_check: list[Any] = [
+            # low != null
+            Operation.GET_LOCAL,
+            local_low,
+            Operation.NULL,
+            Operation.NOT_EQ,
+            # high != null
+            Operation.GET_LOCAL,
+            local_high,
+            Operation.NULL,
+            Operation.NOT_EQ,
+            # expr != null
+            Operation.GET_LOCAL,
+            local_expr,
+            Operation.NULL,
+            Operation.NOT_EQ,
+            # ..and
+            Operation.AND,
+            3,
+        ]
 
-        # i
+        # negative: expr < low OR expr > high
+        # positive: expr >= low AND expr <= high
+        between_expr: list[Any] = [
+            Operation.GET_LOCAL,
+            local_low,
+            Operation.GET_LOCAL,
+            local_expr,
+            Operation.LT if node.negated else Operation.GT_EQ,
+            Operation.GET_LOCAL,
+            local_high,
+            Operation.GET_LOCAL,
+            local_expr,
+            Operation.GT if node.negated else Operation.LT_EQ,
+            Operation.OR if node.negated else Operation.AND,
+            2,
+        ]
+
         response.extend(
             [
-                # low != null
-                Operation.GET_LOCAL,
-                local_low,
-                Operation.NULL,
-                Operation.NOT_EQ,
-                # high != null
-                Operation.GET_LOCAL,
-                local_high,
-                Operation.NULL,
-                Operation.NOT_EQ,
-                # expr != null
-                Operation.GET_LOCAL,
-                local_expr,
-                Operation.NULL,
-                Operation.NOT_EQ,
-                # ..and
-                Operation.AND,
-                3,
-                # if any are null, jump to where we set NULL as the result
+                *null_check,
+                # if any are nulls, jump to where we set NULL as the result
                 Operation.JUMP_IF_FALSE,
-                len(cond) + 2,
-                # evaluate the condition, keep it on the stack
-                *cond,
+                len(between_expr) + 2,
+                # evaluate the between condition, keep it on the stack
+                *between_expr,
                 # jump over the NULL (and set the `cond` as the result value)
                 Operation.JUMP,
                 1,
