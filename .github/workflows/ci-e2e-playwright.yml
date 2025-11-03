@@ -5,7 +5,6 @@
 #
 name: E2E CI Playwright
 on:
-    pull_request:
     workflow_dispatch:
 
 env:
