@@ -96,7 +96,12 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         template_id: z.string(),
         inputs: z.record(CyclotronInputSchema),
     }),
-
+    z.object({
+        type: z.literal('manual'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+    }),
     z.object({
         type: z.literal('tracking_pixel'),
         template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
@@ -231,7 +236,7 @@ export const isFunctionAction = (
 
 export const isTriggerFunction = (
     action: HogFlowAction
-): action is Extract<HogFlowAction, { type: 'trigger'; config: { type: 'webhook' | 'tracking_pixel' } }> => {
+): action is Extract<HogFlowAction, { type: 'trigger'; config: { type: 'webhook' | 'manual' | 'tracking_pixel' } }> => {
     if (action.type !== 'trigger') {
         return false
     }

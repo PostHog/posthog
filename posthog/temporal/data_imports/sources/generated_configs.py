@@ -4,8 +4,9 @@
 from typing import Literal
 
 from posthog.temporal.data_imports.sources.common import config
-from posthog.warehouse.models.ssh_tunnel import SSHTunnelConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.models.ssh_tunnel import SSHTunnelConfig
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @config.config
@@ -74,6 +75,11 @@ class ChargebeeSourceConfig(config.Config):
 @config.config
 class DoItSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class GithubSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -244,6 +250,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
+        ExternalDataSourceType.GITHUB: GithubSourceConfig,
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,

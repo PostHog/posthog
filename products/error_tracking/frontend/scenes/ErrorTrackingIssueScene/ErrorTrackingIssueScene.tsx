@@ -2,6 +2,8 @@ import './ErrorTrackingIssueScene.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
@@ -53,6 +55,10 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const isPostHogSDKIssue = selectedEvent?.properties.$exception_values?.some((v: string) =>
         v.includes('persistence.isDisabled is not a function')
     )
+
+    useEffect(() => {
+        posthog.capture('error_tracking_issue_viewed', { issue_id: issueId })
+    }, [issueId])
 
     if (hasNewIssueLayout) {
         return (
