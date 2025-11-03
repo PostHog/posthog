@@ -347,13 +347,21 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         snapshotsBySources: [
             (s) => [s.snapshotsBySourceSuccessCount],
             (
-                // oxlint-disable-next-line @typescript-eslint/no-unused-vars
-                _snapshotsBySourceSuccessCount: number
-            ): Record<SourceKey, SessionRecordingSnapshotSourceResponse> => {
+                snapshotsBySourceSuccessCount: number
+            ): Record<SourceKey, SessionRecordingSnapshotSourceResponse> & { _count?: number } => {
                 if (!cache.snapshotsBySource) {
                     return {}
                 }
-                // TODO: if we change the data without changing the object instance then dependents don't recalculate
+
+                // KLUDGE: we keep the data in a cache so we can avoid creating large objects every time something changes
+                // KLUDGE: but if we change the data without changing the object instance then dependents don't recalculate
+                if (cache.snapshotsBySource['_count'] !== snapshotsBySourceSuccessCount) {
+                    // so we make a new object instance when the count changes
+                    // technically this should only be called when success count changes anyway...
+                    // but let's be very careful, it is relatively free to track the count
+                    cache.snapshotsBySource = { ...cache.snapshotsBySource }
+                    cache.snapshotsBySource['_count'] = snapshotsBySourceSuccessCount
+                }
                 return cache.snapshotsBySource
             },
         ],
