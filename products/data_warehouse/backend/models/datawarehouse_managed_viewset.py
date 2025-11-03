@@ -56,7 +56,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
         def __init__(self, kind: DataWarehouseManagedViewSetKind):
             self.kind = kind
-            super().__init__("Unsupported viewset kind: {self.kind}")
+            super().__init__(f"Unsupported viewset kind: {self.kind}")
 
     def __str__(self) -> str:
         return f"DataWarehouseManagedViewSet({self.kind}) for Team {self.team.id}"
