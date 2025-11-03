@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT raw_id, team_id, created_at, symbol_set_id, contents, resolved, context\n            FROM posthog_errortrackingstackframe\n            WHERE raw_id = $1 AND team_id = $2\n            ",
+  "query": "\n            SELECT raw_id, part, team_id, created_at, symbol_set_id, contents, resolved, context\n            FROM posthog_errortrackingstackframe\n            WHERE raw_id = $1 AND team_id = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -10,31 +10,36 @@
       },
       {
         "ordinal": 1,
-        "name": "team_id",
+        "name": "part",
         "type_info": "Int4"
       },
       {
         "ordinal": 2,
+        "name": "team_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "symbol_set_id",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "contents",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "resolved",
         "type_info": "Bool"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "context",
         "type_info": "Jsonb"
       }
@@ -49,11 +54,12 @@
       false,
       false,
       false,
+      false,
       true,
       false,
       false,
       true
     ]
   },
-  "hash": "4b24f800767bc20852115e7406f8dc46c18f4950a7951d2c412dcba4d13fb56b"
+  "hash": "9dd6426934b34c171fb4f7ccb1387cbfe01ade742540af78966deba9251dccce"
 }
