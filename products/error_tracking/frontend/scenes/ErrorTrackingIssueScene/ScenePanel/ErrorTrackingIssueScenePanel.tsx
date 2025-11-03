@@ -16,6 +16,7 @@ import { IssueTasks } from '../../../components/IssueTasks'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { BaseActions } from './BaseActions'
 import { IssueAssigneeSelect } from './IssueAssigneeSelect'
+import { IssueCohort } from './IssueCohort'
 import { IssueStatusSelect } from './IssueStatusSelect'
 import { SimilarIssuesList } from './SimilarIssuesList'
 
@@ -51,6 +52,7 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
                 disabled={issue.status != 'active'}
             />
             <IssueExternalReference />
+            <IssueCohort issue={issue} />
             {hasIssueSplitting && <IssueFingerprints />}
             {hasTasks && (
                 <ScenePanelLabel title="Tasks">

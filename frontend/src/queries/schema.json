@@ -10742,6 +10742,9 @@
                         }
                     ]
                 },
+                "cohort": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCohort"
+                },
                 "description": {
                     "type": ["string", "null"]
                 },
@@ -10860,6 +10863,9 @@
                             "type": "null"
                         }
                     ]
+                },
+                "cohort": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCohort"
                 },
                 "description": {
                     "type": ["string", "null"]
@@ -10991,6 +10997,19 @@
         "ErrorTrackingIssueAssigneeType": {
             "enum": ["user", "role"],
             "type": "string"
+        },
+        "ErrorTrackingIssueCohort": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
         },
         "ErrorTrackingIssueCorrelationQuery": {
             "additionalProperties": false,
@@ -11176,6 +11195,12 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "groupKey": {
+                    "type": "string"
+                },
+                "groupTypeIndex": {
+                    "$ref": "#/definitions/integer"
+                },
                 "issueId": {
                     "type": "string"
                 },
@@ -11312,6 +11337,9 @@
                             "type": "null"
                         }
                     ]
+                },
+                "cohort": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCohort"
                 },
                 "description": {
                     "type": ["string", "null"]
@@ -13291,6 +13319,7 @@
         },
         "ExternalDataSourceType": {
             "enum": [
+                "Github",
                 "Stripe",
                 "Hubspot",
                 "Postgres",
@@ -13530,6 +13559,7 @@
                 "data_warehouse",
                 "task",
                 "link",
+                "live_debugger",
                 "logs",
                 "workflows",
                 "notebook",
@@ -17177,11 +17207,27 @@
         "MatchedRecordingEvent": {
             "additionalProperties": false,
             "properties": {
+                "timestamp": {
+                    "type": "string"
+                },
                 "uuid": {
                     "type": "string"
                 }
             },
-            "required": ["uuid"],
+            "required": ["uuid", "timestamp"],
+            "type": "object"
+        },
+        "MatchingEventsResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MatchedRecordingEvent"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "MathType": {
@@ -24836,9 +24882,12 @@
                 },
                 "session_id": {
                     "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
                 }
             },
-            "required": ["person_id", "session_id", "event_uuid"],
+            "required": ["person_id", "session_id", "event_uuid", "timestamp"],
             "type": "object"
         },
         "SessionEventsItem": {
@@ -25157,6 +25206,9 @@
                         "$ref": "#/definitions/SourceFieldConfig"
                     },
                     "type": "array"
+                },
+                "iconClassName": {
+                    "type": "string"
                 },
                 "iconPath": {
                     "type": "string"
@@ -26603,6 +26655,12 @@
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
+                },
+                "groupKey": {
+                    "type": "string"
+                },
+                "groupTypeIndex": {
+                    "$ref": "#/definitions/integer"
                 },
                 "kind": {
                     "const": "TracesQuery",

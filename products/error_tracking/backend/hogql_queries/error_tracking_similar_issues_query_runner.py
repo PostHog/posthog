@@ -22,7 +22,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.error_tracking.backend.api.issues import ErrorTrackingIssueSerializer
+from products.error_tracking.backend.api.issues import ErrorTrackingIssuePreviewSerializer
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 
 logger = structlog.get_logger(__name__)
@@ -95,13 +95,13 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
             **self.paginator.response_params(),
         )
 
-    def fetch_issues(self, similar_fingerprints: list[str]) -> ErrorTrackingIssueSerializer:
+    def fetch_issues(self, similar_fingerprints: list[str]) -> ErrorTrackingIssuePreviewSerializer:
         issue_queryset = (
             ErrorTrackingIssue.objects.with_first_seen()
             .filter(team=self.team, fingerprints__fingerprint__in=similar_fingerprints)
             .distinct()
         )
-        return ErrorTrackingIssueSerializer(issue_queryset, many=True)
+        return ErrorTrackingIssuePreviewSerializer(issue_queryset, many=True)
 
     def fetch_first_event_data(self, similar_issues) -> dict[str, str]:
         time_points: list[datetime] = [datetime.fromisoformat(issue.get("first_seen")) for issue in similar_issues]

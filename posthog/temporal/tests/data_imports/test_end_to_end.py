@@ -40,7 +40,6 @@ from posthog.schema import (
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.hogql_queries.insights.funnels.funnel import Funnel
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.models import DataWarehouseTable
@@ -216,6 +215,8 @@ async def _run(
         source_type=source_type,
         job_inputs=job_inputs,
     )
+    source.created_at = datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC"))
+    await sync_to_async(source.save)()
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name=schema_name,
@@ -337,7 +338,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                 workflows=[ExternalDataJobWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -348,7 +349,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                     ExternalDataJobWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -982,15 +983,16 @@ async def test_sql_database_incremental_initial_value(team, postgres_config, pos
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_billing_limits(team, stripe_customer, mock_stripe_client):
-    source = await sync_to_async(ExternalDataSource.objects.create)(
-        source_id=uuid.uuid4(),
-        connection_id=uuid.uuid4(),
-        destination_id=uuid.uuid4(),
-        team=team,
-        status="running",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
-    )
+    with freeze_time("2024-01-01T12:00:00Z"):
+        source = await sync_to_async(ExternalDataSource.objects.create)(
+            source_id=uuid.uuid4(),
+            connection_id=uuid.uuid4(),
+            destination_id=uuid.uuid4(),
+            team=team,
+            status="running",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name="Customer",
@@ -1025,15 +1027,16 @@ async def test_billing_limits(team, stripe_customer, mock_stripe_client):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_create_external_job_failure(team, stripe_customer, mock_stripe_client):
-    source = await sync_to_async(ExternalDataSource.objects.create)(
-        source_id=uuid.uuid4(),
-        connection_id=uuid.uuid4(),
-        destination_id=uuid.uuid4(),
-        team=team,
-        status="running",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
-    )
+    with freeze_time("2024-01-01T12:00:00Z"):
+        source = await sync_to_async(ExternalDataSource.objects.create)(
+            source_id=uuid.uuid4(),
+            connection_id=uuid.uuid4(),
+            destination_id=uuid.uuid4(),
+            team=team,
+            status="running",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name="Customer",
@@ -1120,19 +1123,20 @@ async def test_create_external_job_failure_no_job_model(team, stripe_customer, m
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_non_retryable_error(team, zendesk_brands):
-    source = await sync_to_async(ExternalDataSource.objects.create)(
-        source_id=uuid.uuid4(),
-        connection_id=uuid.uuid4(),
-        destination_id=uuid.uuid4(),
-        team=team,
-        status="running",
-        source_type="Zendesk",
-        job_inputs={
-            "subdomain": "test",
-            "api_key": "test_api_key",
-            "email_address": "test@posthog.com",
-        },
-    )
+    with freeze_time("2024-01-01T12:00:00Z"):
+        source = await sync_to_async(ExternalDataSource.objects.create)(
+            source_id=uuid.uuid4(),
+            connection_id=uuid.uuid4(),
+            destination_id=uuid.uuid4(),
+            team=team,
+            status="running",
+            source_type="Zendesk",
+            job_inputs={
+                "subdomain": "test",
+                "api_key": "test_api_key",
+                "email_address": "test@posthog.com",
+            },
+        )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name="Brands",
@@ -1175,15 +1179,16 @@ async def test_non_retryable_error(team, zendesk_brands):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_non_retryable_error_with_special_characters(team, stripe_customer, mock_stripe_client):
-    source = await sync_to_async(ExternalDataSource.objects.create)(
-        source_id=uuid.uuid4(),
-        connection_id=uuid.uuid4(),
-        destination_id=uuid.uuid4(),
-        team=team,
-        status="running",
-        source_type="Stripe",
-        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
-    )
+    with freeze_time("2024-01-01T12:00:00Z"):
+        source = await sync_to_async(ExternalDataSource.objects.create)(
+            source_id=uuid.uuid4(),
+            connection_id=uuid.uuid4(),
+            destination_id=uuid.uuid4(),
+            team=team,
+            status="running",
+            source_type="Stripe",
+            job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
+        )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         name="Customer",

@@ -14,7 +14,7 @@ import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
+import { ceilMsToClosestSecond, eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
 import { getText } from 'scenes/comments/Comment'
 import {
     InspectorListItemPerformance,
@@ -206,6 +206,7 @@ function timeRelativeToStart(
         | PerformanceEvent
         | RecordingConsoleLogV2
         | RecordingEventType
+        | { timestamp: string }
         | { timestamp: number },
     start: Dayjs | null
 ): {
@@ -273,6 +274,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ['reportRecordingInspectorItemExpanded'],
             sessionRecordingDataCoordinatorLogic(props),
             ['loadFullEventData', 'setTrackedWindow'],
+            sessionRecordingPlayerLogic(props),
+            ['seekToTime', 'setSkippingToMatchingEvent'],
         ],
         values: [
             miniFiltersLogic,
@@ -297,7 +300,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'trackedWindow',
             ],
             sessionRecordingPlayerLogic(props),
-            ['currentPlayerTime'],
+            ['currentPlayerTime', 'skipToFirstMatchingEvent'],
             performanceEventDataLogic({ key: props.playerKey, sessionRecordingId: props.sessionRecordingId }),
             ['allPerformanceEvents'],
             featureFlagLogic,
@@ -329,8 +332,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    loaders(({ props }) => ({
-        matchingEventUUIDs: [
+    loaders(({ actions, values, props }) => ({
+        matchingEvents: [
             [] as MatchedRecordingEvent[] | null,
             {
                 loadMatchingEvents: async () => {
@@ -340,16 +343,32 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         return null
                     }
 
-                    if (matchType === 'uuid') {
-                        if (!matchingEventsMatchType?.eventUUIDs) {
-                            console.error('UUID matching events type must include its event ids')
+                    const skipToEarliestEvent = (matchingEvents: MatchedRecordingEvent[]): void => {
+                        if (values.skipToFirstMatchingEvent && matchingEvents.length > 0) {
+                            const earliestMatchingEvent = matchingEvents.reduce((previous, current) =>
+                                previous.timestamp < current.timestamp ? previous : current
+                            )
+                            const { timeInRecording } = timeRelativeToStart(earliestMatchingEvent, values.start)
+                            const seekTime = ceilMsToClosestSecond(timeInRecording) - 1000
+
+                            // Only show the "skipping to matching event" overlay if we're actually skipping (> 1 second from start)
+                            if (seekTime > 1000) {
+                                actions.setSkippingToMatchingEvent(true)
+                                setTimeout(() => {
+                                    actions.setSkippingToMatchingEvent(false)
+                                }, 1500)
+                            }
+
+                            actions.seekToTime(seekTime)
                         }
-                        return matchingEventsMatchType.eventUUIDs.map(
-                            (x) =>
-                                ({
-                                    uuid: x,
-                                }) as MatchedRecordingEvent
-                        )
+                    }
+
+                    if (matchType === 'uuid') {
+                        if (!matchingEventsMatchType?.matchedEvents) {
+                            console.error('UUID matching events type must include its array of matched events')
+                        }
+                        skipToEarliestEvent(matchingEventsMatchType.matchedEvents)
+                        return matchingEventsMatchType.matchedEvents
                     }
 
                     const filters = matchingEventsMatchType?.filters
@@ -363,12 +382,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const response = await api.recordings.getMatchingEvents(toParams(params))
-                    return response.results.map(
-                        (x) =>
-                            ({
-                                uuid: x,
-                            }) as MatchedRecordingEvent
-                    )
+                    skipToEarliestEvent(response.results)
+                    return response.results
                 },
             },
         ],
@@ -753,7 +768,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.allPerformanceEvents,
                 s.processedSnapshotData,
                 s.sessionEventsData,
-                s.matchingEventUUIDs,
+                s.matchingEvents,
                 s.windowNumberForID,
                 s.allContextItems,
                 s.commentItems,
@@ -766,7 +781,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 performanceEvents,
                 processedSnapshotData,
                 eventsData,
-                matchingEventUUIDs,
+                matchingEvents,
                 windowNumberForID,
                 allContextItems,
                 commentItems,
@@ -865,8 +880,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         errorCount += 1
                     }
 
-                    if (matchingEventUUIDs?.length) {
-                        isMatchingEvent = !!matchingEventUUIDs.find(
+                    if (matchingEvents?.length) {
+                        isMatchingEvent = !!matchingEvents.find(
                             (x: MatchedRecordingEvent) => x.uuid === String(event.id)
                         )
                     } else if (props.matchingEventsMatchType?.matchType === 'name') {
