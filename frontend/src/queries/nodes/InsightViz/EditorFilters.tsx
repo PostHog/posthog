@@ -40,7 +40,14 @@ import {
     AssistantRetentionQuery,
     AssistantTrendsQuery,
 } from '~/queries/schema/schema-assistant-queries'
-import { DataVisualizationNode, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataVisualizationNode,
+    InsightQueryNode,
+    InsightVizNode,
+    NodeKind,
+    WebOverviewQuery,
+    WebStatsTableQuery,
+} from '~/queries/schema/schema-general'
 import { isHogQLQuery, isWebAnalyticsInsightQuery } from '~/queries/utils'
 import {
     AvailableFeature,
@@ -105,7 +112,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
 
     // Web Analytics insights use their custom filter UI
     if (isWebAnalyticsInsightQuery(query)) {
-        return <WebAnalyticsEditorFilters query={query} showing={showing} embedded={embedded} />
+        return (
+            <WebAnalyticsEditorFilters
+                query={query as WebOverviewQuery | WebStatsTableQuery}
+                showing={showing}
+                embedded={embedded}
+            />
+        )
     }
 
     // MaxTool should not be active when insights are embedded (e.g., in notebooks)

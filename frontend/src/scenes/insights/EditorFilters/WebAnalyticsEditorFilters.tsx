@@ -47,11 +47,11 @@ export function WebAnalyticsEditorFilters({ query, embedded }: WebAnalyticsEdito
                         <>
                             <CompareFilter
                                 compareFilter={query.compareFilter}
-                                updateCompareFilter={(compareFilter) => updateQuerySource({ compareFilter })}
+                                updateCompareFilter={(compareFilter) => updateQuerySource({ compareFilter } as any)}
                             />
                             <WebConversionGoal
                                 value={query.conversionGoal ?? null}
-                                onChange={(conversionGoal) => updateQuerySource({ conversionGoal })}
+                                onChange={(conversionGoal) => updateQuerySource({ conversionGoal } as any)}
                             />
                             {isPathBased && <PathCleaningToggle query={query} updateQuerySource={updateQuerySource} />}
                             <FilterTestAccountsToggle query={query} updateQuerySource={updateQuerySource} />

@@ -28,7 +28,7 @@ export function ResultCustomizationsModal(): JSX.Element | null {
     const { isTrends, isFunnels, querySource } = useValues(insightVizDataLogic)
 
     const { getTheme } = useValues(dataThemeLogic)
-    const theme = getTheme('dataColorTheme' in (querySource || {}) ? querySource.dataColorTheme : undefined)
+    const theme = getTheme(querySource?.dataColorTheme)
 
     if (dataset == null || theme == null) {
         return null
