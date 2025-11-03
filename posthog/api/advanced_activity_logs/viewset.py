@@ -26,6 +26,15 @@ from .filters import AdvancedActivityLogFilterManager
 from .utils import get_activity_log_lookback_restriction
 
 
+def apply_organization_scoped_filter(
+    queryset: QuerySet[ActivityLog], include_org_scoped: bool, team_id: int, organization_id
+) -> QuerySet[ActivityLog]:
+    if include_org_scoped:
+        return queryset.filter(Q(team_id=team_id) | Q(team_id__isnull=True, organization_id=organization_id))
+    else:
+        return queryset.filter(team_id=team_id)
+
+
 class ActivityLogSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer()
     unread = serializers.SerializerMethodField()
@@ -80,10 +89,13 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
     filter_rewrite_rules = {"project_id": "team_id"}
-    include_organization_scoped_records = True
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         params = self.request.GET.dict()
+
+        queryset = apply_organization_scoped_filter(
+            queryset, params.get("include_organization_scoped") == "1", self.team_id, self.organization.id
+        )
 
         if params.get("user"):
             queryset = queryset.filter(user=params.get("user"))
@@ -195,17 +207,14 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return filename_base
 
     def dangerously_get_queryset(self) -> QuerySet[ActivityLog]:
-        include_organization_scoped = self.request.query_params.get("include_organization_scoped")
-
         base_queryset = ActivityLog.objects.select_related("user")
 
-        if include_organization_scoped == "1":
-            # Filter by team_id OR (team_id is null AND organization_id matches)
-            base_queryset = base_queryset.filter(
-                Q(team_id=self.team_id) | Q(team_id__isnull=True, organization_id=self.organization.id)
-            )
-        else:
-            base_queryset = base_queryset.filter(team_id=self.team_id)
+        base_queryset = apply_organization_scoped_filter(
+            base_queryset,
+            self.request.query_params.get("include_organization_scoped") == "1",
+            self.team_id,
+            self.organization.id,
+        )
 
         # Apply lookback restriction based on feature limits
         lookback_date = get_activity_log_lookback_restriction(self.organization)

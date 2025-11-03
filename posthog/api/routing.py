@@ -2,7 +2,6 @@ from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
-from django.db.models import Q
 from django.db.models.query import QuerySet
 
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
@@ -350,19 +349,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" 
 
         if parents_query_dict:
             try:
-                # Essentially include records with team_id=NULL as if they had team_id=team.id
-                if (
-                    getattr(self, "include_organization_scoped_records", False)
-                    and "team_id" in parents_query_dict
-                    and hasattr(self, "team")
-                    and self.team
-                ):
-                    team_id = parents_query_dict["team_id"]
-                    team_scoped_q = Q(team_id=team_id)
-                    org_scoped_q = Q(team_id__isnull=True, organization_id=self.team.organization_id)
-                    return queryset.filter(team_scoped_q | org_scoped_q)
-                else:
-                    return queryset.filter(**parents_query_dict)
+                return queryset.filter(**parents_query_dict)
             except ValueError:
                 raise NotFound()
         else:

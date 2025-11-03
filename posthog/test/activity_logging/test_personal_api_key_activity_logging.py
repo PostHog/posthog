@@ -215,7 +215,9 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
         self.assertTrue(len(logs) >= 1)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=PersonalAPIKey")
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/activity_log?scope=PersonalAPIKey&include_organization_scoped=1"
+        )
         self.assertEqual(response.status_code, 200)
 
         data = response.json()
