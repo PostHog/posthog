@@ -21,12 +21,12 @@ export function SessionPlayerModal(): JSX.Element | null {
 
     // activeSessionRecording?.matching_events should always be a single element array
     // but, we're filtering and using flatMap just in case
-    const eventUUIDs =
+    const matchedEvents =
         activeSessionRecording?.matching_events
             ?.filter((matchingEvents) => {
                 return matchingEvents.session_id === activeSessionRecording?.id
             })
-            .flatMap((matchedRecording) => matchedRecording.events.map((x) => x.uuid)) || []
+            .flatMap((matchedRecording) => matchedRecording.events) || []
 
     const logicProps: SessionRecordingPlayerLogicProps = {
         playerKey: 'modal',
@@ -34,7 +34,7 @@ export function SessionPlayerModal(): JSX.Element | null {
         autoPlay: true,
         matchingEventsMatchType: {
             matchType: 'uuid',
-            eventUUIDs: eventUUIDs,
+            matchedEvents: matchedEvents,
         },
     }
 

@@ -42,6 +42,7 @@ PRODUCTS_APPS = [
     "products.error_tracking.backend.apps.ErrorTrackingConfig",
     "products.notebooks.backend.apps.NotebooksConfig",
     "products.desktop_recordings.backend.apps.DesktopRecordingsConfig",
+    "products.live_debugger.backend.apps.LiveDebuggerConfig",
 ]
 
 INSTALLED_APPS = [
