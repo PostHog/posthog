@@ -247,7 +247,7 @@ class JavaScriptCompiler(Visitor):
             comparison = f"expr < {low} || expr > {high}"
         else:
             comparison = f"expr >= {low} && expr <= {high}"
-        code = f"(() => {{ const expr=({expr}), low=({low}), high=({high}); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!({comparison}); }})()"
+        code = f"(() => {{ const expr=({expr}), low=({low}), high=({high}); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!({comparison}); }})()"
 
         self._end_scope()
         return code

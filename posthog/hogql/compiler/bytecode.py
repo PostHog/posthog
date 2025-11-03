@@ -269,8 +269,8 @@ class BytecodeCompiler(Visitor):
                 # jump over the NULL (and set the `cond` as the result value)
                 Operation.JUMP,
                 1,
-                # if anything was null, we jump to here
-                Operation.NULL,
+                # if anything was null, we jump here and return FALSE
+                Operation.FALSE,
                 # put the last value on the stack into the result value
                 Operation.SET_LOCAL,
                 result_expr,

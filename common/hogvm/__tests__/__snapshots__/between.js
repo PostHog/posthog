@@ -37,15 +37,15 @@ function __escapeIdentifier(identifier) {
     return `\`${identifier.split('').map((c) => backquoteEscapeCharsMap[c] || c).join('')}\``;
 }
 
-print((() => { const expr=(5), low=(1), high=(10); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!(expr >= 1 && expr <= 10); })());
-print((() => { const expr=(1), low=(1), high=(10); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!(expr >= 1 && expr <= 10); })());
-print((() => { const expr=(10), low=(1), high=(10); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!(expr >= 1 && expr <= 10); })());
-print((() => { const expr=(0), low=(1), high=(10); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!(expr >= 1 && expr <= 10); })());
-print((() => { const expr=(11), low=(1), high=(10); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!(expr >= 1 && expr <= 10); })());
-print((() => { const expr=(5), low=(1), high=(10); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!(expr < 1 || expr > 10); })());
-print((() => { const expr=(0), low=(1), high=(10); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!(expr < 1 || expr > 10); })());
-print((() => { const expr=(11), low=(1), high=(10); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!(expr < 1 || expr > 10); })());
-print((() => { const expr=(10), low=(1), high=(10); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!(expr < 1 || expr > 10); })());
-print((() => { const expr=(null), low=(1), high=(10); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!(expr >= 1 && expr <= 10); })());
-print((() => { const expr=(5), low=(null), high=(10); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!(expr >= null && expr <= 10); })());
-print((() => { const expr=(5), low=(1), high=(null); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!(expr >= 1 && expr <= null); })());
+print((() => { const expr=(5), low=(1), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr >= 1 && expr <= 10); })());
+print((() => { const expr=(1), low=(1), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr >= 1 && expr <= 10); })());
+print((() => { const expr=(10), low=(1), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr >= 1 && expr <= 10); })());
+print((() => { const expr=(0), low=(1), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr >= 1 && expr <= 10); })());
+print((() => { const expr=(11), low=(1), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr >= 1 && expr <= 10); })());
+print((() => { const expr=(5), low=(1), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr < 1 || expr > 10); })());
+print((() => { const expr=(0), low=(1), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr < 1 || expr > 10); })());
+print((() => { const expr=(11), low=(1), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr < 1 || expr > 10); })());
+print((() => { const expr=(10), low=(1), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr < 1 || expr > 10); })());
+print((() => { const expr=(null), low=(1), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr >= 1 && expr <= 10); })());
+print((() => { const expr=(5), low=(null), high=(10); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr >= null && expr <= 10); })());
+print((() => { const expr=(5), low=(1), high=(null); return expr !== null && expr !== undefined && low !== null && low !== undefined && high !== null && high !== undefined && !!(expr >= 1 && expr <= null); })());
