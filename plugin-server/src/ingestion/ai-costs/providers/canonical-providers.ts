@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-11-03 10:03:50 UTC
+// Generated at: 2025-11-03 20:02:08 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -58,7 +58,6 @@ export type CanonicalProvider =
     | 'inference-net-fp8'
     | 'infermatic'
     | 'infermatic-bf16'
-    | 'infermatic-fp8'
     | 'inflection'
     | 'liquid'
     | 'mancer-fp16'
