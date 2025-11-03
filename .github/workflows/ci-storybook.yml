@@ -8,6 +8,8 @@ concurrency:
     # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
     cancel-in-progress: false
 
+# Test: trigger visual regression to see which snapshots are stale
+
 jobs:
     # Job to decide if we should run storybook ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
