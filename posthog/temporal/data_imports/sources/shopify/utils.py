@@ -3,7 +3,13 @@ from uuid import uuid4
 
 
 class ShopifyGraphQLObject:
-    def __init__(self, name: str, query: str, permissions_query: str | None = None):
+    def __init__(
+        self,
+        name: str,
+        query: str,
+        display_name: str | None = None,
+        permissions_query: str | None = None,
+    ):
         # shopify graphql responses typically look like this:
         # {
         #   data {
@@ -22,6 +28,8 @@ class ShopifyGraphQLObject:
         # it excludes `data` and `nodes`.
         self.name: str = name
         self.query: str = query
+        # optional display name for cases where the shopify name makes less sense to users
+        self.display_name: str | None = display_name
         self.permissions_query: str | None = permissions_query
 
 

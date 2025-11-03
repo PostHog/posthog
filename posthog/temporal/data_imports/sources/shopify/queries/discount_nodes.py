@@ -4,7 +4,7 @@ DISCOUNT_NODES_SORTKEY = "UPDATED_AT"
 
 # NOTE: 250 is the max allowable query size for nested connections
 DISCOUNT_NODES_QUERY = f"""
-query PaginatedDiscountCodes($pageSize: Int!, $cursor: String, $query: String) {{
+query PaginatedDiscountNodes($pageSize: Int!, $cursor: String, $query: String) {{
     discountNodes(
         first: $pageSize, after: $cursor, sortKey: {DISCOUNT_NODES_SORTKEY},
         query: $query

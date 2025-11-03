@@ -24,7 +24,7 @@ BLOGS = "blogs"
 CATALOGS = "catalogs"
 COLLECTIONS = "collections"
 CUSTOMERS = "customers"
-DISCOUNT_NODES = "discountCodes"
+DISCOUNT_NODES = "discountNodes"
 DISPUTES = "disputes"
 DRAFT_ORDERS = "draftOrders"
 INVENTORY_ITEMS = "inventoryItems"
@@ -73,6 +73,14 @@ SHOPIFY_GRAPHQL_OBJECTS = {
     DISCOUNT_NODES: ShopifyGraphQLObject(
         name=DISCOUNT_NODES,
         query=DISCOUNT_NODES_QUERY,
+        display_name="discountCodes",
         permissions_query="{ discountNodes(first: 1) { nodes { id } } }",
     ),
 }
+
+
+def resolve_schema_name(name: str):
+    for obj in SHOPIFY_GRAPHQL_OBJECTS.values():
+        if name == obj.display_name:
+            return obj.name
+    return name

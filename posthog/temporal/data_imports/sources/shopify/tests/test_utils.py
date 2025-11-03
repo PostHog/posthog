@@ -2,7 +2,19 @@ from copy import deepcopy
 
 import pytest
 
+from posthog.temporal.data_imports.sources.shopify.constants import resolve_schema_name
 from posthog.temporal.data_imports.sources.shopify.utils import safe_set, safe_unwrap, unwrap
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("abandonedCheckouts", "abandonedCheckouts"),
+        ("discountCodes", "discountNodes"),
+    ],
+)
+def test_resolve_schema_name(name: str, expected: str):
+    assert resolve_schema_name(name) == expected
 
 
 @pytest.fixture
