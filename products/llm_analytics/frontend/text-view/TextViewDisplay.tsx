@@ -24,42 +24,92 @@ interface TextSegment {
 }
 
 /**
- * Parse text for only TRUNCATED markers (used for nested content)
+ * Parse text for TRUNCATED and TOOLS_EXPANDABLE markers (used for nested content)
  */
 function parseTruncatedSegments(text: string): TextSegment[] {
     const segments: TextSegment[] = []
     const truncatedRegex = /<<<TRUNCATED\|([^|]+)\|(\d+)>>>/g
+    const toolsExpandableRegex = /<<<TOOLS_EXPANDABLE\|([^|]+)\|([^>]+)>>>/g
+
+    const allMatches: Array<{
+        index: number
+        length: number
+        type: 'truncated' | 'tools_expandable'
+        data: any
+    }> = []
+
+    // Find all truncated markers
+    let truncMatch: RegExpExecArray | null
+    while ((truncMatch = truncatedRegex.exec(text)) !== null) {
+        allMatches.push({
+            index: truncMatch.index,
+            length: truncMatch[0].length,
+            type: 'truncated',
+            data: { encodedContent: truncMatch[1], charCount: parseInt(truncMatch[2], 10) },
+        })
+    }
+
+    // Find all tools expandable markers
+    let toolsMatch: RegExpExecArray | null
+    while ((toolsMatch = toolsExpandableRegex.exec(text)) !== null) {
+        allMatches.push({
+            index: toolsMatch.index,
+            length: toolsMatch[0].length,
+            type: 'tools_expandable',
+            data: { displayText: toolsMatch[1], encodedContent: toolsMatch[2] },
+        })
+    }
+
+    // Sort by index
+    allMatches.sort((a, b) => a.index - b.index)
 
     let lastIndex = 0
-    let truncMatch: RegExpExecArray | null
 
-    while ((truncMatch = truncatedRegex.exec(text)) !== null) {
+    for (const match of allMatches) {
         // Add text before the marker
-        if (truncMatch.index > lastIndex) {
+        if (match.index > lastIndex) {
             segments.push({
                 type: 'text',
-                content: text.slice(lastIndex, truncMatch.index),
+                content: text.slice(lastIndex, match.index),
             })
         }
 
-        // Add truncated segment
-        try {
-            const fullContent = decodeURIComponent(atob(truncMatch[1]))
-            segments.push({
-                type: 'truncated',
-                content: `... (${parseInt(truncMatch[2], 10)} chars truncated)`,
-                fullContent,
-                charCount: parseInt(truncMatch[2], 10),
-            })
-        } catch {
-            // If decoding fails, show as regular text
-            segments.push({
-                type: 'text',
-                content: truncMatch[0],
-            })
+        if (match.type === 'truncated') {
+            // Add truncated segment
+            try {
+                const fullContent = decodeURIComponent(atob(match.data.encodedContent))
+                segments.push({
+                    type: 'truncated',
+                    content: `... (${match.data.charCount} chars truncated)`,
+                    fullContent,
+                    charCount: match.data.charCount,
+                })
+            } catch {
+                // If decoding fails, show as regular text
+                segments.push({
+                    type: 'text',
+                    content: text.slice(match.index, match.index + match.length),
+                })
+            }
+        } else if (match.type === 'tools_expandable') {
+            // Add tools expandable segment
+            try {
+                const fullContent = decodeURIComponent(atob(match.data.encodedContent))
+                segments.push({
+                    type: 'tools_expandable',
+                    content: match.data.displayText,
+                    fullContent,
+                })
+            } catch {
+                // If decoding fails, show as regular text
+                segments.push({
+                    type: 'text',
+                    content: text.slice(match.index, match.index + match.length),
+                })
+            }
         }
 
-        lastIndex = truncMatch.index + truncMatch[0].length
+        lastIndex = match.index + match.length
     }
 
     // Add remaining text
@@ -409,6 +459,71 @@ function NestedContentRenderer({
 
                 if (nestedSeg.type === 'text') {
                     return <span key={nestedIdx}>{renderTextWithLinks(nestedSeg.content, traceId)}</span>
+                }
+
+                if (nestedSeg.type === 'tools_expandable') {
+                    // Parse full content to split into individual tools
+                    const fullContent = nestedSeg.fullContent || ''
+                    const lines = fullContent.split('\n')
+
+                    // Find header line (e.g., "AVAILABLE TOOLS: 10")
+                    const headerLine = lines[0]
+                    const toolLines = lines.slice(1) // Skip header
+
+                    // Parse individual tool blocks
+                    const toolBlocks: string[] = []
+                    let currentBlock: string[] = []
+
+                    for (const line of toolLines) {
+                        if (line.trim() === '' && currentBlock.length > 0) {
+                            toolBlocks.push(currentBlock.join('\n'))
+                            currentBlock = []
+                        } else if (line.trim() !== '') {
+                            currentBlock.push(line)
+                        }
+                    }
+                    if (currentBlock.length > 0) {
+                        toolBlocks.push(currentBlock.join('\n'))
+                    }
+
+                    // Split into first 5 and remaining
+                    const visibleTools = toolBlocks.slice(0, 5)
+                    const hiddenTools = toolBlocks.slice(5)
+
+                    return (
+                        <span key={nestedIdx}>
+                            {headerLine}
+                            {'\n\n'}
+                            {visibleTools.map((toolBlock, i) => (
+                                <span key={i}>
+                                    {renderTextWithLinks(toolBlock, traceId)}
+                                    {'\n\n'}
+                                </span>
+                            ))}
+                            {hiddenTools.length > 0 && (
+                                <>
+                                    <button
+                                        onClick={() => toggleNestedSegment(nestedIdx)}
+                                        className="text-link hover:underline cursor-pointer"
+                                        title={isNestedExpanded ? 'Collapse' : 'Expand'}
+                                    >
+                                        {isNestedExpanded ? '[−]' : '[+]'} {hiddenTools.length} more tool
+                                        {hiddenTools.length > 1 ? 's' : ''}
+                                    </button>
+                                    {isNestedExpanded && (
+                                        <div className="ml-4 mt-2 mb-2">
+                                            {hiddenTools.map((toolBlock, i) => (
+                                                <span key={i}>
+                                                    {renderTextWithLinks(toolBlock, traceId)}
+                                                    {'\n\n'}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </span>
+                    )
                 }
 
                 // Truncated segment
