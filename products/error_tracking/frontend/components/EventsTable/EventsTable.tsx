@@ -13,7 +13,6 @@ import { IconLink, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { isString } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { EventDetails } from 'scenes/activity/explore/EventDetails'
 import { PersonDisplay, PersonIcon } from 'scenes/persons/PersonDisplay'
 import { asDisplay } from 'scenes/persons/person-utils'
 import { urls } from 'scenes/urls'
@@ -58,10 +57,7 @@ export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: E
     function renderTitle(record: ErrorEventType): JSX.Element {
         return (
             <LemonTableLink
-                onClick={() => {
-                    debugger
-                    onEventSelect(record)
-                }}
+                onClick={() => onEventSelect(record)}
                 title={record.properties.$exception_types[0]}
                 description={
                     <div>

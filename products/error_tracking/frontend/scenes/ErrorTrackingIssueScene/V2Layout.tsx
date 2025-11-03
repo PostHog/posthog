@@ -4,24 +4,15 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useRef, useState } from 'react'
 
-import { IconChevronRight, IconFilter, IconList, IconSearch, IconShare, IconWarning } from '@posthog/icons'
+import { IconFilter, IconList, IconSearch, IconShare, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
-import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconComment, IconRobot } from 'lib/lemon-ui/icons'
-import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuGroup,
-    DropdownMenuItem,
-    DropdownMenuOpenIndicator,
-    DropdownMenuTrigger,
-} from 'lib/ui/DropdownMenu/DropdownMenu'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     TabsPrimitive,
     TabsPrimitiveContent,
@@ -45,13 +36,6 @@ import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupProm
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
-
-const EXCEPTION_TABS = {
-    exceptions: { icon: <IconList />, label: 'Exceptions' },
-    breakdowns: { icon: <IconFilter />, label: 'Breakdowns' },
-    autofix: { icon: <IconRobot />, label: 'AI autofix' },
-    similar_issues: { icon: <IconSearch />, label: 'Similar issues' },
-}
 
 export function V2Layout(): JSX.Element {
     const { selectedEvent } = useValues(errorTrackingIssueSceneLogic)
@@ -189,28 +173,30 @@ const LeftHandColumn = (): JSX.Element => {
                     <LemonDivider className="mt-1" />
 
                     <TabsPrimitive defaultValue="overview" className="flex flex-col gap-y-2">
-                        <TabsPrimitiveList className="flex justify-between space-x-2 border-b">
-                            <TabsPrimitiveTrigger className="px-2 py-1.5" value="overview">
-                                <IconWarning className="mr-1" />
-                                Overview
-                            </TabsPrimitiveTrigger>
-                            <TabsPrimitiveTrigger className="px-2 py-1.5" value="exceptions">
-                                <IconList className="mr-1" />
-                                Exceptions
-                            </TabsPrimitiveTrigger>
-                            <TabsPrimitiveTrigger className="px-2 py-1.5" value="breakdowns">
-                                <IconFilter className="mr-1" />
-                                Breakdowns
-                            </TabsPrimitiveTrigger>
-                            <TabsPrimitiveTrigger className="px-2 py-1.5" value="autofix">
-                                <IconRobot className="mr-1" />
-                                Autofix
-                            </TabsPrimitiveTrigger>
-                            <TabsPrimitiveTrigger className="px-2 py-1.5" value="similar_issues">
-                                <IconSearch className="mr-1" />
-                                Similar issues
-                            </TabsPrimitiveTrigger>
-                        </TabsPrimitiveList>
+                        <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
+                            <TabsPrimitiveList className="flex justify-between space-x-2">
+                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="overview">
+                                    <IconWarning className="mr-1" />
+                                    <span className="text-nowrap">Overview</span>
+                                </TabsPrimitiveTrigger>
+                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="exceptions">
+                                    <IconList className="mr-1" />
+                                    <span className="text-nowrap">Exceptions</span>
+                                </TabsPrimitiveTrigger>
+                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="breakdowns">
+                                    <IconFilter className="mr-1" />
+                                    <span className="text-nowrap">Breakdowns</span>
+                                </TabsPrimitiveTrigger>
+                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="autofix">
+                                    <IconRobot className="mr-1" />
+                                    <span className="text-nowrap">Autofix</span>
+                                </TabsPrimitiveTrigger>
+                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
+                                    <IconSearch className="mr-1" />
+                                    <span className="text-nowrap">Similar issues</span>
+                                </TabsPrimitiveTrigger>
+                            </TabsPrimitiveList>
+                        </ScrollableShadows>
                         <TabsPrimitiveContent value="overview" className="pr-2">
                             <ErrorTrackingIssueScenePanel showActions={false} />
                         </TabsPrimitiveContent>
