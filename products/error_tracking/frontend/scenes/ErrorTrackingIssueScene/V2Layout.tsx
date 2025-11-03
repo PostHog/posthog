@@ -57,7 +57,7 @@ export function V2Layout(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <div className="ErrorTrackingIssue flex">
+            <div className="ErrorTrackingIssue flex h-full min-h-0">
                 <LeftHandColumn />
                 <RightHandColumn />
             </div>
@@ -70,7 +70,7 @@ const RightHandColumn = (): JSX.Element => {
     const tagRenderer = useErrorTagRenderer()
 
     return (
-        <div className="flex flex-1 flex-col gap-y-1 pl-4">
+        <div className="flex flex-1 flex-col gap-y-1 pl-4 overflow-y-auto">
             <ExceptionCard
                 issue={issue ?? undefined}
                 issueLoading={issueLoading}
@@ -82,7 +82,7 @@ const RightHandColumn = (): JSX.Element => {
     )
 }
 
-const CLOSE_THRESHOLD = 400
+const CLOSE_THRESHOLD = 300
 
 const LeftHandColumn = (): JSX.Element => {
     const ref = useRef<HTMLDivElement>(null)
@@ -97,10 +97,11 @@ const LeftHandColumn = (): JSX.Element => {
         placement: 'right',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
+    const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
-    const style = isClosed ? {} : { width: desiredSize ?? '40%', minWidth: CLOSE_THRESHOLD + 80 }
+    const style = isClosed ? {} : { width: desiredSize ?? '30%', minWidth: CLOSE_THRESHOLD + 80 }
 
     const comment = (
         <ButtonPrimitive

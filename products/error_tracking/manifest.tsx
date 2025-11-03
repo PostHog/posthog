@@ -21,6 +21,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
             projectBased: true,
             name: 'Error tracking issue',
+            layout: 'app-full-scene-height',
         },
         ErrorTrackingIssueFingerprints: {
             import: () =>
