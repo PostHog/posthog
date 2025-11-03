@@ -13,25 +13,20 @@ use tracing::{debug, warn};
 /// This helper consolidates the common pattern of:
 /// 1. Try Redis cache first
 /// 2. On cache miss, fetch from PostgreSQL using the provided lookup function
-/// 3. Update Redis cache on successful database fetch (only for true cache misses)
+/// 3. Update Redis cache on successful database fetch
 /// 4. Return the team
-///
-/// # Cache Write Behavior
-/// The function only writes to Redis cache when:
-/// - Team is not found in cache (TokenValidationError, which maps from CustomRedisError::NotFound)
-///
-/// The function skips cache writes for Redis errors like timeouts or unavailability
-/// to avoid adding load to an already struggling Redis instance.
 ///
 /// # Arguments
 /// * `redis_reader` - Redis client for cache reads
 /// * `redis_writer` - Redis client for cache writes
 /// * `token` - Token to use for cache key lookup
 /// * `db_lookup` - Async function to fetch team from PostgreSQL on cache miss
+/// * `cache_ttl_seconds` - Optional TTL for Redis cache entries in seconds
 pub async fn fetch_team_from_redis_with_fallback<F, Fut>(
     redis_reader: Arc<dyn RedisClient + Send + Sync>,
     redis_writer: Arc<dyn RedisClient + Send + Sync>,
     token: &str,
+    cache_ttl_seconds: Option<u64>,
     db_lookup: F,
 ) -> Result<Team, FlagError>
 where
@@ -44,38 +39,18 @@ where
             debug!(team_id = team.id, "Found team in Redis cache");
             Ok(team)
         }
-        Err(FlagError::TokenValidationError) => {
-            debug!("Team not found in Redis cache (key missing)");
-            // True cache miss - key doesn't exist. Safe to write after DB fetch.
+        Err(e) => {
+            debug!(error = %e, "Team not found in Redis cache");
+            // Fallback to database using provided lookup function
             match db_lookup().await {
                 Ok(team) => {
-                    debug!(
-                        "Successfully fetched team {} from PostgreSQL for token {}",
-                        team.id, token
-                    );
+                    debug!(team_id = team.id, "Found team in PostgreSQL");
                     // Update Redis cache for next time
-                    if let Err(e) = Team::update_redis_cache(redis_writer, &team).await {
+                    if let Err(e) =
+                        Team::update_redis_cache(redis_writer, &team, cache_ttl_seconds).await
+                    {
                         warn!(team_id = team.id, error = %e, "Failed to update Redis cache");
                     }
-                    Ok(team)
-                }
-                Err(e) => {
-                    warn!(error = %e, "Team not found in PostgreSQL");
-                    Err(e)
-                }
-            }
-        }
-        Err(e) => {
-            // Redis timeout, unavailable, or other errors - don't write to avoid
-            // adding load to an already struggling Redis instance
-            warn!(error = %e, "Redis error reading team, skipping cache write on fallback");
-            // Fallback to database but skip cache write
-            match db_lookup().await {
-                Ok(team) => {
-                    debug!(
-                        "Successfully fetched team {} from PostgreSQL for token {} (skipping cache write due to Redis error)",
-                        team.id, token
-                    );
                     Ok(team)
                 }
                 Err(e) => {
@@ -162,6 +137,7 @@ impl Team {
     pub async fn update_redis_cache(
         client: Arc<dyn RedisClient + Send + Sync>,
         team: &Team,
+        ttl_seconds: Option<u64>,
     ) -> Result<(), FlagError> {
         let serialized_team = serde_json::to_string(&team).map_err(|e| {
             tracing::error!(
@@ -173,28 +149,46 @@ impl Team {
             FlagError::RedisDataParsingError
         })?;
 
-        tracing::info!(
-            "Writing team to Redis at key '{}{}': team_id={}",
-            TEAM_TOKEN_CACHE_PREFIX,
-            team.api_token,
-            team.id
-        );
+        let cache_key = format!("{TEAM_TOKEN_CACHE_PREFIX}{}", team.api_token);
 
-        client
-            .set(
-                format!("{TEAM_TOKEN_CACHE_PREFIX}{}", team.api_token),
-                serialized_team,
-            )
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    "Failed to update Redis cache for team {} (token {}): {}",
-                    team.id,
-                    team.api_token,
-                    e
+        match ttl_seconds {
+            Some(ttl) => {
+                tracing::info!(
+                    "Writing team to Redis at key '{}' with TTL {} seconds: team_id={}",
+                    cache_key,
+                    ttl,
+                    team.id
                 );
-                FlagError::CacheUpdateError
-            })?;
+                client
+                    .setex(cache_key, serialized_team, ttl)
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(
+                            "Failed to update Redis cache with TTL for team {} (token {}): {}",
+                            team.id,
+                            team.api_token,
+                            e
+                        );
+                        FlagError::CacheUpdateError
+                    })?;
+            }
+            None => {
+                tracing::info!(
+                    "Writing team to Redis at key '{}' without TTL: team_id={}",
+                    cache_key,
+                    team.id
+                );
+                client.set(cache_key, serialized_team).await.map_err(|e| {
+                    tracing::error!(
+                        "Failed to update Redis cache for team {} (token {}): {}",
+                        team.id,
+                        team.api_token,
+                        e
+                    );
+                    FlagError::CacheUpdateError
+                })?;
+            }
+        }
 
         Ok(())
     }
@@ -208,11 +202,6 @@ impl Team {
             .bind(token)
             .fetch_one(&mut *conn)
             .await?;
-
-        debug!(
-            "Successfully fetched team {} from PostgreSQL for token {}",
-            row.id, token
-        );
 
         Ok(row)
     }
@@ -232,11 +221,6 @@ impl Team {
             .bind(token)
             .fetch_one(&mut *conn)
             .await?;
-
-        debug!(
-            "Successfully fetched team {} from PostgreSQL for secret token {}",
-            row.id, token
-        );
 
         Ok(row)
     }
@@ -297,7 +281,7 @@ mod tests {
             project_id: i64::from(id) - 1,
             name: "team".to_string(),
             api_token: token,
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
             ..Default::default()
         };
@@ -339,7 +323,7 @@ mod tests {
             project_id: 0,
             uuid: Uuid::nil(),
             session_recording_opt_in: false,
-            cookieless_server_hash_mode: 0,
+            cookieless_server_hash_mode: Some(0),
             timezone: "UTC".to_string(),
             ..Default::default()
         };
@@ -361,7 +345,7 @@ mod tests {
         assert_eq!(team_from_redis.api_token, target_token);
         assert_eq!(team_from_redis.id, 343);
         assert_eq!(team_from_redis.project_id, 343); // Same as `id`
-        assert_eq!(team_from_redis.cookieless_server_hash_mode, 0);
+        assert_eq!(team_from_redis.cookieless_server_hash_mode, Some(0));
     }
 
     #[tokio::test]
@@ -479,20 +463,21 @@ mod tests {
         let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
 
         // Call the function with a DB lookup that returns the team
-        let result = fetch_team_from_redis_with_fallback(reader, writer, &token, || async {
-            Ok(test_team.clone())
-        })
-        .await;
+        let result =
+            fetch_team_from_redis_with_fallback(reader, writer, &token, Some(3600), || async {
+                Ok(test_team.clone())
+            })
+            .await;
 
         // Should succeed and return the team
         assert!(result.is_ok());
         assert_eq!(result.unwrap().id, team_id);
 
-        // Verify SET was called (cache write happened)
+        // Verify SETEX was called (cache write happened with TTL)
         let writer_calls = mock_writer.get_calls();
         assert!(
-            writer_calls.iter().any(|call| call.op == "set"),
-            "Expected SET to be called for NotFound error, but it wasn't"
+            writer_calls.iter().any(|call| call.op == "setex"),
+            "Expected SETEX to be called for NotFound error, but it wasn't"
         );
     }
 
@@ -525,10 +510,11 @@ mod tests {
         let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
 
         // Call the function with a DB lookup that returns the team
-        let result = fetch_team_from_redis_with_fallback(reader, writer, &token, || async {
-            Ok(test_team.clone())
-        })
-        .await;
+        let result =
+            fetch_team_from_redis_with_fallback(reader, writer, &token, Some(3600), || async {
+                Ok(test_team.clone())
+            })
+            .await;
 
         // Should succeed and return the team
         assert!(result.is_ok());
@@ -571,10 +557,11 @@ mod tests {
         let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
 
         // Call the function with a DB lookup that returns the team
-        let result = fetch_team_from_redis_with_fallback(reader, writer, &token, || async {
-            Ok(test_team.clone())
-        })
-        .await;
+        let result =
+            fetch_team_from_redis_with_fallback(reader, writer, &token, Some(3600), || async {
+                Ok(test_team.clone())
+            })
+            .await;
 
         // Should succeed and return the team
         assert!(result.is_ok());

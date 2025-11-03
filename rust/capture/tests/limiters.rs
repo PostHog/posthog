@@ -136,7 +136,6 @@ async fn setup_router_with_limits(
         1024 * 1024, // event_size_limit
         false,       // enable_historical_rerouting
         1,           // historical_rerouting_threshold_days
-        None,        // historical_tokens_keys
         false,       // is_mirror_deploy
         0.0,         // verbose_sample_percent
         26_214_400,  // ai_max_sum_of_parts_bytes (25MB)
@@ -1180,7 +1179,6 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         1024 * 1024,
         false,
         1,
-        None,
         false,
         0.0,
         26_214_400,
@@ -1256,7 +1254,6 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         1024 * 1024,
         false,
         1,
-        None,
         false,
         0.0,
         26_214_400,
@@ -1336,7 +1333,6 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         1024 * 1024,
         false,
         1,
-        None,
         false,
         0.0,
         26_214_400,
@@ -1753,7 +1749,6 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         1024 * 1024,
         false,
         1,
-        None,
         false,
         0.0,
         26_214_400,
