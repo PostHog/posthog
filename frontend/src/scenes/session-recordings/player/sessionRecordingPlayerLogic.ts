@@ -889,13 +889,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         percentPlayedOfBuffered: [
             (s) => [s.dataBufferedUntilPlayerTime, s.currentPlayerTime],
             (dataBufferedUntilPlayerTime, currentPlayerTime) => {
-                const bufferedSeconds = Math.floor(dataBufferedUntilPlayerTime / 1000)
-                if (bufferedSeconds === 0) {
+                if (dataBufferedUntilPlayerTime <= 0) {
+                    return 0
+                }
+                if (currentPlayerTime <= 0) {
                     return 0
                 }
 
-                const playerSeconds = Math.floor(currentPlayerTime / 1000)
-                return playerSeconds / bufferedSeconds
+                return (currentPlayerTime / dataBufferedUntilPlayerTime) * 100
             },
         ],
 
