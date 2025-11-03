@@ -1108,7 +1108,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
             batch_export_id=inputs.batch_export_id,
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
-            max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
+            max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
