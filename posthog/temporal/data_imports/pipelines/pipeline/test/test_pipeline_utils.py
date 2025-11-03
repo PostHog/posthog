@@ -362,7 +362,7 @@ def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
         }
     )
 
-    delta_fields = [
+    delta_fields: list[pa.Field] = [
         pa.field("id", pa.int64(), nullable=False),
         pa.field("metadata", pa.string(), nullable=True),
     ]
@@ -384,7 +384,7 @@ def test_evolve_pyarrow_schema_with_list_containing_datetime():
         }
     )
 
-    delta_fields = [
+    delta_fields: list[pa.Field] = [
         pa.field("id", pa.int64(), nullable=False),
         pa.field("tags", pa.string(), nullable=True),
     ]
