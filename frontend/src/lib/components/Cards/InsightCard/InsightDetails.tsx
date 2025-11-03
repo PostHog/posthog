@@ -174,18 +174,20 @@ function PathsSummary({ query }: { query: PathsQuery }): JSX.Element {
     return (
         <div className="SeriesDisplay">
             <div>
-                User paths based on <b>{humanizePathsEventTypes(includeEventTypes).join(' and ')}</b>
+                <div>
+                    User paths based on <b>{humanizePathsEventTypes(includeEventTypes).join(' and ')}</b>
+                </div>
+                {startPoint && (
+                    <div>
+                        starting at <b>{startPoint}</b>
+                    </div>
+                )}
+                {endPoint && (
+                    <div>
+                        ending at <b>{endPoint}</b>
+                    </div>
+                )}
             </div>
-            {startPoint && (
-                <div>
-                    starting at <b>{startPoint}</b>
-                </div>
-            )}
-            {endPoint && (
-                <div>
-                    ending at <b>{endPoint}</b>
-                </div>
-            )}
         </div>
     )
 }

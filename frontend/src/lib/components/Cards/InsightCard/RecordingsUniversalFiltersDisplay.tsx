@@ -69,7 +69,7 @@ export function CompactUniversalFiltersDisplay({
     if (isPropertyGroupFilter) {
         // PropertyGroupFilter has nested structure: { type, values: [{ type, values: [...] }] }
         const propertyGroup = groupFilter as PropertyGroupFilter
-        filtersToRender = propertyGroup.values.flatMap((subGroup) => subGroup.values as UniversalFiltersGroupValue[])
+        filtersToRender = propertyGroup.values
         filterType = propertyGroup.type || FilterLogicalOperator.And
     } else {
         // UniversalFiltersGroup has flat structure: { type, values: [...] }
@@ -131,7 +131,7 @@ export function CompactUniversalFiltersDisplay({
                             <span>
                                 {isFirstFilterOverall && embedded ? 'where ' : null}
                                 {index > 0 ? (
-                                    <strong>{filterType === FilterLogicalOperator.Or ? 'or ' : 'and '}</strong>
+                                    <strong>{filterType === FilterLogicalOperator.Or ? <em>or </em> : 'and '}</strong>
                                 ) : null}
                                 {isCohortPropertyFilter(leafFilter) ? (
                                     <>
