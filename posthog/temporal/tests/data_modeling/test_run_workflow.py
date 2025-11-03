@@ -23,7 +23,6 @@ from asgiref.sync import sync_to_async
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
-from posthog import constants
 from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
 from posthog.sync import database_sync_to_async
@@ -766,7 +765,7 @@ async def test_run_workflow_with_minio_bucket(
     ):
         async with temporalio.worker.Worker(
             temporal_client,
-            task_queue=constants.DATA_MODELING_TASK_QUEUE,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
             workflows=[RunWorkflow],
             activities=[
                 start_run_activity,
@@ -785,7 +784,7 @@ async def test_run_workflow_with_minio_bucket(
                 RunWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.DATA_MODELING_TASK_QUEUE,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
             )
@@ -884,7 +883,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
     ):
         async with temporalio.worker.Worker(
             temporal_client,
-            task_queue=constants.DATA_MODELING_TASK_QUEUE,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
             workflows=[RunWorkflow],
             activities=[
                 start_run_activity,
@@ -903,7 +902,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
                 RunWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.DATA_MODELING_TASK_QUEUE,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
             )
@@ -940,7 +939,7 @@ async def test_run_workflow_revert_materialization(
     ):
         async with temporalio.worker.Worker(
             temporal_client,
-            task_queue=constants.DATA_MODELING_TASK_QUEUE,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
             workflows=[RunWorkflow],
             activities=[
                 start_run_activity,
@@ -959,7 +958,7 @@ async def test_run_workflow_revert_materialization(
                 RunWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.DATA_MODELING_TASK_QUEUE,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
             )

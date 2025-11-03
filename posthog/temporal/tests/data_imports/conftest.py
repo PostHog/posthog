@@ -21,7 +21,6 @@ from posthog.schema import HogQLQueryResponse
 
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.utils import ExternalDataWorkflowInputs
@@ -117,7 +116,7 @@ async def run_external_data_job_workflow(
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                 workflows=[ExternalDataJobWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -128,7 +127,7 @@ async def run_external_data_job_workflow(
                     ExternalDataJobWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
