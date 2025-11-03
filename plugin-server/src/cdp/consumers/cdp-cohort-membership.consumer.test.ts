@@ -71,9 +71,9 @@ describe('CdpCohortMembershipConsumer', () => {
                 createKafkaMessage(event, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: index })
             )
 
-            const cohortMembershipChanges = await (consumer as any)._parseAndValidateBatch(messages)
-            await (consumer as any).persistCohortMembershipChanges(cohortMembershipChanges)
-            await (consumer as any).publishCohortMembershipTriggers(cohortMembershipChanges)
+            const cohortMembershipChanges = consumer['_parseAndValidateBatch'](messages)
+            await consumer['persistCohortMembershipChanges'](cohortMembershipChanges)
+            await consumer['publishCohortMembershipTriggers'](cohortMembershipChanges)
 
             // Verify data was written to PostgreSQL
             const result = await hub.postgres.query(
@@ -138,9 +138,9 @@ describe('CdpCohortMembershipConsumer', () => {
             const enterMessages = [
                 createKafkaMessage(enterEvent, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }),
             ]
-            const enterChanges = await (consumer as any)._parseAndValidateBatch(enterMessages)
-            await (consumer as any).persistCohortMembershipChanges(enterChanges)
-            await (consumer as any).publishCohortMembershipTriggers(enterChanges)
+            const enterChanges = consumer['_parseAndValidateBatch'](enterMessages)
+            await consumer['persistCohortMembershipChanges'](enterChanges)
+            await consumer['publishCohortMembershipTriggers'](enterChanges)
 
             let result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
@@ -174,9 +174,9 @@ describe('CdpCohortMembershipConsumer', () => {
             const leaveMessages = [
                 createKafkaMessage(leaveEvent, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 1 }),
             ]
-            const leaveChanges = await (consumer as any)._parseAndValidateBatch(leaveMessages)
-            await (consumer as any).persistCohortMembershipChanges(leaveChanges)
-            await (consumer as any).publishCohortMembershipTriggers(leaveChanges)
+            const leaveChanges = consumer['_parseAndValidateBatch'](leaveMessages)
+            await consumer['persistCohortMembershipChanges'](leaveChanges)
+            await consumer['publishCohortMembershipTriggers'](leaveChanges)
 
             result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
@@ -212,9 +212,9 @@ describe('CdpCohortMembershipConsumer', () => {
             const reEnterMessages = [
                 createKafkaMessage(reEnterEvent, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 2 }),
             ]
-            const reEnterChanges = await (consumer as any)._parseAndValidateBatch(reEnterMessages)
-            await (consumer as any).persistCohortMembershipChanges(reEnterChanges)
-            await (consumer as any).publishCohortMembershipTriggers(reEnterChanges)
+            const reEnterChanges = consumer['_parseAndValidateBatch'](reEnterMessages)
+            await consumer['persistCohortMembershipChanges'](reEnterChanges)
+            await consumer['publishCohortMembershipTriggers'](reEnterChanges)
 
             result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
@@ -272,7 +272,7 @@ describe('CdpCohortMembershipConsumer', () => {
             ]
 
             // Should throw due to invalid messages in batch
-            await expect((consumer as any)._parseAndValidateBatch(messages)).rejects.toThrow()
+            expect(() => consumer['_parseAndValidateBatch'](messages)).toThrow()
 
             // Verify NO data was inserted
             const result = await hub.postgres.query(

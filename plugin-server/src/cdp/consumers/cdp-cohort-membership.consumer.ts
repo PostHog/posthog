@@ -94,7 +94,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
         }
     }
 
-    private async _parseAndValidateBatch(messages: Message[]): Promise<CohortMembershipChange[]> {
+    private _parseAndValidateBatch(messages: Message[]): CohortMembershipChange[] {
         const cohortMembershipChanges: CohortMembershipChange[] = []
 
         // Process and validate all messages
@@ -143,7 +143,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
             })
 
             return instrumentFn('cdpCohortMembershipConsumer.handleEachBatch', async () => {
-                const cohortMembershipChanges = await this._parseAndValidateBatch(messages)
+                const cohortMembershipChanges = this._parseAndValidateBatch(messages)
 
                 // First persist changes to the database
                 await this.persistCohortMembershipChanges(cohortMembershipChanges)
