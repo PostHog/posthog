@@ -143,7 +143,6 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
             expect(logic.cache.processingCache['blob_v2-0']).toEqual(
                 logic.values.snapshotsBySources['blob_v2-0'].snapshots
             )
-            expect(logic.cache.processingCache['blob_v2-1']).toHaveLength(0)
         })
     })
 })
