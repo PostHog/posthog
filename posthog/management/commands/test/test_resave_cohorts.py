@@ -118,7 +118,10 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         assert updated[cohorts[0].id].cohort_type == "realtime"
         assert _has_condition_hash(updated[cohorts[0].id].filters)
         # Assert behavioral('purchase') bytecode
-        behavioral_filter_0 = updated[cohorts[0].id].filters["properties"]["values"][1]
+        filters_0 = updated[cohorts[0].id].filters
+        assert filters_0 is not None
+        assert isinstance(filters_0, dict)
+        behavioral_filter_0 = filters_0["properties"]["values"][1]
         assert behavioral_filter_0["type"] == "behavioral"
         assert behavioral_filter_0["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 32, "purchase", 32, "event", 1, 1, 11]
         assert behavioral_filter_0["conditionHash"] is not None
@@ -127,7 +130,10 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         assert updated[cohorts[1].id].cohort_type is None
         assert _has_condition_hash(updated[cohorts[1].id].filters)
         # Unsupported behavioral value should not emit behavioral bytecode
-        behavioral_filter_1 = updated[cohorts[1].id].filters["properties"]["values"][1]
+        filters_1 = updated[cohorts[1].id].filters
+        assert filters_1 is not None
+        assert isinstance(filters_1, dict)
+        behavioral_filter_1 = filters_1["properties"]["values"][1]
         assert behavioral_filter_1["type"] == "behavioral"
         assert "bytecode" not in behavioral_filter_1 or behavioral_filter_1.get("bytecode") is None
 
@@ -135,7 +141,10 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         assert updated[cohorts[2].id].cohort_type == "realtime"
         assert _has_condition_hash(updated[cohorts[2].id].filters)
         # Person property should have bytecode
-        person_filter_2 = updated[cohorts[2].id].filters["properties"]["values"][0]
+        filters_2 = updated[cohorts[2].id].filters
+        assert filters_2 is not None
+        assert isinstance(filters_2, dict)
+        person_filter_2 = filters_2["properties"]["values"][0]
         assert person_filter_2["type"] == "person"
         assert "bytecode" in person_filter_2
         assert person_filter_2["bytecode"] is not None
@@ -149,7 +158,10 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         assert updated[cohorts[4].id].cohort_type == "realtime"
         assert _has_condition_hash(updated[cohorts[4].id].filters)
         # Assert behavioral('page_view') bytecode
-        behavioral_filter_4 = updated[cohorts[4].id].filters["properties"]["values"][0]
+        filters_4 = updated[cohorts[4].id].filters
+        assert filters_4 is not None
+        assert isinstance(filters_4, dict)
+        behavioral_filter_4 = filters_4["properties"]["values"][0]
         assert behavioral_filter_4["type"] == "behavioral"
         assert behavioral_filter_4["bytecode"] == ["_H", HOGQL_BYTECODE_VERSION, 32, "page_view", 32, "event", 1, 1, 11]
         assert behavioral_filter_4["conditionHash"] is not None
