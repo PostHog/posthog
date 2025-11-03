@@ -176,6 +176,31 @@ describe('LogsIngestionConsumer', () => {
             expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
         })
 
+        it('should preserve kafka message headers', async () => {
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                myHeader: 'hello',
+            })
+
+            await consumer.processKafkaBatch(messages)
+
+            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
+            expect(producedMessages).toHaveLength(1)
+            expect(forSnapshot(producedMessages)).toMatchSnapshot()
+        })
+
+        it('should preserve overwrite existing headers', async () => {
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                token: team.api_token,
+                team_id: '999',
+            })
+
+            await consumer.processKafkaBatch(messages)
+
+            expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
+        })
+
         it('should handle parse errors gracefully', async () => {
             const messages = [
                 {
