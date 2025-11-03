@@ -240,19 +240,17 @@ class JavaScriptCompiler(Visitor):
 
     def visit_between_expr(self, node: ast.BetweenExpr):
         self._start_scope()
-        temp_var = f"__between_temp__"
-        self._declare_local(temp_var)
-        temp_var_sanitized = _sanitize_identifier(temp_var)
-        val = self.visit(node.expr)
+        expr = self.visit(node.expr)
         low = self.visit(node.low)
         high = self.visit(node.high)
         if node.negated:
-            comparison = f"{temp_var_sanitized} < {low} || {temp_var_sanitized} > {high}"
+            comparison = f"expr < {low} || expr > {high}"
         else:
-            comparison = f"{temp_var_sanitized} >= {low} && {temp_var_sanitized} <= {high}"
-        code = f"(() => {{ const {temp_var_sanitized} = {val}; return {comparison}; }})()"
+            comparison = f"expr >= {low} && expr <= {high}"
+        code = f"(() => {{ const expr=({expr}), low=({low}), high=({high}); return (expr === null || expr === undefined || low === null || low === undefined || high === null || high === undefined) ? null : !!({comparison}); }})()"
+
         self._end_scope()
-        return f"!!{code}"
+        return code
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         left_code = self.visit(node.left)

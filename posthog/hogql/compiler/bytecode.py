@@ -157,6 +157,11 @@ class BytecodeCompiler(Visitor):
         self.locals.append(Local(name=name, depth=self.scope_depth, is_captured=False))
         return len(self.locals) - 1
 
+    def _declare_iife_local(self) -> int:
+        # Clear it manually by running self.locals.pop()
+        self.locals.append(Local(name="", depth=self.scope_depth, is_captured=False))
+        return len(self.locals) - 1
+
     def visit(self, node: ast.AST | None):
         # In "hog" mode we compile AST nodes to bytecode.
         # In "ast" mode we pass through as they are.
@@ -200,64 +205,101 @@ class BytecodeCompiler(Visitor):
 
     def visit_between_expr(self, node: ast.BetweenExpr):
         response: list[Any] = []
+
+        result_expr = self._declare_iife_local()
+        response.extend([Operation.NULL])  # return value
+
         self._start_scope()
 
-        local_expr = self._declare_local("__expr")
-        response.append(Operation.NULL)
+        local_expr = self._declare_local("__expr__")
         response.extend(self.visit(node.expr))
-        response.extend([Operation.SET_LOCAL, local_expr])
 
-        local_low = self._declare_local("__low")
-        response.append(Operation.NULL)
+        local_low = self._declare_local("__low__")
         response.extend(self.visit(node.low))
-        response.extend([Operation.SET_LOCAL, local_low])
 
-        local_high = self._declare_local("__high")
-        response.append(Operation.NULL)
+        local_high = self._declare_local("__high__")
         response.extend(self.visit(node.high))
-        response.extend([Operation.SET_LOCAL, local_high])
 
         cond: list[Any] = []
         if node.negated:
-            # expr < low
-            p1 = [Operation.GET_LOCAL, local_low, Operation.GET_LOCAL, local_expr, Operation.LT]
-            # expr > high
-            p2 = [Operation.GET_LOCAL, local_high, Operation.GET_LOCAL, local_expr, Operation.GT]
-            cond.extend([*p1, *p2, Operation.OR, 2])
+            cond.extend(
+                [
+                    # expr < low
+                    Operation.GET_LOCAL,
+                    local_low,
+                    Operation.GET_LOCAL,
+                    local_expr,
+                    Operation.LT,
+                    # expr > high
+                    Operation.GET_LOCAL,
+                    local_high,
+                    Operation.GET_LOCAL,
+                    local_expr,
+                    Operation.GT,
+                    Operation.OR,
+                    2,
+                ]
+            )
         else:
-            # expr >= low
-            part1 = [Operation.GET_LOCAL, local_low, Operation.GET_LOCAL, local_expr, Operation.GT_EQ]
-            # expr <= high
-            part2 = [Operation.GET_LOCAL, local_high, Operation.GET_LOCAL, local_expr, Operation.LT_EQ]
-            cond.extend([*part1, *part2, Operation.AND, 2])
+            cond.extend(
+                [
+                    # expr >= low
+                    Operation.GET_LOCAL,
+                    local_low,
+                    Operation.GET_LOCAL,
+                    local_expr,
+                    Operation.GT_EQ,
+                    # expr <= high
+                    Operation.GET_LOCAL,
+                    local_high,
+                    Operation.GET_LOCAL,
+                    local_expr,
+                    Operation.LT_EQ,
+                    Operation.AND,
+                    2,
+                ]
+            )
 
         # i
         response.extend(
             [
+                # low != null
                 Operation.GET_LOCAL,
                 local_low,
                 Operation.NULL,
                 Operation.NOT_EQ,
+                # high != null
                 Operation.GET_LOCAL,
                 local_high,
                 Operation.NULL,
                 Operation.NOT_EQ,
+                # expr != null
                 Operation.GET_LOCAL,
                 local_expr,
                 Operation.NULL,
                 Operation.NOT_EQ,
+                # ..and
                 Operation.AND,
                 3,
+                # if any are null, jump to where we set NULL as the result
                 Operation.JUMP_IF_FALSE,
                 len(cond) + 2,
+                # evaluate the condition, keep it on the stack
                 *cond,
+                # jump over the NULL (and set the `cond` as the result value)
                 Operation.JUMP,
                 1,
+                # if anything was null, we jump to here
                 Operation.NULL,
+                # put the last value on the stack into the result value
+                Operation.SET_LOCAL,
+                result_expr,
             ]
         )
-
+        # clear all local variables (pops them off the stack)
         response.extend(self._end_scope())
+        # release the result IIFE variable, but keep it on the stack
+        self.locals.pop()
         return response
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
