@@ -120,8 +120,7 @@ class TeamManager(models.Manager):
         organization = Organization.objects.get(id=organization_id)
 
         # Apply organization-level IP anonymization default
-        if organization.default_anonymize_ips is not None:
-            team.anonymize_ips = organization.default_anonymize_ips
+        team.anonymize_ips = organization.default_anonymize_ips
 
         team.test_account_filters = self.set_test_account_filters(organization_id)
 
