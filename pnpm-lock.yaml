@@ -372,8 +372,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       posthog-js:
-        specifier: 1.282.0
-        version: 1.282.0
+        specifier: 1.284.0
+        version: 1.284.0
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -486,6 +486,9 @@ importers:
       '@posthog/products-links':
         specifier: workspace:*
         version: link:../products/links
+      '@posthog/products-live-debugger':
+        specifier: workspace:*
+        version: link:../products/live_debugger
       '@posthog/products-llm-analytics':
         specifier: workspace:*
         version: link:../products/llm_analytics
@@ -826,8 +829,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.282.0
-        version: 1.282.0
+        specifier: 1.284.0
+        version: 1.284.0
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -976,7 +979,7 @@ importers:
         version: 5.16.5
       '@testing-library/react':
         specifier: ^13.4.0
-        version: 13.4.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 13.4.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@testing-library/user-event':
         specifier: ^13.5.0
         version: 13.5.0(@testing-library/dom@8.19.0)
@@ -1801,8 +1804,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.282.0
-        version: 1.282.0
+        specifier: 1.284.0
+        version: 1.284.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -1959,6 +1962,43 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
+
+  products/live_debugger:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      '@types/react-dom':
+        specifier: '*'
+        version: 18.3.7(@types/react@17.0.52)
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: ^6.6.2
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.7(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+      react-dom:
+        specifier: '*'
+        version: 18.2.0(react@18.2.0)
+    devDependencies:
+      kea-test-utils:
+        specifier: ^0.2.4
+        version: 0.2.4(kea@3.1.7(react@18.2.0))
 
   products/llm_analytics:
     dependencies:
@@ -2419,8 +2459,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.282.0
-        version: 1.282.0
+        specifier: 1.284.0
+        version: 1.284.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2491,8 +2531,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.282.0
-        version: 1.282.0
+        specifier: 1.284.0
+        version: 1.284.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -6400,8 +6440,8 @@ packages:
   '@poppinss/exception@1.2.2':
     resolution: {integrity: sha512-m7bpKCD4QMlFCjA/nKTs23fuvoVFoA83brRKmObCUNmi/9tVu8Ve3w4YQAnJu4q3Tjf5fr685HYIC/IA2zHRSg==}
 
-  '@posthog/core@1.4.0':
-    resolution: {integrity: sha512-jmW8/I//YOHAfjzokqas+Qtc2T57Ux8d2uIJu7FLcMGxywckHsl6od59CD18jtUzKToQdjQhV6Y3429qj+KeNw==}
+  '@posthog/core@1.5.0':
+    resolution: {integrity: sha512-oxfV20QMNwH30jKybUyqi3yGuMghULQz1zkJgQG3rjpHDxhD2vDN6E7UpmaqgphMIvGG3Q+DgfU10zfSPA7w7w==}
 
   '@posthog/icons@0.35.0':
     resolution: {integrity: sha512-wa90PWt9dAxF3Y2jFFjmMGCIWyUaG/IfJzJnKxKdzNDGLllGawI5JJxwCJ1ZufCdiYTWAVBn7irCM+mLbTNixw==}
@@ -16393,8 +16433,8 @@ packages:
   posthog-js-lite@4.1.0:
     resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
-  posthog-js@1.282.0:
-    resolution: {integrity: sha512-kx7GyVILxR+Ty4SDA5yRpiIZ73yBZht7ZecnvqqOspqiMnzyoTgdBPn2NELMR0OrhjnfU2KhLkXwooUHmD0MAA==}
+  posthog-js@1.284.0:
+    resolution: {integrity: sha512-GmycRGKWdTO6gUSMn8qzzoVTryQhxVwjK2y1Mn0eV7kldLS+tZhr/wM+Z8fXBkbrRwWUjofKFgB83gd1WzbJrA==}
 
   posthog-node@4.14.0:
     resolution: {integrity: sha512-PitSiuxGiVFl0ItuhIfi3Sq1tcaMU4vlbPu1wv0qufTJGDjWthOOr4vYfFIs1xkbJFOQcfGczMXkr44kX5TDDg==}
@@ -25573,7 +25613,7 @@ snapshots:
 
   '@poppinss/exception@1.2.2': {}
 
-  '@posthog/core@1.4.0': {}
+  '@posthog/core@1.5.0': {}
 
   '@posthog/icons@0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
@@ -28672,13 +28712,15 @@ snapshots:
       lodash: 4.17.21
       redent: 3.0.0
 
-  '@testing-library/react@13.4.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@testing-library/react@13.4.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       '@babel/runtime': 7.24.0
       '@testing-library/dom': 8.19.0
-      '@types/react-dom': 18.2.14
+      '@types/react-dom': 18.3.7(@types/react@17.0.52)
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
+    transitivePeerDependencies:
+      - '@types/react'
 
   '@testing-library/user-event@13.5.0(@testing-library/dom@8.19.0)':
     dependencies:
@@ -38209,9 +38251,9 @@ snapshots:
 
   posthog-js-lite@4.1.0: {}
 
-  posthog-js@1.282.0:
+  posthog-js@1.284.0:
     dependencies:
-      '@posthog/core': 1.4.0
+      '@posthog/core': 1.5.0
       core-js: 3.46.0
       fflate: 0.4.8
       preact: 10.27.2

@@ -400,6 +400,15 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 )
 
         # Check for constraint operations (before general ALTER/DROP checks)
+        if "ADD" in sql and "CONSTRAINT" in sql and "USING INDEX" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="ADD CONSTRAINT ... USING INDEX is instant (just renames existing index to constraint)",
+                details={"sql": sql},
+                guidance="This operation only updates metadata - the index already exists and enforces uniqueness.",
+            )
+
         if "ADD" in sql and "CONSTRAINT" in sql and "NOT VALID" in sql:
             return OperationRisk(
                 type=self.operation_type,
