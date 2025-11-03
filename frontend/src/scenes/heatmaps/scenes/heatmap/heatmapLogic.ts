@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
@@ -21,8 +22,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
             ['setDataUrl', 'setDisplayUrl', 'onIframeLoad', 'setIframeWidth'],
             heatmapsSceneLogic,
             ['loadSavedHeatmaps'],
-            heatmapDataLogic,
-            ['loadHeatmap'],
+            heatmapDataLogic({ context: 'in-app' }),
+            ['loadHeatmap', 'setWindowWidthOverride'],
         ],
     })),
     actions({
@@ -96,7 +97,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             actions.setScreenshotUrl(
                 `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${values.heatmapId}/content/?width=${w}`
             )
-            actions.loadHeatmap()
+            actions.setWindowWidthOverride(w)
         },
         pollScreenshotStatus: async ({ id, width }, breakpoint) => {
             let attempts = 0
@@ -199,6 +200,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
             },
         ],
     }),
+    subscriptions(({ actions }) => ({
+        widthOverride: (widthOverride) => {
+            actions.setWindowWidthOverride(widthOverride)
+        },
+    })),
     afterMount(({ actions }) => {
         actions.load()
     }),
