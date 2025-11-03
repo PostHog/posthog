@@ -403,9 +403,10 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                         if (logicRef) {
                             logicRef.logic.actions.loadExperimentSuccess(response)
                         } else {
-                            experimentLogic({ experimentId: response.id, tabId: props.tabId }).actions.loadExperimentSuccess(
-                                response
-                            )
+                            experimentLogic({
+                                experimentId: response.id,
+                                tabId: props.tabId,
+                            }).actions.loadExperimentSuccess(response)
                         }
                     } else {
                         const viewLogic = experimentLogic({ experimentId: response.id })
