@@ -92,16 +92,19 @@ def cleanup_broken_contenttypes(apps, schema_editor):
             if user_perm_count != 0 or group_perm_count != 0:
                 logger.warning(
                     f"[MIGRATION 0898] Found {user_perm_count} user permissions and {group_perm_count} "
-                    f"group permissions for wrong ContentType (datawarehouse.{model_name}). "
-                    f"Skipping cleanup for this model - manual intervention required."
+                    f"group permissions assigned. Skipping cleanup for {model_name} - manual intervention required."
                 )
                 continue
 
-            # Delete permissions pointing to the wrong ContentType
-            Permission.objects.filter(content_type=wrong_ct).delete()
-
-            # Delete the wrong ContentType
-            wrong_ct.delete()
+            # Keep the ORIGINAL ContentType (from buggy migration, has all historical references)
+            # Delete the DUPLICATE ContentType (Django auto-created, has no references yet)
+            # Then rename original to correct app_label
+            Permission.objects.filter(
+                content_type=ContentType.objects.get(app_label="data_warehouse", model=model_name)
+            ).delete()
+            ContentType.objects.get(app_label="data_warehouse", model=model_name).delete()
+            wrong_ct.app_label = "data_warehouse"
+            wrong_ct.save()
 
         except ContentType.DoesNotExist:
             # Correct version doesn't exist yet, just rename the wrong one
