@@ -28,6 +28,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'revenue analytics'
     } else if (resource === AccessControlResourceType.WebAnalytics) {
         return 'web analytics'
+    } else if (resource === AccessControlResourceType.ActivityLog) {
+        return 'activity logs'
     }
 
     return resource.replace(/_/g, ' ') + 's'

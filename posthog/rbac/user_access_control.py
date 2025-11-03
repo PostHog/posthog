@@ -60,6 +60,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "survey",
     "experiment",
     "web_analytics",
+    "activity_log",
 )
 
 # Resource inheritance mapping - child resources inherit access from parent resources
@@ -120,6 +121,8 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
         return "admin"
     if resource in ["organization"]:
         return "member"
+    if resource in ["activity_log"]:
+        return "viewer"
     return "editor"
 
 
