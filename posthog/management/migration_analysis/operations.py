@@ -355,8 +355,30 @@ class RunSQLAnalyzer(OperationAnalyzer):
     operation_type = "RunSQL"
     default_score = 2
 
+    def _parse_override_comment(self, op) -> str | None:
+        """
+        Parse migration-analyzer override comments from SQL.
+
+        Expected format:
+        -- migration-analyzer: safe reason=justification here
+        or
+        # migration-analyzer: safe reason=justification here
+
+        Returns the reason string if valid override found, None otherwise.
+        """
+        sql = str(op.sql)
+
+        # Look for override comment (-- or # style)
+        override_pattern = r"(?:--|#)\s*migration-analyzer:\s*safe\s+reason=(.+?)(?:\n|$)"
+        match = re.search(override_pattern, sql, re.IGNORECASE)
+
+        if match:
+            return match.group(1).strip()
+        return None
+
     def analyze(self, op, migration: Optional[Any] = None, loader: Optional[Any] = None) -> OperationRisk:
         sql = str(op.sql).upper()
+        override = self._parse_override_comment(op)
 
         # Check for CONCURRENTLY operations first (these are safe)
         # This must come before DROP check to avoid flagging DROP INDEX CONCURRENTLY as dangerous
@@ -578,6 +600,34 @@ Safe pattern requires:
                 details={"sql": sql},
             )
         elif "UPDATE" in sql or "DELETE" in sql:
+            # Check for developer override for small tables
+            if override:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=2,
+                    reason=f"RunSQL with UPDATE/DELETE - developer override applied for small table",
+                    details={
+                        "sql": sql,
+                        "override_reason": override,
+                    },
+                    guidance=f"""✅ **Developer override applied:**
+Justification: {override}
+
+Reviewer checklist:
+- Verify table is actually small (<1000 rows typical)
+- Confirm justification is valid
+- Check no indexes will cause lock contention
+- Ensure WHERE clause limits scope appropriately
+
+If this override is incorrect, request batching:
+- Batch size: 1,000-10,000 rows per batch
+- Add pauses between batches
+- Use WHERE clauses to limit scope
+- Consider background jobs for very large updates (millions of rows)
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#running-data-migrations)""",
+                )
+
             return OperationRisk(
                 type=self.operation_type,
                 score=4,
