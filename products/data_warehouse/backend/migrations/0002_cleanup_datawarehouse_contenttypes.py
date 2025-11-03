@@ -114,9 +114,10 @@ def cleanup_broken_contenttypes(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
+        ("data_warehouse", "0001_migrate_data_warehouse_models"),
         ("posthog", "0897_migrate_data_warehouse_models"),
     ]
 
     operations = [
-        migrations.RunPython(cleanup_broken_contenttypes, migrations.RunPython.noop),
+        migrations.RunPython(cleanup_broken_contenttypes, migrations.RunPython.noop, elidable=True),
     ]
