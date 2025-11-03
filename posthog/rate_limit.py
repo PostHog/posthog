@@ -479,6 +479,16 @@ class WebAnalyticsAPISustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "2400/hour"
 
 
+class LLMAnalyticsTextReprBurstThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_text_repr_burst"
+    rate = "120/minute"
+
+
+class LLMAnalyticsTextReprSustainedThrottle(PersonalApiKeyRateThrottle):
+    scope = "llm_analytics_text_repr_sustained"
+    rate = "600/hour"
+
+
 class UserPasswordResetThrottle(UserOrEmailRateThrottle):
     scope = "user_password_reset"
     rate = "6/day"

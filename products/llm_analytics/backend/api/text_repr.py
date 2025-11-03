@@ -16,10 +16,13 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, extend_schema
 from rest_framework import serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.rate_limit import LLMAnalyticsTextReprBurstThrottle, LLMAnalyticsTextReprSustainedThrottle
 
 from products.llm_analytics.backend.text_repr.formatters import format_event_text_repr, format_trace_text_repr
 
@@ -108,6 +111,10 @@ class LLMAnalyticsTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     """
 
     scope_object = "llm_analytics"
+
+    def get_throttles(self):
+        """Apply rate limiting to prevent abuse of text formatting endpoint."""
+        return [LLMAnalyticsTextReprBurstThrottle(), LLMAnalyticsTextReprSustainedThrottle()]
 
     @extend_schema(
         request=TextReprRequestSerializer,
@@ -217,6 +224,7 @@ The response includes the formatted text and metadata about the rendering.
         """,
         tags=["LLM Analytics"],
     )
+    @monitor(feature=None, endpoint="llm_analytics_text_repr", method="POST")
     def create(self, request: Request, **kwargs) -> Response:
         """
         Stringify a single LLM trace event.
@@ -231,6 +239,13 @@ The response includes the formatted text and metadata about the rendering.
             event_type = serializer.validated_data["event_type"]
             data = serializer.validated_data["data"]
             options = serializer.validated_data.get("options", {})
+
+            # Validate input data structure
+            if event_type == "$ai_trace":
+                if not data.get("trace") or not isinstance(data.get("hierarchy"), list):
+                    raise ValidationError("Trace events require 'trace' object and 'hierarchy' array in data field")
+            elif "properties" not in data:
+                raise ValidationError(f"{event_type} events require 'properties' object in data field")
 
             # Call Python formatters directly
             if event_type == "$ai_trace":
@@ -275,13 +290,29 @@ The response includes the formatted text and metadata about the rendering.
 
             return Response(result, status=status.HTTP_200_OK)
 
-        except Exception as e:
+        except ValidationError:
+            # Re-raise validation errors to be handled by DRF
+            raise
+        except ValueError as e:
+            # Handle specific formatting/parsing errors
+            logger.warning(
+                "Invalid data format in text repr request",
+                event_type=serializer.validated_data.get("event_type"),
+                team_id=self.team_id,
+                error=str(e),
+            )
+            return Response(
+                {"error": "Invalid data format", "detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception:
+            # Unexpected errors
             logger.exception(
-                "Unexpected error in text repr stringify",
-                event_type=serializer.validated_data["event_type"],
+                "Unexpected error in text repr generation",
+                event_type=serializer.validated_data.get("event_type"),
                 team_id=self.team_id,
             )
             return Response(
-                {"error": "Internal server error", "detail": str(e)},
+                {"error": "Internal server error", "detail": "Failed to generate text representation"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )

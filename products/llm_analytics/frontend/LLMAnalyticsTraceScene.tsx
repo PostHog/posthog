@@ -587,6 +587,7 @@ const EventContent = React.memo(
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
         const { displayOption } = useValues(llmAnalyticsTraceLogic)
+        const { setDisplayOption } = useActions(llmAnalyticsTraceLogic)
 
         const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
 
@@ -738,9 +739,16 @@ const EventContent = React.memo(
                                             {displayOption === DisplayOption.TextView ? (
                                                 isLLMEvent(event) &&
                                                 (event.event === '$ai_generation' || event.event === '$ai_span') ? (
-                                                    <TextViewDisplay event={event} />
+                                                    <TextViewDisplay
+                                                        event={event}
+                                                        onFallback={() => setDisplayOption(DisplayOption.ExpandAll)}
+                                                    />
                                                 ) : !isLLMEvent(event) ? (
-                                                    <TextViewDisplay trace={event} tree={tree} />
+                                                    <TextViewDisplay
+                                                        trace={event}
+                                                        tree={tree}
+                                                        onFallback={() => setDisplayOption(DisplayOption.ExpandAll)}
+                                                    />
                                                 ) : null
                                             ) : (
                                                 <>

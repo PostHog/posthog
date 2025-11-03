@@ -472,16 +472,19 @@ export function TextViewDisplay({
     event,
     trace,
     tree,
+    onFallback,
 }: {
     event?: LLMTraceEvent
     trace?: LLMTrace
     tree?: TraceTreeNode[]
+    onFallback?: () => void
 }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const [copied, setCopied] = useState(false)
     const [textRepr, setTextRepr] = useState<string>('')
     const [loading, setLoading] = useState<boolean>(true)
     const [error, setError] = useState<string | null>(null)
+    const [fallbackTriggered, setFallbackTriggered] = useState<boolean>(false)
 
     // Get trace ID for event links
     const traceId = trace?.id
@@ -492,6 +495,7 @@ export function TextViewDisplay({
             try {
                 setLoading(true)
                 setError(null)
+                setFallbackTriggered(false)
                 // Reset expanded state when switching events
                 setExpandedSegments(new Set())
                 setPopoutSegment(null)
@@ -538,22 +542,49 @@ export function TextViewDisplay({
                     return
                 }
 
-                // Call Django API
-                const response = await api.create(
-                    `api/environments/${currentTeamId}/llm_analytics/text_repr/`,
-                    requestData
-                )
-                setTextRepr(response.text || '')
+                // Create abort controller for timeout
+                const abortController = new AbortController()
+                const timeoutId = setTimeout(() => abortController.abort(), 10000) // 10 second timeout
+
+                try {
+                    // Call Django API with timeout
+                    const response = await api.create(
+                        `api/environments/${currentTeamId}/llm_analytics/text_repr/`,
+                        requestData,
+                        { signal: abortController.signal }
+                    )
+                    clearTimeout(timeoutId)
+                    setTextRepr(response.text || '')
+                } catch (apiErr) {
+                    clearTimeout(timeoutId)
+                    throw apiErr
+                }
             } catch (err) {
                 console.error('Error fetching text representation:', err)
-                setError(err instanceof Error ? err.message : 'Failed to load text representation')
+                const isTimeout = err instanceof Error && err.name === 'AbortError'
+                const errorMessage = isTimeout
+                    ? 'Text view generation timed out'
+                    : err instanceof Error
+                      ? err.message
+                      : 'Failed to load text representation'
+
+                setError(errorMessage)
+
+                // Trigger fallback to standard view
+                setFallbackTriggered(true)
+                if (onFallback) {
+                    // Small delay to show the fallback message briefly
+                    setTimeout(() => {
+                        onFallback()
+                    }, 1500)
+                }
             } finally {
                 setLoading(false)
             }
         }
 
         void fetchTextRepr()
-    }, [event, trace, tree])
+    }, [event, trace, tree, currentTeamId, onFallback])
 
     const segments = parseTextSegments(textRepr)
 
@@ -649,8 +680,13 @@ export function TextViewDisplay({
 
     if (error) {
         return (
-            <div className="p-4 bg-bg-light rounded border border-border border-danger text-danger">
-                <strong>Error:</strong> {error}
+            <div className="p-4 bg-bg-light rounded border border-border">
+                <div className="flex items-start gap-2">
+                    <div className="flex-1">
+                        <div className="text-warning font-semibold mb-1">{error}</div>
+                        {fallbackTriggered && <div className="text-muted text-xs">Switching to standard view...</div>}
+                    </div>
+                </div>
             </div>
         )
     }
