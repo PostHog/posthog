@@ -1207,7 +1207,6 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                         transformer=transformer,
                         schema=record_batch_schema,
                         max_file_size_bytes=settings.BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES,
-                        # TODO: double-check if this is the correct value
                         json_columns=(),
                     )
                 finally:
