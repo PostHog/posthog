@@ -34,8 +34,6 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
-export const DEFAULT_LOADING_BUFFER = 15 * 60 * 1000
-
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
