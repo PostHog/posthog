@@ -544,7 +544,17 @@ class TestGoogleCloudIntegrationModel(BaseTest):
 
 
 class TestGitHubIntegrationModel(BaseTest):
-    def _mock_github_client_request(
+    def create_integration(self, config: Optional[dict] = None, sensitive_config: Optional[dict] = None) -> Integration:
+        _config = {"expires_at": 3600}
+        _sensitive_config = {"token": "REFRESH"}
+        _config.update(config or {})
+        _sensitive_config.update(sensitive_config or {})
+
+        return Integration.objects.create(
+            team=self.team, kind="github", config=_config, sensitive_config=_sensitive_config
+        )
+
+    def mock_github_client_request(
         self, status_code=201, token="ACCESS_TOKEN", repository_selection="all", expires_in_hours=1, error_text=None
     ):
         def _client_request(endpoint, method="GET"):
@@ -562,10 +572,7 @@ class TestGitHubIntegrationModel(BaseTest):
                     }
                 else:
                     mock_response.text = error_text or "error"
-                    mock_response.json.return_value = {
-                        "expires_at": iso_time,
-                        "repository_selection": repository_selection,
-                    }
+                    mock_response.json.return_value = {}
             else:
                 mock_response.status_code = 200
                 mock_response.json.return_value = {"account": {"type": "Organization", "login": "PostHog"}}
@@ -575,7 +582,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     def test_github_integration_refresh_token(self, mock_client_request):
-        mock_client_request.side_effect = self._mock_github_client_request(status_code=201)
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
         with freeze_time("2024-01-01T12:00:00Z"):
             integration = GitHubIntegration.integration_from_installation_id(
@@ -611,14 +618,10 @@ class TestGitHubIntegrationModel(BaseTest):
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     def test_github_refresh_access_token_handles_errors(self, mock_client_request, mock_reload):
         """Test that errors field is set if refresh_access_token fails"""
-        mock_client_request.side_effect = self._mock_github_client_request(status_code=400, error_text="error")
+        integration = self.create_integration({"expires_at": 3600}, {"token": "REFRESH"})
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=400, error_text="error")
 
         with freeze_time("2024-01-01T12:00:00Z"):
-            integration = GitHubIntegration.integration_from_installation_id(
-                "INSTALLATION_ID",
-                self.team.id,
-                self.user,
-            )
             integration.errors = ""
             integration.save()
 
@@ -632,7 +635,7 @@ class TestGitHubIntegrationModel(BaseTest):
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     def test_github_refresh_access_token_resets_errors(self, mock_client_request, mock_reload):
         """Test that errors field is reset to empty string after successful refresh_access_token"""
-        mock_client_request.side_effect = self._mock_github_client_request(status_code=201)
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
         with freeze_time("2024-01-01T12:00:00Z"):
             integration = GitHubIntegration.integration_from_installation_id(
