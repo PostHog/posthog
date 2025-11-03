@@ -189,7 +189,7 @@ describe('LogsIngestionConsumer', () => {
             expect(forSnapshot(producedMessages)).toMatchSnapshot()
         })
 
-        it('should preserve overwrite existing headers', async () => {
+        it('should overwrite existing headers', async () => {
             const logData = createLogMessage()
             const messages = createKafkaMessages([logData], {
                 token: team.api_token,
