@@ -63,24 +63,33 @@ class HobbyTester:
 
         self.user_data = (
             f"#!/bin/bash \n"
+            "set -e \n"
+            'LOG_PREFIX="[$(date \\"+%Y-%m-%d %H:%M:%S\\")]" \n'
+            'echo "$LOG_PREFIX Cloud-init deployment starting" \n'
             "mkdir hobby \n"
             "cd hobby \n"
+            'echo "$LOG_PREFIX Setting up needrestart config" \n'
             "sed -i \"s/#\\$nrconf{restart} = 'i';/\\$nrconf{restart} = 'a';/g\" /etc/needrestart/needrestart.conf \n"
+            'echo "$LOG_PREFIX Cloning PostHog repository" \n'
             "git clone https://github.com/PostHog/posthog.git \n"
             "cd posthog \n"
-            f'echo "Using branch: {self.branch}" \n'
+            f'echo "$LOG_PREFIX Using branch: {self.branch}" \n'
             f"git checkout {self.branch} \n"
             "CURRENT_COMMIT=$(git rev-parse HEAD) \n"
-            'echo "Current commit: $CURRENT_COMMIT" \n'
+            'echo "$LOG_PREFIX Current commit: $CURRENT_COMMIT" \n'
             "cd .. \n"
             f"chmod +x posthog/bin/deploy-hobby \n"
+            'echo "$LOG_PREFIX Starting deployment script" \n'
             f'if [ "{self.branch}" != "main" ] && [ "{self.branch}" != "master" ] && [ -n "{self.branch}" ]; then \n'
-            f'    echo "Using commit hash for feature branch deployment" \n'
+            f'    echo "$LOG_PREFIX Using commit hash for feature branch deployment" \n'
             f"    ./posthog/bin/deploy-hobby $CURRENT_COMMIT {self.hostname} 1 \n"
             f"else \n"
-            f'     echo "Installing PostHog version: {self.release_tag}" \n'
+            f'     echo "$LOG_PREFIX Installing PostHog version: {self.release_tag}" \n'
             f"    ./posthog/bin/deploy-hobby {self.release_tag} {self.hostname} 1 \n"
             f"fi \n"
+            "DEPLOY_EXIT=$? \n"
+            'echo "$LOG_PREFIX Deployment script exited with code: $DEPLOY_EXIT" \n'
+            "exit $DEPLOY_EXIT \n"
         )
 
     def block_until_droplet_is_started(self):
@@ -127,6 +136,42 @@ class HobbyTester:
         self.droplet.create()
         return self.droplet
 
+    def get_droplet_info(self):
+        """Fetch droplet information from DigitalOcean API for debugging"""
+        if not self.droplet or not self.token:
+            return None
+        try:
+            self.droplet.load()
+            return {
+                "id": self.droplet.id,
+                "name": self.droplet.name,
+                "status": self.droplet.status,
+                "ip": self.droplet.ip_address,
+                "memory": self.droplet.memory,
+                "vcpus": self.droplet.vcpus,
+                "disk": self.droplet.disk,
+                "created_at": self.droplet.created_at,
+            }
+        except Exception as e:
+            print(f"Could not fetch droplet info: {e}")
+            return None
+
+    def get_droplet_kernel_logs(self):
+        """Attempt to get kernel logs from droplet via API"""
+        if not self.droplet or not self.token:
+            return None
+        try:
+            # Try to get serial console output (requires the droplet to have it enabled)
+            url = f"https://api.digitalocean.com/v2/droplets/{self.droplet.id}/console"
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.get(url, headers=headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("console_output")
+        except Exception as e:
+            print(f"Could not fetch kernel logs: {e}")
+        return None
+
     def test_deployment(self, timeout=30, retry_interval=15):
         if not self.hostname:
             return
@@ -141,6 +186,10 @@ class HobbyTester:
         url = f"https://{self.hostname}/_health"
         start_time = datetime.datetime.now()
         attempt = 1
+        last_error = None
+        http_502_count = 0
+        connection_error_count = 0
+
         while datetime.datetime.now() < start_time + datetime.timedelta(minutes=timeout):
             print(f"Trying to connect... (attempt {attempt})")
             try:
@@ -149,6 +198,8 @@ class HobbyTester:
                 # This mitigates the chances of getting throttled or banned
                 r = requests.get(url, verify=False, timeout=10)
             except Exception as e:
+                last_error = type(e).__name__
+                connection_error_count += 1
                 print(f"Connection failed: {type(e).__name__}")
                 time.sleep(retry_interval)
                 attempt += 1
@@ -156,10 +207,44 @@ class HobbyTester:
             if r.status_code == 200:
                 print("Success - received heartbeat from the instance")
                 return True
+            if r.status_code == 502:
+                http_502_count += 1
             print(f"Instance not ready (HTTP {r.status_code}) - sleeping")
             time.sleep(retry_interval)
             attempt += 1
-        print("Failure - we timed out before receiving a heartbeat")
+
+        # Health check failed - try to gather diagnostic info
+        print("\nFailure - we timed out before receiving a heartbeat")
+        print("\n📋 Attempting to gather diagnostic information...")
+
+        droplet_info = self.get_droplet_info()
+        if droplet_info:
+            print(f"\n🖥️  Droplet Status:")
+            for key, value in droplet_info.items():
+                print(f"  {key}: {value}")
+
+        kernel_logs = self.get_droplet_kernel_logs()
+        if kernel_logs:
+            print(f"\n📝 Kernel/Console Output (last 500 chars):")
+            print(kernel_logs[-500:] if len(kernel_logs) > 500 else kernel_logs)
+
+        # Provide diagnostic summary
+        print(f"\n🔍 Failure Pattern Analysis:")
+        print(f"  - Connection errors: {connection_error_count}")
+        print(f"  - HTTP 502 (bad gateway): {http_502_count}")
+        print(f"  - Last error: {last_error}")
+
+        if http_502_count > 0:
+            print("  💡 502 errors suggest nginx/caddy is up but the app isn't responding")
+            print("     Check cloud-init logs for deployment failures")
+        if connection_error_count > 0 and http_502_count == 0:
+            print("  💡 Connection errors suggest the web service never started")
+            print("     Check if Docker containers are running")
+
+        print(f"\n📍 For manual debugging, SSH to: ssh root@{self.droplet.ip_address if self.droplet else '?'}")
+        print(f"    Then check: tail -f /var/log/cloud-init-output.log")
+        print(f"    And: docker-compose logs")
+
         return False
 
     def create_dns_entry(self, type, name, data, ttl=30):
