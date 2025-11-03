@@ -55,7 +55,10 @@ class DeprecatedFieldFilter:
         DeprecatedField = DeprecatedFieldFilter._deprecated_field_class
 
         for model in apps.get_models():
-            model_name = model._meta.object_name.lower()
+            object_name = model._meta.object_name
+            if object_name is None:
+                continue
+            model_name = object_name.lower()
             if model_name not in model_names:
                 continue  # Skip models we don't care about
 
@@ -75,8 +78,8 @@ class DeprecatedFieldFilter:
         migrations after filtering.
         """
         result_lines = []
-        current_migration_file = None
-        current_migration_ops = []
+        current_migration_file: str | None = None
+        current_migration_ops: list[str] = []
 
         def is_deprecated_removal(line: str) -> bool:
             """Check if a 'Remove field' line is for a deprecated field."""
@@ -94,7 +97,7 @@ class DeprecatedFieldFilter:
         def finalize_migration():
             """Add current migration to results if it has non-deprecated operations."""
             nonlocal current_migration_file, current_migration_ops
-            if current_migration_file and current_migration_ops:
+            if current_migration_file is not None and current_migration_ops:
                 # Filter out operations that are deprecated field removals
                 kept_ops = [op for op in current_migration_ops if not is_deprecated_removal(op)]
 
