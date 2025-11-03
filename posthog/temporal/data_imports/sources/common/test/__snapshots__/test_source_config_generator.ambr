@@ -47,6 +47,7 @@
           ExternalDataSourceType.BRAZE: BrazeSourceConfig,
           ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
           ExternalDataSourceType.DOIT: DoItSourceConfig,
+          ExternalDataSourceType.GITHUB: GithubSourceConfig,
           ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
           ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
           ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,

@@ -78,6 +78,11 @@ class DoItSourceConfig(config.Config):
 
 
 @config.config
+class GithubSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class GoogleAdsSourceConfig(config.Config):
     customer_id: str
     google_ads_integration_id: int = config.value(converter=config.str_to_int)
@@ -245,6 +250,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BRAZE: BrazeSourceConfig,
         ExternalDataSourceType.CHARGEBEE: ChargebeeSourceConfig,
         ExternalDataSourceType.DOIT: DoItSourceConfig,
+        ExternalDataSourceType.GITHUB: GithubSourceConfig,
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,

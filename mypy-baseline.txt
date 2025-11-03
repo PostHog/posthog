@@ -501,7 +501,6 @@ posthog/api/test/test_hog_function.py:0: error: Item "None" of "Any | None" has 
 posthog/api/test/test_hog_function.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 posthog/api/test/test_hog_function.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
 posthog/api/test/test_hog_function.py:0: error: Item "None" of "Any | None" has no attribute "get"  [union-attr]
-posthog/api/test/test_hog_function.py:0: error: Value of type "object" is not indexable  [index]
 posthog/api/test/test_insight.py:0: error: Argument "data" to "get" of "APIClient" has incompatible type "dict[str, object]"; expected "Mapping[str, str | bytes | float | Iterable[str | bytes | float]] | Iterable[tuple[str, str | bytes | float | Iterable[str | bytes | float]]] | None"  [arg-type]
 posthog/api/test/test_insight.py:0: error: Argument "data" to "get" of "APIClient" has incompatible type "dict[str, object]"; expected "Mapping[str, str | bytes | float | Iterable[str | bytes | float]] | Iterable[tuple[str, str | bytes | float | Iterable[str | bytes | float]]] | None"  [arg-type]
 posthog/api/test/test_insight.py:0: error: Argument "data" to "get" of "APIClient" has incompatible type "dict[str, object]"; expected "Mapping[str, str | bytes | float | Iterable[str | bytes | float]] | Iterable[tuple[str, str | bytes | float | Iterable[str | bytes | float]]] | None"  [arg-type]

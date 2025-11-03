@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ("posthog", "0895_migrate_data_warehouse_models"),
+        ("posthog", "0897_migrate_data_warehouse_models"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
