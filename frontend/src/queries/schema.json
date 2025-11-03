@@ -25207,6 +25207,9 @@
                     },
                     "type": "array"
                 },
+                "iconClassName": {
+                    "type": "string"
+                },
                 "iconPath": {
                     "type": "string"
                 },

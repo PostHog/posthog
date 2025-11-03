@@ -17,12 +17,12 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
 from posthog.models.team.team import Team
 from posthog.temporal.data_imports.deltalake_compaction_job import DeltalakeCompactionJobWorkflowInputs
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.settings import ACTIVITIES, DeltalakeCompactionJobWorkflow
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -106,7 +106,7 @@ async def _run(team: Team):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
                 async with Worker(
                     activity_environment.client,
-                    task_queue=DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
+                    task_queue=settings.DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
                     workflows=[DeltalakeCompactionJobWorkflow],
                     activities=ACTIVITIES,  # type: ignore
                     workflow_runner=UnsandboxedWorkflowRunner(),
@@ -117,7 +117,7 @@ async def _run(team: Team):
                         DeltalakeCompactionJobWorkflow.run,
                         inputs,
                         id=str(uuid.uuid4()),
-                        task_queue=DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
+                        task_queue=settings.DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
