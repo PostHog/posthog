@@ -16,7 +16,15 @@ procs:
         autorestart: true
 
     temporal-worker:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && bin/check_video_deps && python manage.py start_temporal_worker --task-queue development-task-queue'
+        shell: |-
+            bin/check_kafka_clickhouse_up && \
+            bin/check_temporal_up && \
+            bin/check_video_deps && \
+            if [ -n "$TEMPORAL_WATCH" ]; then \
+                nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue"; \
+            else \
+                python manage.py start_temporal_worker --task-queue development-task-queue; \
+            fi
 
     dagster:
         shell: |-
