@@ -92,7 +92,7 @@ class DigestFilter(BaseModel):
 
     def render_payload(self) -> dict[str, str | int | bool | None]:
         return {
-            "name": self.name,
+            "name": self.name or "Untitled",
             "count": self.recording_count,
             "has_more_available": self.more_available,
             "url_path": f"/replay/home/?filterId={self.short_id}",
