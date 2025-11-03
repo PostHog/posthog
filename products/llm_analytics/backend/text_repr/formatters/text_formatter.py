@@ -74,6 +74,56 @@ def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions
     return "\n".join(lines)
 
 
+def format_embedding_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
+    """
+    Generate text representation of an embedding event.
+    Embeddings only have input text and metadata - no output vector is stored.
+    """
+    lines: list[str] = []
+    props = event.get("properties", {})
+
+    # Input text being embedded
+    input_lines = format_input_messages(props.get("$ai_input"), options)
+    if input_lines:
+        lines.append(SEPARATOR)
+        lines.extend(input_lines)
+
+    # Output section
+    if lines:
+        lines.append("")
+    lines.append(SEPARATOR)
+    lines.append("")
+    lines.append("OUTPUT:")
+    lines.append("")
+    lines.append("Embedding vector generated")
+    lines.append("")
+
+    # Error information if present
+    if props.get("$ai_error") or props.get("$ai_is_error"):
+        lines.append("")
+        lines.append(SEPARATOR)
+        lines.append("")
+        lines.append("ERROR:")
+        lines.append("")
+
+        error_value = props.get("$ai_error")
+        if error_value:
+            if isinstance(error_value, str):
+                lines.append(error_value)
+            elif isinstance(error_value, dict):
+                import json
+
+                lines.append(json.dumps(error_value, indent=2))
+            else:
+                lines.append(str(error_value))
+        else:
+            lines.append("An error occurred (no details available)")
+
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def format_event_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
     """
     Generate complete text representation of any LLM event.
@@ -86,6 +136,9 @@ def format_event_text_repr(event: dict[str, Any], options: FormatterOptions | No
         from .span_formatter import format_span_text_repr
 
         return format_span_text_repr(event, options)
+
+    if event_type == "$ai_embedding":
+        return format_embedding_text_repr(event, options)
 
     # Default to generation formatter for $ai_generation and other events
     return format_generation_text_repr(event, options)
