@@ -1,3 +1,4 @@
+import datetime
 from datetime import timedelta
 
 from freezegun import freeze_time
@@ -133,11 +134,11 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         test_groups = [
-            {"key": "prefix2", "name": "testable"},
-            {"key": "contains", "name": "my_test_group"},
-            {"key": "prefix", "name": "testing"},
-            {"key": "exact", "name": "test"},
-            {"key": "contains2", "name": "best_test_ever"},
+            {"key": "prefix2", "name": "testable", "ts": datetime.datetime(2025, 11, 3, 17, 16)},
+            {"key": "contains", "name": "my_test_group", "ts": datetime.datetime(2025, 11, 3, 17, 15)},
+            {"key": "prefix", "name": "testing", "ts": datetime.datetime(2025, 11, 3, 17, 14)},
+            {"key": "exact", "name": "test", "ts": datetime.datetime(2025, 11, 3, 17, 17)},
+            {"key": "contains2", "name": "best_test_ever", "ts": datetime.datetime(2025, 11, 3, 17, 18)},
         ]
         for group in test_groups:
             create_group(
@@ -145,6 +146,7 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 group_type_index=0,
                 group_key=group["key"],
                 properties={"name": group["name"]},
+                timestamp=group["ts"],
             )
 
         query = GroupsQuery(
