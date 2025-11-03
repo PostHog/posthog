@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0896_alter_externaldatasource_source_type"),
+        ("data_warehouse", "0003_backfill_partition_format"),
     ]
 
     operations = [
