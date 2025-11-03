@@ -136,8 +136,10 @@ class ExperimentQueryBuilder:
                     {{variant_expr}} as variant,
                     argMinIf(uuid, timestamp, step_0 = 1) AS exposure_event_uuid,
                     argMinIf(session_id, timestamp, step_0 = 1) AS exposure_session_id,
+                    argMinIf(timestamp, timestamp, step_0 = 1) AS exposure_timestamp,
                     {{funnel_aggregation}} AS value,
-                    {{uuid_to_session_map}} AS uuid_to_session
+                    {{uuid_to_session_map}} AS uuid_to_session,
+                    {{uuid_to_timestamp_map}} AS uuid_to_timestamp
                 FROM metric_events
                 GROUP BY entity_id
             )
@@ -165,6 +167,7 @@ class ExperimentQueryBuilder:
                 "funnel_aggregation": self._build_funnel_aggregation_expr(),
                 "num_steps_minus_1": ast.Constant(value=num_steps - 1),
                 "uuid_to_session_map": self._build_uuid_to_session_map(),
+                "uuid_to_timestamp_map": self._build_uuid_to_timestamp_map(),
             },
         )
 
@@ -204,17 +207,17 @@ class ExperimentQueryBuilder:
             step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
         step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
 
-        # For each step in the funnel, get at least 100 pairs of person_id, session_id and event uuid, that have
+        # For each step in the funnel, get at least 100 tuples of person_id, session_id, event uuid, and timestamp, that have
         # that step as their last step in the funnel.
-        # For the users that have 0 matching steps in the funnel (-1), we return the event uuid for the exposure event.
+        # For the users that have 0 matching steps in the funnel (-1), we return the event data for the exposure event.
         event_uuids_exprs = []
         for i in range(1, num_steps + 1):
             event_uuids_expr = f"""
                 groupArraySampleIf(100)(
                     if(
                         entity_metrics.value.2 != '',
-                        tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2),
-                        tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid))
+                        tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2, toString(uuid_to_timestamp[entity_metrics.value.2])),
+                        tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))
                     ),
                     entity_metrics.value.1 = {i} - 1
                 )
@@ -917,6 +920,14 @@ class ExperimentQueryBuilder:
         """
         return parse_expr(
             "mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), '')))"
+        )
+
+    def _build_uuid_to_timestamp_map(self) -> ast.Expr:
+        """
+        Creates a map from event UUID to timestamp for funnel metrics.
+        """
+        return parse_expr(
+            "mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0))))"
         )
 
 

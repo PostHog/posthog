@@ -3,13 +3,14 @@ from collections.abc import AsyncGenerator
 from typing import Any
 from uuid import uuid4
 
+from django.conf import settings
+
 import structlog
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.schema import AssistantEventType, FailureMessage
 
-from posthog.constants import MAX_AI_TASK_QUEUE
 from posthog.temporal.ai.conversation import (
     AssistantConversationRunnerWorkflow,
     AssistantConversationRunnerWorkflowInputs,
@@ -76,7 +77,7 @@ class ConversationStreamManager:
                 AssistantConversationRunnerWorkflow.run,
                 workflow_inputs,
                 id=self._workflow_id,
-                task_queue=MAX_AI_TASK_QUEUE,
+                task_queue=settings.MAX_AI_TASK_QUEUE,
                 id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             )

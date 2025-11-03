@@ -80,7 +80,7 @@ impl RawPythonFrame {
 impl From<&RawPythonFrame> for Frame {
     fn from(raw: &RawPythonFrame) -> Self {
         Frame {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno,
             column: None,
