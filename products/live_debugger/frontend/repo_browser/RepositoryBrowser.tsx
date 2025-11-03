@@ -9,10 +9,12 @@ import { liveDebuggerLogic } from '../liveDebuggerLogic'
 import { repoBrowserLogic } from './repoBrowserLogic'
 
 export function RepositoryBrowser(): JSX.Element {
-    const { fileSearchQuery, repositoryTreeLoading, treeData, codeLines, selectedFilePath } =
+    const { fileSearchQuery, repositoryTreeLoading, repositoryTreeFailure, treeData, codeLines, selectedFilePath } =
         useValues(repoBrowserLogic)
 
     const { loadFileContent, setFileSearchQuery } = useActions(repoBrowserLogic)
+
+    // Debug logging
 
     const { breakpoints, breakpointsByLine, instancesByLine, hitCountsByLine, newHitsByLine, currentRepository } =
         useValues(liveDebuggerLogic)
@@ -38,6 +40,29 @@ export function RepositoryBrowser(): JSX.Element {
                 <div className="flex-1 overflow-auto">
                     {repositoryTreeLoading ? (
                         <div className="p-4 text-center text-muted">Loading repository...</div>
+                    ) : repositoryTreeFailure ? (
+                        <div className="p-4 text-center">
+                            <div className="text-danger font-semibold mb-2">Failed to load repository</div>
+                            {repositoryTreeFailure.message?.includes('GitHub integration') ||
+                            repositoryTreeFailure.message?.includes('No GitHub integration') ? (
+                                <div className="text-muted text-xs space-y-2">
+                                    <p>No GitHub integration found for your team.</p>
+                                    <p className="text-muted-alt">
+                                        Set up a GitHub integration to browse your repositories and set breakpoints.
+                                    </p>
+                                    <LemonButton type="primary" size="small" to="/settings/project-integrations">
+                                        Set up GitHub integration
+                                    </LemonButton>
+                                </div>
+                            ) : (
+                                <div className="text-muted text-xs">
+                                    <div>{repositoryTreeFailure.message || 'Unknown error'}</div>
+                                    <div className="mt-2 text-xs">
+                                        <pre>{JSON.stringify(repositoryTreeFailure, null, 2)}</pre>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     ) : treeData.length === 0 ? (
                         <div className="p-4 text-center text-muted">
                             {fileSearchQuery ? 'No files found' : 'No Python files in repository'}

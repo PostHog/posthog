@@ -3,7 +3,7 @@ from django.db.models import QuerySet
 from django_filters.rest_framework import DjangoFilterBackend, FilterSet
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -11,6 +11,7 @@ from posthog.api.utils import action
 from posthog.auth import ProjectSecretAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import ProjectSecretAPITokenPermission
 
+from products.live_debugger.backend import github_cache, github_client
 from products.live_debugger.backend.models import LiveDebuggerBreakpoint
 
 
@@ -301,3 +302,214 @@ class LiveDebuggerBreakpointViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 "has_more": False,
             }
         )
+
+
+class RepositorySerializer(serializers.Serializer):
+    """Schema for a repository item"""
+
+    name = serializers.CharField(help_text="Repository name (e.g., 'posthog')")
+    full_name = serializers.CharField(help_text="Full repository path (e.g., 'PostHog/posthog')")
+
+
+class RepositoriesResponseSerializer(serializers.Serializer):
+    """Response schema for repositories endpoint"""
+
+    repositories = serializers.ListField(child=RepositorySerializer(), help_text="List of accessible repositories")
+
+
+class TreeItemSerializer(serializers.Serializer):
+    """Schema for a tree item (file or directory)"""
+
+    path = serializers.CharField(help_text="Path within the repository")
+    mode = serializers.CharField(help_text="File mode")
+    type = serializers.CharField(help_text="Type: 'blob' (file) or 'tree' (directory)")
+    sha = serializers.CharField(help_text="Git SHA hash")
+    size = serializers.IntegerField(required=False, help_text="File size in bytes (for blobs)")
+    url = serializers.CharField(help_text="GitHub API URL")
+
+
+class TreeResponseSerializer(serializers.Serializer):
+    """Response schema for tree endpoint"""
+
+    sha = serializers.CharField(help_text="Commit SHA")
+    url = serializers.CharField(help_text="GitHub API URL")
+    tree = serializers.ListField(child=TreeItemSerializer(), help_text="Tree items (files and directories)")
+    truncated = serializers.BooleanField(help_text="Whether the tree was truncated")
+
+
+class FileContentResponseSerializer(serializers.Serializer):
+    """Response schema for file content endpoint"""
+
+    name = serializers.CharField(help_text="File name")
+    path = serializers.CharField(help_text="Full path within repository")
+    sha = serializers.CharField(help_text="Git SHA hash")
+    size = serializers.IntegerField(help_text="File size in bytes")
+    url = serializers.CharField(help_text="GitHub API URL")
+    html_url = serializers.CharField(help_text="GitHub web URL")
+    git_url = serializers.CharField(help_text="Git URL")
+    download_url = serializers.CharField(help_text="Direct download URL")
+    type = serializers.CharField(help_text="Content type")
+    content = serializers.CharField(help_text="File content (decoded)")
+    encoding = serializers.CharField(help_text="Content encoding")
+
+
+class LiveDebuggerRepoBrowserViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    Browse GitHub repositories for live debugger using team's GitHub integration.
+    """
+
+    scope_object = "live_debugger"
+
+    @extend_schema(
+        summary="List accessible repositories",
+        description=(
+            "List all repositories accessible to the team's GitHub integration. "
+            "Requires a GitHub integration to be configured for the team."
+        ),
+        responses={
+            200: OpenApiResponse(
+                response=RepositoriesResponseSerializer, description="List of accessible repositories"
+            ),
+            404: OpenApiResponse(description="No GitHub integration found for team"),
+            500: OpenApiResponse(description="Failed to fetch repositories from GitHub"),
+        },
+    )
+    @action(methods=["GET"], detail=False)
+    def repositories(self, request, *args, **kwargs) -> Response:
+        """
+        List all repositories accessible to the team's GitHub integration.
+        """
+        try:
+            repositories = github_client.list_repositories(self.team)
+            return Response({"repositories": repositories})
+        except github_client.GitHubIntegrationNotFoundError as e:
+            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except github_client.GitHubClientError as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @extend_schema(
+        summary="Get repository tree structure",
+        description=(
+            "Get the complete file tree for a repository at a specific branch. "
+            "Results are cached for 1 hour based on commit SHA. "
+            "Only returns Python files (.py) and directories."
+        ),
+        parameters=[
+            OpenApiParameter("repo", OpenApiTypes.STR, description="Repository name (e.g., 'posthog')", required=True),
+            OpenApiParameter(
+                "branch",
+                OpenApiTypes.STR,
+                description="Branch name (e.g., 'master')",
+                required=False,
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(response=TreeResponseSerializer, description="Repository tree structure"),
+            400: OpenApiResponse(description="Missing or invalid parameters"),
+            404: OpenApiResponse(description="No GitHub integration found or branch not found"),
+            500: OpenApiResponse(description="Failed to fetch tree from GitHub"),
+        },
+    )
+    @action(methods=["GET"], detail=False)
+    def tree(self, request, *args, **kwargs) -> Response:
+        """
+        Get the repository tree structure for a specific branch.
+
+        Query parameters:
+        - repo (required): Repository name (e.g., 'posthog')
+        - branch (optional): Branch name (default: 'master')
+        """
+        repo = request.query_params.get("repo")
+        branch = request.query_params.get("branch", "master")
+
+        if not repo:
+            return Response({"error": "Missing required parameter: repo"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Get current SHA for the branch
+            sha = github_client.get_branch_sha(self.team, repo, branch)
+
+            # Check cache first
+            cached_tree = github_cache.get_cached_tree(self.team.pk, repo, branch, sha)
+            if cached_tree:
+                return Response(cached_tree)
+
+            # Fetch from GitHub and cache
+            tree_data = github_client.get_repository_tree(self.team, repo, sha)
+            github_cache.cache_tree(self.team.pk, repo, branch, sha, tree_data)
+
+            return Response(tree_data)
+
+        except github_client.GitHubIntegrationNotFoundError as e:
+            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except github_client.GitHubClientError as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @extend_schema(
+        summary="Get file content",
+        description=(
+            "Get the content of a specific file from a repository. "
+            "Results are cached for 24 hours. "
+            "Content is automatically decoded from base64."
+        ),
+        parameters=[
+            OpenApiParameter("repo", OpenApiTypes.STR, description="Repository name (e.g., 'posthog')", required=True),
+            OpenApiParameter(
+                "branch",
+                OpenApiTypes.STR,
+                description="Branch name (e.g., 'master')",
+                required=False,
+            ),
+            OpenApiParameter(
+                "path",
+                OpenApiTypes.STR,
+                description="File path within repository (e.g., 'posthog/api/test.py')",
+                required=True,
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(response=FileContentResponseSerializer, description="File content"),
+            400: OpenApiResponse(description="Missing or invalid parameters"),
+            404: OpenApiResponse(description="No GitHub integration found or file not found"),
+            500: OpenApiResponse(description="Failed to fetch file from GitHub"),
+        },
+    )
+    @action(methods=["GET"], detail=False)
+    def file(self, request, *args, **kwargs) -> Response:
+        """
+        Get the content of a specific file from a repository.
+
+        Query parameters:
+        - repo (required): Repository name (e.g., 'posthog')
+        - branch (optional): Branch name (default: 'master')
+        - path (required): File path within repository
+        """
+        repo = request.query_params.get("repo")
+        branch = request.query_params.get("branch", "master")
+        path = request.query_params.get("path")
+
+        if not repo:
+            return Response({"error": "Missing required parameter: repo"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not path:
+            return Response({"error": "Missing required parameter: path"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Get current SHA for the branch
+            sha = github_client.get_branch_sha(self.team, repo, branch)
+
+            # Check cache first
+            cached_file = github_cache.get_cached_file(self.team.pk, repo, branch, sha, path)
+            if cached_file:
+                return Response(cached_file)
+
+            # Fetch from GitHub and cache
+            file_data = github_client.get_file_content(self.team, repo, path)
+            github_cache.cache_file(self.team.pk, repo, branch, sha, path, file_data)
+
+            return Response(file_data)
+
+        except github_client.GitHubIntegrationNotFoundError as e:
+            return Response({"error": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except github_client.GitHubClientError as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
