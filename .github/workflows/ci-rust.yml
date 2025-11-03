@@ -179,7 +179,7 @@ jobs:
 
             - name: Cache Rust dependencies
               if: needs.changes.outputs.rust == 'true'
-              uses: Swatinem/rust-cache@v2
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.rust == 'true'
