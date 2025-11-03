@@ -260,13 +260,13 @@ sources/test/
 **2. Source-Specific Base Tests**
 
 - `EventsSourceBaseTest`: Specialized for event-based revenue analytics
-    - Revenue analytics event configuration helpers
-    - Team base currency management
-    - Event clearing and setup utilities
+  - Revenue analytics event configuration helpers
+  - Team base currency management
+  - Event clearing and setup utilities
 - `StripeSourceBaseTest`: Specialized for Stripe external data sources
-    - Mock external data source and schema creation
-    - Stripe-specific test fixtures and helpers
-    - Currency validation and testing support
+  - Mock external data source and schema creation
+  - Stripe-specific test fixtures and helpers
+  - Currency validation and testing support
 
 #### Testing Guidelines for New Sources
 
