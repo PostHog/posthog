@@ -53,6 +53,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         type: 'source',
                         name: connector.label ?? connector.name,
                         icon_url: connector.iconPath,
+                        icon_class_name: connector.iconClassName,
                         status: isUnreleasedAndShouldntAccess
                             ? 'coming_soon'
                             : connector.betaSource

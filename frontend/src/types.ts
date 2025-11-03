@@ -1189,6 +1189,7 @@ export enum SessionPlayerState {
     PAUSE = 'pause',
     SCRUB = 'scrub',
     SKIP = 'skip',
+    SKIP_TO_MATCHING_EVENT = 'skip_to_matching_event',
     ERROR = 'error',
 }
 
@@ -1386,6 +1387,7 @@ export type CreateGroupParams = {
 
 export interface MatchedRecordingEvent {
     uuid: string
+    timestamp: string
 }
 
 export interface MatchedRecording {
@@ -5461,6 +5463,7 @@ export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
     icon_url?: string
+    icon_class_name?: string // allow for overriding css styling on the icon case by case
     name: string
     description: string
     created_by: UserBasicType | null
@@ -5514,7 +5517,7 @@ export type HogFunctionSubTemplateType = Pick<
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    'id' | 'type' | 'name' | 'inputs_schema' | 'filters' | 'icon_url' | 'icon_class_name' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean

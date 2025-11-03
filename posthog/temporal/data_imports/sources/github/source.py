@@ -10,7 +10,8 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldT
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import GithubSourceConfig
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 # TODO(Andrew J. McGehee): implement the source logic for GithubSource
 
@@ -26,6 +27,7 @@ class GithubSource(BaseSource[GithubSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.GITHUB,
             iconPath="/static/services/github.png",
+            iconClassName="dark:bg-white rounded",
             caption=None,  # only needed if you want to inline docs
             docsUrl=None,  # TODO(Andrew J. McGehee): link to the docs in the website, full path including https://
             fields=cast(list[FieldType], []),  # TODO(Andrew J. McGehee): add source config fields here

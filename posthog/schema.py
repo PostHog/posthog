@@ -1912,7 +1912,15 @@ class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    timestamp: str
     uuid: str
+
+
+class MatchingEventsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: list[MatchedRecordingEvent]
 
 
 class MaxActionContext(BaseModel):
@@ -2579,6 +2587,7 @@ class SessionData(BaseModel):
     event_uuid: str
     person_id: str
     session_id: str
+    timestamp: str
 
 
 class SessionEventsItem(BaseModel):
@@ -15880,6 +15889,7 @@ class SourceConfig(BaseModel):
             SourceFieldSSHTunnelConfig,
         ]
     ]
+    iconClassName: Optional[str] = None
     iconPath: str
     label: Optional[str] = None
     name: ExternalDataSourceType
