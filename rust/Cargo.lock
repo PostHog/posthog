@@ -1518,12 +1518,10 @@ dependencies = [
  "common-alloc",
  "common-redis",
  "common-types",
- "dateparser",
  "envconfig",
  "flate2",
  "futures",
  "health",
- "jiff",
  "limiters",
  "lz-str",
  "metrics",
@@ -1536,7 +1534,6 @@ dependencies = [
  "rand 0.8.5",
  "rdkafka",
  "redis",
- "regex",
  "reqwest 0.12.15",
  "serde",
  "serde_json",
@@ -1947,7 +1944,10 @@ name = "common-types"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "dateparser",
+ "jiff",
  "rdkafka",
+ "regex",
  "serde",
  "serde_json",
  "sqlx",
@@ -2252,7 +2252,8 @@ dependencies = [
  "moka",
  "once_cell",
  "posthog-rs",
- "posthog-symbol-data 0.2.0",
+ "posthog-symbol-data 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proguard",
  "rdkafka",
  "regex",
  "reqwest 0.12.15",
@@ -5731,17 +5732,17 @@ dependencies = [
 
 [[package]]
 name = "posthog-symbol-data"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed6c8edcab40fb71e1eb6b6af8961b3d0d04fbcaa841331036c964868d5dcb22"
+version = "0.3.0"
 dependencies = [
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
 name = "posthog-symbol-data"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe5471c1aad2514de61c8cbfd0c52fb3eb7efa03229737178442c2277d700330"
 dependencies = [
  "serde",
  "thiserror 2.0.16",
@@ -5856,6 +5857,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "307e3004becf10f5a6e0d59d20f3cd28231b0e0827a96cd3e0ce6d14bc1e4bb3"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "proguard"
+version = "5.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e40a6553b04a87f8efa9b559356dc9d6342b255307c8cf052ea09e93cd53a1bb"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "watto",
 ]
 
 [[package]]
@@ -6244,24 +6257,25 @@ dependencies = [
 
 [[package]]
 name = "redis"
-version = "0.23.3"
+version = "0.32.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f49cdc0bb3f412bf8e7d1bd90fe1d9eb10bc5c399ba90973c14662a27b3f8ba"
+checksum = "014cc767fefab6a3e798ca45112bccad9c6e0e218fbd49720042716c73cfef44"
 dependencies = [
- "async-trait",
  "bytes",
+ "cfg-if",
  "combine",
  "crc16",
- "futures",
+ "futures-sink",
  "futures-util",
  "itoa",
  "log",
+ "num-bigint",
  "percent-encoding",
  "pin-project-lite",
- "rand 0.8.5",
+ "rand 0.9.1",
  "ryu",
  "sha1_smol",
- "socket2 0.4.10",
+ "socket2 0.6.0",
  "tokio",
  "tokio-util",
  "url",

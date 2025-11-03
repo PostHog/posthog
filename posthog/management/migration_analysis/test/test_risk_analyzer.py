@@ -409,7 +409,7 @@ class TestRunSQLOperations:
         assert "validate" in risk.reason.lower()
 
     def test_run_sql_drop_constraint(self):
-        """Test DROP CONSTRAINT - fast metadata operation (score 1)."""
+        """Test DROP CONSTRAINT - fast but needs deployment safety review (score 2)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="ALTER TABLE users DROP CONSTRAINT check_age;",
@@ -417,9 +417,10 @@ class TestRunSQLOperations:
 
         risk = self.analyzer.analyze_operation(op)
 
-        assert risk.score == 1
-        assert risk.level == RiskLevel.SAFE
-        assert "fast" in risk.reason.lower() or "metadata" in risk.reason.lower()
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert "fast" in risk.reason.lower()
+        assert "deployment safety" in risk.reason.lower() or (risk.guidance and "deployment" in risk.guidance.lower())
 
     def test_run_sql_drop_constraint_cascade(self):
         """Test DROP CONSTRAINT CASCADE - may be slow (score 3)."""
@@ -433,6 +434,20 @@ class TestRunSQLOperations:
         assert risk.score == 3
         assert risk.level == RiskLevel.NEEDS_REVIEW
         assert "cascade" in risk.reason.lower()
+
+    def test_run_sql_add_constraint_using_index(self):
+        """Test ADD CONSTRAINT ... USING INDEX - instant metadata operation (score 0)."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="ALTER TABLE posthog_errortrackingstackframe ADD CONSTRAINT unique_team_id_raw_id_part UNIQUE USING INDEX idx_team_id_raw_id_part;",
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 0
+        assert risk.level == RiskLevel.SAFE
+        assert "instant" in risk.reason.lower() or "metadata" in risk.reason.lower()
+        assert "using index" in risk.reason.lower()
 
     def test_run_sql_alter_table_drop_column_if_exists(self):
         """Test ALTER TABLE DROP COLUMN IF EXISTS - should be dangerous (score 5), not confused with DROP TABLE."""

@@ -7,6 +7,8 @@ import datetime as dt
 import ipaddress
 from dataclasses import asdict, dataclass
 
+from django.conf import settings
+
 import grpc.aio
 import requests
 import dns.resolver
@@ -22,7 +24,6 @@ from temporalio.client import (
 )
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
-from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -260,7 +261,7 @@ async def schedule_monitor_job(inputs: ScheduleMonitorJobInputs):
                     )
                 ),
                 id=f"monitor-proxy-{inputs.proxy_record_id}",
-                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=30),
                     maximum_interval=dt.timedelta(minutes=5),

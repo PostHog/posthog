@@ -108,6 +108,28 @@ class FileSystemViewLogListQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(required=False, min_value=1)
 
 
+def tokenize_search(search: str) -> list[str]:
+    """Tokenize the search query while tolerating unmatched single quotes."""
+
+    def _build_lexer(allow_single_quotes: bool) -> shlex.shlex:
+        lexer = shlex.shlex(search, posix=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        if not allow_single_quotes:
+            lexer.quotes = '"'
+            if "'" not in lexer.wordchars:
+                lexer.wordchars += "'"
+        return lexer
+
+    try:
+        return list(_build_lexer(allow_single_quotes=True))
+    except ValueError:
+        try:
+            return list(_build_lexer(allow_single_quotes=False))
+        except ValueError:
+            return search.split()
+
+
 class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "file_system"
     queryset = FileSystem.objects.select_related("created_by")
@@ -134,7 +156,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         -------
         search='name:report type:file -author:"Paul D" draft'
         """
-        tokens: list[str] = shlex.split(search)
+        tokens = tokenize_search(search)
         if not tokens:
             return queryset
 
@@ -146,6 +168,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             if (token.startswith('"') and token.endswith('"')) or (token.startswith("'") and token.endswith("'")):
                 token = token[1:-1]
+
+            if not token:
+                continue
 
             # field-qualified token?
             if ":" in token:
@@ -202,8 +227,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         q = Q(type=value)
                 elif field == "ref":
                     q = Q(ref=value)
-                else:  # unknown prefix → search for the full token in path
-                    q = Q(path__icontains=token)
+                else:  # unknown prefix → search for the full token in path and type
+                    q = Q(path__icontains=token) | Q(type__icontains=token)
             elif "/" in token:
                 # ────────────────────────────────────────────────────────────
                 # Plain free-text token
@@ -219,10 +244,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # ────────────────────────────────────────────────────────────
                 sep_pattern = r"(?:/|\\/)"
                 regex = sep_pattern.join(re.escape(part) for part in token.split("/"))
-                q = Q(path__iregex=regex)
+                q = Q(path__iregex=regex) | Q(type__iregex=regex)
             else:
-                # plain free-text token: search in path
-                q = Q(path__icontains=token)
+                # plain free-text token: search in path or type
+                q = Q(path__icontains=token) | Q(type__icontains=token)
 
             combined_q &= ~q if negated else q
 
