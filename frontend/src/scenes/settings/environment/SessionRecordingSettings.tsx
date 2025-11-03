@@ -12,6 +12,7 @@ import {
     IconX,
 } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonDialog,
     LemonDivider,
@@ -490,11 +491,10 @@ export function ReplayAuthorizedDomains(): JSX.Element {
                 web={{ version: '1.5.0' }}
                 reactNative={false}
             />
-            <p>
-                Use the settings below to restrict the domains where recordings will be captured. If no domains are
-                selected, then there will be no domain restriction.
-            </p>
-            <p>Authorized domains is only available for JavaScript Web.</p>
+            <LemonBanner type="warning">
+                <strong>This setting is now deprecated and cannot be updated.</strong> Instead we recommend deleting the
+                domains below and using URL triggers in your recording conditions to control which domains you record.
+            </LemonBanner>
             <p>
                 Domains and wildcard subdomains are allowed (e.g. <code>https://*.example.com</code>). However,
                 wildcarded top-level domains cannot be used (for security reasons).

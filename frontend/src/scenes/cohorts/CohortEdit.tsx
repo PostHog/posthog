@@ -206,7 +206,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             onClick={() => duplicateCohort(true)}
                             disabledReasons={{
                                 'Save the cohort first': isNewCohort,
-                                'Cohort must be dynamic to duplicate': cohort.is_static === true,
                                 'Cohort is still calculating': cohort.is_calculating ?? false,
                             }}
                             menuItem

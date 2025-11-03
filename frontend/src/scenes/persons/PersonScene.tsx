@@ -40,6 +40,7 @@ import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { asDisplay } from './person-utils'
 import { PersonsLogicProps, personsLogic } from './personsLogic'
 
 export const scene: SceneExport<PersonsLogicProps> = {
@@ -139,7 +140,7 @@ export function PersonScene(): JSX.Element | null {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Person"
+                name={asDisplay(person)}
                 resourceType={{
                     type: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
                 }}

@@ -20,10 +20,9 @@ import temporalio.common
 import temporalio.worker
 from asgiref.sync import sync_to_async
 
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
-from posthog import constants
 from posthog.models import Team
 from posthog.models.event.util import bulk_create_events
 from posthog.sync import database_sync_to_async
@@ -57,12 +56,12 @@ TEST_TIME = dt.datetime.now(dt.UTC)
 
 
 @pytest_asyncio.fixture
-async def posthog_tables(ateam):
+async def posthog_table_names(ateam):
     team = await database_sync_to_async(Team.objects.get)(id=ateam.pk)
-    hogql_db = await database_sync_to_async(create_hogql_database)(team=team)
-    posthog_tables = hogql_db.get_posthog_tables()
+    hogql_db = await database_sync_to_async(Database.create_for)(team=team)
+    posthog_table_names = hogql_db.get_posthog_table_names()
 
-    return posthog_tables
+    return posthog_table_names
 
 
 @pytest.mark.parametrize(
@@ -83,10 +82,10 @@ async def posthog_tables(ateam):
         },
     ],
 )
-async def test_run_dag_activity_activity_materialize_mocked(activity_environment, ateam, dag, posthog_tables):
+async def test_run_dag_activity_activity_materialize_mocked(activity_environment, ateam, dag, posthog_table_names):
     """Test all models are completed with a mocked materialize."""
     for model_label in dag.keys():
-        if model_label not in posthog_tables:
+        if model_label not in posthog_table_names:
             await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
                 team=ateam,
                 name=model_label,
@@ -104,7 +103,7 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
         async with asyncio.timeout(10):
             results = await activity_environment.run(run_dag_activity, run_dag_activity_inputs)
 
-        models_materialized = [model for model in dag.keys() if model not in posthog_tables]
+        models_materialized = [model for model in dag.keys() if model not in posthog_table_names]
 
     calls = magic_mock.mock_calls
 
@@ -146,7 +145,7 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
     ],
 )
 async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
-    activity_environment, ateam, dag, make_fail, posthog_tables
+    activity_environment, ateam, dag, make_fail, posthog_table_names
 ):
     """Test some models are completed while some fail with a mocked materialize.
 
@@ -157,7 +156,7 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
     """
     # Create the necessary saved queries for the test
     for model_label in dag.keys():
-        if model_label not in posthog_tables:
+        if model_label not in posthog_table_names:
             await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
                 team=ateam,
                 name=model_label,
@@ -168,7 +167,7 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
         team=ateam,
     )
     run_dag_activity_inputs = RunDagActivityInputs(team_id=ateam.pk, dag=dag, job_id=job.id)
-    assert all(model not in posthog_tables for model in make_fail), "PostHog tables cannot fail"
+    assert all(model not in posthog_table_names for model in make_fail), "PostHog tables cannot fail"
 
     def raise_if_should_make_fail(model_label, *args, **kwargs):
         if model_label in make_fail:
@@ -197,7 +196,9 @@ async def test_run_dag_activity_activity_skips_if_ancestor_failed_mocked(
         async with asyncio.timeout(10):
             results = await activity_environment.run(run_dag_activity, run_dag_activity_inputs)
 
-        models_materialized = [model for model in expected_failed | expected_completed if model not in posthog_tables]
+        models_materialized = [
+            model for model in expected_failed | expected_completed if model not in posthog_table_names
+        ]
 
     calls = magic_mock.mock_calls
 
@@ -763,7 +764,7 @@ async def test_run_workflow_with_minio_bucket(
     ):
         async with temporalio.worker.Worker(
             temporal_client,
-            task_queue=constants.DATA_MODELING_TASK_QUEUE,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
             workflows=[RunWorkflow],
             activities=[
                 start_run_activity,
@@ -782,7 +783,7 @@ async def test_run_workflow_with_minio_bucket(
                 RunWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.DATA_MODELING_TASK_QUEUE,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
             )
@@ -881,7 +882,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
     ):
         async with temporalio.worker.Worker(
             temporal_client,
-            task_queue=constants.DATA_MODELING_TASK_QUEUE,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
             workflows=[RunWorkflow],
             activities=[
                 start_run_activity,
@@ -900,7 +901,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
                 RunWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.DATA_MODELING_TASK_QUEUE,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
             )
@@ -937,7 +938,7 @@ async def test_run_workflow_revert_materialization(
     ):
         async with temporalio.worker.Worker(
             temporal_client,
-            task_queue=constants.DATA_MODELING_TASK_QUEUE,
+            task_queue=settings.DATA_MODELING_TASK_QUEUE,
             workflows=[RunWorkflow],
             activities=[
                 start_run_activity,
@@ -956,7 +957,7 @@ async def test_run_workflow_revert_materialization(
                 RunWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.DATA_MODELING_TASK_QUEUE,
+                task_queue=settings.DATA_MODELING_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
             )

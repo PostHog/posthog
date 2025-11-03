@@ -64,7 +64,7 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
                         onClick={() => closeSidePanel()}
                         sideIcon={<IconArrowLeft />}
                     >
-                        Get him in here
+                        Move it here
                     </LemonButton>
                 </div>
             </SceneContent>

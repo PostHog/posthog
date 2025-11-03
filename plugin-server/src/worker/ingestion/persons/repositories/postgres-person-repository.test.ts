@@ -8,6 +8,7 @@ import { parseJSON } from '../../../../utils/json-parse'
 import { NoRowsUpdatedError, UUIDT } from '../../../../utils/utils'
 import { PersonPropertiesSizeViolationError } from './person-repository'
 import { PostgresPersonRepository } from './postgres-person-repository'
+import { fetchDistinctIdValues, fetchDistinctIds } from './test-helpers'
 
 jest.mock('../../../../utils/logger')
 
@@ -244,6 +245,14 @@ describe('PostgresPersonRepository', () => {
             expect(kafkaMessages[0].topic).toBe('clickhouse_person_test')
             expect(kafkaMessages[1].topic).toBe('clickhouse_person_distinct_id_test')
             expect(kafkaMessages[2].topic).toBe('clickhouse_person_distinct_id_test')
+
+            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
+            expect(distinctIds).toHaveLength(2)
+            expect(distinctIds).toEqual(expect.arrayContaining(['distinct-1', 'distinct-2']))
+
+            const distinctIdRecords = await fetchDistinctIds(hub.db.postgres, person)
+            expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-1')?.version).toBe('0')
+            expect(distinctIdRecords.find((d) => d.distinct_id === 'distinct-2')?.version).toBe('1')
         })
 
         it('creates a person without distinct IDs', async () => {
@@ -1283,6 +1292,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             }
 
             // First update should succeed
@@ -1317,6 +1328,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             }
 
             // Update should fail due to version mismatch
@@ -1350,6 +1363,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane' },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             }
 
             // Update should fail because person doesn't exist
@@ -1949,6 +1964,8 @@ describe('PostgresPersonRepository', () => {
                     needs_write: true,
                     properties_to_set: { description: 'x'.repeat(150) },
                     properties_to_unset: [],
+                    original_is_identified: false,
+                    original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 }
 
                 await expect(oversizedRepository.updatePersonAssertVersion(personUpdate)).rejects.toThrow(
@@ -2201,6 +2218,8 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30, data: 'y'.repeat(2500) },
                 properties_to_unset: [],
+                original_is_identified: false,
+                original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
             })
 
             const personUpdate1 = createPersonUpdate(person1, 'test-assert-1')

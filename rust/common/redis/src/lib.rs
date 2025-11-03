@@ -95,6 +95,7 @@ pub trait Client {
         v: String,
         format: RedisValueFormat,
     ) -> Result<(), CustomRedisError>;
+    async fn setex(&self, k: String, v: String, seconds: u64) -> Result<(), CustomRedisError>;
     async fn set_nx_ex(&self, k: String, v: String, seconds: u64)
         -> Result<bool, CustomRedisError>;
     async fn set_nx_ex_with_format(
@@ -220,6 +221,14 @@ impl Client for RedisClient {
         };
         let mut conn = self.connection.clone();
         let results = conn.set(k, bytes);
+        let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
+        Ok(fut?)
+    }
+
+    async fn setex(&self, k: String, v: String, seconds: u64) -> Result<(), CustomRedisError> {
+        let bytes = serde_pickle::to_vec(&v, Default::default())?;
+        let mut conn = self.connection.clone();
+        let results = conn.set_ex(k, bytes, seconds);
         let fut = timeout(Duration::from_millis(get_redis_timeout_ms()), results).await?;
         Ok(fut?)
     }
@@ -544,6 +553,21 @@ impl Client for MockRedisClient {
             op: "set_with_format".to_string(),
             key: key.clone(),
             value: MockRedisValue::StringWithFormat(value.clone(), format),
+        });
+
+        self.set_ret.get(&key).cloned().unwrap_or(Ok(()))
+    }
+
+    async fn setex(
+        &self,
+        key: String,
+        value: String,
+        seconds: u64,
+    ) -> Result<(), CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "setex".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::StringWithTTL(value.clone(), seconds),
         });
 
         self.set_ret.get(&key).cloned().unwrap_or(Ok(()))

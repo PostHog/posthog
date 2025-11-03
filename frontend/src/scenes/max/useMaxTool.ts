@@ -8,7 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
-import { TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
+import { ToolDefinition, ToolRegistration, getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { createSuggestionGroup } from './utils'
@@ -24,7 +24,7 @@ export interface UseMaxToolOptions extends Omit<ToolRegistration, 'name' | 'desc
 
 export interface UseMaxToolReturn {
     /** Tool definition - null if the tool is inactive (i.e. `active` is false or Max is not available) */
-    definition: (typeof TOOL_DEFINITIONS)[keyof typeof TOOL_DEFINITIONS] | null
+    definition: ToolDefinition | null
     /** Whether the Max side panel is currently open */
     isMaxOpen: boolean
     /** Function to open Max with the optional initialMaxPrompt and suggestions - null if the tool is inactive */
@@ -34,7 +34,6 @@ export interface UseMaxToolReturn {
 /** Hook for registering a MaxTool and handling Max interactions programmatically, without the full MaxTool wrapper. */
 export function useMaxTool({
     identifier,
-    icon,
     context,
     introOverride,
     callback,
@@ -48,7 +47,7 @@ export function useMaxTool({
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { setActiveGroup } = useActions(maxLogic({ tabId: 'sidepanel' }))
 
-    const definition = TOOL_DEFINITIONS[identifier as keyof typeof TOOL_DEFINITIONS]
+    const definition = getToolDefinition(identifier)
     const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG')
     const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
 
@@ -58,12 +57,11 @@ export function useMaxTool({
 
     useEffect(() => {
         // Register/deregister tool
-        if (active) {
+        if (active && definition) {
             registerTool({
                 identifier,
                 name: definition.name,
                 description: definition.description,
-                icon,
                 context,
                 introOverride,
                 suggestions,
@@ -74,9 +72,7 @@ export function useMaxTool({
     }, [
         active,
         identifier,
-        definition.name,
-        definition.description,
-        icon,
+        definition,
         JSON.stringify(context), // oxlint-disable-line react-hooks/exhaustive-deps
         introOverride,
         suggestions,
@@ -92,7 +88,7 @@ export function useMaxTool({
             ? null
             : (): void => {
                   // Show the suggestions from this specific tool
-                  if (suggestions && suggestions.length > 0) {
+                  if (definition && suggestions && suggestions.length > 0) {
                       setActiveGroup(
                           createSuggestionGroup(definition.name, React.createElement(IconWrench), suggestions)
                       )

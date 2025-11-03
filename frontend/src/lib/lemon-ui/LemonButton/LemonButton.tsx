@@ -100,6 +100,7 @@ export type SideAction = Pick<
     | 'aria-label'
     | 'status'
     | 'targetBlank'
+    | 'size'
 > & {
     dropdown?: LemonButtonDropdown
     /**

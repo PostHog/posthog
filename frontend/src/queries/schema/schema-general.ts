@@ -35,6 +35,7 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     LogEntryPropertyFilter,
+    MatchedRecordingEvent,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -91,6 +92,7 @@ export enum NodeKind {
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    ErrorTrackingSimilarIssuesQuery = 'ErrorTrackingSimilarIssuesQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
@@ -195,6 +197,7 @@ export type AnyDataNode =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingSimilarIssuesQuery
     | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
     | ExperimentFunnelsQuery
@@ -230,6 +233,7 @@ export type QuerySchema =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingSimilarIssuesQuery
     | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -461,6 +465,10 @@ export const VALID_RECORDING_ORDERS = [
     'activity_score',
     'recording_ttl',
 ] as const
+
+export interface MatchingEventsResponse {
+    results: MatchedRecordingEvent[]
+}
 
 export type RecordingOrder = (typeof VALID_RECORDING_ORDERS)[number]
 
@@ -2219,6 +2227,19 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     limit?: integer
     offset?: integer
     personId?: string
+    groupKey?: string
+    groupTypeIndex?: integer
+}
+
+export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
+    kind: NodeKind.ErrorTrackingSimilarIssuesQuery
+    issueId: ErrorTrackingIssue['id']
+    modelName?: EmbeddingModelName
+    rendering?: string
+    maxDistance?: number
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
 }
 
 export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
@@ -2271,6 +2292,11 @@ export interface ErrorTrackingExternalReference {
     integration: ErrorTrackingExternalReferenceIntegration
 }
 
+export interface ErrorTrackingIssueCohort {
+    id: number
+    name: string
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -2280,6 +2306,7 @@ export interface ErrorTrackingRelationalIssue {
     /**  @format date-time */
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
+    cohort?: ErrorTrackingIssueCohort
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
@@ -2322,6 +2349,23 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase {
     columns?: string[]
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
+
+export type SimilarIssue = {
+    id: string
+    name: string
+    description: string
+    library: string | null
+    status: string
+    first_seen: string
+}
+
+export interface ErrorTrackingSimilarIssuesQueryResponse extends AnalyticsQueryResponseBase {
+    results: SimilarIssue[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedErrorTrackingSimilarIssuesQueryResponse = CachedQueryResponse<ErrorTrackingSimilarIssuesQueryResponse>
 
 export type EmbeddingModelName = 'text-embedding-3-small-1536' | 'text-embedding-3-large-3072'
 
@@ -2515,11 +2559,13 @@ export type FileSystemIconType =
     | 'early_access_feature'
     | 'experiment'
     | 'feature_flag'
+    | 'feature_flag_off'
     | 'data_pipeline'
     | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
     | 'link'
+    | 'live_debugger'
     | 'logs'
     | 'workflows'
     | 'notebook'
@@ -2563,6 +2609,14 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     iconColor?: FileSystemIconColor
     /** Match this with the a base scene key or a specific one */
     sceneKey?: string
+    /** List of all scenes exported by the app */
+    sceneKeys?: string[]
+}
+
+export interface FileSystemViewLogEntry {
+    type: string
+    ref: string
+    viewed_at: string
 }
 
 export interface PersistedFolder {
@@ -2799,6 +2853,7 @@ export interface SessionData {
     person_id: string
     session_id: string
     event_uuid: string
+    timestamp: string
 }
 
 export interface ExperimentStatsBase {
@@ -3495,6 +3550,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     properties?: AnyPropertyFilter[]
     /** Person who performed the event */
     personId?: string
+    groupKey?: string
+    groupTypeIndex?: integer
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -4131,9 +4188,11 @@ export interface SourceConfig {
     betaSource?: boolean
     iconPath: string
     featureFlag?: string
+    iconClassName?: string
 }
 
 export const externalDataSources = [
+    'Github',
     'Stripe',
     'Hubspot',
     'Postgres',

@@ -14,3 +14,6 @@ rdkafka = { workspace = true }
 sqlx = { workspace = true }
 uuid = { workspace = true }
 time = { workspace = true }
+dateparser = "0.2"
+jiff = "0.1"
+regex = { workspace = true }

@@ -60,7 +60,7 @@ impl ServerHandle {
                 project_id: team_id as i64,
                 name: "Test Team".to_string(),
                 api_token: token.clone(),
-                cookieless_server_hash_mode: 0,
+                cookieless_server_hash_mode: Some(0),
                 timezone: "UTC".to_string(),
                 ..Default::default()
             };

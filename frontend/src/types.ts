@@ -143,6 +143,7 @@ export enum AvailableFeature {
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
+    SCIM = 'scim',
     SSO_ENFORCEMENT = 'sso_enforcement',
     WHITE_LABELLING = 'white_labelling',
     COMMUNITY_SUPPORT = 'community_support',
@@ -239,10 +240,10 @@ export enum ProductKey {
     ERROR_TRACKING = 'error_tracking',
     REVENUE_ANALYTICS = 'revenue_analytics',
     MARKETING_ANALYTICS = 'marketing_analytics',
+    LLM_ANALYTICS = 'llm_analytics',
     MAX = 'max',
     LINKS = 'links',
     ENDPOINTS = 'endpoints',
-    LLM_ANALYTICS = 'llm_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
@@ -482,6 +483,9 @@ export interface OrganizationDomainType {
     saml_entity_id: string
     saml_acs_url: string
     saml_x509_cert: string
+    scim_enabled?: boolean
+    scim_base_url?: string
+    scim_bearer_token?: string
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -1185,6 +1189,7 @@ export enum SessionPlayerState {
     PAUSE = 'pause',
     SCRUB = 'scrub',
     SKIP = 'skip',
+    SKIP_TO_MATCHING_EVENT = 'skip_to_matching_event',
     ERROR = 'error',
 }
 
@@ -1372,7 +1377,7 @@ export type SearchResponse = {
     counts: Record<SearchableEntity, number | null>
 }
 
-export type GroupListParams = { group_type_index: GroupTypeIndex; search: string }
+export type GroupListParams = { group_type_index: GroupTypeIndex; search: string; limit?: number }
 
 export type CreateGroupParams = {
     group_type_index: GroupTypeIndex
@@ -1382,6 +1387,7 @@ export type CreateGroupParams = {
 
 export interface MatchedRecordingEvent {
     uuid: string
+    timestamp: string
 }
 
 export interface MatchedRecording {
@@ -1521,6 +1527,7 @@ export enum PersonsTabType {
 }
 
 export enum GroupsTabType {
+    FEED = 'feed',
     NOTES = 'notes',
     OVERVIEW = 'overview',
 }
@@ -2146,6 +2153,7 @@ export interface EndpointType extends WithAccessControl {
     created_at: string
     updated_at: string
     created_by: UserBasicType | null
+    cache_age_seconds: number
     /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
     /** Last execution time from ClickHouse query_log table */
@@ -2160,6 +2168,7 @@ export interface DashboardBasicType extends WithAccessControl {
     created_at: string
     created_by: UserBasicType | null
     last_accessed_at: string | null
+    last_viewed_at?: string | null
     is_shared: boolean
     deleted: boolean
     creation_mode: 'default' | 'template' | 'duplicate'
@@ -2462,7 +2471,7 @@ export type BreakdownType =
     | 'data_warehouse'
     | 'data_warehouse_person_property'
     | 'revenue_analytics'
-export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type IntervalType = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
 export type InsightSceneSource = 'web-analytics' | 'llm-analytics'
@@ -4357,6 +4366,7 @@ export const INTEGRATION_KINDS = [
     'twilio',
     'linear',
     'github',
+    'gitlab',
     'meta-ads',
     'clickup',
     'reddit-ads',
@@ -4537,6 +4547,7 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
+    | 'desktop_recording'
     | 'early_access_feature'
     | 'endpoint'
     | 'error_tracking'
@@ -4549,6 +4560,7 @@ export type APIScopeObject =
     | 'hog_function'
     | 'insight'
     | 'integration'
+    | 'live_debugger'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -4565,10 +4577,10 @@ export type APIScopeObject =
     | 'survey'
     | 'task'
     | 'user'
+    | 'warehouse_table'
+    | 'warehouse_view'
     | 'web_analytics'
     | 'webhook'
-    | 'warehouse_view'
-    | 'warehouse_table'
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -4695,6 +4707,7 @@ export enum ActivityScope {
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
+    HEATMAP = 'Heatmap',
 }
 
 export type CommentType = {
@@ -5208,6 +5221,7 @@ export type SDK = {
 export enum SDKKey {
     ANDROID = 'android',
     ANGULAR = 'angular',
+    ANTHROPIC = 'anthropic',
     ASTRO = 'astro',
     API = 'api',
     BUBBLE = 'bubble',
@@ -5219,6 +5233,7 @@ export enum SDKKey {
     FLUTTER = 'flutter',
     GATSBY = 'gatsby',
     GO = 'go',
+    GOOGLE_GEMINI = 'google_gemini',
     GOOGLE_TAG_MANAGER = 'google_tag_manager',
     HELICONE = 'helicone',
     HTML_SNIPPET = 'html',
@@ -5226,10 +5241,15 @@ export enum SDKKey {
     JAVA = 'java',
     JS_WEB = 'javascript_web',
     LARAVEL = 'laravel',
+    LANGCHAIN = 'langchain',
     LANGFUSE = 'langfuse',
+    LITELLM = 'litellm',
+    MANUAL_CAPTURE = 'manual_capture',
     NEXT_JS = 'nextjs',
     NODE_JS = 'nodejs',
     NUXT_JS = 'nuxtjs',
+    OPENAI = 'openai',
+    OPENROUTER = 'openrouter',
     PHP = 'php',
     PYTHON = 'python',
     REACT = 'react',
@@ -5244,6 +5264,7 @@ export enum SDKKey {
     SHOPIFY = 'shopify',
     SVELTE = 'svelte',
     TRACELOOP = 'traceloop',
+    VERCEL_AI = 'vercel_ai',
     VUE_JS = 'vuejs',
     WEBFLOW = 'webflow',
     WORDPRESS = 'wordpress',
@@ -5331,7 +5352,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
     | ProductKey.WEB_ANALYTICS
-    | ProductKey.ERROR_TRACKING,
+    | ProductKey.ERROR_TRACKING
+    | ProductKey.LLM_ANALYTICS,
     OnboardingProduct
 >
 
@@ -5441,6 +5463,7 @@ export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
     icon_url?: string
+    icon_class_name?: string // allow for overriding css styling on the icon case by case
     name: string
     description: string
     created_by: UserBasicType | null
@@ -5494,7 +5517,7 @@ export type HogFunctionSubTemplateType = Pick<
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    'id' | 'type' | 'name' | 'inputs_schema' | 'filters' | 'icon_url' | 'icon_class_name' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
@@ -5849,12 +5872,45 @@ export interface DataWarehouseActivityRecord {
     id: string
     type: string
     name: string | null
-    status: string
+    status: ExternalDataJobStatus
     rows: number
     created_at: string
     finished_at: string | null
     latest_error: string | null
     workflow_run_id?: string
+}
+
+export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
+export type HeatmapStatus = 'processing' | 'completed' | 'failed'
+
+export interface HeatmapScreenshotType {
+    id: number
+    name: string
+    short_id: string
+    url: string
+    data_url: string | null
+    type: HeatmapType
+    width: number
+    status: HeatmapStatus
+    has_content: boolean
+    created_at: string
+    updated_at: string
+    exception?: string
+    error?: string // Added for error responses from content endpoint
+    created_by?: UserBasicType | null
+}
+
+export type HeatmapScreenshotContentResponse =
+    | { success: true; data: Response } // 200: PNG image data
+    | { success: false; data: HeatmapScreenshotType } // 202/404/501: JSON with screenshot metadata
+
+export interface HeatmapSavedFilters {
+    order: string
+    search: string
+    createdBy: number | 'All users'
+    page: number
+    limit: number
+    offset: number
 }
 
 export interface DataWarehouseDashboardDataSource {
@@ -5864,6 +5920,37 @@ export interface DataWarehouseDashboardDataSource {
     lastSync: string | null
     rowCount: number | null
     url: string
+}
+
+export interface DataWarehouseJobStatsRequestPayload {
+    days: 1 | 7 | 30
+}
+
+export interface DataWarehouseJobStats {
+    days: number
+    cutoff_time: string
+    total_jobs: number
+    successful_jobs: number
+    failed_jobs: number
+    external_data_jobs: {
+        total: number
+        running: number
+        successful: number
+        failed: number
+    }
+    modeling_jobs: {
+        total: number
+        running: number
+        successful: number
+        failed: number
+    }
+    breakdown: Record<
+        string,
+        {
+            successful: number
+            failed: number
+        }
+    >
 }
 
 export enum OnboardingStepKey {

@@ -30,12 +30,14 @@ import {
     ExternalDataSourceType,
     FileSystemCount,
     FileSystemEntry,
+    FileSystemViewLogEntry,
     HogCompileResponse,
     HogQLQuery,
     HogQLQueryResponse,
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    MatchingEventsResponse,
     Node,
     NodeKind,
     PersistedFolder,
@@ -75,6 +77,8 @@ import {
     DataColorThemeModel,
     DataModelingJob,
     DataWarehouseActivityRecord,
+    DataWarehouseJobStats,
+    DataWarehouseJobStatsRequestPayload,
     DataWarehouseManagedViewsetSavedQuery,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
@@ -105,6 +109,10 @@ import {
     GoogleAdsConversionActionType,
     Group,
     GroupListParams,
+    HeatmapScreenshotContentResponse,
+    HeatmapScreenshotType,
+    HeatmapStatus,
+    HeatmapType,
     HogFunctionIconResponse,
     HogFunctionStatus,
     HogFunctionTemplateType,
@@ -1082,6 +1090,10 @@ export class ApiRequest {
         return this.errorTrackingRules(rule).addPathComponent('reorder')
     }
 
+    public errorTrackingIssueCohort(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.errorTrackingIssue(issueId, teamId).addPathComponent(`cohort`)
+    }
+
     // # Warehouse
     public dataWarehouseTables(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('warehouse_tables')
@@ -1565,6 +1577,24 @@ export class ApiRequest {
     public sessionSummary(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('session_summaries')
     }
+
+    // Heatmap screenshots
+    public heatmapScreenshots(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('heatmap_screenshots')
+    }
+
+    public heatmapScreenshot(id: number, teamId?: TeamType['id']): ApiRequest {
+        return this.heatmapScreenshots(teamId).addPathComponent(id)
+    }
+
+    public heatmapScreenshotsSaved(teamId?: TeamType['id']): ApiRequest {
+        // Deprecated path: kept for potential fallback during rollout
+        return this.environmentsDetail(teamId).addPathComponent('saved')
+    }
+
+    public heatmapScreenshotSaved(id: number | string, teamId?: TeamType['id']): ApiRequest {
+        return this.heatmapScreenshotsSaved(teamId).addPathComponent(id)
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -1817,6 +1847,13 @@ const api = {
     },
 
     fileSystemLogView: {
+        async list(params?: { type?: string; limit?: number }): Promise<FileSystemViewLogEntry[]> {
+            const request = new ApiRequest().fileSystemLogView()
+            if (params) {
+                request.withQueryString(params)
+            }
+            return await request.get()
+        },
         async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLogView().create({ data })
         },
@@ -3067,6 +3104,10 @@ const api = {
         ): Promise<Array<{ id: string; title: string; description: string }>> {
             return await new ApiRequest().errorTrackingSimilarIssues(issueId).get()
         },
+
+        async assignCohort(issueId: ErrorTrackingIssue['id'], cohortId: CohortType['id']): Promise<{ id: string }> {
+            return await new ApiRequest().errorTrackingIssueCohort(issueId).put({ data: { cohortId } })
+        },
     },
 
     gitProviderFileLinks: {
@@ -3088,7 +3129,7 @@ const api = {
         async list(params: RecordingsQuery): Promise<RecordingsQueryResponse> {
             return await new ApiRequest().recordings().withQueryString(toParams(params)).get()
         },
-        async getMatchingEvents(params: string): Promise<{ results: string[] }> {
+        async getMatchingEvents(params: string): Promise<MatchingEventsResponse> {
             return await new ApiRequest().recordingMatchingEvents().withQueryString(params).get()
         },
         async get(
@@ -3784,6 +3825,16 @@ const api = {
                 .dataWarehouse()
                 .withAction('recent_activity')
                 .withQueryString({ limit: options?.limit, offset: options?.offset })
+                .get(options)
+        },
+
+        async jobStats(
+            options?: ApiMethodOptions & DataWarehouseJobStatsRequestPayload
+        ): Promise<DataWarehouseJobStats> {
+            return await new ApiRequest()
+                .dataWarehouse()
+                .withAction('job_stats')
+                .withQueryString({ days: options?.days })
                 .get(options)
         },
     },
@@ -4510,6 +4561,64 @@ const api = {
             url = next
         }
         return results
+    },
+
+    heatmapScreenshots: {
+        async getContent(id: number): Promise<HeatmapScreenshotContentResponse> {
+            const response = await new ApiRequest().heatmapScreenshot(id).withAction('content').getResponse()
+
+            if (
+                response.ok &&
+                (response.headers.get('content-type')?.includes('image/jpeg') ||
+                    response.headers.get('content-type')?.includes('image/png'))
+            ) {
+                // 200: JPEG/PNG image data
+                return { success: true, data: response }
+            }
+            // 202/404/501: JSON with screenshot metadata
+            const jsonData = await response.json()
+            return { success: false, data: jsonData }
+        },
+    },
+
+    savedHeatmaps: {
+        async list(
+            params: {
+                type?: HeatmapType
+                status?: HeatmapStatus
+                search?: string
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<HeatmapScreenshotType>> {
+            return await new ApiRequest().heatmapScreenshotsSaved().withQueryString(params).get()
+        },
+
+        async create(data: {
+            name: string
+            url: string
+            data_url?: string | null
+            width?: number
+            type?: HeatmapType
+        }): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotsSaved().create({ data })
+        },
+
+        async get(id: number | string): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotSaved(id).get()
+        },
+
+        async update(
+            id: number | string,
+            data: Partial<{
+                url: string
+                data_url: string | null
+                width: number
+                type: HeatmapType
+            }>
+        ): Promise<HeatmapScreenshotType> {
+            return await new ApiRequest().heatmapScreenshotSaved(id).update({ data })
+        },
     },
 
     sessionSummaries: {
