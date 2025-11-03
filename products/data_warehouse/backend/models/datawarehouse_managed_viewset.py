@@ -195,7 +195,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
 
     def to_saved_query_metadata(self, name: str):
         if self.kind != DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
-            raise DataWarehouseManagedViewSet.UnsupportedViewsetKind(self.kind)
+            raise DataWarehouseManagedViewSet.UnsupportedViewsetKind(cast(DataWarehouseManagedViewSetKind, self.kind))
 
         return {
             "managed_viewset_kind": self.kind,
