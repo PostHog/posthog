@@ -98,7 +98,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 `/api/environments/${window.POSTHOG_APP_CONTEXT?.current_team?.id}/heatmap_screenshots/${values.heatmapId}/content/?width=${w}`
             )
             actions.setWindowWidthOverride(w)
-            actions.loadHeatmap()
         },
         pollScreenshotStatus: async ({ id, width }, breakpoint) => {
             let attempts = 0
