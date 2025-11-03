@@ -90,6 +90,7 @@
      HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
                    and isNull(max(max_steps))))
   GROUP BY prop
+  ORDER BY prop ASC
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
