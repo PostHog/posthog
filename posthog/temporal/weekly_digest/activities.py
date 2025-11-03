@@ -73,6 +73,8 @@ async def _load_playlist_counts_from_django_cache(r: redis.Redis, filters: Filte
             try:
                 playlist_counts.append(PlaylistCount.model_validate_json(count))
             except ValidationError:
+                # Failure to parse means the counting job likely had an error
+                # Treat it the same as a missing count
                 playlist_counts.append(None)
 
     return playlist_counts
@@ -243,7 +245,7 @@ async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
                     team_count += 1
                     filter_count += len(ordered_filters.root)
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate Replay filters for team {team.id}, skipping...",
                         error=str(e),
                         team_id=team.id,
