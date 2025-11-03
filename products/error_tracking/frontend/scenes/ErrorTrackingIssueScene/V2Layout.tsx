@@ -173,43 +173,126 @@ const LeftHandColumn = (): JSX.Element => {
 
                     <LemonDivider className="mt-1" />
 
-                    <TabsPrimitive defaultValue="overview" className="flex flex-col gap-y-2">
-                        <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
-                            <TabsPrimitiveList className="flex justify-between space-x-2">
-                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="overview">
-                                    <IconWarning className="mr-1" />
-                                    <span className="text-nowrap">Overview</span>
-                                </TabsPrimitiveTrigger>
-                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="exceptions">
-                                    <IconList className="mr-1" />
-                                    <span className="text-nowrap">Exceptions</span>
-                                </TabsPrimitiveTrigger>
-                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="breakdowns">
-                                    <IconFilter className="mr-1" />
-                                    <span className="text-nowrap">Breakdowns</span>
-                                </TabsPrimitiveTrigger>
-                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="autofix">
-                                    <IconRobot className="mr-1" />
-                                    <span className="text-nowrap">Autofix</span>
-                                </TabsPrimitiveTrigger>
-                                <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="similar_issues">
-                                    <IconSearch className="mr-1" />
-                                    <span className="text-nowrap">Similar issues</span>
-                                </TabsPrimitiveTrigger>
-                            </TabsPrimitiveList>
-                        </ScrollableShadows>
-                        <TabsPrimitiveContent value="overview" className="pr-2">
-                            <ErrorTrackingIssueScenePanel showActions={false} />
-                        </TabsPrimitiveContent>
-                        <TabsPrimitiveContent value="exceptions">
-                            <ExceptionsTab />
-                        </TabsPrimitiveContent>
-                        <TabsPrimitiveContent value="breakdowns">
-                            <BreakdownsSearchBar />
-                            <BreakdownsChart />
-                        </TabsPrimitiveContent>
-                        <TabsPrimitiveContent value="autofix">AI autofix</TabsPrimitiveContent>
-                        <TabsPrimitiveContent value="similar_issues">Similar issues</TabsPrimitiveContent>
+                    <TabsPrimitive defaultValue="paragraphs" className="flex flex-col overflow-y-auto">
+                        <div>
+                            <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
+                                <TabsPrimitiveList className="flex justify-between space-x-2">
+                                    <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="paragraphs">
+                                        <IconWarning className="mr-1" />
+                                        <span className="text-nowrap">Overview</span>
+                                    </TabsPrimitiveTrigger>
+                                    <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="overview">
+                                        <IconWarning className="mr-1" />
+                                        <span className="text-nowrap">Overview</span>
+                                    </TabsPrimitiveTrigger>
+                                    <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="exceptions">
+                                        <IconList className="mr-1" />
+                                        <span className="text-nowrap">Exceptions</span>
+                                    </TabsPrimitiveTrigger>
+                                    <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="breakdowns">
+                                        <IconFilter className="mr-1" />
+                                        <span className="text-nowrap">Breakdowns</span>
+                                    </TabsPrimitiveTrigger>
+                                    <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="autofix">
+                                        <IconRobot className="mr-1" />
+                                        <span className="text-nowrap">Autofix</span>
+                                    </TabsPrimitiveTrigger>
+                                    <TabsPrimitiveTrigger
+                                        className="flex items-center px-2 py-1.5"
+                                        value="similar_issues"
+                                    >
+                                        <IconSearch className="mr-1" />
+                                        <span className="text-nowrap">Similar issues</span>
+                                    </TabsPrimitiveTrigger>
+                                </TabsPrimitiveList>
+                            </ScrollableShadows>
+                        </div>
+                        <div className="flex-1 overflow-y-auto pt-2">
+                            <TabsPrimitiveContent value="paragraphs" className="pr-2">
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is a paragraph</p>
+                                <p>This is the last paragraph</p>
+                            </TabsPrimitiveContent>
+                            <TabsPrimitiveContent value="overview" className="pr-2">
+                                <ErrorTrackingIssueScenePanel showActions={false} />
+                            </TabsPrimitiveContent>
+                            <TabsPrimitiveContent value="exceptions">
+                                <ExceptionsTab />
+                            </TabsPrimitiveContent>
+                            <TabsPrimitiveContent value="breakdowns">
+                                <BreakdownsSearchBar />
+                                <BreakdownsChart />
+                            </TabsPrimitiveContent>
+                            <TabsPrimitiveContent value="autofix">AI autofix</TabsPrimitiveContent>
+                            <TabsPrimitiveContent value="similar_issues">Similar issues</TabsPrimitiveContent>
+                        </div>
                     </TabsPrimitive>
                 </>
             )}

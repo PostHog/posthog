@@ -184,6 +184,7 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
     const requiresHorizontalMargin =
         sceneConfig?.layout && ['app-raw', 'app-raw-no-header'].includes(sceneConfig.layout)
 
+    return <></>
     return (
         <LemonBanner
             type={relevantNotice.type || 'info'}
