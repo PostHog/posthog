@@ -89,14 +89,14 @@ export function Products(): JSX.Element {
     return (
         <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
             <>
-                <div className="flex flex-col justify-center flex-grow items-center w-full max-w-full">
+                <div className="flex flex-col justify-center flex-grow items-center w-full">
                     <div className="mb-2">
                         <h2 className="text-center text-4xl">Which products would you like to use?</h2>
                         <p className="text-center">
                             Don't worry &ndash; you can pick more than one! Please select all that apply.
                         </p>
                     </div>
-                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full max-w-full">
+                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full">
                         <div className="flex flex-row flex-wrap gap-4 justify-center max-w-[680px]">
                             {Object.keys(availableOnboardingProducts).map((productKey) => (
                                 <SelectableProductCard
