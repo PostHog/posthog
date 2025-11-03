@@ -2,8 +2,6 @@ import time
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-
-# Forward declaration for type hints - actual import at bottom to avoid circular dependency
 from typing import TYPE_CHECKING, Generic, TypeVar
 
 from clickhouse_driver import Client
@@ -32,7 +30,7 @@ class OverridesSnapshotTable(ABC):
     def create(self, client: Client) -> None:
         raise NotImplementedError()
 
-    def exists(self, client: Client) -> None:
+    def exists(self, client: Client) -> bool:
         results = client.execute(
             f"SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s",
             {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
@@ -74,6 +72,7 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
     def qualified_name(self):
         return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
 
+    @abstractmethod
     def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
         raise NotImplementedError()
 
@@ -106,6 +105,7 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
             else:
                 raise Exception(f"unexpected status: {status}")
 
+    @abstractmethod
     def get_checksum(self, client: Client):
         raise NotImplementedError()
 
@@ -121,10 +121,12 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
         return self.get_checksum(client)
 
     @property
+    @abstractmethod
     def update_table(self):
         raise NotImplementedError()
 
     @property
+    @abstractmethod
     def update_commands(self):
         raise NotImplementedError()
 
@@ -137,10 +139,12 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
         )
 
     @property
+    @abstractmethod
     def overrides_table(self):
         raise NotImplementedError()
 
     @property
+    @abstractmethod
     def overrides_deletes_predicate(self):
         raise NotImplementedError()
 
