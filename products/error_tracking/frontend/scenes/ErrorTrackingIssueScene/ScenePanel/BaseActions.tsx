@@ -1,10 +1,9 @@
 import { useActions } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconShare } from '@posthog/icons'
+import { IconComment, IconShare } from '@posthog/icons'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
