@@ -44,6 +44,10 @@ BATCH_SIZE = get_from_env("FLAG_CACHE_MISS_BATCH_SIZE", 10, type_cast=int)
 QUEUE_DEPTH_WARNING_THRESHOLD = get_from_env("FLAG_CACHE_MISS_QUEUE_DEPTH_WARNING", 1000, type_cast=int)
 
 
+# Note: This task polls a Redis list (not a Celery queue), so the queue parameter
+# only affects where this lightweight polling task runs. DEFAULT queue is appropriate
+# for this minimal work (RPOP + rate limit check). The actual cache rebuilds are
+# dispatched as separate tasks with appropriate queue assignments.
 @shared_task(ignore_result=True, max_retries=0, queue=CeleryQueue.DEFAULT.value)
 def process_flag_cache_miss_queue() -> None:
     """

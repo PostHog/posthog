@@ -101,7 +101,9 @@ pub async fn flags_definitions(
             Ok((
                 StatusCode::SERVICE_UNAVAILABLE,
                 [(RETRY_AFTER, retry_after.to_string())],
-                "Flag definitions cache is warming. Please retry after the specified duration.",
+                format!(
+                    "Flag definitions cache is warming. Please retry after {retry_after} seconds."
+                ),
             )
                 .into_response())
         }

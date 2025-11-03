@@ -145,6 +145,7 @@ async fn test_s3_cache_hit_triggers_cache_warming() {
         .unwrap();
 
     let status = response.status();
+    let body = response.text().await.unwrap();
 
     // Note: This test will return 503 in environments without MinIO configured
     // In production/staging with real S3, it would return 200
@@ -155,10 +156,8 @@ async fn test_s3_cache_hit_triggers_cache_warming() {
     }
 
     assert_eq!(
-        status,
-        200,
-        "Should return 200 when S3 has data. Response body: {}",
-        response.text().await.unwrap()
+        status, 200,
+        "Should return 200 when S3 has data. Response body: {body}"
     );
 
     // Give the async task a moment to write to Redis
