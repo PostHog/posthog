@@ -35,6 +35,7 @@ import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
+import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 export function V2Layout(): JSX.Element {
@@ -281,7 +282,7 @@ const LeftHandColumn = (): JSX.Element => {
                                 <p>This is the last paragraph</p>
                             </TabsPrimitiveContent>
                             <TabsPrimitiveContent value="overview" className="pr-2">
-                                <ErrorTrackingIssueScenePanel showActions={false} />
+                                <ErrorTrackingIssueScenePanel showActions={false} showSimilarIssues={false} />
                             </TabsPrimitiveContent>
                             <TabsPrimitiveContent value="exceptions">
                                 <ExceptionsTab />
@@ -291,7 +292,9 @@ const LeftHandColumn = (): JSX.Element => {
                                 <BreakdownsChart />
                             </TabsPrimitiveContent>
                             <TabsPrimitiveContent value="autofix">AI autofix</TabsPrimitiveContent>
-                            <TabsPrimitiveContent value="similar_issues">Similar issues</TabsPrimitiveContent>
+                            <TabsPrimitiveContent value="similar_issues">
+                                <SimilarIssuesList />
+                            </TabsPrimitiveContent>
                         </div>
                     </TabsPrimitive>
                 </>
@@ -307,9 +310,9 @@ const ExceptionsTab = (): JSX.Element => {
     const { selectEvent, setExceptionsCategory } = useActions(errorTrackingIssueSceneLogic)
 
     return (
-        <div className="flex flex-col gap-y-2 pr-2">
+        <div className="flex flex-col gap-y-2">
             <ErrorFilters.Root>
-                <div className="flex gap-2 justify-between">
+                <div className="flex gap-2 justify-between flex-wrap">
                     <ErrorFilters.DateRange />
                     <ErrorFilters.InternalAccounts />
                 </div>

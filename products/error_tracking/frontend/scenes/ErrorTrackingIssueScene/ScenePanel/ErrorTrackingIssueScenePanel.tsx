@@ -22,7 +22,13 @@ import { SimilarIssuesList } from './SimilarIssuesList'
 
 const RESOURCE_TYPE = 'issue'
 
-export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActions?: boolean }): JSX.Element | null => {
+export const ErrorTrackingIssueScenePanel = ({
+    showActions = true,
+    showSimilarIssues = true,
+}: {
+    showActions?: boolean
+    showSimilarIssues?: boolean
+}): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { updateName, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
     const hasTasks = useFeatureFlag('TASKS')
@@ -60,11 +66,11 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
                 </ScenePanelLabel>
             )}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-            {hasSimilarIssues && (
+            {hasSimilarIssues && showSimilarIssues ? (
                 <ScenePanelLabel title="Similar issues">
                     <SimilarIssuesList />
                 </ScenePanelLabel>
-            )}
+            ) : null}
         </div>
     ) : null
 }
