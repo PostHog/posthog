@@ -487,7 +487,10 @@ export function LLMAnalyticsScene(): JSX.Element {
             ),
             link: combineUrl(urls.llmAnalyticsUsers(), searchParams).url,
         },
-        {
+    ]
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
+        tabs.push({
             key: 'sessions',
             label: 'Sessions',
             content: (
@@ -496,8 +499,8 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
-        },
-    ]
+        })
+    }
 
     if (featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]) {
         tabs.push({
