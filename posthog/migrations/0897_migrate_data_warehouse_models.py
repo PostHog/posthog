@@ -23,7 +23,7 @@ def update_content_type(apps, schema_editor):
     ]:
         try:
             ct = ContentType.objects.get(app_label="posthog", model=model)
-            ct.app_label = "datawarehouse"
+            ct.app_label = "data_warehouse"
             ct.save()
         except ContentType.DoesNotExist:
             pass
@@ -48,7 +48,7 @@ def reverse_content_type(apps, schema_editor):
         "querytabstate",
     ]:
         try:
-            ct = ContentType.objects.get(app_label="datawarehouse", model=model)
+            ct = ContentType.objects.get(app_label="data_warehouse", model=model)
             ct.app_label = "posthog"
             ct.save()
         except ContentType.DoesNotExist:
