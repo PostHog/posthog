@@ -18,8 +18,6 @@ import { ProductKey } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { FORM_MODES } from '../experimentLogic'
-import { experimentSceneLogic } from '../experimentSceneLogic'
 import { generateFeatureFlagKey } from './VariantsPanelCreateFeatureFlag'
 import type { createExperimentLogicType } from './createExperimentLogicType'
 import { variantsPanelLogic } from './variantsPanelLogic'
@@ -95,14 +93,11 @@ const filterExperimentForUpdate = (experiment: Experiment): Partial<Experiment> 
  */
 export type CreateExperimentLogicProps = Partial<{
     experiment: Experiment
-}> & { tabId?: string }
+}>
 
 export const createExperimentLogic = kea<createExperimentLogicType>([
     props({} as CreateExperimentLogicProps),
-    key((props) => {
-        const baseKey = props.experiment?.id || 'create-experiment'
-        return props.tabId ? `${baseKey}-${props.tabId}` : baseKey
-    }),
+    key((props) => props.experiment?.id || 'create-experiment'),
     path((key) => ['scenes', 'experiments', 'create', 'createExperimentLogic', key]),
     connect((props: CreateExperimentLogicProps) => {
         const experiment = props.experiment || { ...NEW_EXPERIMENT }
@@ -257,7 +252,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions, props }) => ({
+    listeners(({ values, actions }) => ({
         setExperiment: () => {},
         setExperimentValue: ({ name, value }) => {
             // Only auto-generate flag key in create mode, not when editing
@@ -406,10 +401,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     }
 
                     actions.saveExperimentSuccess()
-                    if (props.tabId) {
-                        const scene = experimentSceneLogic.findMounted({ tabId: props.tabId })
-                        scene?.actions.setSceneState(response.id, FORM_MODES.update)
-                    }
                     router.actions.push(urls.experiment(response.id))
                 }
             } catch (error: any) {

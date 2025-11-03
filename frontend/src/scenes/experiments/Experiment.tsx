@@ -10,7 +10,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentForm } from './ExperimentForm'
 import { ExperimentView } from './ExperimentView/ExperimentView'
 import { CreateExperiment } from './create/CreateExperiment'
-import { createExperimentLogic } from './create/createExperimentLogic'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
 import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experimentSceneLogic'
 
@@ -41,7 +40,6 @@ export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
 
     const logicProps: ExperimentLogicProps = { experimentId, formMode, tabId }
     useAttachedLogic(experimentLogic(logicProps), experimentSceneLogic({ tabId }))
-    useAttachedLogic(createExperimentLogic({ tabId }), experimentSceneLogic({ tabId }))
 
     if (experimentMissing) {
         return <NotFound object="experiment" />
@@ -50,9 +48,7 @@ export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
     if (isCreateFormEnabled && formMode === FORM_MODES.create) {
         return (
             <BindLogic logic={experimentLogic} props={logicProps}>
-                <BindLogic logic={createExperimentLogic} props={{ tabId }}>
-                    <CreateExperiment tabId={tabId} />
-                </BindLogic>
+                <CreateExperiment />
             </BindLogic>
         )
     }
