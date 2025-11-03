@@ -33,7 +33,7 @@ from posthog.schema import ActorsQuery, HogQLQuery
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import ast, property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import capture_legacy_api_call
@@ -119,25 +119,25 @@ def validate_filters_and_compute_realtime_support(
         return filters_dict, current_cohort_type, None
 
 
-def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list[Any] | None, str | None]:
+def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list[Any] | None, str | None, str | None]:
     """
     Generate HogQL bytecode for cohort filter data.
     Similar to generate_template_bytecode in validation.py but for cohort-specific filters.
-    Returns tuple of (bytecode, conditionHash)
+    Returns tuple of (bytecode, error, conditionHash)
     """
     try:
-        # Only treat behavioral as event matcher + optional event properties; unsupported values return None
+        # Only treat behavioral as event matcher + optional event properties; unsupported values yield True expr
         if filter_data.get("type") == "behavioral":
             expr = build_behavioral_event_expr(filter_data, team)
-            # Unsupported behavioral filters return None → skip bytecode silently
-            if expr is None:
-                return None, None
+            # Unsupported behavioral returns Constant(True) → skip bytecode
+            if isinstance(expr, ast.Constant) and expr.value is True:
+                return None, "Unsupported behavioral filter for realtime bytecode", None
             bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
             condition_hash = None
             if bytecode:
                 bytecode_str = json.dumps(bytecode, sort_keys=True)
                 condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
-            return bytecode, condition_hash
+            return bytecode, None, condition_hash
 
         property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
@@ -150,14 +150,15 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
             bytecode_str = json.dumps(bytecode, sort_keys=True)
             condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
 
-        return bytecode, condition_hash
+        return bytecode, None, condition_hash
     except Exception as e:
         logger.warning(f"Failed to generate bytecode for cohort filter: {e}")
-        return None, None
+        return None, str(e), None
 
 
 class FilterBytecodeMixin(BaseModel):
     bytecode: list[Any] | None = None
+    bytecode_error: str | None = None
     conditionHash: str | None = None
 
     @model_validator(mode="after")
@@ -166,11 +167,15 @@ class FilterBytecodeMixin(BaseModel):
         if info and info.context:
             team = info.context.get("team")
             if team:
-                bytecode, condition_hash = generate_cohort_filter_bytecode(self.model_dump(exclude_none=True), team)
+                bytecode, error, condition_hash = generate_cohort_filter_bytecode(
+                    self.model_dump(exclude_none=True), team
+                )
                 if bytecode:
                     self.bytecode = bytecode
                 if condition_hash:
                     self.conditionHash = condition_hash
+                if error:
+                    self.bytecode_error = error
         return self
 
 
@@ -264,8 +269,8 @@ def _calculate_realtime_support(group: Group) -> bool:
                 return False
         else:  # It's a filter
             # Check if filter has FilterBytecodeMixin and valid bytecode
-            if hasattr(value, "bytecode"):
-                if value.bytecode is None:
+            if hasattr(value, "bytecode") and hasattr(value, "bytecode_error"):
+                if value.bytecode is None or value.bytecode_error is not None:
                     return False
             else:
                 # Filter doesn't support bytecode generation

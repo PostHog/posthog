@@ -330,7 +330,7 @@ class TestCohortExprHelpers(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             ]
         )
 
-    def test_build_behavioral_event_expr_unsupported_returns_none(self):
+    def test_build_behavioral_event_expr_unsupported_returns_true(self):
         from posthog.cdp.filters import build_behavioral_event_expr
 
         behavioral = {
@@ -340,8 +340,10 @@ class TestCohortExprHelpers(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             "event_type": "events",
         }
         expr = build_behavioral_event_expr(behavioral, self.team)
-        # Unsupported behavioral filters return None
-        assert expr is None
+        bytecode = create_bytecode(expr).bytecode
+        # True program
+        assert bytecode == ["_H", HOGQL_BYTECODE_VERSION, 29]
+        assert execute_bytecode(bytecode, {}).result is True
 
     def test_cohort_filters_to_expr_and_bytecode(self):
         from posthog.cdp.filters import cohort_filters_to_expr
