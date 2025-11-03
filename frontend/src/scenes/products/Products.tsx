@@ -87,17 +87,19 @@ export function Products(): JSX.Element {
     const { hasIngestedEvent } = useValues(teamLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full h-full p-4 items-center justify-center bg-primary">
+        <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
             <>
-                <div className="flex flex-col justify-center flex-grow items-center">
+                <div className="flex flex-col justify-center flex-grow items-center w-full max-w-full">
                     <div className="mb-2">
-                        <h2 className="text-center text-4xl">Which products would you like to use?</h2>
+                        <h2 className="text-center text-2xl sm:text-3xl lg:text-4xl">
+                            Which products would you like to use?
+                        </h2>
                         <p className="text-center">
                             Don't worry &ndash; you can pick more than one! Please select all that apply.
                         </p>
                     </div>
-                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full max-w-[720px]">
-                        <div className="grid grid-cols-3 gap-4 justify-items-center">
+                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full max-w-full px-4 sm:max-w-[720px] sm:px-0">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 justify-items-center">
                             {Object.keys(availableOnboardingProducts).map((productKey) => (
                                 <SelectableProductCard
                                     product={
