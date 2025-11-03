@@ -175,7 +175,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
         blank=True,
     )
     default_anonymize_ips = models.BooleanField(
-        default=False,
+        # Default to True for EU cloud deployments to comply with stricter privacy requirements
+        default=lambda: getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU",
         help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
     )
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
@@ -439,14 +440,6 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         instance.update_available_product_features()
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
-
-        # Set default_anonymize_ips based on cloud deployment for new organizations
-        cloud_deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
-        if cloud_deployment == "EU":
-            instance.default_anonymize_ips = True
-        else:
-            instance.default_anonymize_ips = False
-
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
