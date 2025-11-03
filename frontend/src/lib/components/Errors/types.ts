@@ -150,4 +150,5 @@ export type ErrorEventType = {
     timestamp: string
     properties: ErrorEventProperties
     person: PersonType
+    hasReplayEvents?: boolean
 }

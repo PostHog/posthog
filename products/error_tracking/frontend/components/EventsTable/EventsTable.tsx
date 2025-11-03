@@ -149,9 +149,11 @@ export function EventsTableV2({ query, queryKey, onEventSelect }: EventsTablePro
 }
 
 const Actions = (record: ErrorEventType): JSX.Element => {
+    const hasRecording = record.hasReplayEvents ?? getRecordingStatus(record.properties) === 'active'
+
     const { onClick, disabledReason } = useRecordingButton({
         sessionId: getSessionId(record.properties),
-        recordingStatus: getRecordingStatus(record.properties),
+        recordingStatus: hasRecording ? 'active' : 'disabled',
         timestamp: record.timestamp,
         inModal: true,
     })

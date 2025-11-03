@@ -15,6 +15,7 @@ function rowToRecord(row: any): ErrorEventType {
         timestamp: row[1],
         person: row[2],
         properties: row[0].properties,
+        hasReplayEvents: row[3],
     }
 }
 

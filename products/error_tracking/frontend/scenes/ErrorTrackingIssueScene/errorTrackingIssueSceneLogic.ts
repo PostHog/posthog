@@ -305,7 +305,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     filterGroup,
                     searchQuery,
                     dateRange,
-                    columns: ['*', 'timestamp', 'person'],
+                    columns: ['*', 'timestamp', 'person', 'session.$has_replay_events'],
                 }),
         ],
 
