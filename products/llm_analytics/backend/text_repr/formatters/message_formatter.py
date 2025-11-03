@@ -186,8 +186,22 @@ def extract_text_content(content: Any) -> str:
         text_parts: list[str] = []
         for block in content:
             if isinstance(block, dict):
-                # Skip tool-call and function blocks as they'll be handled separately
-                if block.get("type") in ("tool-call", "function"):
+                # Handle tool-call type directly (format: {type: "tool-call", toolName, input})
+                if block.get("type") == "tool-call":
+                    tool_name = block.get("toolName", "unknown")
+                    tool_input = block.get("input", {})
+                    text_parts.append(format_single_tool_call(tool_name, tool_input))
+                    continue
+
+                # Handle tool_use type (Anthropic format)
+                if block.get("type") == "tool_use":
+                    tool_name = block.get("name", "unknown")
+                    tool_input = block.get("input", {})
+                    text_parts.append(format_single_tool_call(tool_name, tool_input))
+                    continue
+
+                # Skip function blocks as they'll be handled separately
+                if block.get("type") == "function":
                     continue
 
                 # Handle tool-call content for inline display
@@ -203,13 +217,6 @@ def extract_text_content(content: Any) -> str:
                         tool_name = block_content.get("toolName", "unknown")
                         text_parts.append(f"[Tool result: {tool_name}]")
                         continue
-
-                # Handle tool_use type (Anthropic format)
-                if block.get("type") == "tool_use":
-                    tool_name = block.get("name", "unknown")
-                    tool_input = block.get("input", {})
-                    text_parts.append(format_single_tool_call(tool_name, tool_input))
-                    continue
 
             # For regular blocks, use safe extraction
             block_text = safe_extract_text(block)
