@@ -926,6 +926,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
                     countIf(event_type = '$ai_span') as spans,
                     countIf(event_type = '$ai_generation') as generations,
+                    countIf(event_type = '$ai_embedding') as embeddings,
                     countIf(notEmpty(ai_error) OR ai_is_error = 'true') as errors,
                     round(sum(toFloat(ai_total_cost_usd)), 4) as total_cost,
                     round(sum(toFloat(ai_latency)), 2) as total_latency,
@@ -942,7 +943,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                         JSONExtractRaw(properties, '$ai_error') as ai_error,
                         JSONExtractString(properties, '$ai_is_error') as ai_is_error
                     FROM events
-                    WHERE (event = '$ai_generation' OR event = '$ai_span')
+                    WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
                         AND notEmpty(JSONExtractString(properties, '$ai_session_id'))
                         AND {filters}
                 )
@@ -964,6 +965,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     'traces',
                     'spans',
                     'generations',
+                    'embeddings',
                     'errors',
                     'total_cost',
                     'total_latency',

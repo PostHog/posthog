@@ -19,6 +19,7 @@ interface LLMAnalyticsEventCardProps {
 
 export function LLMAnalyticsEventCard({ event, isExpanded, onToggleExpand }: LLMAnalyticsEventCardProps): JSX.Element {
     const isGeneration = event.event === '$ai_generation'
+    const isEmbedding = event.event === '$ai_embedding'
     const eventForDetails: EventType = {
         id: event.id,
         distinct_id: '',
@@ -48,21 +49,25 @@ export function LLMAnalyticsEventCard({ event, isExpanded, onToggleExpand }: LLM
                     )}
                 </div>
                 <div className="flex-1 flex items-center gap-2 flex-wrap min-w-0">
-                    <LemonTag type={isGeneration ? 'success' : 'default'} size="small" className="uppercase">
-                        {isGeneration ? 'Generation' : 'Span'}
+                    <LemonTag
+                        type={isGeneration ? 'success' : isEmbedding ? 'warning' : 'default'}
+                        size="small"
+                        className="uppercase"
+                    >
+                        {isGeneration ? 'Generation' : isEmbedding ? 'Embedding' : 'Span'}
                     </LemonTag>
                     {hasError && (
                         <LemonTag type="danger" size="small">
                             Error
                         </LemonTag>
                     )}
-                    <span className="text-xs truncate">{isGeneration ? model : spanName}</span>
+                    <span className="text-xs truncate">{isGeneration || isEmbedding ? model : spanName}</span>
                     {typeof latency === 'number' && (
                         <LemonTag type="muted" size="small">
                             {latency.toFixed(2)}s
                         </LemonTag>
                     )}
-                    {isGeneration && typeof cost === 'number' && (
+                    {(isGeneration || isEmbedding) && typeof cost === 'number' && (
                         <LemonTag type="muted" size="small">
                             {formatLLMCost(cost)}
                         </LemonTag>

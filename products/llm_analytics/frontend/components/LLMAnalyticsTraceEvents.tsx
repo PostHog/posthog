@@ -27,13 +27,13 @@ export function LLMAnalyticsTraceEvents({
 
     const allEvents =
         trace.events
-            ?.filter((e) => e.event === '$ai_generation' || e.event === '$ai_span')
+            ?.filter((e) => e.event === '$ai_generation' || e.event === '$ai_span' || e.event === '$ai_embedding')
             .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) || []
 
     if (allEvents.length === 0) {
         return (
             <div className="text-muted text-sm">
-                No generation or span events found in this trace.
+                No generation, span, or embedding events found in this trace.
                 {trace.events ? ` (Trace has ${trace.events.length} total events)` : ' (No events loaded)'}
             </div>
         )

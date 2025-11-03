@@ -204,6 +204,13 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                             </Tooltip>
                         ),
                     },
+                    embeddings: {
+                        renderTitle: () => (
+                            <Tooltip title="Number of embeddings in this session">
+                                {renderSortableColumnTitle('embeddings', 'Embeddings')}
+                            </Tooltip>
+                        ),
+                    },
                     errors: {
                         renderTitle: () => (
                             <Tooltip title="Number of errors in this session">
