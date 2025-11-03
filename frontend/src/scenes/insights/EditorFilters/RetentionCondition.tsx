@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { Fragment, useEffect } from 'react'
+import { Fragment } from 'react'
 import { toast } from 'react-toastify'
 
 import { IconInfo, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getOrdinalSuffix } from 'lib/utils'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -24,40 +25,12 @@ import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/Action
 
 const MAX_RANGE = 1000
 
-function getOrdinalSuffix(num: number): string {
-    const j = num % 10
-    const k = num % 100
-    if (j === 1 && k !== 11) {
-        return 'st'
-    }
-    if (j === 2 && k !== 12) {
-        return 'nd'
-    }
-    if (j === 3 && k !== 13) {
-        return 'rd'
-    }
-    return 'th'
-}
-
 function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['insightProps'] }): JSX.Element {
     const { retentionFilter, localCustomBrackets } = useValues(retentionLogic(insightProps))
-    const {
-        updateInsightFilter,
-        updateLocalCustomBracket,
-        setLocalCustomBrackets,
-        addCustomBracket,
-        removeCustomBracket,
-    } = useActions(retentionLogic(insightProps))
+    const { updateInsightFilter, updateLocalCustomBracket, addCustomBracket, removeCustomBracket } = useActions(
+        retentionLogic(insightProps)
+    )
     const { period, retentionCustomBrackets } = retentionFilter || {}
-
-    useEffect(() => {
-        if (
-            retentionFilter?.retentionCustomBrackets !== undefined &&
-            retentionFilter.retentionCustomBrackets.length > 0
-        ) {
-            setLocalCustomBrackets([...retentionFilter.retentionCustomBrackets])
-        }
-    }, [retentionFilter?.retentionCustomBrackets, setLocalCustomBrackets])
 
     const getBracketLabel = (index: number): string => {
         const numericBrackets = localCustomBrackets.map((b) => {

@@ -1,5 +1,5 @@
 import { mean, sum } from 'd3'
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -375,4 +375,12 @@ export const retentionLogic = kea<retentionLogicType>([
             },
         ],
     }),
+    events(({ actions, values }) => ({
+        afterMount: () => {
+            const brackets = values.retentionFilter?.retentionCustomBrackets
+            if (brackets !== undefined) {
+                actions.setLocalCustomBrackets([...brackets])
+            }
+        },
+    })),
 ])
