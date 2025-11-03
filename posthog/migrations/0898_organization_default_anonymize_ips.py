@@ -14,9 +14,15 @@ class Migration(migrations.Migration):
             name="default_anonymize_ips",
             field=models.BooleanField(
                 default=False,
-                null=True,
-                blank=True,
                 help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
             ),
+        ),
+        # Django does not include the default value in the database,
+        # so let's set it manually to avoid rewriting all rows.
+        migrations.RunSQL(
+            """
+            ALTER TABLE posthog_organization ALTER COLUMN default_anonymize_ips SET DEFAULT false;
+            """.strip(),
+            reverse_sql=migrations.RunSQL.noop,
         ),
     ]

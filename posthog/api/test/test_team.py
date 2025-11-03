@@ -2052,7 +2052,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.organization.available_product_features = [
             {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
         ]
-        self.organization.default_anonymize_ips = None
+        self.organization.default_anonymize_ips = False
         self.organization.save()
 
         response = self.client.post("/api/projects/@current/environments/", {"name": "Test Default Behavior"})
@@ -2074,16 +2074,16 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         """New organizations on US cloud should default to default_anonymize_ips=False"""
         new_org = Organization.objects.create(name="US Test Org")
 
-        # Should be False/None for US cloud
-        self.assertFalse(new_org.default_anonymize_ips or False)
+        # Should be False for US cloud
+        self.assertFalse(new_org.default_anonymize_ips)
 
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT=None)
     def test_new_selfhosted_organization_defaults_to_anonymize_ips_false(self):
         """New organizations on self-hosted should default to default_anonymize_ips=False"""
         new_org = Organization.objects.create(name="Self-Hosted Test Org")
 
-        # Should be False/None for self-hosted
-        self.assertFalse(new_org.default_anonymize_ips or False)
+        # Should be False for self-hosted
+        self.assertFalse(new_org.default_anonymize_ips)
 
     def test_team_member_can_write_to_team_config_with_member_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
