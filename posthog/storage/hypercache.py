@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Callable
 from typing import Optional
 
@@ -6,7 +7,7 @@ from django.core.cache import cache
 
 import structlog
 from posthoganalytics import capture_exception
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 
 from posthog.models.team.team import Team
 from posthog.storage import object_storage
@@ -23,6 +24,13 @@ CACHE_SYNC_COUNTER = Counter(
     "posthog_hypercache_sync",
     "Number of times the hypercache cache sync task has been run",
     labelnames=["result", "namespace", "value"],
+)
+
+CACHE_SYNC_DURATION_HISTOGRAM = Histogram(
+    "posthog_hypercache_sync_duration_seconds",
+    "Time taken to sync hypercache in seconds",
+    labelnames=["namespace", "value"],
+    buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, float("inf")),
 )
 
 HYPERCACHE_CACHE_COUNTER = Counter(
@@ -126,11 +134,20 @@ class HyperCache:
     def update_cache(self, key: KeyType) -> bool:
         logger.info(f"Syncing {self.namespace} cache for team {key}")
 
+        start_time = time.time()
         try:
             data = self.load_fn(key)
             self.set_cache_value(key, data)
+
+            duration = time.time() - start_time
+            CACHE_SYNC_DURATION_HISTOGRAM.labels(namespace=self.namespace, value=self.value).observe(duration)
+            CACHE_SYNC_COUNTER.labels(result="success", namespace=self.namespace, value=self.value).inc()
+
             return True
         except Exception as e:
+            duration = time.time() - start_time
+            CACHE_SYNC_DURATION_HISTOGRAM.labels(namespace=self.namespace, value=self.value).observe(duration)
+
             capture_exception(e)
             logger.exception(f"Failed to sync {self.namespace} cache for team {key}", exception=str(e))
             CACHE_SYNC_COUNTER.labels(result="failure", namespace=self.namespace, value=self.value).inc()
