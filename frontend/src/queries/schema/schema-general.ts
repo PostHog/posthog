@@ -3528,6 +3528,7 @@ export interface LLMTrace {
     inputState?: any
     outputState?: any
     traceName?: string
+    errorCount?: number
     events: LLMTraceEvent[]
 }
 

@@ -45,12 +45,14 @@ import { EventType } from '~/types'
 
 import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
+import { LLMAnalyticsSessionsScene } from './LLMAnalyticsSessionsScene'
 import { LLMAnalyticsSetupPrompt } from './LLMAnalyticsSetupPrompt'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
 import { EvaluationConfig } from './evaluations/types'
+import { useSortableColumns } from './hooks/useSortableColumns'
 import {
     LLM_ANALYTICS_DATA_COLLECTION_NODE_ID,
     getDefaultGenerationsColumns,
@@ -130,14 +132,18 @@ function LLMAnalyticsGenerations(): JSX.Element {
         setPropertyFilters,
         setGenerationsColumns,
         toggleGenerationExpanded,
+        setGenerationsSort,
     } = useActions(llmAnalyticsLogic)
     const {
         generationsQuery,
         propertyFilters: currentPropertyFilters,
         expandedGenerationIds,
         loadedTraces,
+        generationsSort,
     } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const { renderSortableColumnTitle } = useSortableColumns(generationsSort, setGenerationsSort)
 
     // Helper to safely extract uuid and traceId from a result row based on current column configuration
     const getRowIds = (result: unknown): { uuid: string; traceId: string } | null => {
@@ -217,6 +223,22 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 </strong>
                             )
                         },
+                    },
+                    "f'{properties.$ai_model}' -- Model": {
+                        renderTitle: () => renderSortableColumnTitle('properties.$ai_model', 'Model'),
+                    },
+                    "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency": {
+                        renderTitle: () => renderSortableColumnTitle('properties.$ai_latency', 'Latency'),
+                    },
+                    "f'${round(toFloat(properties.$ai_total_cost_usd), 6)}' -- Cost": {
+                        renderTitle: () => (
+                            <Tooltip title="Cost of this generation">
+                                {renderSortableColumnTitle('properties.$ai_total_cost_usd', 'Cost')}
+                            </Tooltip>
+                        ),
+                    },
+                    timestamp: {
+                        renderTitle: () => renderSortableColumnTitle('timestamp', 'Time'),
                     },
                 },
                 expandable: {
@@ -501,6 +523,19 @@ export function LLMAnalyticsScene(): JSX.Element {
             link: combineUrl(urls.llmAnalyticsUsers(), searchParams).url,
         },
     ]
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
+        tabs.push({
+            key: 'sessions',
+            label: 'Sessions',
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsSessionsScene />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
+        })
+    }
 
     if (featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]) {
         tabs.push({
