@@ -328,6 +328,7 @@ export const FEATURE_FLAGS = {
     DWH_FREE_SYNCS: 'dwh-free-syncs', // owner: @Gilbert09  #team-data-stack
     COPY_WEB_ANALYTICS_DATA: 'copy-web-analytics-data', // owner: @lricoy  #team-web-analytics
     EXPERIMENTS_CREATE_FORM: 'experiments-create-form', // owner: @rodrigoi #team-experiments
+    REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
