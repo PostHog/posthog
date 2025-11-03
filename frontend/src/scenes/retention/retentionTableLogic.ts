@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { capitalizeFirstLetter } from 'lib/utils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -115,8 +116,8 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
                 if (results.length > 0 && results[0].values.length > 0) {
                     if (isRetentionQuery(insightQuery) && insightQuery.retentionFilter?.retentionCustomBrackets) {
                         const { period, retentionCustomBrackets } = insightQuery.retentionFilter
-                        const unit = dateOptionPlurals[period || 'Day']
-                        const labels = ['Day 0']
+                        const unit = capitalizeFirstLetter(dateOptionPlurals[period || 'Day'])
+                        const labels = [`${period || 'Day'} 0`]
                         let cumulativeTotal = 1
                         for (const bracketSize of retentionCustomBrackets) {
                             const start = cumulativeTotal

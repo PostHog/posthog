@@ -268,7 +268,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 const unit = dateOptionPlurals[period || 'Day']
 
                 if (retentionCustomBrackets) {
-                    const labels = ['Day 0']
+                    const labels = [`${period || 'Day'} 0`]
                     let cumulativeTotal = 1
                     for (const bracketSize of retentionCustomBrackets) {
                         const start = cumulativeTotal
