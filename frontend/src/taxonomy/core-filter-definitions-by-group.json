@@ -182,13 +182,6 @@
             "examples": ["{\"temperature\": 0.5, \"max_tokens\": 50}"],
             "label": "AI model parameters (LLM)"
         },
-        "$ai_output": {
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                "{\"choices\": [{\"text\": \"Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data.\"}]}"
-            ],
-            "label": "AI output (LLM)"
-        },
         "$ai_output_choices": {
             "description": "The output message choices JSON that was received from the LLM API.",
             "examples": [
@@ -2128,13 +2121,6 @@
             "description": "The parameters used to configure the model in the LLM API, in JSON.",
             "examples": ["{\"temperature\": 0.5, \"max_tokens\": 50}"],
             "label": "AI model parameters (LLM)"
-        },
-        "$ai_output": {
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                "{\"choices\": [{\"text\": \"Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data.\"}]}"
-            ],
-            "label": "AI output (LLM)"
         },
         "$ai_output_choices": {
             "description": "The output message choices JSON that was received from the LLM API.",
