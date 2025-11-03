@@ -214,7 +214,7 @@ return fibonacci(6);"""
 
     def test_between_expr(self):
         code = to_js_expr("properties.value between 1 and 10")
-        self.assertIn("__between_temp__", code)
+        self.assertIn("expr >= 1 && expr <= 10", code)
         self.assertEqual(code.count("__getProperty"), 1)
 
     def test_function_assignment_error(self):
