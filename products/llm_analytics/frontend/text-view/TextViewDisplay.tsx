@@ -840,8 +840,8 @@ export function TextViewDisplay({
                     }
                     if (segment.type === 'gen_expandable') {
                         const isExpanded = expandedSegments.has(index)
-                        // Extract [GEN] or [SPAN] tag and rest of content
-                        const tagMatch = segment.content.match(/^(\[(?:GEN|SPAN)\])\s*(.*)$/)
+                        // Extract [GEN], [SPAN], or [EMBED] tag and rest of content
+                        const tagMatch = segment.content.match(/^(\[(?:GEN|SPAN|EMBED)\])\s*(.*)$/)
                         const tag = tagMatch ? tagMatch[1] : segment.content
                         const restContent = tagMatch ? tagMatch[2] : segment.content
                         return (

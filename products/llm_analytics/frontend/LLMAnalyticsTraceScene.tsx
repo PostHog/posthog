@@ -738,7 +738,9 @@ const EventContent = React.memo(
                                         <>
                                             {displayOption === DisplayOption.TextView ? (
                                                 isLLMEvent(event) &&
-                                                (event.event === '$ai_generation' || event.event === '$ai_span') ? (
+                                                (event.event === '$ai_generation' ||
+                                                    event.event === '$ai_span' ||
+                                                    event.event === '$ai_embedding') ? (
                                                     <TextViewDisplay
                                                         event={event}
                                                         onFallback={() => setDisplayOption(DisplayOption.ExpandAll)}

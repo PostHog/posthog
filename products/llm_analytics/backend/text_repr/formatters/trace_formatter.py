@@ -72,6 +72,27 @@ def _get_event_summary(event: dict[str, Any]) -> str:
             summary += f" ({', '.join(parts)})"
         return summary
 
+    if event_type == "$ai_embedding":
+        span_name = props.get("$ai_span_name") or props.get("$ai_model") or "embedding"
+        parts = []
+
+        if props.get("$ai_latency") is not None:
+            parts.append(_format_latency(props["$ai_latency"]))
+
+        if props.get("$ai_total_cost_usd") is not None:
+            parts.append(_format_cost(props["$ai_total_cost_usd"]))
+
+        if props.get("$ai_model"):
+            parts.append(props["$ai_model"])
+
+        if props.get("$ai_is_error") or props.get("$ai_error"):
+            parts.append("ERROR")
+
+        summary = span_name
+        if parts:
+            summary += f" ({', '.join(parts)})"
+        return summary
+
     return event_type
 
 
@@ -196,6 +217,26 @@ def _render_tree(
                 if include_markers:
                     # Encode content for frontend to expand
                     encoded_content = base64.b64encode(quote(span_content).encode()).decode()
+                    display_text = f"{node_prefix} {summary}"
+                    expandable_marker = f"<<<GEN_EXPANDABLE|{event_id}|{display_text}|{encoded_content}>>>"
+                    lines.append(f"{prefix}{current_prefix}{expandable_marker}")
+                else:
+                    # Plain text for backend/LLM
+                    lines.append(f"{prefix}{current_prefix}[+] {node_prefix} {summary}")
+
+        elif event_type == "$ai_embedding":
+            node_prefix = "[EMBED]"
+
+            if collapsed:
+                # Just show summary, no expandable content
+                lines.append(f"{prefix}{current_prefix}{node_prefix} {summary}")
+            else:
+                # Create expandable embedding content
+                embedding_content = format_event_text_repr(event, options)
+
+                if include_markers:
+                    # Encode content for frontend to expand
+                    encoded_content = base64.b64encode(quote(embedding_content).encode()).decode()
                     display_text = f"{node_prefix} {summary}"
                     expandable_marker = f"<<<GEN_EXPANDABLE|{event_id}|{display_text}|{encoded_content}>>>"
                     lines.append(f"{prefix}{current_prefix}{expandable_marker}")

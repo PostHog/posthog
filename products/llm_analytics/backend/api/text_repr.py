@@ -71,7 +71,7 @@ class TextReprOptionsSerializer(serializers.Serializer):
 
 class TextReprRequestSerializer(serializers.Serializer):
     event_type = serializers.ChoiceField(
-        choices=["$ai_generation", "$ai_span", "$ai_trace"],
+        choices=["$ai_generation", "$ai_span", "$ai_embedding", "$ai_trace"],
         help_text="Type of LLM event to stringify",
     )
     data = serializers.JSONField(
@@ -193,12 +193,13 @@ class LLMAnalyticsTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         description="""
 Generate a human-readable text representation of an LLM trace event.
 
-This endpoint converts LLM analytics events ($ai_generation, $ai_span, or $ai_trace)
+This endpoint converts LLM analytics events ($ai_generation, $ai_span, $ai_embedding, or $ai_trace)
 into formatted text representations suitable for display, logging, or analysis.
 
 **Supported Event Types:**
 - `$ai_generation`: Individual LLM API calls with input/output messages
 - `$ai_span`: Logical spans with state transitions
+- `$ai_embedding`: Embedding generation events (text input → vector)
 - `$ai_trace`: Full traces with hierarchical structure
 
 **Options:**

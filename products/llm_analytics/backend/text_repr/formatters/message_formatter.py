@@ -242,7 +242,6 @@ def format_input_messages(ai_input: Any, options: FormatterOptions | None = None
     # Handle simple string input
     if isinstance(ai_input, str):
         lines.append("")
-        lines.append("[User input]")
         content_lines, _ = truncate_content(ai_input, options)
         lines.extend(content_lines)
         return lines

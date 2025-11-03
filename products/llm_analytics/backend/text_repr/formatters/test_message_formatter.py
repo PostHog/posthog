@@ -310,7 +310,6 @@ class TestFormatInputMessages:
         """Should format simple string input."""
         lines = format_input_messages("Hello, world!")
         assert "INPUT:" in lines
-        assert "[User input]" in lines
         assert "Hello, world!" in lines
 
     def test_format_empty_input(self):
