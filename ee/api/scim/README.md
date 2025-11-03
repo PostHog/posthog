@@ -51,8 +51,8 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 ### API Management
 
 - `posthog/api/organization_domain.py`
-    - serializer/viewset exposing SCIM config via domain PATCH (`scim_enabled`)
-    - action endpoint for bearer rotation (`POST /scim/token`)
+  - serializer/viewset exposing SCIM config via domain PATCH (`scim_enabled`)
+  - action endpoint for bearer rotation (`POST /scim/token`)
 
 ### Configuration
 
