@@ -245,7 +245,7 @@ async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
                     team_count += 1
                     filter_count += len(ordered_filters.root)
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate Replay filters for team {team.id}, skipping...",
                         error=str(e),
                         team_id=team.id,
@@ -433,7 +433,7 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
 
                     organization_count += 1
                 except Exception as e:
-                    logger.warning(
+                    logger.exception(
                         f"Failed to generate organization-level digest for organization {organization.id}, skipping...",
                         error=str(e),
                         org_id=organization.id,
