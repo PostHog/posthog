@@ -3,8 +3,11 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
+import { InsightQueryNode } from '~/queries/schema/schema-general'
+import { isRetentionQuery } from '~/queries/utils'
 import { InsightLogicProps, InsightType } from '~/types'
 
+import { dateOptionPlurals } from './constants'
 import { retentionLogic } from './retentionLogic'
 import type { retentionTableLogicType } from './retentionTableLogicType'
 import { NO_BREAKDOWN_VALUE, ProcessedRetentionPayload, RetentionTableRow } from './types'
@@ -18,7 +21,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['dateRange', 'retentionFilter', 'vizSpecificOptions', 'theme'],
+            ['dateRange', 'retentionFilter', 'vizSpecificOptions', 'theme', 'insightQuery'],
             retentionLogic(props),
             ['results', 'filteredResults', 'selectedBreakdownValue', 'retentionMeans', 'breakdownDisplayNames'],
         ],
@@ -107,10 +110,29 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         ],
 
         tableHeaders: [
-            (s) => [s.results],
-            (results) => {
+            (s) => [s.results, s.insightQuery],
+            (results: ProcessedRetentionPayload[], insightQuery: InsightQueryNode | null): string[] => {
                 if (results.length > 0 && results[0].values.length > 0) {
-                    return results[0].values.map((value) => value.label)
+                    if (isRetentionQuery(insightQuery) && insightQuery.retentionFilter?.retentionCustomBrackets) {
+                        const { period, retentionCustomBrackets } = insightQuery.retentionFilter
+                        const unit = dateOptionPlurals[period || 'Day']
+                        const labels = ['Day 0']
+                        let cumulativeTotal = 1
+                        for (const bracketSize of retentionCustomBrackets) {
+                            const start = cumulativeTotal
+                            const end = cumulativeTotal + bracketSize - 1
+                            if (start === end) {
+                                labels.push(`${unit} ${start}`)
+                            } else {
+                                labels.push(`${unit} ${start}-${end}`)
+                            }
+                            cumulativeTotal += bracketSize
+                        }
+                        return labels
+                    }
+                    if (isRetentionQuery(insightQuery)) {
+                        return results[0].values.map((_, i) => `${insightQuery.retentionFilter?.period || 'Day'} ${i}`)
+                    }
                 }
                 return []
             },
