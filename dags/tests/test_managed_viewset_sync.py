@@ -4,7 +4,8 @@ from unittest.mock import patch
 from dagster import build_op_context
 
 from posthog.models import Organization, Team
-from posthog.warehouse.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+
+from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 
 from dags.managed_viewset_sync import sync_managed_viewsets_job, sync_managed_viewsets_op
 

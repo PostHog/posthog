@@ -196,6 +196,21 @@
         }
     },
     {
+        "model": "amazon/nova-premier-v1",
+        "cost": {
+            "default": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.0000125,
+                "cache_read_token": 6.25e-7
+            },
+            "amazon-bedrock": {
+                "prompt_token": 0.0000025,
+                "completion_token": 0.0000125,
+                "cache_read_token": 6.25e-7
+            }
+        }
+    },
+    {
         "model": "amazon/nova-pro-v1",
         "cost": {
             "default": {
@@ -1070,8 +1085,8 @@
                 "completion_token": 8e-7
             },
             "atlas-cloud-fp8": {
-                "prompt_token": 4.5e-7,
-                "completion_token": 0.0000015
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
             },
             "chutes-fp8": {
                 "prompt_token": 2e-7,
@@ -1084,6 +1099,10 @@
             "fireworks": {
                 "prompt_token": 5.6e-7,
                 "completion_token": 0.00000168
+            },
+            "gmicloud-fp8": {
+                "prompt_token": 2.7e-7,
+                "completion_token": 0.000001
             },
             "google-vertex": {
                 "prompt_token": 6e-7,
@@ -1395,8 +1414,8 @@
                 "completion_token": 9e-7
             },
             "atlas-cloud-fp8": {
-                "prompt_token": 4.5e-7,
-                "completion_token": 0.0000015
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
             },
             "chutes-fp8": {
                 "prompt_token": 2.3e-7,
@@ -1428,8 +1447,8 @@
                 "completion_token": 0.000001
             },
             "atlas-cloud-fp8": {
-                "prompt_token": 4.5e-7,
-                "completion_token": 0.0000015
+                "prompt_token": 3e-7,
+                "completion_token": 0.0000012
             },
             "deepinfra-fp4": {
                 "prompt_token": 2.7e-7,
@@ -6733,7 +6752,7 @@
                 "prompt_token": 3.5e-7,
                 "completion_token": 0.00000155
             },
-            "chutes-fp8": {
+            "chutes-bf16": {
                 "prompt_token": 3.5e-7,
                 "completion_token": 0.00000155
             },
@@ -6851,7 +6870,7 @@
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000022
             },
-            "chutes-fp8": {
+            "chutes-bf16": {
                 "prompt_token": 4e-7,
                 "completion_token": 0.00000175
             },
@@ -6870,7 +6889,7 @@
             },
             "mancer-fp8": {
                 "prompt_token": 4.5e-7,
-                "completion_token": 0.000002
+                "completion_token": 0.0000015
             },
             "novita-bf16": {
                 "prompt_token": 6e-7,
