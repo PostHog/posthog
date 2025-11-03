@@ -107,6 +107,9 @@ jobs:
                   toolchain: stable
                   components: cargo
 
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@v2
+
             - name: Install sqlx-cli
               run: |
                   cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
