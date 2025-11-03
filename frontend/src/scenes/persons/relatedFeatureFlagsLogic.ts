@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
@@ -53,7 +53,7 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             featureFlagsLogic,
             ['featureFlags', 'pagination', 'featureFlagsLoading'],
         ],
-        actions: [featureFlagsLogic, ['setFeatureFlagsFilters', 'loadFeatureFlagsSuccess']],
+        actions: [featureFlagsLogic, ['setFeatureFlagsFilters', 'loadFeatureFlags']],
     })),
     actions({
         setSearchTerm: (searchTerm: string) => {
@@ -63,11 +63,12 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
         setFilters: (filters: Partial<RelatedFlagsFilters>, replace?: boolean) => ({ filters, replace }),
         loadRelatedFeatureFlags: true,
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, actions }) => ({
         relatedFeatureFlags: [
             null as RelatedFeatureFlagResponse | null,
             {
                 loadRelatedFeatureFlags: async () => {
+                    actions.loadFeatureFlags()
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/evaluation_reasons?${toParams({
                             ...(props.distinctId ? { distinct_id: props.distinctId } : {}),
@@ -186,9 +187,6 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
                 actions.setFeatureFlagsFilters({ ...apiFilters, page: 1 }, replace)
             }
         },
-        loadFeatureFlagsSuccess: () => {
-            actions.loadRelatedFeatureFlags()
-        },
     })),
     urlToAction(({ actions }) => ({
         [urls.personByUUID('*', false)]: async (_, searchParams) => {
@@ -196,6 +194,11 @@ export const relatedFeatureFlagsLogic = kea<relatedFeatureFlagsLogicType>([
             if (page !== undefined) {
                 actions.setFeatureFlagsFilters({ page: parseInt(page) })
             }
+        },
+    })),
+    events(({ actions }) => ({
+        afterMount: () => {
+            actions.loadRelatedFeatureFlags()
         },
     })),
 ])

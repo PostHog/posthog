@@ -68,6 +68,24 @@ pub enum ExpCommand {
         #[command(subcommand)]
         cmd: HermesSubcommand,
     },
+
+    /// Download event definitions and generate typed SDK
+    Schema {
+        #[command(subcommand)]
+        cmd: SchemaCommand,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SchemaCommand {
+    /// Download event definitions and generate typed SDK
+    Pull {
+        /// Output path for generated definitions (stored in posthog.json for future runs)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Show current schema sync status
+    Status,
 }
 
 impl Cli {
@@ -100,7 +118,7 @@ impl Cli {
         match self.command {
             Commands::Login => {
                 // Notably login doesn't have a context set up going it - it sets one up
-                crate::login::login()?;
+                crate::login::login(self.host)?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
@@ -134,6 +152,14 @@ impl Cli {
                     }
                     HermesSubcommand::Clone(args) => {
                         crate::sourcemaps::hermes::clone::clone(&args)?;
+                    }
+                },
+                ExpCommand::Schema { cmd } => match cmd {
+                    SchemaCommand::Pull { output } => {
+                        crate::experimental::schema::pull(self.host, output)?;
+                    }
+                    SchemaCommand::Status => {
+                        crate::experimental::schema::status()?;
                     }
                 },
             },

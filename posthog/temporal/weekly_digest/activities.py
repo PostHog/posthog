@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 import redis.asyncio as redis
+from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
@@ -58,9 +59,23 @@ def _redis_url(common: CommonInput) -> str:
     return f"redis://{common.redis_host}:{common.redis_port}?decode_responses=true"
 
 
-async def _load_filter_counts_from_django_cache(r: redis.Redis, filters: FilterList) -> list[PlaylistCount | None]:
-    resp = await r.mget([f"{PLAYLIST_COUNT_REDIS_PREFIX}{_filter.short_id}" for _filter in filters.root])
-    return [None if r is None else PlaylistCount.model_validate_json(r) for r in resp]
+async def _load_playlist_counts_from_django_cache(r: redis.Redis, filters: FilterList) -> list[PlaylistCount | None]:
+    resp: list[str | None] = await r.mget(
+        [f"{PLAYLIST_COUNT_REDIS_PREFIX}{_filter.short_id}" for _filter in filters.root]
+    )
+
+    playlist_counts: list[PlaylistCount | None] = []
+
+    for count in resp:
+        if count is None:
+            playlist_counts.append(None)
+        else:
+            try:
+                playlist_counts.append(PlaylistCount.model_validate_json(count))
+            except ValidationError:
+                playlist_counts.append(None)
+
+    return playlist_counts
 
 
 LOGGER = get_write_only_logger()
@@ -213,7 +228,7 @@ async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
             async for team in query_teams_for_digest()[batch_start:batch_end]:
                 try:
                     filters = FilterList(await queryset_to_list(query_filters.filter(team_id=team.id)))
-                    playlist_counts = await _load_filter_counts_from_django_cache(django_cache, filters)
+                    playlist_counts = await _load_playlist_counts_from_django_cache(django_cache, filters)
 
                     for filter, playlist_count in zip(filters.root, playlist_counts):
                         if playlist_count is not None:

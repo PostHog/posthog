@@ -20,7 +20,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.error_tracking.backend.api.issues import ErrorTrackingIssueSerializer
+from products.error_tracking.backend.api.issues import ErrorTrackingIssuePreviewSerializer
 from products.error_tracking.backend.models import ErrorTrackingIssue
 
 logger = structlog.get_logger(__name__)
@@ -149,7 +149,7 @@ class ErrorTrackingIssueCorrelationQueryRunner(AnalyticsQueryRunner[ErrorTrackin
             .select_related("assignment")
             .filter(id__in=ids, team=self.team, status=ErrorTrackingIssue.Status.ACTIVE)
         )
-        return ErrorTrackingIssueSerializer(queryset, many=True).data
+        return ErrorTrackingIssuePreviewSerializer(queryset, many=True).data
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(

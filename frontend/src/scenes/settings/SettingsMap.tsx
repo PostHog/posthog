@@ -171,7 +171,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-customer-analytics',
         title: 'Customer analytics',
-        flag: 'CRM_ITERATION_ONE',
+        flag: 'CUSTOMER_ANALYTICS',
         settings: [
             {
                 id: 'group-analytics',
@@ -255,7 +255,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
-                flag: '!CRM_ITERATION_ONE',
+                flag: '!CUSTOMER_ANALYTICS',
             },
             {
                 id: 'persons-join-mode',
