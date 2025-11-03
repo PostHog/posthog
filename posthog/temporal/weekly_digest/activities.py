@@ -3,10 +3,12 @@ from datetime import UTC, datetime
 from typing import Optional
 from uuid import uuid4
 
+from django.conf import settings
 from django.db.models import QuerySet
 from django.utils import timezone
 
 import redis.asyncio as redis
+from posthoganalytics.client import Client as PostHogClient
 from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
@@ -117,7 +119,7 @@ async def generate_digest_data_lookup(
                     team_count += 1
                     resource_count += len(digest_data.root)
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate digest data for team {team.id}, skipping...", error=str(e), team_id=team.id
                     )
                     continue
@@ -309,7 +311,7 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
                     team_count += 1
                     recording_count += len(recordings.root)
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate Replay recordings for team {team.id}, skipping...",
                         error=str(e),
                         team_id=team.id,
@@ -345,7 +347,7 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
                         user_count += 1
                     team_count += 1
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate access and notification settings for team {team.id}, skipping...",
                         error=str(e),
                         team_id=team.id,
@@ -433,7 +435,7 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
 
                     organization_count += 1
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate organization-level digest for organization {organization.id}, skipping...",
                         error=str(e),
                         org_id=organization.id,
@@ -447,6 +449,9 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
         )
 
 
+PUBLIC_POSTHOG_KEY = "sTMFPsFhdP1Ssg"
+
+
 @activity.defn(name="send-weekly-digest-batch")
 async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
     async with Heartbeater():
@@ -457,6 +462,8 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         sent_digest_count = 0
         empty_org_digest_count = 0
         empty_user_digest_count = 0
+
+        posthog_client = PostHogClient(PUBLIC_POSTHOG_KEY)
 
         async with redis.from_url(_redis_url(input.common)) as r:
             batch_start, batch_end = input.batch
@@ -499,14 +506,20 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             continue
 
                         if input.dry_run:
-                            logger.info("DRY RUN - would send digest", digest=user_specific_digest.model_dump())
+                            logger.info("DRY RUN - would send digest", digest=user_specific_digest.render_payload())
                         else:
-                            partial = True
-                            raise NotImplementedError()
+                            if user.email == "tue@posthog.com":
+                                partial = True
+                                posthog_client.capture(
+                                    distinct_id=user.distinct_id,
+                                    event="transactional email",
+                                    properties={**user_specific_digest.render_payload(), "scope": "user"},
+                                    groups={"organization": str(organization.id), "instance": settings.SITE_URL},
+                                )
 
                         sent_digest_count += 1
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to send weekly digest for organization {organization.id}, skipping...",
                         error=str(e),
                         organization_id=organization.id,
