@@ -272,7 +272,7 @@ activity_visibility_restrictions: dict[ActivityScope, dict[str, Any]] = {
     "User": {
         "activities": ["logged_in", "logged_out"],
         "exclude_when": {"was_impersonated": True},
-        "requires_staff": True,
+        "allow_staff": True,
     },
 }
 
@@ -857,24 +857,21 @@ def apply_activity_visibility_restrictions(queryset: QuerySet, user: Union["User
     """
     Apply visibility restrictions to activity log queryset based on user permissions.
     """
-    # Allow if no user, anonymous user, or if user is staff
-    if not user or isinstance(user, AnonymousUser):
-        return queryset
-    if hasattr(user, "is_staff") and user.is_staff:
-        return queryset
-
     exclusion_queries = []
     for scope, restrictions in activity_visibility_restrictions.items():
-        if restrictions.get("requires_staff"):
-            activities = restrictions.get("activities", [])
-            exclude_conditions = restrictions.get("exclude_when", {})
+        if restrictions.get("allow_staff"):
+            if user and not isinstance(user, AnonymousUser) and hasattr(user, "is_staff") and user.is_staff:
+                continue
 
-            # Build the query: scope AND activity IN [...] AND exclude_conditions
-            query = Q(scope=scope) & Q(activity__in=activities)
-            for field, value in exclude_conditions.items():
-                query &= Q(**{field: value})
+        activities = restrictions.get("activities", [])
+        exclude_conditions = restrictions.get("exclude_when", {})
 
-            exclusion_queries.append(query)
+        # Build the query: scope AND activity IN [...] AND exclude_conditions
+        query = Q(scope=scope) & Q(activity__in=activities)
+        for field, value in exclude_conditions.items():
+            query &= Q(**{field: value})
+
+        exclusion_queries.append(query)
 
     # Apply all exclusions with OR logic
     if exclusion_queries:
