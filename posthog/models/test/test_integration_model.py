@@ -562,7 +562,10 @@ class TestGitHubIntegrationModel(BaseTest):
                     }
                 else:
                     mock_response.text = error_text or "error"
-                    mock_response.json.return_value = {"expires_at": iso_time}
+                    mock_response.json.return_value = {
+                        "expires_at": iso_time,
+                        "repository_selection": repository_selection,
+                    }
             else:
                 mock_response.status_code = 200
                 mock_response.json.return_value = {"account": {"type": "Organization", "login": "PostHog"}}
