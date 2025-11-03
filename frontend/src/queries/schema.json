@@ -16246,6 +16246,9 @@
                 "createdAt": {
                     "type": "string"
                 },
+                "errorCount": {
+                    "type": "number"
+                },
                 "events": {
                     "items": {
                         "$ref": "#/definitions/LLMTraceEvent"

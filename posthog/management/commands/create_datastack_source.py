@@ -12,7 +12,7 @@ import textcase
 from git import Repo
 from structlog import get_logger
 
-from posthog.warehouse import types
+from products.data_warehouse.backend import types
 
 os.environ["DEBUG"] = "1"
 os.environ["SKIP_ASYNC_MIGRATIONS_SETUP"] = "1"
@@ -31,7 +31,7 @@ from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldT
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.warehouse.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 # TODO({git_user}): implement the source logic for {pascal}Source
 

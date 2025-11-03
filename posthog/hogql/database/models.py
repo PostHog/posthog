@@ -407,13 +407,13 @@ class SavedQuery(Table):
 
     # Note: redundancy for safety. This validation is used in the data model already
     def to_printed_clickhouse(self, context):
-        from posthog.warehouse.models import validate_saved_query_name
+        from products.data_warehouse.backend.models import validate_saved_query_name
 
         validate_saved_query_name(self.name)
         return self.name
 
     def to_printed_hogql(self):
-        from posthog.warehouse.models import validate_saved_query_name
+        from products.data_warehouse.backend.models import validate_saved_query_name
 
         validate_saved_query_name(self.name)
         return self.name
