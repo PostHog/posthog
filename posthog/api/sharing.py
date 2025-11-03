@@ -20,6 +20,7 @@ from posthog.schema import SharingConfigurationSettings
 
 from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.data_color_theme import DataColorTheme, DataColorThemeSerializer
+from posthog.api.documentation import extend_schema
 from posthog.api.exports import ExportedAssetSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.insight_variable import InsightVariable
@@ -343,6 +344,11 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
 
         return response.Response(serializer.data)
 
+    @extend_schema(
+        operation_id="patch_sharing_configuration",
+        description="Update sharing configuration.",
+        request=SharingConfigurationSerializer,
+    )
     def patch(self, request: Request, *args: Any, **kwargs: Any) -> response.Response:
         context = self.get_serializer_context()
         instance = self._get_sharing_configuration(context)
