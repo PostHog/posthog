@@ -1,4 +1,5 @@
 import io
+import csv
 import gzip
 import json
 import typing
@@ -583,7 +584,7 @@ class CSVStreamTransformer:
         quote_char: str = '"',
         escape_char: str | None = "\\",
         line_terminator: str = "\n",
-        quoting: int = 0,
+        quoting: typing.Literal[0, 1, 2, 3, 4, 5] = csv.QUOTE_NONE,
         include_inserted_at: bool = False,
     ):
         self.field_names = field_names
@@ -616,7 +617,6 @@ class CSVStreamTransformer:
 
     def write_record_batch(self, record_batch: pa.RecordBatch) -> bytes:
         """Write record batch to CSV bytes."""
-        import csv
 
         column_names = list(self.field_names)
         if not self.include_inserted_at and "_inserted_at" in column_names:
