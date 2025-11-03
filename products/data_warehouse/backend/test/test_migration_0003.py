@@ -63,8 +63,8 @@ TEST_CASES = {
 
 
 class BackfillWeekPartitions(NonAtomicTestMigrations):
-    migrate_from = "0892_alter_integration_kind"
-    migrate_to = "0893_backfill_partition_format"
+    migrate_from = "0002_cleanup_datawarehouse_contenttypes"
+    migrate_to = "0003_backfill_partition_format"
 
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -72,9 +72,9 @@ class BackfillWeekPartitions(NonAtomicTestMigrations):
         Organization = apps.get_model("posthog", "Organization")
         Project = apps.get_model("posthog", "Project")
         Team = apps.get_model("posthog", "Team")
-        ExternalDataSource: ExternalDataSourceModel = apps.get_model("posthog", "ExternalDataSource")
-        ExternalDataSchema: ExternalDataSchemaModel = apps.get_model("posthog", "ExternalDataSchema")
-        DataWarehouseTable: DataWarehouseTableModel = apps.get_model("posthog", "DataWarehouseTable")
+        ExternalDataSource: ExternalDataSourceModel = apps.get_model("data_warehouse", "ExternalDataSource")
+        ExternalDataSchema: ExternalDataSchemaModel = apps.get_model("data_warehouse", "ExternalDataSchema")
+        DataWarehouseTable: DataWarehouseTableModel = apps.get_model("data_warehouse", "DataWarehouseTable")
 
         self.organization = Organization.objects.create(name="o1")
         self.project = Project.objects.create(organization=self.organization, name="p1", id=1000001)
@@ -99,7 +99,7 @@ class BackfillWeekPartitions(NonAtomicTestMigrations):
                     self.cases[source_type].append((name, schema))
 
     def test_migration(self):
-        ExternalDataSchema = self.apps.get_model("posthog", "ExternalDataSchema")  # type: ignore
+        ExternalDataSchema = self.apps.get_model("data_warehouse", "ExternalDataSchema")  # type: ignore
 
         for source_type in self.cases:
             for name, old_schema in self.cases[source_type]:

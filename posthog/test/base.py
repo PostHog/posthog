@@ -1006,7 +1006,7 @@ def snapshot_postgres_queries(fn):
 class BaseTestMigrations(QueryMatchingTest):
     @property
     def app(self) -> str:
-        return apps.get_containing_app_config(type(self).__module__).name
+        return apps.get_containing_app_config(type(self).__module__).label
 
     migrate_from: str
     migrate_to: str
