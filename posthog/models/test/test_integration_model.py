@@ -551,9 +551,10 @@ class TestGitHubIntegrationModel(BaseTest):
             mock_response = MagicMock()
             if method == "POST":
                 mock_response.status_code = status_code
+                dt = datetime.now(UTC) + timedelta(hours=expires_in_hours)
+                iso_time = dt.replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
+
                 if status_code == 201:
-                    dt = datetime.now(UTC) + timedelta(hours=expires_in_hours)
-                    iso_time = dt.replace(tzinfo=None).isoformat(timespec="seconds") + "Z"
                     mock_response.json.return_value = {
                         "token": token,
                         "repository_selection": repository_selection,
@@ -561,7 +562,7 @@ class TestGitHubIntegrationModel(BaseTest):
                     }
                 else:
                     mock_response.text = error_text or "error"
-                    mock_response.json.return_value = {}
+                    mock_response.json.return_value = {"expires_at": iso_time}
             else:
                 mock_response.status_code = 200
                 mock_response.json.return_value = {"account": {"type": "Organization", "login": "PostHog"}}
