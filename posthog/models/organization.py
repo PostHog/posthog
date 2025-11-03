@@ -296,10 +296,7 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
 
         # Set default_anonymize_ips based on cloud deployment for new organizations
         cloud_deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
-        if cloud_deployment == "EU":
-            instance.default_anonymize_ips = True
-        else:
-            instance.default_anonymize_ips = False
+        instance.default_anonymize_ips = cloud_deployment == "EU"
 
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
