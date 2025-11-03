@@ -272,6 +272,7 @@ class Migration(migrations.Migration):
                             "source_type",
                             models.CharField(
                                 choices=[
+                                    ("Github", "Github"),
                                     ("Stripe", "Stripe"),
                                     ("Hubspot", "Hubspot"),
                                     ("Postgres", "Postgres"),
