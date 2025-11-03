@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
@@ -34,6 +33,8 @@ import {
 } from '../components/ResultsBreakdown'
 import { CreateExperiment } from '../create/CreateExperiment'
 import { experimentLogic } from '../experimentLogic'
+import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
+import { experimentSceneLogic } from '../experimentSceneLogic'
 import { getExperimentStatus } from '../experimentsLogic'
 import { isLegacyExperiment, isLegacyExperimentQuery, removeMetricFromOrderingArray } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
@@ -203,16 +204,21 @@ const VariantsTab = (): JSX.Element => {
     )
 }
 
-export function ExperimentView(): JSX.Element {
+export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
         useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
         useActions(experimentLogic)
 
+    if (!tabId) {
+        throw new Error('<ExperimentView /> must receive a tabId prop')
+    }
+
+    const { activeTabKey } = useValues(experimentSceneLogic({ tabId }))
+    const { setActiveTabKey } = useActions(experimentSceneLogic({ tabId }))
+
     const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
-
-    const [activeTabKey, setActiveTabKey] = useState<string>('metrics')
 
     /**
      * this is temporary, for testing purposes only.
@@ -234,7 +240,7 @@ export function ExperimentView(): JSX.Element {
         getExperimentStatus(experiment) === ProgressStatus.Draft &&
         allPrimaryMetrics.length === 0
     ) {
-        return <CreateExperiment draftExperiment={experiment} />
+        return <CreateExperiment draftExperiment={experiment} tabId={tabId} />
     }
 
     return (
