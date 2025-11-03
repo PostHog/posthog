@@ -270,23 +270,52 @@ class HobbyTester:
         token = os.getenv("DIGITALOCEAN_TOKEN")
         droplet = digitalocean.Droplet(token=token, id=droplet_id)
         domain = digitalocean.Domain(token=token, name=DOMAIN)
+
+        # Attempt to destroy droplet
+        droplet_destroyed = False
         attempts = 0
         while attempts <= retries:
             attempts += 1
             try:
                 droplet.destroy()
+                droplet_destroyed = True
+                print("✅ Droplet destroyed successfully")
                 break
             except Exception as e:
-                print(f"Could not destroy droplet because\n{e}")
+                print(f"⚠️  Attempt {attempts}/{retries + 1} - Could not destroy droplet: {type(e).__name__}")
+                if attempts <= retries:
+                    time.sleep(2)  # Wait before retry
+                else:
+                    print(f"❌ Failed to destroy droplet after {retries + 1} attempts")
+
+        # Attempt to destroy DNS record
+        dns_destroyed = False
         print("Destroying the DNS entry")
         attempts = 0
         while attempts <= retries:
             attempts += 1
             try:
                 domain.delete_domain_record(id=record_id)
+                dns_destroyed = True
+                print("✅ DNS record destroyed successfully")
                 break
             except Exception as e:
-                print(f"Could not destroy the dns entry because\n{e}")
+                print(f"⚠️  Attempt {attempts}/{retries + 1} - Could not destroy DNS record: {type(e).__name__}")
+                if attempts <= retries:
+                    time.sleep(2)  # Wait before retry
+                else:
+                    print(f"❌ Failed to destroy DNS record after {retries + 1} attempts")
+
+        # Fail loudly if either cleanup failed
+        if not droplet_destroyed or not dns_destroyed:
+            error_msg = []
+            if not droplet_destroyed:
+                error_msg.append(f"droplet {droplet_id}")
+            if not dns_destroyed:
+                error_msg.append(f"DNS record {record_id}")
+            raise Exception(f"⚠️  Failed to destroy {' and '.join(error_msg)} - manual cleanup may be required")
+
+        print("\n✅ Cleanup completed successfully")
 
     def handle_sigint(self):
         self.destroy_self()
