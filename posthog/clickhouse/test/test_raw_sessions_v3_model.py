@@ -330,7 +330,9 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             {"team_id": self.team.id},
         )
         sync_execute(
-            RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3("team_id = %(team_id)s AND min_timestamp >= '2024-03-01'"),
+            RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3(
+                "team_id = %(team_id)s AND min_first_timestamp >= '2024-03-01'"
+            ),
             {"team_id": self.team.id},
         )
 
