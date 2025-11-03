@@ -7,11 +7,7 @@ settings:
 overrides:
   playwright: 1.45.0
   typescript: 5.2.2
-<<<<<<< HEAD
-  '@posthog/icons': 0.34.0
-=======
   '@posthog/icons': 0.35.0
->>>>>>> master
 
 patchedDependencies:
   chartjs-plugin-crosshair@2.0.0:
@@ -449,13 +445,8 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -1576,13 +1567,8 @@ importers:
   products/actions:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -1617,13 +1603,8 @@ importers:
   products/cohorts:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1649,13 +1630,8 @@ importers:
   products/customer_analytics:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1681,13 +1657,8 @@ importers:
   products/dashboards:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1713,13 +1684,8 @@ importers:
   products/early_access_features:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -1748,13 +1714,8 @@ importers:
   products/endpoints:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1795,13 +1756,8 @@ importers:
         specifier: '*'
         version: 3.2.1(react@18.2.0)
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@storybook/addon-actions':
         specifier: '*'
         version: 7.6.4
@@ -1869,13 +1825,8 @@ importers:
   products/experiments:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1901,13 +1852,8 @@ importers:
   products/feature_flags:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1933,13 +1879,8 @@ importers:
   products/games:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1965,13 +1906,8 @@ importers:
   products/groups:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1997,13 +1933,8 @@ importers:
   products/links:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -2072,13 +2003,8 @@ importers:
   products/llm_analytics:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -2132,13 +2058,8 @@ importers:
   products/logs:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@posthog/products-error-tracking':
         specifier: workspace:*
         version: link:../error_tracking
@@ -2194,13 +2115,8 @@ importers:
   products/managed_migrations:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -2308,13 +2224,8 @@ importers:
   products/notebooks:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2340,13 +2251,8 @@ importers:
   products/persons:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2372,13 +2278,8 @@ importers:
   products/product_analytics:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2404,13 +2305,8 @@ importers:
   products/replay:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2436,13 +2332,8 @@ importers:
   products/revenue_analytics:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -2471,13 +2362,8 @@ importers:
   products/surveys:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2515,13 +2401,8 @@ importers:
         specifier: '*'
         version: 3.2.1(react@18.2.0)
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -2560,13 +2441,8 @@ importers:
   products/user_interviews:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2592,13 +2468,8 @@ importers:
   products/web_analytics:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2624,13 +2495,8 @@ importers:
   products/workflows:
     dependencies:
       '@posthog/icons':
-<<<<<<< HEAD
-        specifier: 0.34.0
-        version: 0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-=======
         specifier: 0.35.0
         version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
->>>>>>> master
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -6577,13 +6443,8 @@ packages:
   '@posthog/core@1.5.0':
     resolution: {integrity: sha512-oxfV20QMNwH30jKybUyqi3yGuMghULQz1zkJgQG3rjpHDxhD2vDN6E7UpmaqgphMIvGG3Q+DgfU10zfSPA7w7w==}
 
-<<<<<<< HEAD
-  '@posthog/icons@0.34.0':
-    resolution: {integrity: sha512-KCtEGw4bI64xga+1i6bCCrSj6CNDnvVJpPY2yTntTtJ76xdH60oX9JotHRk8A2n0c2G5DHs0uFe6MZzaGd1dwA==}
-=======
   '@posthog/icons@0.35.0':
     resolution: {integrity: sha512-wa90PWt9dAxF3Y2jFFjmMGCIWyUaG/IfJzJnKxKdzNDGLllGawI5JJxwCJ1ZufCdiYTWAVBn7irCM+mLbTNixw==}
->>>>>>> master
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -25754,11 +25615,7 @@ snapshots:
 
   '@posthog/core@1.5.0': {}
 
-<<<<<<< HEAD
-  '@posthog/icons@0.34.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
-=======
   '@posthog/icons@0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
->>>>>>> master
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
