@@ -80,6 +80,7 @@ export class LogsIngestionConsumer {
                     value: message.message.value,
                     key: null,
                     headers: {
+                        ...(message.message.headers || []).reduce((a, v) => ({ ...a, [v.key]: v.value }), {}),
                         token: message.token,
                         team_id: message.teamId.toString(),
                     },
