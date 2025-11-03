@@ -1003,7 +1003,6 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
     def _team_flag_fewer_array_ops(self) -> bool:
-        return True  # :TODO: Remove before release. Temporary override CI tests.
         return posthoganalytics.feature_enabled(
             "trends-breakdown-fewer-array-ops",
             str(self.team.uuid),
