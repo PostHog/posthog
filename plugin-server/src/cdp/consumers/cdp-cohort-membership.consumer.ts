@@ -150,7 +150,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase {
 
                 // Then publish trigger events as a background task
                 const backgroundTask = this.publishCohortMembershipTriggers(cohortMembershipChanges).catch((error) => {
-                    throw new Error(`Failed to publish cohort membership triggers: ${error.message}`)
+                    logger.error('Failed to publish cohort membership triggers', { error })
                 })
 
                 return { backgroundTask }

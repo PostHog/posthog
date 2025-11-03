@@ -21,7 +21,6 @@ describe('CdpCohortMembershipConsumer', () => {
 
     beforeEach(async () => {
         await resetKafka()
-        mockProducerObserver.resetKafkaProducer()
         hub = await createHub()
         consumer = new CdpCohortMembershipConsumer(hub)
         await consumer.start()
