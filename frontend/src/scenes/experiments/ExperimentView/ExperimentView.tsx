@@ -240,7 +240,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
         getExperimentStatus(experiment) === ProgressStatus.Draft &&
         allPrimaryMetrics.length === 0
     ) {
-        return <CreateExperiment draftExperiment={experiment} />
+        return <CreateExperiment draftExperiment={experiment} tabId={tabId} />
     }
 
     return (

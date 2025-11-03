@@ -48,7 +48,7 @@ export function Experiment({ tabId }: ExperimentSceneLogicProps): JSX.Element {
     if (isCreateFormEnabled && formMode === FORM_MODES.create) {
         return (
             <BindLogic logic={experimentLogic} props={logicProps}>
-                <CreateExperiment />
+                <CreateExperiment tabId={tabId} />
             </BindLogic>
         )
     }
