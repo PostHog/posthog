@@ -221,7 +221,6 @@ class Property:
     min_periods: Optional[int]
     negation: Optional[bool] = False
     _data: dict
-    bytecode_generation: bool = False
 
     def __init__(
         self,
@@ -245,7 +244,6 @@ class Property:
         seq_time_interval: Optional[OperatorInterval] = None,
         negation: Optional[bool] = None,
         event_filters: Optional[list["Property"]] = None,
-        bytecode_generation: bool = False,
         **kwargs,
     ) -> None:
         self.key = key
@@ -265,7 +263,6 @@ class Property:
         self.seq_time_interval = seq_time_interval
         self.negation = None if negation is None else str_to_bool(negation)
         self.event_filters = event_filters
-        self.bytecode_generation = bytecode_generation
 
         if value is None and self.operator in ["is_set", "is_not_set"]:
             self.value = self.operator
@@ -288,14 +285,7 @@ class Property:
                 if getattr(self, attr, None) is None:
                     raise ValueError(f"Missing required attr {attr} for property type {self.type}::{self.value}")
 
-            # Rationale: For cohort realtime bytecode we only need a minimal non-temporal matcher for
-            # supported behavioral values (e.g. performed_event). When bytecode_generation=True we bypass
-            # the stricter conditional validation below so we can compile event-name matchers without
-            # requiring temporal/sequence parameters that are irrelevant for bytecode.
-            if (
-                not self.bytecode_generation
-                and cast(BehavioralPropertyType, self.value) in VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES
-            ):
+            if cast(BehavioralPropertyType, self.value) in VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES:
                 matches_attr_list = False
                 condition_list = VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES[cast(BehavioralPropertyType, self.value)]
                 for attr_list in condition_list:
@@ -313,7 +303,7 @@ class Property:
         return f"Property({params_repr})"
 
     def to_dict(self) -> dict[str, Any]:
-        return {key: value for key, value in vars(self).items() if value is not None and key != "bytecode_generation"}
+        return {key: value for key, value in vars(self).items() if value is not None}
 
     @staticmethod
     def _parse_value(value: Any, convert_to_number: bool = False) -> Any:
