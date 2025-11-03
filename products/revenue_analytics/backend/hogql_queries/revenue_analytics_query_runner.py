@@ -26,9 +26,9 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.warehouse.models import ExternalDataSchema
-from posthog.warehouse.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
+from products.data_warehouse.backend.models import ExternalDataSchema
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
     RevenueAnalyticsChargeView,

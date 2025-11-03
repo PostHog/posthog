@@ -10,6 +10,7 @@
             exposures.entity_id AS entity_id,
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
+            any(exposures.first_exposure_time) AS exposure_timestamp,
             sum(coalesce(accurateCastOrNull(metric_events.value, 'Float64'), 0)) AS value
      FROM
        (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,

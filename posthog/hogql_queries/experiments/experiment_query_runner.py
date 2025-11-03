@@ -160,6 +160,10 @@ class ExperimentQueryRunner(QueryRunner):
                 expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "exposure_session_id"])]),
             ),
             ast.Alias(
+                alias="exposure_timestamp",
+                expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "first_exposure_time"])]),
+            ),
+            ast.Alias(
                 expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
                 alias="value",
             ),
@@ -170,6 +174,11 @@ class ExperimentQueryRunner(QueryRunner):
             select_fields.append(
                 parse_expr(
                     "mapFromArrays(groupArray(COALESCE(toString(uuid), '')), groupArray(COALESCE(toString(session_id), ''))) AS uuid_to_session"
+                )
+            )
+            select_fields.append(
+                parse_expr(
+                    "mapFromArrays(groupArray(COALESCE(toString(uuid), '')), groupArray(COALESCE(timestamp, toDateTime(0)))) AS uuid_to_timestamp"
                 )
             )
 
@@ -416,17 +425,17 @@ class ExperimentQueryRunner(QueryRunner):
             step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
             select_fields.append(parse_expr(step_counts_expr))
 
-            # For each step in the funnel, get at least 100 pairs of person_id, session_id and event uuid, that have
+            # For each step in the funnel, get at least 100 pairs of person_id, session_id, event uuid, and timestamp that have
             # that step as their last step in the funnel.
-            # For the users that have 0 matching steps in the funnel (-1), we return the event uuid for the exposure event.
+            # For the users that have 0 matching steps in the funnel (-1), we return the event uuid and timestamp for the exposure event.
             event_uuids_exprs = []
             for i in range(num_steps + 1):
                 event_uuids_expr = f"""
                     groupArraySampleIf(100)(
                         if(
                             metric_events.value.2 != '',
-                            tuple(toString(metric_events.entity_id), uuid_to_session[metric_events.value.2], metric_events.value.2),
-                            tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))),
+                            tuple(toString(metric_events.entity_id), uuid_to_session[metric_events.value.2], metric_events.value.2, toString(uuid_to_timestamp[metric_events.value.2])),
+                            tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid), toString(metric_events.exposure_timestamp))),
                         metric_events.value.1 = {i} - 1
                     )
                 """

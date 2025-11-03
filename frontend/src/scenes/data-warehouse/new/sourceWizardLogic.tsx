@@ -688,7 +688,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 )
                 LemonDialog.open({
                     title: 'Confirm your table configurations',
-                    description: confirmation,
+                    content: confirmation,
                     primaryButton: {
                         children: 'Confirm',
                         type: 'primary',

@@ -4,6 +4,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
 {
   "addModalShown": false,
   "configureSAMLModalId": null,
+  "configureSCIMModalId": null,
   "currentOrganization": {
     "allow_publicly_shared_resources": true,
     "available_product_features": [
@@ -221,6 +222,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   },
   "domainBeingVerified": null,
   "isSAMLAvailable": true,
+  "isSCIMAvailable": false,
   "isSSOEnforcementAvailable": true,
   "isSamlConfigSubmitting": false,
   "isSamlConfigValid": true,
@@ -237,6 +239,8 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
   "samlConfigValidationErrors": {
     "saml_acs_url": undefined,
   },
+  "scimConfig": {},
+  "scimConfigLoading": false,
   "showSamlConfigErrors": false,
   "updatingDomain": false,
   "updatingDomainLoading": false,

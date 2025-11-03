@@ -11,10 +11,10 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.types import ExternalDataSourceType
 
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.views import KIND_TO_CLASS, RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle
 from products.revenue_analytics.backend.views.schemas import SCHEMAS
