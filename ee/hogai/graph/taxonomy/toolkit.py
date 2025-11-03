@@ -765,10 +765,10 @@ class TaxonomyAgentToolkit:
             "entity_properties": [],  # [entities]
             "event_property_values": {},  # event_name -> [property_names]
             "event_properties": [],  # [event_names]
-            "entity_prop_mapping": {},  # (entity, property) -> tool_call_id
-            "entity_mapping": {},  # entity -> tool_call_id
-            "event_prop_mapping": {},  # (event, property) -> tool_call_id
-            "event_mapping": {},  # event -> tool_call_id
+            "entity_prop_mapping": {},  # (entity, property) -> [tool_call_id]
+            "entity_mapping": {},  # entity -> [tool_call_id]
+            "event_prop_mapping": {},  # (event, property) -> [tool_call_id]
+            "event_mapping": {},  # event -> [tool_call_id]
         }
 
         for tool_name, tool_inputs in tool_metadata.items():
@@ -779,12 +779,12 @@ class TaxonomyAgentToolkit:
                     if entity not in result["entity_property_values"]:
                         result["entity_property_values"][entity] = []
                     result["entity_property_values"][entity].append(property_name)
-                    result["entity_prop_mapping"][(entity, property_name)] = tool_call_id
+                    result["entity_prop_mapping"].setdefault((entity, property_name), []).append(tool_call_id)
 
                 elif tool_name == "retrieve_entity_properties":
                     entity = tool_input.arguments.entity  # type: ignore
                     result["entity_properties"].append(entity)
-                    result["entity_mapping"][entity] = tool_call_id
+                    result["entity_mapping"].setdefault(entity, []).append(tool_call_id)
 
                 elif tool_name == "retrieve_event_property_values":
                     event_name = tool_input.arguments.event_name  # type: ignore
@@ -792,12 +792,12 @@ class TaxonomyAgentToolkit:
                     if event_name not in result["event_property_values"]:
                         result["event_property_values"][event_name] = []
                     result["event_property_values"][event_name].append(property_name)
-                    result["event_prop_mapping"][(event_name, property_name)] = tool_call_id
+                    result["event_prop_mapping"].setdefault((event_name, property_name), []).append(tool_call_id)
 
                 elif tool_name == "retrieve_event_properties":
                     event_name = tool_input.arguments.event_name  # type: ignore
                     result["event_properties"].append(event_name)
-                    result["event_mapping"][event_name] = tool_call_id
+                    result["event_mapping"].setdefault(event_name, []).append(tool_call_id)
                 else:
                     raise TaxonomyToolNotFoundError(f"Tool {tool_name} not found in taxonomy toolkit.")
 
@@ -817,12 +817,18 @@ class TaxonomyAgentToolkit:
             )
             for entity, property_results in entity_property_values.items():
                 for i, property_name in enumerate(collected_tools["entity_property_values"][entity]):
-                    results[collected_tools["entity_prop_mapping"][(entity, property_name)]] = property_results[i]
+                    id_queue = collected_tools["entity_prop_mapping"].get((entity, property_name), [])
+                    if id_queue:
+                        tool_call_id = id_queue.pop(0)
+                        results[tool_call_id] = property_results[i]
 
         if collected_tools["entity_properties"]:
-            entity_properties = await self.retrieve_entity_properties_parallel(collected_tools["entity_properties"])
+            # Deduplicate entity names
+            unique_entity_names = list(dict.fromkeys(collected_tools["entity_properties"]))
+            entity_properties = await self.retrieve_entity_properties_parallel(unique_entity_names)
             for entity, result in entity_properties.items():
-                results[collected_tools["entity_mapping"][entity]] = result
+                for tool_call_id in collected_tools["entity_mapping"].get(entity, []):
+                    results[tool_call_id] = result
 
         if collected_tools["event_property_values"]:
             event_property_values = await self.retrieve_event_or_action_property_values(
@@ -830,14 +836,18 @@ class TaxonomyAgentToolkit:
             )
             for event_name, property_results in event_property_values.items():
                 for i, property_name in enumerate(collected_tools["event_property_values"][event_name]):
-                    results[collected_tools["event_prop_mapping"][(event_name, property_name)]] = property_results[i]
+                    id_queue = collected_tools["event_prop_mapping"].get((event_name, property_name), [])
+                    if id_queue:
+                        tool_call_id = id_queue.pop(0)
+                        results[tool_call_id] = property_results[i]
 
         if collected_tools["event_properties"]:
-            event_properties = await self.retrieve_event_or_action_properties_parallel(
-                collected_tools["event_properties"]
-            )
+            # Deduplicate event names
+            unique_event_names = list(dict.fromkeys(collected_tools["event_properties"]))
+            event_properties = await self.retrieve_event_or_action_properties_parallel(unique_event_names)
             for event_name, result in event_properties.items():
-                results[collected_tools["event_mapping"][event_name]] = result
+                for tool_call_id in collected_tools["event_mapping"].get(event_name, []):
+                    results[tool_call_id] = result
 
         return results
 

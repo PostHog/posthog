@@ -112,7 +112,7 @@ class EntitySearchToolkit:
             else:
                 return f"Invalid entity kind: {search_kind}. Will not perform search for it."
 
-            results, counts = await database_sync_to_async(search_entities)(
+            results, counts = await database_sync_to_async(search_entities, thread_sensitive=False)(
                 entity_types,
                 query,
                 self._team.project_id,
