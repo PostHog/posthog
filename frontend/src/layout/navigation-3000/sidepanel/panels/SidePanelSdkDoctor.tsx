@@ -337,7 +337,7 @@ function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                             )}
                         </span>
                     </div>
-                    <small>Current version: {sdk.currentVersion}</small>
+                    <small>Latest available: {sdk.allReleases[0]?.latestVersion || sdk.currentVersion}</small>
                 </div>
 
                 <div className="flex flex-row gap-2">

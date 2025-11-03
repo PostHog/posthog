@@ -174,8 +174,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                 return Object.fromEntries(
                     Object.entries(teamSdkVersions).map(([sdkType, teamSdkVersion]) => {
                         const sdkVersion = sdkVersions[sdkType as SdkType]
+                        const isSingleVersion = teamSdkVersion.length === 1
                         const releasesInfo = teamSdkVersion.map((version) =>
-                            computeAugmentedInfoRelease(sdkType as SdkType, version, sdkVersion)
+                            computeAugmentedInfoRelease(sdkType as SdkType, version, sdkVersion, isSingleVersion)
                         )
 
                         return [
@@ -184,7 +185,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 isOutdated: releasesInfo[0]!.isOutdated,
                                 isOld: releasesInfo[0]!.isOld,
                                 needsUpdating: releasesInfo[0]!.needsUpdating,
-                                currentVersion: sdkVersion.latestVersion,
+                                currentVersion: releasesInfo[0]!.version,
                                 allReleases: releasesInfo,
                             },
                         ]
@@ -317,7 +318,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
 function computeAugmentedInfoRelease(
     type: SdkType,
     version: TeamSdkVersionInfo,
-    sdkVersion: SdkVersionInfo
+    sdkVersion: SdkVersionInfo,
+    isSingleVersion: boolean = false
 ): AugmentedTeamSdkVersionsInfoRelease {
     try {
         // Parse versions for comparison
@@ -372,11 +374,13 @@ function computeAugmentedInfoRelease(
             isRecentRelease = daysSinceRelease < GRACE_PERIOD_DAYS
         }
 
-        // Smart version detection based on semver difference
         let isOutdated = false
 
-        // Apply grace period first - don't flag anything <7 days old
-        if (isRecentRelease) {
+        // Single version case: only warn if >30 days old to avoid false positives after upgrades
+        if (isSingleVersion && diff) {
+            const ONE_MONTH_IN_DAYS = 30
+            isOutdated = daysSinceRelease !== undefined && daysSinceRelease > ONE_MONTH_IN_DAYS
+        } else if (isRecentRelease) {
             isOutdated = false
         } else if (diff) {
             switch (diff.kind) {
