@@ -402,6 +402,9 @@ class SavedQuery(Table):
     id: str
     query: str
     name: str
+
+    # Currently only storing metadata related to the managed viewset, but we can expand this in the future
+    # to store any arbitrary data on this that can then be used to check what a specific saved query is about
     metadata: dict[str, Any] = {}
 
     # Note: redundancy for safety. This validation is used in the data model already
