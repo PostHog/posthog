@@ -677,6 +677,7 @@ class FunnelBase(ABC):
             ],
             select_from=ast.JoinExpr(table=select_query),
             group_by=[ast.Field(chain=["final_prop"])],
+            order_by=[ast.OrderExpr(expr=ast.Field(chain=["final_prop"]), order="ASC")],
             limit=ast.Constant(value=self.get_breakdown_limit() + 1),
         )
 
