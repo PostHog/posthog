@@ -286,7 +286,6 @@ CREATE TABLE IF NOT EXISTS {qualified_name} (
     team_id Int64,
     session_id_v7 UInt128,
 
-    session_timestamp DateTime64,
     min_timestamp DateTime64(6, 'UTC'),
     max_timestamp DateTime64(6, 'UTC'),
     pageview_prio_timestamp_min DateTime64(6, 'UTC'),
@@ -414,7 +413,6 @@ CREATE DICTIONARY IF NOT EXISTS {qualified_name} (
     team_id Int64,
     session_id_v7 UInt128,
 
-    session_timestamp DateTime64,
     min_timestamp DateTime64(6, 'UTC'),
     max_timestamp DateTime64(6, 'UTC'),
     pageview_prio_timestamp_min DateTime64(6, 'UTC'),
