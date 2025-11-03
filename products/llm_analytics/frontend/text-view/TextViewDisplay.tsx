@@ -807,7 +807,7 @@ export function TextViewDisplay({
     }
 
     return (
-        <div className="relative">
+        <div className="relative flex flex-col flex-1 min-h-0">
             <div className="absolute top-2 right-2 z-10 flex gap-2">
                 {allExpandableIndices.length > 0 && (
                     <LemonButton
@@ -829,7 +829,7 @@ export function TextViewDisplay({
                     {copied ? 'Copied!' : 'Copy text'}
                 </LemonButton>
             </div>
-            <pre className="font-mono text-xs whitespace-pre-wrap p-4 bg-bg-light rounded border border-border overflow-auto max-h-[70vh]">
+            <pre className="font-mono text-xs whitespace-pre-wrap p-4 bg-bg-light rounded border border-border overflow-auto flex-1 min-h-0 max-h-[200vh]">
                 {segments.map((segment, index) => {
                     if (segment.type === 'text') {
                         // Trim trailing whitespace if followed by gen_expandable
