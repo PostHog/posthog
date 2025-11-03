@@ -99,7 +99,7 @@ export function Products(): JSX.Element {
                         </p>
                     </div>
                     <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full max-w-full px-4 sm:max-w-[720px] sm:px-0">
-                        <div className="flex flex-row flex-wrap gap-4 justify-center max-w-[720px]">
+                        <div className="flex flex-row flex-wrap gap-4 justify-center max-w-[680px]">
                             {Object.keys(availableOnboardingProducts).map((productKey) => (
                                 <SelectableProductCard
                                     product={
