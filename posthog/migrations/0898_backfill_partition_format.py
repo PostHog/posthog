@@ -60,7 +60,7 @@ def backwards(apps, _):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0896_alter_externaldatasource_source_type"),
+        ("posthog", "0897_migrate_data_warehouse_models"),
     ]
 
     operations = [migrations.RunPython(forwards, backwards)]
