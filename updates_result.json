@@ -1,0 +1,42 @@
+[
+    {
+        "path": "key_actions.0.events.0.description",
+        "new_value": "Memory-limit warnings and auth errors shown"
+    },
+    {
+        "path": "key_actions.0.events.0.exception",
+        "new_value": "non-blocking"
+    },
+    {
+        "path": "key_actions.0.events.2.description",
+        "new_value": "Clicked send verification email; request failed"
+    },
+    {
+        "path": "key_actions.0.events.2.exception",
+        "new_value": "non-blocking"
+    },
+    {
+        "path": "key_actions.3.events.0.description",
+        "new_value": "Recordings view idle with blank player"
+    },
+    {
+        "path": "key_actions.3.events.0.exception",
+        "new_value": null
+    },
+    {
+        "path": "key_actions.3.events.1.description",
+        "new_value": "Playback stuck on 'Replaying the session...'"
+    },
+    {
+        "path": "key_actions.3.events.1.exception",
+        "new_value": null
+    },
+    {
+        "path": "segment_outcomes.3.summary",
+        "new_value": "Playback remained black; user exited."
+    },
+    {
+        "path": "segments.3.name",
+        "new_value": "Playback stuck, then exit"
+    }
+]

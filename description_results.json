@@ -1,0 +1,212 @@
+[
+    {
+        "asset_id": 398,
+        "video_description": "*   **01:31 - 01:37:** Static.\n*   **01:38 - 01:40:** Playback controls (a large triangle play button and three square icons) appear overlaid in the center of the blacked-out screen recording area, indicating the player is loaded and paused.",
+        "created_at": "2025-11-02T17:47:52.685176+00:00",
+        "expires_after": "2026-01-31T17:47:52.685176+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 399,
+        "video_description": "*   **01:31 - 01:39:** Static. The screen remains unchanged, displaying the recordings view of the application, with a large checkerboard area in the center and a persistent \"Failed to generate summary\" notification at the bottom right.",
+        "created_at": "2025-11-02T17:47:52.685240+00:00",
+        "expires_after": "2026-01-31T17:47:52.685240+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 400,
+        "video_description": "Static.",
+        "created_at": "2025-11-02T17:47:52.685244+00:00",
+        "expires_after": "2026-01-31T17:47:52.685244+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 401,
+        "video_description": "*   **01:42 - 01:51:** Static (The screen remains a uniform gray color).",
+        "created_at": "2025-11-02T17:47:52.685246+00:00",
+        "expires_after": "2026-01-31T17:47:52.685246+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 402,
+        "video_description": "*   **01:43 - 01:51:** Static",
+        "created_at": "2025-11-02T17:47:52.685249+00:00",
+        "expires_after": "2026-01-31T17:47:52.685249+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 403,
+        "video_description": "*   **01:42 - 01:50:** Static.",
+        "created_at": "2025-11-02T17:47:52.685251+00:00",
+        "expires_after": "2026-01-31T17:47:52.685251+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 404,
+        "video_description": "*   **01:41 - 01:50:** Static",
+        "created_at": "2025-11-02T17:47:52.685254+00:00",
+        "expires_after": "2026-01-31T17:47:52.685254+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 405,
+        "video_description": "*   **01:42 - 01:51:** Static.",
+        "created_at": "2025-11-02T17:47:52.685256+00:00",
+        "expires_after": "2026-01-31T17:47:52.685256+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 406,
+        "video_description": "Static.",
+        "created_at": "2025-11-02T17:47:52.685258+00:00",
+        "expires_after": "2026-01-31T17:47:52.685258+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 407,
+        "video_description": "*   **01:41 - 01:50:** Static",
+        "created_at": "2025-11-02T17:47:52.685260+00:00",
+        "expires_after": "2026-01-31T17:47:52.685260+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 408,
+        "video_description": "Static.",
+        "created_at": "2025-11-02T17:47:52.685262+00:00",
+        "expires_after": "2026-01-31T17:47:52.685262+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 409,
+        "video_description": "*   **01:41 - 01:50:** Static (Solid grey screen visible).",
+        "created_at": "2025-11-02T17:47:52.685263+00:00",
+        "expires_after": "2026-01-31T17:47:52.685263+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 410,
+        "video_description": "*   **01:41 - 01:50:** Static",
+        "created_at": "2025-11-02T17:47:52.685265+00:00",
+        "expires_after": "2026-01-31T17:47:52.685265+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 411,
+        "video_description": "*   **01:42 - 01:51:** Static. The screen remains a uniform block of grey and white.",
+        "created_at": "2025-11-02T17:47:52.685267+00:00",
+        "expires_after": "2026-01-31T17:47:52.685267+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 412,
+        "video_description": "*   **01:42 - 01:50:** Static.",
+        "created_at": "2025-11-02T17:47:52.685269+00:00",
+        "expires_after": "2026-01-31T17:47:52.685269+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 413,
+        "video_description": "*   **01:42 - 01:50:** Static",
+        "created_at": "2025-11-02T17:47:52.685271+00:00",
+        "expires_after": "2026-01-31T17:47:52.685271+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 414,
+        "video_description": "Static.",
+        "created_at": "2025-11-02T17:47:52.685273+00:00",
+        "expires_after": "2026-01-31T17:47:52.685273+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 415,
+        "video_description": "Static.",
+        "created_at": "2025-11-02T17:47:52.685275+00:00",
+        "expires_after": "2026-01-31T17:47:52.685275+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 416,
+        "video_description": "Static",
+        "created_at": "2025-11-02T17:47:52.685277+00:00",
+        "expires_after": "2026-01-31T17:47:52.685277+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 417,
+        "video_description": "*   **01:41 - 01:50:** Static",
+        "created_at": "2025-11-02T17:47:52.685279+00:00",
+        "expires_after": "2026-01-31T17:47:52.685279+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 418,
+        "video_description": "*   **01:42 - 01:50:** Static.",
+        "created_at": "2025-11-02T17:47:52.685280+00:00",
+        "expires_after": "2026-01-31T17:47:52.685280+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 419,
+        "video_description": "*   **01:42 - 01:50:** Static",
+        "created_at": "2025-11-02T17:47:52.685282+00:00",
+        "expires_after": "2026-01-31T17:47:52.685282+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 420,
+        "video_description": "Static",
+        "created_at": "2025-11-02T17:47:52.685284+00:00",
+        "expires_after": "2026-01-31T17:47:52.685284+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 421,
+        "video_description": "*   **01:42 - 01:50:** Static",
+        "created_at": "2025-11-02T17:47:52.685286+00:00",
+        "expires_after": "2026-01-31T17:47:52.685286+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 422,
+        "video_description": "*   **01:41 - 01:50:** Static (Screen remains a uniform grey color with a white bar at the top).",
+        "created_at": "2025-11-02T17:47:52.685287+00:00",
+        "expires_after": "2026-01-31T17:47:52.685287+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 423,
+        "video_description": "Static.",
+        "created_at": "2025-11-02T17:47:52.685289+00:00",
+        "expires_after": "2026-01-31T17:47:52.685289+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 424,
+        "video_description": "Static",
+        "created_at": "2025-11-02T17:47:52.685291+00:00",
+        "expires_after": "2026-01-31T17:47:52.685291+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 425,
+        "video_description": "*   **01:41 - 01:50:** Static (The screen displays a solid medium gray color below a white strip at the top, indicating no recorded interaction or visual change.)",
+        "created_at": "2025-11-02T17:47:52.685292+00:00",
+        "expires_after": "2026-01-31T17:47:52.685292+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 426,
+        "video_description": "*   **01:42 - 01:50:** Static.",
+        "created_at": "2025-11-02T17:47:52.685295+00:00",
+        "expires_after": "2026-01-31T17:47:52.685295+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    },
+    {
+        "asset_id": 427,
+        "video_description": "*   **01:42 - 01:51:** Static",
+        "created_at": "2025-11-02T17:47:52.685297+00:00",
+        "expires_after": "2026-01-31T17:47:52.685297+00:00",
+        "model_id": "gemini-2.5-flash-preview-09-2025"
+    }
+]

@@ -1,0 +1,191 @@
+*   **00:00 - 00:10:** The screen is static, displaying the list of recordings/events and the 'People properties' panel for the currently selected event.
+*   **00:10 - 00:12:** The user scrolls up the main list of recordings/events.
+*   **00:12 - 00:13:** The user clicks on a new event entry ("Search Companies - Button Clicked") in the main list. The event properties panel updates and focuses on the 'Event properties' tab.
+*   **00:13 - 00:14:** The user scrolls through the displayed Event properties.
+Idle
+*   **00:31 - 00:32:** The user clicks the "View Filters" tab, switching the panel from the recording player view to the filter setup interface.
+*   **00:32 - 00:34:** The user selects "Email Address" from the filter property drop-down menu.
+*   **00:34 - 00:37:** The user types an email address ("marcos.bastiani@gmail.com") into the value field.
+*   **00:41 - 00:42:** The user confirms the filter value, causing the suggestion drop-down list to disappear.
+*   **00:42 - 00:44:** The applied filter updates the list of recordings, showing only one entry that matches the specified email address.
+*   **00:45 - 00:47:** The recordings list view changes, clearing filters or closing the settings panel, resulting in the center panel displaying "No recording selected."
+*   **00:47 - 00:50:** A single recording is selected from the list. The video player loads in the center pane, showing "Buffering..." and the session details appear in the "Overview" tab on the right sidebar.
+*   **00:50 - 00:52:** The user clicks the "Inspector" tab on the right sidebar.
+*   **00:52 - 00:59:** The content of the right sidebar switches to the session event log ("Inspector"), which the user then scrolls through.
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+*   **10:45 - 10:59:** The session playback screen remains static.
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+*   **12:30 - 12:44:** The recording remains static. The playback is paused or inactive, showing a masked black area in the center viewer and no new events in the sidebar log.
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+*   **17:00 - 17:01:** A brief hover state appears over the playback controls (near the "Skip Inactivity" icon).
+*   **17:02 - 17:14:** The playback screen displays the text "Skipping inactivity" as the recording automatically fast-forwards through a period of user downtime.
+Idle
+Idle
+Idle
+*   **18:00 - 18:11:** The user scrolls down the session properties list in the right sidebar.
+*   **18:12 - 18:14:** The user switches the right sidebar tab from the current view (likely properties/overview) to the "Inspector" tab, revealing a list of tracked events and properties.
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+*   **20:45 - 20:46:** The video starts showing the results of a conversion funnel analysis.
+*   **20:46 - 20:47:** The user clicks on the "Trend" tab in the main results panel.
+*   **20:47 - 20:51:** The Trend analysis fails to load, showing the message: "There are no matching events for this query." The user briefly interacts with the funnel step definitions on the left sidebar.
+*   **20:51 - 20:52:** The user switches the main view back to the "Funnel" tab. The conversion funnel results reload.
+*   **20:52 - 20:54:** The user scrolls down the left configuration sidebar past the conversion calculation settings.
+*   **20:54 - 20:57:** The user scrolls down further into the "Filters" section, reviewing the filters applied (including an internal filter toggle and a session duration filter set to greater than 10 minutes).
+*   **20:57 - 20:59:** The funnel chart and detailed results stabilize on the screen, reflecting the current query settings.
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+*   **22:30 - 22:31:** The user clicks the "+ New channel" button and selects "Email" from the resulting dropdown menu.
+*   **22:31 - 22:36:** A modal titled "Configure email sender" appears, prompting for Name and Email. The cursor moves over the input fields.
+*   **22:36 - 22:43:** The user enters text into the "Name" field, typing "Freshchat Team."
+*   **22:44 - 22:45:** The user moves to the "Email" field and begins typing, starting with "Info."
+*   **22:45 - 22:52:** The user types an email address, "merlincat@notesense.com," into the Email field within the "Configure email sender" dialog box.
+*   **22:52 - 22:53:** The user clicks the "Continue" button.
+*   **22:53 - 22:59:** The dialog box updates to show instructions for configuring email verification via DNS records, displaying a table listing required TXT and CNAME records. The user views this new screen.
+*   **23:00 - 23:13:** The user views the "Configure email sender" modal, which provides instructions and lists several required DNS records (TXT and CNAME types) needed for domain ownership verification. The status column for all records currently shows "Not present."
+*   **23:14 - 23:15:** The "Configure email sender" modal closes, returning the view to the main "Messaging" interface showing existing email senders under the "Channels" tab.
+*   **23:15 - 23:17:** The user is viewing email channels under the "Messaging" section and clicks the disconnect icon next to the email integration (`envoke-ai`), prompting a confirmation modal: "Do you want to disconnect from this email integration?"
+*   **23:17 - 23:19:** The user clicks "Yes, disconnect" in the confirmation modal. The email integration is removed, and the view switches to the "Opt-outs" tab.
+*   **23:19 - 23:20:** The user navigates to the "Library" tab.
+*   **23:20 - 23:21:** The user navigates back to the "Channels" tab.
+*   **23:22 - 23:24:** The user navigates to the "Campaigns" tab and clicks the "New campaign" button in the upper right corner.
+*   **23:24 - 23:29:** The interface loads the new campaign workflow editor, displaying a "Trigger" node and a sidebar containing various dispatch, delay, audience, and notification action blocks.
+*   **23:30 - 23:35:** The user is viewing the new campaign workflow editor, which currently contains a "Trigger" node connected to an "Edit" node. The right sidebar shows the "Build" tab with available action types.
+*   **23:36 - 23:37:** The user clicks the "Sleep" action, followed immediately by clicking the "Wait until condition" action under the "Delays" category in the right sidebar.
+*   **23:38:** The user clicks the "Build" tab header.
+*   **23:39 - 23:41:** The user navigates through the tabs in the right panel, clicking "Test," then "Metrics," and finally "Logs."
+*   **23:42 - 23:44:** The user clicks back to the "Metrics" tab, then the "Logs" tab, and finally returns to the "Build" tab.
+Idle
+*   **24:00 - 24:01:** The user opens the workflow action menu (likely by clicking a "+" button in the canvas), displaying categories like "Dispatch," "Delays," and "Audience split" in the right sidebar.
+*   **24:01 - 24:03:** The user expands the "Dispatch" section and selects the "Email" option.
+*   **24:03 - 24:04:** The right sidebar content updates from standard dispatch options (Email, SMS) to a comprehensive list of third-party integration connectors (e.g., Amplitude, CleverTap).
+*   **24:04 - 24:14:** The user scrolls down through the long list of available external dispatch integrations in the sidebar.
+Idle
+*   **24:30 - 24:44:** The user continuously scrolls down the list of available integrations and actions in the right-hand panel (e.g., Salesforce, Google Cloud, HubSpot, Amplitude, Attentive), seemingly browsing options for the workflow.
+*   **24:45 - 24:47:** The user scrolls through the actions listed in the right sidebar panel, reviewing "Dispatch" and "Delay" options.
+*   **24:48 - 24:51:** The user selects and drags the "Email" action from the "Dispatch" list and drops it onto the workflow canvas between the "Trigger" and "Exit" nodes.
+*   **24:51 - 24:59:** The workflow now includes the "Email" node. The user views the resulting "Email message" configuration panel in the right sidebar.
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+*   **28:30 - 28:37:** The user reviews the programmatic fields (Liquid logic) within the Email message configuration panel.
+*   **28:38 - 28:38:** The user clicks the "Prog" button next to the "Subject" field.
+*   **28:39 - 28:44:** A large dropdown menu displaying available functions (for Liquid templating) opens, and the user scrolls down through the list of options.
+*   **28:45 - 28:48:** The user is viewing the configuration for an "Email message" step in a campaign workflow.
+*   **28:48 - 28:49:** The user clicks to delete the recipient variable (`{{person.properties.mail}}`) from the "To:" field.
+*   **28:49 - 28:57:** A warning message appears, indicating that the email message configuration requires a recipient, subject, and content.
+*   **28:57 - 28:59:** The user clicks the "Connect email sender" link, which navigates the interface to the "Messaging / Channels" setup screen.
+*   **29:00 - 29:02:** The user is viewing the Messaging Channels integration screen, which prompts them to "Create your first channel integration."
+*   **29:02 - 29:03:** The interface switches to the "New campaign" workflow builder view.
+*   **29:03 - 29:10:** The user selects the "Email" action from the Dispatch section of the actions panel and drags it into the workflow canvas, placing it between the "Trigger" and "Exit" blocks.
+*   **29:10 - 29:13:** The Email message configuration panel opens on the right side of the screen, displaying message details (From, To, Subject, Preheader).
+*   **29:13 - 29:14:** The user closes the Email configuration and returns to the main actions panel (Ruler), hovering near the "Sleep" action under Delays.
+*   **29:15 - 29:20:** The user reviews actions in the right sidebar menu, moving the cursor over items like "Custom action" and "Wait until condition."
+*   **29:20 - 29:29:** The user continues moving the cursor up through the "Delays" section, hovering briefly over "Wait until condition," "Wait," and finally pausing the cursor over the "Sleep" action.
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle
+Idle

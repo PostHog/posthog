@@ -1,0 +1,296 @@
+{
+    "segments": [
+        {
+            "index": 0,
+            "name": "Initial load, Feature Flags verification attempts fail",
+            "start_event_id": "6e55e2ef",
+            "end_event_id": "eb4f7b51",
+            "meta": {
+                "duration": 17,
+                "duration_percentage": 0.0028,
+                "events_count": 55,
+                "events_percentage": 0.1993,
+                "key_action_count": 3,
+                "failure_count": 3,
+                "abandonment_count": 1,
+                "confusion_count": 1,
+                "exception_count": 2
+            }
+        },
+        {
+            "index": 1,
+            "name": "Replay exploration and first AI summary success",
+            "start_event_id": "eb4f7b51",
+            "end_event_id": "1aec5dfc",
+            "meta": {
+                "duration": 692,
+                "duration_percentage": 0.112,
+                "events_count": 119,
+                "events_percentage": 0.4312,
+                "key_action_count": 3,
+                "failure_count": 1,
+                "abandonment_count": 0,
+                "confusion_count": 0,
+                "exception_count": 1
+            }
+        },
+        {
+            "index": 2,
+            "name": "Sustained AI summary attempts, mixed results",
+            "start_event_id": "9030471f",
+            "end_event_id": "485e5170",
+            "meta": {
+                "duration": 1901,
+                "duration_percentage": 0.3078,
+                "events_count": 103,
+                "events_percentage": 0.3732,
+                "key_action_count": 3,
+                "failure_count": 1,
+                "abandonment_count": 0,
+                "confusion_count": 1,
+                "exception_count": 0
+            }
+        },
+        {
+            "index": 3,
+            "name": "Playback stuck, then exit",
+            "start_event_id": "6f09c786",
+            "end_event_id": "0048e13b",
+            "meta": {
+                "duration": 327,
+                "duration_percentage": 0.0529,
+                "events_count": 6,
+                "events_percentage": 0.0217,
+                "key_action_count": 2,
+                "failure_count": 2,
+                "abandonment_count": 1,
+                "confusion_count": 0,
+                "exception_count": 2
+            }
+        }
+    ],
+    "key_actions": [
+        {
+            "segment_index": 0,
+            "events": [
+                {
+                    "description": "Memory-limit warnings and auth errors shown",
+                    "abandonment": false,
+                    "confusion": false,
+                    "exception": "non-blocking",
+                    "event_id": "21825fe4",
+                    "timestamp": "2025-10-16T13:04:04.623000+00:00",
+                    "milliseconds_since_start": 6136,
+                    "window_id": null,
+                    "current_url": "http://localhost:8010/api/environments/5/query/",
+                    "event": "$exception",
+                    "event_type": null,
+                    "event_index": 18,
+                    "session_id": "0199ed1e-91b7-7600-b1d2-22b6fbff046e",
+                    "event_uuid": "780b66ae-e0e8-4c6d-9c2d-0cb18baceb21"
+                },
+                {
+                    "description": "Repeated Send verification email clicks show errors",
+                    "abandonment": true,
+                    "confusion": true,
+                    "exception": null,
+                    "event_id": "f180e057",
+                    "timestamp": "2025-10-16T13:04:05.555000+00:00",
+                    "milliseconds_since_start": 7068,
+                    "window_id": "0199ed1e-91b7-7600-b1d2-22b7d0896d41",
+                    "current_url": "http://localhost:8010/project/5/feature_flags?tab=overview",
+                    "event": "$autocapture",
+                    "event_type": "click",
+                    "event_index": 28,
+                    "session_id": "0199ed1e-91b7-7600-b1d2-22b6fbff046e",
+                    "event_uuid": "0199ed1e-d7a1-753e-b2e8-850b92aaae40"
+                },
+                {
+                    "description": "Clicked send verification email; request failed",
+                    "abandonment": false,
+                    "confusion": false,
+                    "exception": "non-blocking",
+                    "event_id": "749a03ba",
+                    "timestamp": "2025-10-16T13:04:10.606000+00:00",
+                    "milliseconds_since_start": 12119,
+                    "window_id": "0199ed1e-91b7-7600-b1d2-22b7d0896d41",
+                    "current_url": "http://localhost:8010/project/5/feature_flags?tab=overview",
+                    "event": "$exception",
+                    "event_type": null,
+                    "event_index": 38,
+                    "session_id": "0199ed1e-91b7-7600-b1d2-22b6fbff046e",
+                    "event_uuid": "0199ed1e-d4e4-79ea-8ade-40fbb1951915"
+                }
+            ]
+        },
+        {
+            "segment_index": 1,
+            "events": [
+                {
+                    "description": "Initiates AI summary on a recording",
+                    "abandonment": false,
+                    "confusion": false,
+                    "exception": null,
+                    "event_id": "8cb599c7",
+                    "timestamp": "2025-10-16T13:04:23.139000+00:00",
+                    "milliseconds_since_start": 24652,
+                    "window_id": "0199ed1e-91b7-7600-b1d2-22b7d0896d41",
+                    "current_url": "http://localhost:8010/project/5/replay/home?sessionRecordingId=0199ec65-bf7e-76a0-92b0-e09a56259806&tab=ai-summary",
+                    "event": "$autocapture",
+                    "event_type": "click",
+                    "event_index": 86,
+                    "session_id": "0199ed1e-91b7-7600-b1d2-22b6fbff046e",
+                    "event_uuid": "0199ed1f-1c4d-746c-bba0-6e97114d6f94"
+                },
+                {
+                    "description": "Another query hits memory limit error",
+                    "abandonment": false,
+                    "confusion": false,
+                    "exception": "blocking",
+                    "event_id": "6af457a1",
+                    "timestamp": "2025-10-16T13:04:39.183000+00:00",
+                    "milliseconds_since_start": 40696,
+                    "window_id": null,
+                    "current_url": "http://localhost:8010/api/environments/5/query/",
+                    "event": "$exception",
+                    "event_type": null,
+                    "event_index": 111,
+                    "session_id": "0199ed1e-91b7-7600-b1d2-22b6fbff046e",
+                    "event_uuid": "7b46beb8-27c5-46e6-9cad-0ea35f479fd4"
+                },
+                {
+                    "description": "Recording analyzed successfully (AI summary ready)",
+                    "abandonment": false,
+                    "confusion": false,
+                    "exception": null,
+                    "event_id": "58c4d804",
+                    "timestamp": "2025-10-16T13:10:47.076000+00:00",
+                    "milliseconds_since_start": 408589,
+                    "window_id": null,
+                    "current_url": "http://localhost:8010/project/5/replay/home?sessionRecordingId=0199ec65-bf7e-76a0-92b0-e09a56259806&tab=ai-summary",
+                    "event": "recording analyzed",
+                    "event_type": null,
+                    "event_index": 172,
+                    "session_id": "0199ed1e-91b7-7600-b1d2-22b6fbff046e",
+                    "event_uuid": "04c1ea2e-ec8e-4c29-ad8c-83251ce0643e"
+                }
+            ]
+        },
+        {
+            "segment_index": 2,
+            "events": [
+                {
+                    "description": "Many AI summary retries trigger toast errors",
+                    "abandonment": false,
+                    "confusion": true,
+                    "exception": null,
+                    "event_id": "52a37892",
+                    "timestamp": "2025-10-16T13:27:12.569000+00:00",
+                    "milliseconds_since_start": 1394082,
+                    "window_id": "0199ed1e-91b7-7600-b1d2-22b7d0896d41",
+                    "current_url": "http://localhost:8010/project/5/replay/home?sessionRecordingId=0199ec65-bf7e-76a0-92b0-e09a56259806&tab=ai-summary",
+                    "event": "$autocapture",
+                    "event_type": "click",
+                    "event_index": 179,
+                    "session_id": "0199ed1e-91b7-7600-b1d2-22b6fbff046e",
+                    "event_uuid": "0199ed34-01a8-7091-af9f-65437ea8cd13"
+                },
+                {
+                    "description": "Recording list not found shown",
+                    "abandonment": false,
+                    "confusion": false,
+                    "exception": null,
+                    "event_id": "d195419b",
+                    "timestamp": "2025-10-16T13:54:46.683000+00:00",
+                    "milliseconds_since_start": 3048196,
+                    "window_id": "0199ed1e-91b7-7600-b1d2-22b7d0896d41",
+                    "current_url": "http://localhost:8010/project/5/replay/home?sessionRecordingId=0199ec65-bf7e-76a0-92b0-e09a56259806&tab=ai-summary",
+                    "event": "not_found_shown",
+                    "event_type": null,
+                    "event_index": 238,
+                    "session_id": "0199ed1e-91b7-7600-b1d2-22b6fbff046e",
+                    "event_uuid": "0199ed4d-3f07-75ff-ae74-6cc964414ede"
+                },
+                {
+                    "description": "Second recording analyzed successfully",
+                    "abandonment": false,
+                    "confusion": false,
+                    "exception": null,
+                    "event_id": "f7117c9a",
+                    "timestamp": "2025-10-16T13:57:19.233000+00:00",
+                    "milliseconds_since_start": 3200746,
+                    "window_id": null,
+                    "current_url": "http://localhost:8010/project/5/replay/home?sessionRecordingId=0199ec65-bf7e-76a0-92b0-e09a56259806&tab=ai-summary",
+                    "event": "recording analyzed",
+                    "event_type": null,
+                    "event_index": 273,
+                    "session_id": "0199ed1e-91b7-7600-b1d2-22b6fbff046e",
+                    "event_uuid": "8d7e6664-4109-4558-81ec-dd7d49a01219"
+                }
+            ]
+        },
+        {
+            "segment_index": 3,
+            "events": [
+                {
+                    "description": "Recordings view idle with blank player",
+                    "abandonment": false,
+                    "confusion": false,
+                    "exception": null,
+                    "event_id": "a99acb2b",
+                    "timestamp": "2025-10-16T14:03:06.885000+00:00",
+                    "milliseconds_since_start": 3548398,
+                    "window_id": null,
+                    "current_url": "http://localhost:8010/api/environments/5/session_recordings/0199ec65-bf7e-76a0-92b0-e09a56259806/snapshots?blob_v2=true&blob_v2_lts=true",
+                    "event": "$exception",
+                    "event_type": null,
+                    "event_index": 280,
+                    "session_id": "0199ed1e-91b7-7600-b1d2-22b6fbff046e",
+                    "event_uuid": "5de6afa4-efff-429c-bd8b-1e7d798f0f9b"
+                },
+                {
+                    "description": "Playback stuck on 'Replaying the session...'",
+                    "abandonment": true,
+                    "confusion": false,
+                    "exception": null,
+                    "event_id": "0048e13b",
+                    "timestamp": "2025-10-16T14:03:14.807000+00:00",
+                    "milliseconds_since_start": 3556320,
+                    "window_id": "0199ed1e-91b7-7600-b1d2-22b7d0896d41",
+                    "current_url": "http://localhost:8010/project/5/replay/home?sessionRecordingId=0199ec65-bf7e-76a0-92b0-e09a56259806&tab=ai-summary",
+                    "event": "$exception",
+                    "event_type": null,
+                    "event_index": 282,
+                    "session_id": "0199ed1e-91b7-7600-b1d2-22b6fbff046e",
+                    "event_uuid": "0199ed54-e111-7ff5-a349-2e851c69e806"
+                }
+            ]
+        }
+    ],
+    "segment_outcomes": [
+        {
+            "segment_index": 0,
+            "summary": "Feature Flags verification failed repeatedly with errors; user abandoned flow.",
+            "success": false
+        },
+        {
+            "segment_index": 1,
+            "summary": "Explored replay and achieved first AI summary despite earlier query failure.",
+            "success": true
+        },
+        {
+            "segment_index": 2,
+            "summary": "Multiple AI summary attempts; intermittent errors but one more success.",
+            "success": true
+        },
+        {
+            "segment_index": 3,
+            "summary": "Playback remained black; user exited.",
+            "success": false
+        }
+    ],
+    "session_outcome": {
+        "description": "User abandoned Feature Flags verification, then achieved AI summaries twice amid frequent backend errors, including ClickHouse memory limits and API failures.",
+        "success": true
+    }
+}

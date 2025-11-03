@@ -1,0 +1,439 @@
+<events_input_format>
+You'll receive a list of events with columns:
+
+- event_id: Unique identifier for the event - ALWAYS use this to reference specific events, NEVER generate or modify event IDs
+- event_index: Index of the event in the session - helps understand sequence
+- event: Type of event (e.g., $pageview, $autocapture) - signals user actions or system events
+- timestamp: When the event occurred - helps track sequence and time between actions
+- elements_chain_href: URL fragment interacted with - shows specific link or element targets
+- elements_chain_texts: Text content of elements the user interacted with
+- elements_chain_elements: Types of elements the user interacted with (clicked buttons, forms, etc.)
+- $window_id: Unique identifier for browser window/tab - helps track multi-window workflows (use simplified references from window_mapping)
+- $current_url: Page URL where the interaction happened on (use simplified references from url_mapping)
+- $event_type: Type of interaction (e.g., click, submit) - specifies how the user interacted
+- $elements_chain_ids: IDs of the elements that are part of the interaction
+- $exception_types: Type of the exception occured, if applicable
+- $exception_values: Short description of the exception occured, if applicable
+
+Event columns are provided in the order the data for each event. So, the first element of the event is the event name, the second element is the timestamp, etc.
+
+Use these events to reconstruct the user journey. Events are provided in a chronological order. Focus on what these events reveal about user intentions rather than the raw event data itself.
+
+Don't include raw `elements_chain_texts` data in your summary, but use it to improve your understanding of user goals.
+</events_input_format>
+
+<events_input>
+```
+[["1d1d3ece", 0, "client_request_failure", "2025-10-16T10:02:46.843000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["6f1e9680", 1, "$pageleave", "2025-10-16T10:02:56.571000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["54506ec0", 2, "$opt_in", "2025-10-16T10:03:13.932000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["d1d15cda", 3, "$pageview", "2025-10-16T10:03:13.952000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["a15824f0", 4, "$groupidentify", "2025-10-16T10:03:22.045000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["4d46d460", 5, "$set", "2025-10-16T10:03:22.045000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["c5535852", 6, "$groupidentify", "2025-10-16T10:03:22.046000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["4a4b67aa", 7, "client_request_failure", "2025-10-16T10:03:22.087000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["1c9ecf4b", 8, "client_request_failure", "2025-10-16T10:03:22.134000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["4f54e4a7", 9, "$groupidentify", "2025-10-16T10:03:22.153000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["300e51ec", 10, "spinner_unloaded", "2025-10-16T10:03:22.391000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["ffe4ca31", 11, "$pageview", "2025-10-16T10:03:22.566000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["8c33e956", 12, "$web_vitals", "2025-10-16T10:03:22.661000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["30844341", 13, "spinner_unloaded", "2025-10-16T10:03:22.923000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["b4e796dd", 14, "query executed", "2025-10-16T10:03:24.168000+00:00", "", [], [], null, "url_2", null, [], null, null], ["aeaa818e", 15, "recording list fetched", "2025-10-16T10:03:26.185000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["c1292977", 16, "$autocapture", "2025-10-16T10:04:35.492000+00:00", "/project/4/llm-analytics", ["LLM analytics", "tree item: LLM analytics", "Tree navigation"], ["a"], "window_1", "url_1", "click", ["radix-:r10:", "project-panel-layout", "root"], null, null], ["e5ae0ca7", 17, "query async recalculation initiated", "2025-10-16T10:04:35.755000+00:00", "", [], [], null, "url_2", null, [], null, null], ["f5a6a746", 18, "$pageview", "2025-10-16T10:04:35.771000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["cb1bf563", 19, "query executed", "2025-10-16T10:04:35.794000+00:00", "", [], [], null, "url_2", null, [], null, null], ["9b34f409", 20, "query completed", "2025-10-16T10:04:35.815000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["9813678f", 21, "query completed", "2025-10-16T10:04:36.148000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["871285d9", 22, "query async recalculation initiated", "2025-10-16T10:04:36.172000+00:00", "", [], [], null, "url_2", null, [], null, null], ["69d2e39d", 23, "query executed", "2025-10-16T10:04:36.200000+00:00", "", [], [], null, "url_2", null, [], null, null], ["8ea8358f", 24, "query completed", "2025-10-16T10:04:36.544000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["c472ed70", 25, "query async recalculation initiated", "2025-10-16T10:04:36.566000+00:00", "", [], [], null, "url_2", null, [], null, null], ["5369598a", 26, "query executed", "2025-10-16T10:04:36.594000+00:00", "", [], [], null, "url_2", null, [], null, null], ["cb7928b5", 27, "$autocapture", "2025-10-16T10:04:36.788000+00:00", "/project/4/activity/explore", ["Activity"], ["a"], "window_1", "url_3", "click", ["project-panel-layout", "root"], null, null], ["0b37b9ed", 28, "$pageview", "2025-10-16T10:04:36.964000+00:00", "", [], [], "window_1", "url_4", null, [], null, null], ["0bf03965", 29, "query completed", "2025-10-16T10:04:36.993000+00:00", "", [], [], "window_1", "url_4", null, [], null, null], ["0aa13bd8", 30, "query async recalculation initiated", "2025-10-16T10:04:37.005000+00:00", "", [], [], null, "url_2", null, [], null, null], ["9575bceb", 31, "query executed", "2025-10-16T10:04:37.023000+00:00", "", [], [], null, "url_2", null, [], null, null], ["44ff513d", 32, "query completed", "2025-10-16T10:04:37.365000+00:00", "", [], [], "window_1", "url_4", null, [], null, null], ["b57437d8", 33, "query executed", "2025-10-16T10:04:37.520000+00:00", "", [], [], null, "url_2", null, [], null, null], ["8da4f852", 34, "query completed", "2025-10-16T10:04:37.537000+00:00", "", [], [], "window_1", "url_4", null, [], null, null], ["10e54af1", 35, "spinner_unloaded", "2025-10-16T10:04:37.546000+00:00", "", [], [], "window_1", "url_4", null, [], null, null], ["6be046cc", 36, "query async recalculation initiated", "2025-10-16T10:04:37.553000+00:00", "", [], [], null, "url_2", null, [], null, null], ["39d38d9d", 37, "query executed", "2025-10-16T10:04:37.574000+00:00", "", [], [], null, "url_2", null, [], null, null], ["2b7e0434", 38, "query completed", "2025-10-16T10:04:37.917000+00:00", "", [], [], "window_1", "url_4", null, [], null, null], ["62d606b4", 39, "query async recalculation initiated", "2025-10-16T10:04:37.927000+00:00", "", [], [], null, "url_2", null, [], null, null], ["6442b962", 40, "query executed", "2025-10-16T10:04:37.949000+00:00", "", [], [], null, "url_2", null, [], null, null], ["54bb2dfd", 41, "$autocapture", "2025-10-16T10:04:38.205000+00:00", "", ["People"], ["button"], "window_1", "url_4", "click", ["project-panel-layout", "root"], null, null], ["03942d9d", 42, "query async recalculation initiated", "2025-10-16T10:04:38.716000+00:00", "", [], [], null, "url_2", null, [], null, null], ["c6e299cf", 43, "query completed", "2025-10-16T10:04:38.721000+00:00", "", [], [], "window_1", "url_4", null, [], null, null], ["15d9ae50", 44, "$autocapture", "2025-10-16T10:04:38.735000+00:00", "", ["Data management"], ["button"], "window_1", "url_4", "click", ["project-panel-layout", "root"], null, null], ["91a7ce4b", 45, "query executed", "2025-10-16T10:04:38.742000+00:00", "", [], [], null, "url_2", null, [], null, null], ["cb40321f", 46, "query async recalculation initiated", "2025-10-16T10:04:39.118000+00:00", "", [], [], null, "url_2", null, [], null, null], ["0fd2e46c", 47, "query completed", "2025-10-16T10:04:39.121000+00:00", "", [], [], "window_1", "url_4", null, [], null, null], ["ff620e04", 48, "query executed", "2025-10-16T10:04:39.135000+00:00", "", [], [], null, "url_2", null, [], null, null], ["22473de9", 49, "$autocapture", "2025-10-16T10:04:39.189000+00:00", "", ["Project"], ["button"], "window_1", "url_4", "click", ["project-panel-layout", "root"], null, null], ["842d1584", 50, "query async recalculation initiated", "2025-10-16T10:04:39.491000+00:00", "", [], [], null, "url_2", null, [], null, null], ["0059eca3", 51, "query completed", "2025-10-16T10:04:39.497000+00:00", "", [], [], "window_1", "url_4", null, [], null, null], ["28f0e646", 52, "query executed", "2025-10-16T10:04:39.511000+00:00", "", [], [], null, "url_2", null, [], null, null], ["93a9ece8", 53, "$autocapture", "2025-10-16T10:04:39.661000+00:00", "", ["Apps"], ["button"], "window_1", "url_4", "click", ["project-panel-layout", "root"], null, null], ["8d161ffb", 54, "query completed", "2025-10-16T10:04:39.880000+00:00", "", [], [], "window_1", "url_4", null, [], null, null], ["2e9c8086", 55, "$autocapture", "2025-10-16T10:04:40.052000+00:00", "/project/4", ["Home"], ["a"], "window_1", "url_4", "click", ["project-panel-layout", "root"], null, null], ["041adb2a", 56, "$pageview", "2025-10-16T10:04:40.271000+00:00", "", [], [], "window_1", "url_5", null, [], null, null], ["bd2718a0", 57, "query executed", "2025-10-16T10:04:40.472000+00:00", "", [], [], null, "url_6", null, [], null, null], ["34aa2fb2", 58, "query executed", "2025-10-16T10:04:40.479000+00:00", "", [], [], null, "url_6", null, [], null, null], ["1ebe0ad2", 59, "query executed", "2025-10-16T10:04:40.485000+00:00", "", [], [], null, "url_6", null, [], null, null], ["95f04125", 60, "query executed", "2025-10-16T10:04:40.491000+00:00", "", [], [], null, "url_6", null, [], null, null], ["5337320c", 61, "query executed", "2025-10-16T10:04:40.495000+00:00", "", [], [], null, "url_6", null, [], null, null], ["58f7c534", 62, "query executed", "2025-10-16T10:04:40.500000+00:00", "", [], [], null, "url_6", null, [], null, null], ["c9924b1b", 63, "dashboard loading time", "2025-10-16T10:04:40.536000+00:00", "", [], [], "window_1", "url_5", null, [], null, null], ["78b11005", 64, "viewed dashboard", "2025-10-16T10:04:41.040000+00:00", "", [], [], "window_1", "url_5", null, [], null, null], ["b9398481", 65, "$autocapture", "2025-10-16T10:04:41.731000+00:00", "/project/4/experiments", ["tree item: Experiments", "Experiments", "Tree navigation"], ["a"], "window_1", "url_5", "click", ["radix-:r3g:", "project-panel-layout", "root"], null, null], ["9b6242dc", 66, "$pageview", "2025-10-16T10:04:41.825000+00:00", "", [], [], "window_1", "url_7", null, [], null, null], ["9985d00a", 67, "$autocapture", "2025-10-16T10:04:42.831000+00:00", "/project/4/feature_flags", ["tree item: Feature flags", "Feature flags", "Tree navigation"], ["a"], "window_1", "url_7", "click", ["radix-:r3o:", "project-panel-layout", "root"], null, null], ["8dcfae0d", 68, "$pageview", "2025-10-16T10:04:43.071000+00:00", "", [], [], "window_1", "url_8", null, [], null, null], ["0f03355c", 69, "$autocapture", "2025-10-16T10:04:43.843000+00:00", "/project/4/early_access_features", ["Early access features", "tree item: Early access features", "Tree navigation"], ["a"], "window_1", "url_8", "click", ["radix-:r38:", "project-panel-layout", "root"], null, null], ["dd790e85", 70, "$pageview", "2025-10-16T10:04:43.923000+00:00", "", [], [], "window_1", "url_9", null, [], null, null], ["5a244d0b", 71, "$autocapture", "2025-10-16T10:04:45.293000+00:00", "/project/4/settings/project", ["Settings"], ["a"], "window_1", "url_9", "click", ["project-panel-layout", "root"], null, null], ["841e96a6", 72, "query executed", "2025-10-16T10:04:45.375000+00:00", "", [], [], null, "url_2", null, [], null, null], ["81f82a4b", 73, "pay gate shown", "2025-10-16T10:04:45.778000+00:00", "", [], [], "window_1", "url_10", null, [], null, null], ["6cde1fb5", 74, "pay gate shown", "2025-10-16T10:04:45.779000+00:00", "", [], [], "window_1", "url_10", null, [], null, null], ["d5848fc7", 75, "pay gate shown", "2025-10-16T10:04:45.780000+00:00", "", [], [], "window_1", "url_10", null, [], null, null], ["00de5976", 78, "$pageview", "2025-10-16T10:04:45.942000+00:00", "", [], [], "window_1", "url_10", null, [], null, null], ["5f9d26de", 79, "spinner_unloaded", "2025-10-16T10:04:46.030000+00:00", "", [], [], "window_1", "url_10", null, [], null, null], ["1756df3d", 80, "spinner_unloaded", "2025-10-16T10:04:46.041000+00:00", "", [], [], "window_1", "url_10", null, [], null, null], ["8f38bf09", 81, "spinner_unloaded", "2025-10-16T10:04:46.352000+00:00", "", [], [], "window_1", "url_10", null, [], null, null], ["af5ee385", 82, "user showed product intent", "2025-10-16T10:04:46.870000+00:00", "", [], [], null, "url_10", null, [], null, null], ["abe64f00", 83, "spinner_unloaded", "2025-10-16T10:04:46.990000+00:00", "", [], [], "window_1", "url_10", null, [], null, null], ["411a5311", 85, "pay gate shown", "2025-10-16T10:04:47.026000+00:00", "", [], [], "window_1", "url_10", null, [], null, null], ["f1fb6c06", 86, "pay gate shown", "2025-10-16T10:04:47.094000+00:00", "", [], [], "window_1", "url_10", null, [], null, null], ["aa991106", 87, "$autocapture", "2025-10-16T10:04:47.157000+00:00", "/project/4/feature_flags", ["tree item: Feature flags", "Feature flags", "Tree navigation"], ["a"], "window_1", "url_10", "click", ["radix-:r3o:", "project-panel-layout", "root"], null, null], ["438aba13", 88, "$pageview", "2025-10-16T10:04:47.163000+00:00", "", [], [], "window_1", "url_11", null, [], null, null], ["1671e6ec", 89, "$pageview", "2025-10-16T10:04:47.190000+00:00", "", [], [], "window_1", "url_8", null, [], null, null], ["8f32ee18", 90, "$autocapture", "2025-10-16T10:04:47.478000+00:00", "/project/4/feature_flags", ["Feature flags", "tree item: Feature flags", "Tree navigation"], ["a"], "window_1", "url_8", "click", ["radix-:r3o:", "project-panel-layout", "root"], null, null], ["bcdee6ea", 91, "$pageview", "2025-10-16T10:04:47.481000+00:00", "", [], [], "window_1", "url_11", null, [], null, null], ["5cfae631", 92, "$pageview", "2025-10-16T10:04:47.485000+00:00", "", [], [], "window_1", "url_8", null, [], null, null], ["a421d010", 93, "$autocapture", "2025-10-16T10:04:48.310000+00:00", "/project/4/error_tracking", ["Error tracking", "tree item: Error tracking", "Tree navigation"], ["a"], "window_1", "url_8", "click", ["radix-:r28:", "project-panel-layout", "root"], null, null], ["cf2bd8c1", 94, "$pageview", "2025-10-16T10:04:48.421000+00:00", "", [], [], "window_1", "url_12", null, [], null, null], ["98913da4", 95, "$autocapture", "2025-10-16T10:04:49.602000+00:00", "/project/4/web", ["Web analytics", "tree item: Web analytics", "Tree navigation"], ["a"], "window_1", "url_12", "click", ["radix-:r20:", "project-panel-layout", "root"], null, null], ["2322fc57", 96, "query executed", "2025-10-16T10:04:49.827000+00:00", "", [], [], null, "url_2", null, [], null, null], ["d569dd0e", 97, "$pageview", "2025-10-16T10:04:49.964000+00:00", "", [], [], "window_1", "url_13", null, [], null, null], ["646c9c07", 98, "query executed", "2025-10-16T10:04:50.005000+00:00", "", [], [], null, "url_2", null, [], null, null], ["3aa19ed9", 99, "query completed", "2025-10-16T10:04:50.022000+00:00", "", [], [], "window_1", "url_13", null, [], null, null], ["1fc83d52", 100, "query async recalculation initiated", "2025-10-16T10:04:50.052000+00:00", "", [], [], null, "url_2", null, [], null, null], ["1eb41d11", 101, "query executed", "2025-10-16T10:04:50.112000+00:00", "", [], [], null, "url_2", null, [], null, null], ["2a5f37a5", 102, "recording list fetched", "2025-10-16T10:04:50.397000+00:00", "", [], [], "window_1", "url_13", null, [], null, null], ["5b04e452", 103, "query completed", "2025-10-16T10:04:50.457000+00:00", "", [], [], "window_1", "url_13", null, [], null, null], ["681e6ea5", 104, "query async recalculation initiated", "2025-10-16T10:04:50.481000+00:00", "", [], [], null, "url_2", null, [], null, null], ["16061be5", 105, "query executed", "2025-10-16T10:04:50.501000+00:00", "", [], [], null, "url_2", null, [], null, null], ["9d101b42", 106, "query completed", "2025-10-16T10:04:50.841000+00:00", "", [], [], "window_1", "url_13", null, [], null, null], ["6c5d0ce9", 107, "query executed", "2025-10-16T10:04:50.857000+00:00", "", [], [], null, "url_2", null, [], null, null], ["7e2dc7a4", 108, "$autocapture", "2025-10-16T10:04:50.954000+00:00", "/project/4/dashboard", ["tree item: Dashboards", "Dashboards", "Tree navigation"], ["a"], "window_1", "url_13", "click", ["radix-:ro:", "project-panel-layout", "root"], null, null], ["816f2cca", 109, "query completed", "2025-10-16T10:04:50.978000+00:00", "", [], [], "window_1", "url_14", null, [], null, null], ["cec9a47a", 110, "$pageview", "2025-10-16T10:04:51.106000+00:00", "", [], [], "window_1", "url_14", null, [], null, null], ["d1c2439a", 111, "query executed", "2025-10-16T10:04:51.181000+00:00", "", [], [], null, "url_2", null, [], null, null], ["bc81249e", 112, "query executed", "2025-10-16T10:04:51.247000+00:00", "", [], [], null, "url_2", null, [], null, null], ["9b5485cf", 113, "query completed", "2025-10-16T10:04:51.261000+00:00", "", [], [], "window_1", "url_14", null, [], null, null], ["ad655eaf", 114, "query executed", "2025-10-16T10:04:51.363000+00:00", "", [], [], null, "url_2", null, [], null, null], ["87194e21", 115, "query completed", "2025-10-16T10:04:51.394000+00:00", "", [], [], "window_1", "url_14", null, [], null, null], ["d3aa5cdb", 116, "query executed", "2025-10-16T10:04:51.536000+00:00", "", [], [], null, "url_2", null, [], null, null], ["446b9083", 117, "query completed", "2025-10-16T10:04:51.567000+00:00", "", [], [], "window_1", "url_14", null, [], null, null], ["bd436e0e", 118, "query executed", "2025-10-16T10:04:51.620000+00:00", "", [], [], null, "url_2", null, [], null, null], ["e258a895", 119, "query completed", "2025-10-16T10:04:51.652000+00:00", "", [], [], "window_1", "url_14", null, [], null, null], ["65ec9da7", 120, "$autocapture", "2025-10-16T10:04:51.889000+00:00", "/project/4/llm-analytics", ["LLM analytics", "tree item: LLM analytics", "Tree navigation"], ["a"], "window_1", "url_14", "click", ["radix-:r10:", "project-panel-layout", "root"], null, null], ["0b3ade00", 121, "$pageview", "2025-10-16T10:04:51.893000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["a2c38163", 122, "query executed", "2025-10-16T10:04:51.945000+00:00", "", [], [], null, "url_2", null, [], null, null], ["e5f604a9", 123, "query completed", "2025-10-16T10:04:52.022000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["63c8640b", 124, "query executed", "2025-10-16T10:04:52.022000+00:00", "", [], [], null, "url_2", null, [], null, null], ["c627daa8", 125, "query executed", "2025-10-16T10:04:52.058000+00:00", "", [], [], null, "url_2", null, [], null, null], ["8ea5f32e", 126, "query completed", "2025-10-16T10:04:52.059000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["80eab5fa", 127, "query completed", "2025-10-16T10:04:52.089000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["1616289d", 128, "$pageleave", "2025-10-16T10:06:26.736000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["dee94e5c", 129, "$opt_in", "2025-10-16T10:06:41.141000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["05f71a67", 130, "$pageview", "2025-10-16T10:06:41.159000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["1c0d07aa", 131, "$set", "2025-10-16T10:06:49.557000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["ecdb6341", 132, "$groupidentify", "2025-10-16T10:06:49.558000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["7760a131", 133, "$groupidentify", "2025-10-16T10:06:49.559000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["f1d09717", 134, "$web_vitals", "2025-10-16T10:06:49.660000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["6ed83927", 135, "$groupidentify", "2025-10-16T10:06:49.668000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["0db5e10c", 136, "spinner_unloaded", "2025-10-16T10:06:49.987000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["36ce1275", 137, "$pageview", "2025-10-16T10:06:50.183000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["858f190e", 138, "spinner_unloaded", "2025-10-16T10:06:51.025000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["98b91a2b", 139, "client_request_failure", "2025-10-16T10:06:51.429000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["09ae3c33", 140, "client_request_failure", "2025-10-16T10:06:51.761000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["2075899e", 141, "query executed", "2025-10-16T10:06:52.127000+00:00", "", [], [], null, "url_2", null, [], null, null], ["3e947a51", 142, "query completed", "2025-10-16T10:06:52.577000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["bce0ad66", 143, "query completed", "2025-10-16T10:06:52.752000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["13d0b76b", 144, "query executed", "2025-10-16T10:06:53.579000+00:00", "", [], [], null, "url_2", null, [], null, null], ["d2aa915c", 145, "query completed", "2025-10-16T10:06:53.878000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["84118eba", 146, "query executed", "2025-10-16T10:06:54.411000+00:00", "", [], [], null, "url_2", null, [], null, null], ["2bac2811", 147, "query completed", "2025-10-16T10:06:54.437000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["4505ecda", 148, "query executed", "2025-10-16T10:06:54.500000+00:00", "", [], [], null, "url_2", null, [], null, null], ["c3d1c2ce", 149, "query completed", "2025-10-16T10:06:54.529000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["4d05bf59", 150, "query executed", "2025-10-16T10:06:54.597000+00:00", "", [], [], null, "url_2", null, [], null, null], ["c73e938c", 151, "query completed", "2025-10-16T10:06:54.623000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["ec925020", 152, "query executed", "2025-10-16T10:06:54.738000+00:00", "", [], [], null, "url_2", null, [], null, null], ["5292d0d1", 153, "query completed", "2025-10-16T10:06:54.799000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["07ace7c4", 154, "query executed", "2025-10-16T10:06:55.085000+00:00", "", [], [], null, "url_2", null, [], null, null], ["1c02d620", 155, "query completed", "2025-10-16T10:06:55.144000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["7089a27b", 156, "query executed", "2025-10-16T10:06:55.282000+00:00", "", [], [], null, "url_2", null, [], null, null], ["829e3a30", 157, "query completed", "2025-10-16T10:06:55.313000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["95ccc2b6", 158, "query executed", "2025-10-16T10:06:55.367000+00:00", "", [], [], null, "url_2", null, [], null, null], ["e32e260d", 159, "query completed", "2025-10-16T10:06:55.390000+00:00", "", [], [], "window_1", "url_3", null, [], null, null], ["091b7efa", 160, "$autocapture", "2025-10-16T10:10:35.860000+00:00", "/project/4/replay/home", ["tree item: Session replay", "Session replay", "Tree navigation"], ["a"], "window_1", "url_3", "click", ["radix-:r2o:", "project-panel-layout", "root"], null, null], ["ddcb27c6", 161, "$pageview", "2025-10-16T10:10:36.118000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["7e57c1b7", 162, "query executed", "2025-10-16T10:10:36.214000+00:00", "", [], [], null, "url_2", null, [], null, null], ["c1dba170", 163, "recording list fetched", "2025-10-16T10:10:36.612000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["1eaa4904", 164, "$pageleave", "2025-10-16T10:10:59.478000+00:00", "", [], [], "window_1", "url_1", null, [], null, null], ["29e1947c", 165, "$pageview", "2025-10-16T10:13:38.641000+00:00", "", [], [], "window_2", "url_15", null, [], null, null], ["e6a11fbc", 166, "$opt_in", "2025-10-16T10:13:38.675000+00:00", "", [], [], "window_2", "url_15", null, [], null, null], ["8065695c", 167, "$set", "2025-10-16T10:13:38.675000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["84700a34", 168, "$groupidentify", "2025-10-16T10:13:38.676000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["e1e1164e", 169, "$groupidentify", "2025-10-16T10:13:38.677000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["b4bc9b6f", 170, "$groupidentify", "2025-10-16T10:13:38.811000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["d3769f3a", 171, "spinner_unloaded", "2025-10-16T10:13:38.972000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["45997be9", 172, "spinner_unloaded", "2025-10-16T10:13:39.209000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["ce4e978c", 173, "spinner_unloaded", "2025-10-16T10:13:39.210000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["0b0415e6", 174, "$pageview", "2025-10-16T10:13:39.253000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["84eea196", 175, "client_request_failure", "2025-10-16T10:13:39.611000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["438e0443", 176, "client_request_failure", "2025-10-16T10:13:39.615000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["dd6127c5", 177, "query executed", "2025-10-16T10:13:40.141000+00:00", "", [], [], null, "url_6", null, [], null, null], ["05c0d711", 178, "query executed", "2025-10-16T10:13:40.156000+00:00", "", [], [], null, "url_6", null, [], null, null], ["bd7d9c67", 179, "query executed", "2025-10-16T10:13:40.163000+00:00", "", [], [], null, "url_6", null, [], null, null], ["c9ba6504", 180, "query executed", "2025-10-16T10:13:40.173000+00:00", "", [], [], null, "url_6", null, [], null, null], ["f5bcb49a", 181, "query executed", "2025-10-16T10:13:40.184000+00:00", "", [], [], null, "url_6", null, [], null, null], ["bf963c55", 182, "query executed", "2025-10-16T10:13:40.190000+00:00", "", [], [], null, "url_6", null, [], null, null], ["12ad1156", 183, "dashboard loading time", "2025-10-16T10:13:40.225000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["33ffe23b", 184, "query completed", "2025-10-16T10:13:40.473000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["ab5ac55e", 185, "viewed dashboard", "2025-10-16T10:13:40.731000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["7943bcfc", 186, "$web_vitals", "2025-10-16T10:13:43.738000+00:00", "", [], [], "window_2", "url_5", null, [], null, null], ["8cd206a9", 187, "$autocapture", "2025-10-16T10:14:08.140000+00:00", "/project/4/heatmaps", ["Heatmaps", "tree item: Heatmaps", "Tree navigation"], ["a"], "window_2", "url_5", "click", ["radix-:r2g:", "project-panel-layout", "root"], null, null], ["fdfc3f66", 188, "$pageview", "2025-10-16T10:14:08.315000+00:00", "", [], [], "window_2", "url_16", null, [], null, null], ["a804b544", 189, "query executed", "2025-10-16T10:14:08.322000+00:00", "", [], [], null, "url_2", null, [], null, null], ["39b0bc41", 190, "query executed", "2025-10-16T10:14:08.361000+00:00", "", [], [], null, "url_2", null, [], null, null], ["65a3e63c", 191, "$autocapture", "2025-10-16T10:14:11.287000+00:00", "/project/4/experiments", ["Experiments", "tree item: Experiments", "Tree navigation"], ["a"], "window_2", "url_16", "click", ["radix-:r3g:", "project-panel-layout", "root"], null, null], ["45f98acf", 192, "$pageview", "2025-10-16T10:14:11.340000+00:00", "", [], [], "window_2", "url_7", null, [], null, null], ["58f592d0", 193, "$autocapture", "2025-10-16T10:14:12.414000+00:00", "", ["Archived experiments"], [], "window_2", "url_7", "click", ["main-content", "root"], null, null], ["95eccc4e", 194, "$pageview", "2025-10-16T10:14:12.420000+00:00", "", [], [], "window_2", "url_17", null, [], null, null], ["cd3bba06", 195, "$autocapture", "2025-10-16T10:14:13.611000+00:00", "", ["Holdout groups"], [], "window_2", "url_17", "click", ["main-content", "root"], null, null], ["e881f453", 196, "$pageview", "2025-10-16T10:14:13.617000+00:00", "", [], [], "window_2", "url_18", null, [], null, null], ["4e5332f2", 197, "$autocapture", "2025-10-16T10:14:14.596000+00:00", "", ["Shared metrics"], [], "window_2", "url_18", "click", ["main-content", "root"], null, null], ["8276ab54", 198, "$pageview", "2025-10-16T10:14:14.602000+00:00", "", [], [], "window_2", "url_19", null, [], null, null], ["d8b97edc", 199, "$autocapture", "2025-10-16T10:14:15.703000+00:00", "/project/4/sql", ["tree item: SQL editor", "SQL editor", "Tree navigation"], ["a"], "window_2", "url_19", "click", ["radix-:r1o:", "project-panel-layout", "root"], null, null], ["e28b364e", 200, "$pageview", "2025-10-16T10:14:15.907000+00:00", "", [], [], "window_2", "url_20", null, [], null, null], ["c179fe99", 201, "query completed", "2025-10-16T10:14:16.067000+00:00", "", [], [], "window_2", "url_20", null, [], null, null], ["4b651c0f", 202, "spinner_unloaded", "2025-10-16T10:14:16.078000+00:00", "", [], [], "window_2", "url_20", null, [], null, null], ["7010ae9c", 203, "spinner_unloaded", "2025-10-16T10:14:16.095000+00:00", "", [], [], "window_2", "url_20", null, [], null, null], ["92e09d21", 204, "spinner_unloaded", "2025-10-16T10:14:16.096000+00:00", "", [], [], "window_2", "url_20", null, [], null, null], ["958a233d", 205, "client_request_failure", "2025-10-16T10:14:16.098000+00:00", "", [], [], "window_2", "url_20", null, [], null, null], ["bb663ffc", 206, "spinner_unloaded", "2025-10-16T10:14:16.114000+00:00", "", [], [], "window_2", "url_20", null, [], null, null], ["346c9f4d", 207, "$autocapture", "2025-10-16T10:14:17.824000+00:00", "/project/4/#", ["System", "tree item: System", "Tree navigation"], ["a"], "window_2", "url_20", "click", ["radix-:ra6:", "radix-:r93:", "project-panel-layout", "root"], null, null], ["e5042ebe", 208, "$autocapture", "2025-10-16T10:14:18.620000+00:00", "/project/4/#", ["system.cohorts", "tree item: system.cohorts", "Tree navigation"], ["a"], "window_2", "url_20", "click", ["radix-:rb8:", "radix-:ra7:", "radix-:r93:", "project-panel-layout", "root"], null, null], ["ca36b2c7", 209, "$autocapture", "2025-10-16T10:14:19.381000+00:00", "/project/4/#", ["id (integer)", "tree item: id (integer)", "Tree navigation"], ["a"], "window_2", "url_20", "click", ["radix-:rdg:", "radix-:rb9:", "radix-:ra7:", "radix-:r93:", "project-panel-layout", "root"], null, null], ["d9c7d033", 210, "$autocapture", "2025-10-16T10:14:20.680000+00:00", "/project/4/#", ["PostHog", "tree item: PostHog", "Tree navigation"], ["a"], "window_2", "url_20", "click", ["radix-:ra2:", "radix-:r93:", "project-panel-layout", "root"], null, null], ["cba9baac", 211, "$autocapture", "2025-10-16T10:14:21.366000+00:00", "/project/4/#", ["events", "tree item: events", "Tree navigation"], ["a"], "window_2", "url_20", "click", ["radix-:rf0:", "radix-:ra3:", "radix-:r93:", "project-panel-layout", "root"], null, null], ["23003832", 212, "$autocapture", "2025-10-16T10:14:22.063000+00:00", "/project/4/#", ["uuid (string)", "tree item: uuid (string)", "Tree navigation"], ["a"], "window_2", "url_20", "click", ["radix-:rfo:", "radix-:rf1:", "radix-:ra3:", "radix-:r93:", "project-panel-layout", "root"], null, null], ["39828512", 213, "$autocapture", "2025-10-16T10:14:23.547000+00:00", "", ["People"], ["button"], "window_2", "url_20", "click", ["project-panel-layout", "root"], null, null], ["d4b65418", 214, "$autocapture", "2025-10-16T10:14:24.405000+00:00", "/project/4/groups/0", ["tree item: Groups", "Groups", "Tree navigation"], ["a"], "window_2", "url_20", "click", ["radix-:rl7:", "project-panel-layout", "root"], null, null], ["6d1d13df", 215, "$pageview", "2025-10-16T10:14:24.485000+00:00", "", [], [], "window_2", "url_21", null, [], null, null], ["61807cca", 216, "$autocapture", "2025-10-16T10:20:40.856000+00:00", "/project/4/feature_flags", ["Feature flags", "tree item: Feature flags", "Tree navigation"], ["a"], "window_2", "url_21", "click", ["radix-:r3o:", "project-panel-layout", "root"], null, null], ["9c3db039", 217, "$autocapture", "2025-10-16T10:20:40.944000+00:00", "/project/4/feature_flags", ["Feature flags", "tree item: Feature flags", "Tree navigation"], ["a"], "window_2", "url_11", "click", ["radix-:r3o:", "project-panel-layout", "root"], null, null], ["cce2d4b9", 218, "$pageview", "2025-10-16T10:20:40.977000+00:00", "", [], [], "window_2", "url_8", null, [], null, null]]
+```
+</events_input>
+
+<url_mapping_input_format>
+URLs mapping table shows the actual URLs for simplified URL references in the events data.
+
+When analyzing events, use these mappings to understand the actual pages visited. For example, if an event shows 'url_1', refer to this mapping to find the actual URL. In your summary and tags, always use the actual page/feature names, not the simplified URL references. Always refer to the URL with the simplest version e.g. `posthog.com` or `posthog.com/replay`, instead of mentioning the full URL with long query parameters.
+</url_mapping_input_format>
+
+<url_mapping_input>
+```
+{"url_1": "http://localhost:8010/project/4/replay/home", "url_2": "http://localhost:8010/api/environments/4/query/", "url_3": "http://localhost:8010/project/4/llm-analytics", "url_4": "http://localhost:8010/project/4/activity/explore", "url_5": "http://localhost:8010/project/4", "url_6": "http://localhost:8010/api/environments/4/dashboards/6/?refresh=force_cache&filters_override=%7B%7D&variables_override=%7B%7D", "url_7": "http://localhost:8010/project/4/experiments?status=all&page=1", "url_8": "http://localhost:8010/project/4/feature_flags?tab=overview", "url_9": "http://localhost:8010/project/4/early_access_features", "url_10": "http://localhost:8010/project/4/settings/project", "url_11": "http://localhost:8010/project/4/feature_flags", "url_12": "http://localhost:8010/project/4/error_tracking", "url_13": "http://localhost:8010/project/4/web", "url_14": "http://localhost:8010/project/4/dashboard", "url_15": "http://localhost:8010/", "url_16": "http://localhost:8010/project/4/heatmaps", "url_17": "http://localhost:8010/project/4/experiments?status=all&page=1&tab=archived", "url_18": "http://localhost:8010/project/4/experiments?status=all&page=1&tab=holdouts", "url_19": "http://localhost:8010/project/4/experiments?status=all&page=1&tab=shared-metrics", "url_20": "http://localhost:8010/project/4/sql", "url_21": "http://localhost:8010/project/4/groups/0?select_0=%5B%22group_name%22%2C%22key%22%2C%22created_at%22%5D%20"}
+```
+</url_mapping_input>
+
+<window_mapping_input_format>
+Window IDs mapping table shows the actual browser windows/tabs IDs for simplified references in the events data.
+
+Window IDs help track user activity across different browser windows or tabs. For example:
+
+- If events switch from 'window_1' to 'window_2', the user switched to a different browser window/tab
+- Multiple events with the same window ID indicate continuous activity in the same window/tab
+- Frequent window switches might indicate comparing content or multitasking
+
+Use this information to understand user navigation patterns and parallel browsing behavior.
+</window_mapping_input_format>
+
+<window_mapping_input>
+```
+{"window_1": "0199ec66-137a-77c2-8f47-905398d3e55d", "window_2": "0199ec82-ca9c-7893-8f5e-c2fc9ceb188d"}
+```
+</window_mapping_input>
+
+<session_video_transcription_input_format>
+The video recording of the session was also trascribed into text, to describe what was happening visually on the user screen during the session.
+
+Use it to better understand the user experience, confirm or deny potential issues, and so on.
+</session_video_transcription_input_format>
+
+<session_video_transcription_input>
+*   **00:10 - 00:12:** The "Get Started" panel on the right updates, showing "Session replay" as the current task (0 of 12 complete).
+*   **00:12 - 00:13:** The user interacts with the filter section, unchecking the "Show filters" checkbox.
+*   **00:13 - 00:14:** Messages appear in the recordings list area, including "No matching recordings," "Recordings might be outside the retention period," and "Try increasing filters."
+*   **01:23 - 01:23:** The user clicks on "LLM analytics" in the left sidebar.
+*   **01:24 - 01:24:** The user clicks on "Activity" (Explore events) in the left sidebar.
+*   **01:25 - 01:26:** The user opens the dropdown menu for "People" and then opens the dropdown menu for "Apps" in the left sidebar.
+*   **01:27 - 01:29:** The user clicks "Home" from the "Apps" dropdown, navigating to the "My Vigo Dashboard" view.
+*   **01:30 - 01:31:** The user navigates from the "Experiments" page to the "Feature Flags" page via the left sidebar menu.
+*   **01:31 - 01:32:** The user navigates to the "Early access features" page.
+*   **01:34 - 01:35:** The user clicks the Settings (gear) icon in the bottom left, navigating to the Project Settings page.
+*   **01:35 - 01:36:** The user navigates back to the "Feature Flags" page.
+*   **01:36 - 01:37:** The user navigates to the "Error tracking" page.
+*   **03:30 - 03:32:** The "LLM analytics" page loads and the dashboard content becomes visible, showing placeholders for LLM performance data.
+*   **03:39 - 03:40:** A yellow alert banner appears at the top of the LLM analytics dashboard, indicating that no LLM generation events have been detected.
+*   **03:40 - 03:44:** The main dashboard content updates, displaying messages across the panels that "There are no matching events for this query" for the current time frame.
+*   **07:25 - 07:25:** The user clicks on "Session replay" in the left navigation menu.
+*   **07:26 - 07:26:** The content pane updates, displaying the "Session replay" screen, which shows a welcome message and filtering options.
+*   **07:27 - 07:29:** The screen fades to black/dark blue.
+*   **10:29 - 10:29:** The screen transitions from a solid dark background to the main application interface, displaying a large white area and a segmented colored status/footer bar at the bottom.
+*   **10:30 - 10:31:** The user navigates from the "Project Homepage" to the "My Vizz Dashboard."
+*   **10:58 - 10:59:** The user interacts with the left navigation menu, moving the cursor to and hovering over the "Session replay" link under the "Deep dive" section.
+*   **11:02 - 11:03:** User clicks on "Experiments" in the left navigation menu.
+*   **11:03 - 11:04:** Within the Experiments section, the user clicks on the "Archive/experiments" tab.
+*   **11:05 - 11:06:** The user clicks on the "Metric groups" tab.
+*   **11:07 - 11:08:** The user clicks on the "Shared metrics" tab.
+*   **11:08 - 11:09:** The user navigates to the "SQL editor" via the left menu.
+*   **11:09 - 11:10:** In the SQL editor view, the user clicks the "Sources" dropdown menu.
+*   **11:10 - 11:13:** The user clicks to expand the "System" schema in the Sources menu and then clicks on "system.projects," triggering a "Copied to clipboard" notification.
+*   **11:13 - 11:14:** The user closes the expanded schema menu.
+*   **11:15 - 11:17:** The user's mouse hovers briefly over "Events" and then moves up to hover over "People" in the left sidebar menu.
+*   **11:18 - 11:18:** The user clicks on "People" under Data Management in the left sidebar, changing the main content view to the People management screen.
+*   **11:19 - 11:19:** The user clicks on the "Groups" tab within the main content area, displaying the "Start tracking groups" screen.
+*   **17:36 - 17:36:** The user clicks on "Feature Flags" in the sidebar navigation.
+*   **17:36 - 17:44:** The view changes to the "Feature Flags" section, which displays a welcome message and an option to "Create Feature Flag".
+</session_video_transcription_input>
+
+<session_metadata_input_format>
+Use session metadata to understand user engagement context:
+
+- active_seconds: Total time user actively engaged with the application
+- inactive_seconds: Periods when user wasn't interacting with the application
+- click_count, keypress_count, mouse_activity_count: Interaction density
+- start_url: Entry point to the application, often indicates initial user intent
+
+Use these metrics to calibrate your analysis of user objectives and engagement quality.
+</session_metadata_input_format>
+
+<session_metadata_input>
+```
+{"start_time": "2025-10-16T10:03:14.030000+00:00", "duration": 1079, "console_error_count": 14, "active_seconds": 56.278, "click_count": 32, "keypress_count": 218, "mouse_activity_count": 252, "start_url": null}
+```
+</session_metadata_input>
+
+<identify_objectives_instructions>
+CRITICAL WARNING: DO NOT hallucinate errors. Only mark events as errors when there is EXPLICIT evidence in the event data that an error occurred.
+
+
+# Step 1: Segment the Session Timeline
+
+First, analyze the entire session and divide it into sequential chronological segments. Follow these guidelines:
+
+1.1. Segment the session timeline into distinct chronological phases, based on session length and complexity (as described in the `session_metadata_input_format`):
+
+- Each segment must represent a consecutive period in the timeline
+- Create the minimum possible number of segments based on the session duration
+- Segments should follow the natural progression of the user journey
+- Segment boundaries should be based on meaningful transitions in user activity
+- IMPORTANT: Analyze the full timeline from first to last event to avoid recency or primacy bias.
+
+
+1.2. For each segment, provide:
+
+- A concise, descriptive name that captures the user's primary activities in that timeframe
+  ✓ GOOD NAMES: "Logged into application," "Filtered products," "Created a project"
+  ✗ BAD NAMES: "Page loading," "Error occurence," "Session start"
+- Start and end `event_id`s to clearly mark the segment boundaries
+
+1.3. Segment Boundary Guidelines:
+
+✓ Create new segments when the user clearly transitions to a different area/activity
+✓ Use natural breakpoints such as page changes, significant pauses, or task completions
+✓ Keep segments to a reasonable size (typically 3-7 minutes of activity)
+
+✗ DO NOT create segments based on technical events rather than user activity
+✗ DO NOT make segments too granular (single actions) or too broad (half the session)
+✗ DO NOT create overlapping segments (each event belongs to one primary segment)
+
+1.4. Pay special attention to:
+
+- URL patterns and page transitions (use `url_mapping_input` to interpret actual pages visited)
+- Clusters of related actions happening in sequence
+- Periods of focused activity on a specific task
+- Transitions between different sections of the application
+
+# Step 2: Consolidate Segments
+
+AGGRESSIVELY consolidate similar segments.
+
+
+# Step 3: Identify Key Actions Within Each Segment
+
+After segmenting the timeline, identify the most significant actions within each segment. Prioritize conversion-related events and critical interruptions.
+
+3.1. Key Action Prioritization:
+
+- HIGH PRIORITY:
+  
+  - Conversion events (sign-ups, subscriptions, purchases, plan upgrades/downgrades, etc.)
+  - Events that prevented conversions (technical failures, UX issues, abandoned flows, etc.)
+  - Critical flow interruptions (technical errors, repeated failed attempts, frustration indicators, etc.)
+- MEDIUM PRIORITY:
+  - Events leading to or indicating session abandonment
+  - Major feature interactions or significant user decisions
+  - Feature failures, based on the error identification guidelines below or repeated unsuccessful attempts
+- LOW PRIORITY:
+  - Standard navigation or routine interactions
+
+3.2. Key Actions Guidelines:
+
+- Include the most important key actions per segment that follow the prioritization above.
+- Actions must be listed in chronological order within each segment.
+- Each key action is a user action/sequence of actions, and should be classified based on the issue types below (exception, confusion, abandonment).
+- Each key action is an actual event or the first event in a sequence of events from the timeline.
+
+3.3. Issue Identification Guidelines (CRITICAL):
+
+- NEVER flag issues for:
+  ✗ Normal page navigation
+  ✗ Sequential UI interactions (changing filters, adjusting parameters)
+  ✗ Any other action without direct evidence of technical error or user frustration
+  ✗ Non-blocking background errors (tracking failures, minor rendering glitches, etc.)
+
+- Flag event issues with EXPLICIT evidence of:
+  
+  Exceptions (`exception: null | blocking | non-blocking`):
+  ✓ Event name or type contains: 'exception', 'failed', 'error', etc.
+  ✓ `exception_types` or `exception_values` provide exception context
+  ✓ `elements_chain_texts` contains error messages (e.g., "Try again", "Failed to load", etc.)
+  ✓ Mark as `blocking` when the error prevented user from continuing their intended flow
+  ✓ Mark as `non-blocking` when the user could continue despite the error
+  ✓ Set as `null` when no technical exception occurred
+  
+  Confusion (`confusion: true | false`):
+  ✓ Back-and-forth navigation loops indicating search for functionality
+  ✓ Multiple rapid identical form submissions 
+  ✓ Repeated attempts to complete the same action without success
+  ✓ Rageclicks (multiple rapid clicks on the same element with no visible response)
+  ✓ Deadclicks (clicks on non-interactive elements)
+  
+  Abandonment (`abandonment: true/false`):
+  ✓ Form abandonment after significant time investment (started typing but left without submitting)
+  ✓ Conversion flow abandonment (e.g., leaving checkout, subscription, or signup flow midway, etc.)
+  ✓ Feature exploration followed by exit without completion
+  ✓ Session termination during a multi-step process
+
+- Issue description requirements:
+  - For exceptions: Specify error nature (API failure, validation error, timeout, etc.) and impact (blocking/non-blocking)
+  - For confusion: Describe the specific pattern indicating confusion and potential cause
+  - For abandonment: Describe the abandoned flow/task and approximate progress before abandonment
+  - Include potential causes when identifiable
+  - Explain impact on user flow and business goals
+  - Provide more detail than regular action descriptions, including potential business impact
+
+3.4. Action Description Guidelines:
+
+- For conversion events: Clearly indicate the conversion type and outcome
+- For conversion-blocking failures: Explain what prevented completion (technical error, UX issue, etc.) and any user recovery attempts
+- For critical flow interruptions: Describe both the interruption and its impact on user progress
+- For all actions: Keep descriptions concise but informative (4-8 words)
+- For multi-step processes:
+  - Describe the overall completed action rather than individual steps
+  - Only highlight individual steps when they represent failures, abandonment points, or critical conversion moments
+- Focus on describing user intent rather than technical event details
+
+# Step 4: Consolidate Key Actions
+
+AGGRESSIVELY consolidate repeated similar actions, multi-step processes, or related errors. Include up to 3 key actions for short segments or up to 5 actions for long segments. If you need to include more than 5 actions - consolidate events.
+
+
+4.1. Combine into ONE key action:
+
+- Multiple errors representing the same interruption in the user flow (e.g., "Multiple login failures due to server errors" vs listing each individual error)
+- Setup/execution sequences (e.g., "Published content" vs "clicked publish", "confirmed dialog", etc.)
+- Repetitive navigation within same area (e.g., "Explored settings options" vs listing each setting click)
+- Multiple steps to complete a form
+- And similar multi-step actions
+- Consecutive attempts to perform the same action should be ONE key action
+
+# Step 5: Determine Segment Outcomes
+
+For each segment, determine a segment outcome:
+
+5.1. Segment Success Status:
+
+- Mark a segment as successful (`success: true`) when:
+  - User completed a meaningful conversion or successfully used a feature (use `Key Action Prioritization` guide to identify the most important actions)
+  - User completed the core actions they attempted during that segment, confirmed by clear evidence in the events data
+  - User resolved or worked around any failures encountered
+- Mark a segment as unsuccessful (`success: false`) when:
+  - User started a conversion, but abandoned it
+  - User experienced a technical failure that prevented them from achieving their goals
+  - User showed signs of frustration (rageclicks, repeated attempts, abandonment)
+  - User experienced a flow interruption that impeded progress
+
+5.2. Segment Summary:
+
+- Write a brief summary incorporating both user actions AND any issues encountered (either technical or flow related)
+- The summary should be concise and to the point (1-2 short sentences up to 15 words in total)
+- Reflect on the segment success status and the key actions to provide a detailed summary
+
+
+# Step 6: Assess the Session Journey and Outcome
+
+After analyzing the chronological segments and key actions, evaluate the overall user journey and session outcome.
+
+6.1. Journey Flow Analysis:
+
+- Identify the user's entry context (referring to `start_url` from the session metadata) and exit context by the last URL in the session
+- Track progression through the application, noting transitions between major sections
+- Highlight any non-linear patterns (going back to previous areas, abandoning flows)
+
+6.2. Critical Issues Impact:
+
+- Identify technical or flow-related errors that directly impacted conversion attempts or feature interactions
+- Note any user experience issues that may have contributed to abandoned conversions
+- Assess whether errors led to session abandonment
+
+
+6.3. Session Success Determination:
+
+- Mark the session as successful (true) when:
+  - User completed one or more significant conversion actions, even if they experienced:
+    * Multiple non-blocking exceptions
+    * Minor confusion moments
+    * Abandonment of secondary/non-critical flows
+  - User accomplished their apparent primary goals despite obstacles
+  - Session shows logical progression to completion of key user objectives
+  
+- Mark the session as unsuccessful (false) when:
+  - User experienced blocking technical errors that prevented completion of primary conversion attempts with no successful workaround
+  - User abandoned critical conversion flows (signup, checkout, upgrade, etc.) at a late stage
+  - Session ended abruptly during an important process that was the primary goal
+  - User showed clear signs of significant frustration (multiple rageclicks, repeated failed attempts) on critical paths with no successful resolution
+
+6.4. Final Outcome Description:
+
+- Provide a short focused summary (1-2 sentences, up to 30 words in total) of the overall user journey
+- For successful sessions: emphasize completed conversions despite any minor issues encountered
+- For unsuccessful sessions: clearly identify the critical blocking issue that prevented the primary goal completion
+- Always prioritize conversion completions over minor issues when determining session success
+
+# Step 7: Self-Consistency Check
+
+Before finalizing your analysis, verify:
+
+7.1. Chronological Segment Consistency:
+
+- Are segments properly sequential with no time gaps or overlaps?
+- Does each segment represent a distinct phase in the user journey?
+- Have you aggressively consolidated similar segments?
+- Do segment boundaries align with natural transitions in user activity?
+- Is the entire session timeline covered from first to last event?
+
+7.2. Key Action Prioritization Verification:
+
+- Are conversion events and conversion-blocking issues properly identified in each segment?
+- Are critical interruptions to user flow highlighted appropriately?
+- Do selected key actions accurately represent the most significant events in each segment?
+- Are event IDs copied EXACTLY from the event data (never invented)?
+- Are issue flags (abandonment, confusion, exception) supported by explicit evidence in the event data?
+- Have you properly distinguished between technical exceptions, user confusion, and flow abandonment?
+- Have you aggressively consolidated similar actions and issues?
+
+7.3. Conversion Focus Verification:
+
+- Have all potential conversion opportunities been identified?
+- Is the analysis of conversion success/failure accurate?
+- Are the reasons for conversion abandonment clearly identified?
+- Have you distinguished between user choice and technical blockers for failed conversions?
+
+7.4. Narrative Flow Verification:
+
+- Does the sequence of segments tell a coherent story of the user's session?
+- Is the progression from segment to segment logical and easy to follow?
+- Does the session outcome assessment match the evidence from the key actions?
+- Are critical issues properly connected to their impact on the user journey?
+
+7.5. Balanced Coverage Verification:
+
+- Is the entire session represented proportionally in the segments and key actions?
+- Are early, middle, and late events given appropriate attention?
+- Is the analysis free from recency or primacy bias?
+- If most key actions are from early in the session, or the summary misses large portions of the timeline, revisit events to ensure important activities aren't overlooked
+
+
+Revise your analysis if any inconsistencies are found.
+</identify_objectives_instructions>
+
+<output_format>
+Provide your summary in YAML format using the provided example. Don't replicate the data, or comments, or logic of the example, or the number of example entries. Use it ONLY to understand the format.
+
+IMPORTANT:
+- Always use quotes around indicator strings that contain special characters
+- Replace comparison operators with words:
+  - Instead of ">3" use "more than 3" 
+  - Instead of "<1" use "less than 1"
+  - Instead of ">=5" use "5 or more"
+- Avoid using special YAML characters (>, <, :, &, *, ?, |, -, @, `) at the beginning of unquoted strings
+- When in doubt, wrap the entire indicator string in single or double quotes
+</output_format>
+
+<output_example>
+```
+segments:
+    - index: 0
+      start_event_id: 'abcd1234' # Must be copied EXACTLY from event data, never invented
+      end_event_id: 'vbgs1287' # Must be copied EXACTLY from event data, never invented
+      name: 'Example Segment'
+    - index: 1
+      start_event_id: 'gfgz6242'
+      end_event_id: 'stuv9012'
+      name: 'Another Example Segment'
+    # Note: The actual number of segments should be based on your analysis of the session timeline.
+
+key_actions:
+    - segment_index: 0 # Must match EXACTLY with a segments.index value
+      events:
+          - event_id: 'abcd1234' # Must be copied EXACTLY from event data, never invented
+            abandonment: false # true or false
+            confusion: false # true or false
+            exception: null # null if no exception, `blocking` or `non-blocking` if exception
+            description: 'First significant action in this segment'
+          - event_id: 'defg4567'
+            abandonment: false
+            confusion: false
+            exception: null
+            description: 'Second action in this segment'
+          # Note: The actual number of events should be based on your analysis of the current segment events in the session data.
+    - segment_index: 1
+      events:
+          - event_id: 'ghij7890'
+            abandonment: false
+            confusion: false
+            exception: null
+            description: 'Significant action in this segment'
+          - event_id: 'mnop3456'
+            abandonment: false
+            confusion: true
+            exception: 'blocking'
+            description: 'User repeatedly attempted to perform an action but encountered an error'
+          - event_id: 'stuv9012'
+            abandonment: false
+            confusion: false
+            exception: null
+            description: 'Final action in this chronological segment'
+    # Note: Each segment should have key actions.
+
+segment_outcomes:
+    - segment_index: 0
+      success: true
+      summary: 'Detailed description incorporating key action insights'
+    - segment_index: 1
+      success: false
+      summary: 'Description highlighting encountered failures and their impact'
+    # Note: Each segment should have a segment outcome.
+
+session_outcome:
+    success: true
+    description: 'Concise session outcome description focusing on conversion attempts, feature usage, and critical issues'
+
+```
+</output_example>

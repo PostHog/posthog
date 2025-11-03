@@ -28,13 +28,13 @@ class VideoExportWorkflow(PostHogWorkflow):
         build: dict[str, Any] = await wf.execute_activity(
             build_export_context_activity,
             inputs.exported_asset_id,
-            start_to_close_timeout=dt.timedelta(seconds=30),
+            start_to_close_timeout=dt.timedelta(seconds=300),
             retry_policy=retry_policy,
         )
         # build = { url_to_render, css_selector, width, height, export_format, tmp_ext }
 
-        # Dynamic timeout: base 60s + recording duration + 30s buffer for processing
-        recording_timeout = dt.timedelta(seconds=60 + build["duration"] + 30)
+        # Dynamic timeout: base 600s + recording duration + 30s buffer for processing
+        recording_timeout = dt.timedelta(seconds=600 + build["duration"] + 30)
         rec: dict[str, Any] = await wf.execute_activity(
             record_replay_video_activity,
             build,

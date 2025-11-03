@@ -128,6 +128,8 @@ def _convert_llm_content_to_session_summary(
         session_duration=session_duration,
         session_id=session_id,
     )
+    with open("wakawakaprompt.txt", "w") as f:
+        f.write(summary_prompt)
 
     # Track generation for history of experiments. Don't run in tests.
     if final_validation and os.environ.get("LOCAL_SESSION_SUMMARY_RESULTS_DIR") and not os.environ.get("TEST"):
