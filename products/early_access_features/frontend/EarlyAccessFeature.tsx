@@ -264,8 +264,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     }
                 />
 
-                <SceneDivider />
-
                 <ScenePanel>
                     <ScenePanelInfoSection>
                         <SceneSelect

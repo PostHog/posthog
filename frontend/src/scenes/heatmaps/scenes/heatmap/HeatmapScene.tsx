@@ -11,8 +11,8 @@ import { FilterPanel } from 'scenes/heatmaps/components/FilterPanel'
 import { HeatmapHeader } from 'scenes/heatmaps/components/HeatmapHeader'
 import { urls } from 'scenes/urls'
 
-import { ScenePanelDivider } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { heatmapLogic } from './heatmapLogic'
@@ -57,10 +57,9 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         </>
                     }
                 />
-                <ScenePanelDivider />
                 <HeatmapHeader />
                 <FilterPanel />
-                <ScenePanelDivider />
+                <SceneDivider />
                 <div className="border mx-auto bg-white rounded-lg" style={{ width: widthOverride ?? '100%' }}>
                     <div className="p-2 border-b text-muted-foreground gap-x-2 flex items-center">
                         <IconBrowser /> {displayUrl}

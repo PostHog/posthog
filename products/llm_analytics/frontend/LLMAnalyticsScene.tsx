@@ -34,7 +34,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -609,7 +608,6 @@ export function LLMAnalyticsScene(): JSX.Element {
                         </>
                     }
                 />
-                <SceneDivider />
 
                 <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>
