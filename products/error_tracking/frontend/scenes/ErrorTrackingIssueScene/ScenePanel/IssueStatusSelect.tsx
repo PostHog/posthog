@@ -8,6 +8,7 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
+import { ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { StatusIndicator } from '../../../components/Indicators'
@@ -20,38 +21,40 @@ export const IssueStatusSelect = ({
     onChange: (status: ErrorTrackingIssue['status']) => void
 }): JSX.Element => {
     return (
-        <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-                <ButtonPrimitive fullWidth className="flex justify-between" variant="panel" menuItem>
-                    <StatusIndicator status={status} withTooltip={true} />
-                    <DropdownMenuOpenIndicator />
-                </ButtonPrimitive>
-            </DropdownMenuTrigger>
+        <ScenePanelLabel title="Status">
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <ButtonPrimitive fullWidth className="flex justify-between" variant="panel" menuItem>
+                        <StatusIndicator status={status} withTooltip={true} />
+                        <DropdownMenuOpenIndicator />
+                    </ButtonPrimitive>
+                </DropdownMenuTrigger>
 
-            <DropdownMenuContent loop matchTriggerWidth>
-                <DropdownMenuGroup>
-                    {status === 'active' ? (
-                        <>
+                <DropdownMenuContent loop matchTriggerWidth>
+                    <DropdownMenuGroup>
+                        {status === 'active' ? (
+                            <>
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive menuItem onClick={() => onChange('resolved')}>
+                                        <StatusIndicator status="resolved" intent />
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                    <ButtonPrimitive menuItem onClick={() => onChange('suppressed')}>
+                                        <StatusIndicator status="suppressed" intent />
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            </>
+                        ) : (
                             <DropdownMenuItem asChild>
-                                <ButtonPrimitive menuItem onClick={() => onChange('resolved')}>
-                                    <StatusIndicator status="resolved" intent />
+                                <ButtonPrimitive menuItem onClick={() => onChange('active')}>
+                                    <StatusIndicator status="active" intent />
                                 </ButtonPrimitive>
                             </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                                <ButtonPrimitive menuItem onClick={() => onChange('suppressed')}>
-                                    <StatusIndicator status="suppressed" intent />
-                                </ButtonPrimitive>
-                            </DropdownMenuItem>
-                        </>
-                    ) : (
-                        <DropdownMenuItem asChild>
-                            <ButtonPrimitive menuItem onClick={() => onChange('active')}>
-                                <StatusIndicator status="active" intent />
-                            </ButtonPrimitive>
-                        </DropdownMenuItem>
-                    )}
-                </DropdownMenuGroup>
-            </DropdownMenuContent>
-        </DropdownMenu>
+                        )}
+                    </DropdownMenuGroup>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </ScenePanelLabel>
     )
 }

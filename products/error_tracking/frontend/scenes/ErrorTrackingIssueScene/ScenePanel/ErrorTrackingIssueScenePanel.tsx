@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconSearch } from '@posthog/icons'
 import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
@@ -10,7 +9,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { ScenePanelActionsSection, ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
+import { ScenePanelDivider, ScenePanelLabel } from '~/layout/scenes/SceneLayout'
 
 import { ExternalReferences } from '../../../components/ExternalReferences'
 import { IssueTasks } from '../../../components/IssueTasks'
@@ -45,16 +44,12 @@ export const ErrorTrackingIssueScenePanel = ({ showActions = true }: { showActio
                 dataAttrKey={RESOURCE_TYPE}
             />
 
-            <ScenePanelLabel title="Status">
-                <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-            </ScenePanelLabel>
-            <ScenePanelLabel title="Assignee">
-                <IssueAssigneeSelect
-                    assignee={issue.assignee}
-                    onChange={updateAssignee}
-                    disabled={issue.status != 'active'}
-                />
-            </ScenePanelLabel>
+            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
+            <IssueAssigneeSelect
+                assignee={issue.assignee}
+                onChange={updateAssignee}
+                disabled={issue.status != 'active'}
+            />
             <IssueExternalReference />
             {hasIssueSplitting && <IssueFingerprints />}
             {hasTasks && (

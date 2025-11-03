@@ -2,14 +2,15 @@ import './ErrorTrackingIssueScene.scss'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
-import { IconChevronRight, IconFilter, IconList, IconSearch, IconShare } from '@posthog/icons'
+import { IconChevronRight, IconFilter, IconList, IconSearch, IconShare, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
+import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconComment, IconRobot } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -31,7 +32,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { SceneName, SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SidePanelTab } from '~/types'
 
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
@@ -42,9 +43,8 @@ import { ErrorFilters } from '../../components/IssueFilters'
 import { Metadata } from '../../components/IssueMetadata'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
-import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
-import { IssueStatusSelect } from './ScenePanel/IssueStatusSelect'
-import { ErrorTrackingIssueSceneCategory, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingIssueScenePanel } from './ScenePanel'
+import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 const EXCEPTION_TABS = {
     exceptions: { icon: <IconList />, label: 'Exceptions' },
@@ -53,22 +53,8 @@ const EXCEPTION_TABS = {
     similar_issues: { icon: <IconSearch />, label: 'Similar issues' },
 }
 
-function exceptionTabLabel(category: ErrorTrackingIssueSceneCategory): string {
-    const { icon, label } = EXCEPTION_TABS[category]
-
-    return (
-        <>
-            {icon}
-            {label}
-        </>
-    )
-}
-
 export function V2Layout(): JSX.Element {
-    const { issue, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
-    const { updateName, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
-    const { openSidePanel } = useActions(sidePanelLogic)
-    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
+    const { selectedEvent } = useValues(errorTrackingIssueSceneLogic)
 
     const isPostHogSDKIssue = selectedEvent?.properties.$exception_values?.some((v: string) =>
         v.includes('persistence.isDisabled is not a function')
@@ -87,61 +73,6 @@ export function V2Layout(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <SceneTitleSection
-                resourceType={{ type: 'issue' }}
-                name={null}
-                description={null}
-                actions={
-                    <>
-                        <ButtonPrimitive
-                            onClick={() => {
-                                if (!hasDiscussions) {
-                                    posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
-                                }
-                                openSidePanel(SidePanelTab.Discussion)
-                            }}
-                            tooltip="Comment"
-                        >
-                            <IconComment />
-                        </ButtonPrimitive>
-
-                        <ButtonPrimitive
-                            onClick={() => {
-                                if (issue) {
-                                    void copyToClipboard(
-                                        window.location.origin + urls.errorTrackingIssue(issue.id),
-                                        'issue link'
-                                    )
-                                }
-                            }}
-                            tooltip="Share"
-                        >
-                            <IconShare />
-                        </ButtonPrimitive>
-                    </>
-                }
-            />
-
-            {issue && (
-                <div className="flex justify-between w-full gap-2">
-                    <SceneName name={issue.name ?? undefined} onChange={updateName} canEdit={true} />
-                    <div className="flex gap-x-1 items-end">
-                        <div>
-                            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-                        </div>
-                        <div>
-                            <IssueAssigneeSelect
-                                assignee={issue.assignee}
-                                onChange={updateAssignee}
-                                disabled={issue.status != 'active'}
-                            />
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <LemonDivider className="mt-2" />
-
             <div className="ErrorTrackingIssue flex">
                 <LeftHandColumn />
                 <RightHandColumn />
@@ -155,7 +86,7 @@ const RightHandColumn = (): JSX.Element => {
     const tagRenderer = useErrorTagRenderer()
 
     return (
-        <div className="flex flex-1 flex-col gap-y-1 pt-4 pl-4">
+        <div className="flex flex-1 flex-col gap-y-1 pl-4">
             <ExceptionCard
                 issue={issue ?? undefined}
                 issueLoading={issueLoading}
@@ -167,76 +98,166 @@ const RightHandColumn = (): JSX.Element => {
     )
 }
 
-const CLOSE_THRESHOLD = 426
+const CLOSE_THRESHOLD = 400
 
 const LeftHandColumn = (): JSX.Element => {
     const ref = useRef<HTMLDivElement>(null)
+    const [isClosed, setIsClosed] = useState<boolean>(false)
     const resizerLogicProps: ResizerLogicProps = {
         containerRef: ref,
         logicKey: 'error-tracking-issue',
         persistent: true,
         closeThreshold: CLOSE_THRESHOLD,
+        onToggleClosed: (closed) => setIsClosed(closed),
+        onDoubleClick: () => setIsClosed(!isClosed),
         placement: 'right',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
-    const { eventsQuery, eventsQueryKey } = useValues(errorTrackingIssueSceneLogic)
-    const { selectEvent, setExceptionsCategory } = useActions(errorTrackingIssueSceneLogic)
+    const { openSidePanel } = useActions(sidePanelLogic)
+    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
+
+    const style = isClosed ? {} : { width: desiredSize ?? '40%', minWidth: CLOSE_THRESHOLD + 80 }
+
+    const comment = (
+        <ButtonPrimitive
+            onClick={() => {
+                if (!hasDiscussions) {
+                    posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
+                }
+                openSidePanel(SidePanelTab.Discussion)
+            }}
+            tooltip="Comment"
+            iconOnly={isClosed}
+        >
+            <IconComment />
+        </ButtonPrimitive>
+    )
+
+    const copyLink = (
+        <ButtonPrimitive
+            onClick={() => {
+                if (issue) {
+                    void copyToClipboard(window.location.origin + urls.errorTrackingIssue(issue.id), 'issue link')
+                }
+            }}
+            iconOnly={isClosed}
+            tooltip="Share"
+        >
+            <IconShare />
+        </ButtonPrimitive>
+    )
 
     return (
         <div
             ref={ref}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ width: desiredSize ?? '30%', minWidth: CLOSE_THRESHOLD }}
+            style={style}
             className="flex flex-col relative"
         >
-            <TabsPrimitive defaultValue="exceptions" className="flex flex-col gap-y-2">
-                <TabsPrimitiveList className="border-b">
-                    <TabsPrimitiveTrigger className="px-2 py-1.5" value="exceptions">
-                        Exceptions
-                    </TabsPrimitiveTrigger>
-                    <TabsPrimitiveTrigger className="px-2 py-1.5" value="breakdowns">
-                        Breakdowns
-                    </TabsPrimitiveTrigger>
-                    <TabsPrimitiveTrigger className="px-2 py-1.5" value="autofix">
-                        Autofix
-                    </TabsPrimitiveTrigger>
-                    <TabsPrimitiveTrigger className="px-2 py-1.5" value="similar_issues">
-                        Similar issues
-                    </TabsPrimitiveTrigger>
-                </TabsPrimitiveList>
-                <TabsPrimitiveContent value="exceptions">
-                    <div className="flex flex-col gap-y-2 pr-2">
-                        <ErrorFilters.Root>
-                            <div className="flex gap-2 justify-between">
-                                <ErrorFilters.DateRange />
-                                <ErrorFilters.InternalAccounts />
-                            </div>
-                            <ErrorFilters.FilterGroup />
-                        </ErrorFilters.Root>
-                        <Metadata className="">
-                            <EventsTable
-                                query={eventsQuery}
-                                queryKey={eventsQueryKey}
-                                selectedEvent={null}
-                                onEventSelect={(selectedEvent) => {
-                                    if (selectedEvent) {
-                                        selectEvent(selectedEvent)
-                                        setExceptionsCategory('exception')
-                                    }
-                                }}
-                            />
-                        </Metadata>
+            {isClosed ? (
+                <div className="flex flex-col pr-0.5">
+                    <SceneBreadcrumbBackButton iconOnly />
+                    {comment}
+                    {copyLink}
+                    <LemonDivider />
+                    <ButtonPrimitive onClick={() => {}} iconOnly tooltip="Overview">
+                        <IconWarning />
+                    </ButtonPrimitive>
+                    <ButtonPrimitive onClick={() => {}} iconOnly tooltip="Exceptions">
+                        <IconList />
+                    </ButtonPrimitive>
+                    <ButtonPrimitive onClick={() => {}} iconOnly tooltip="Breakdowns">
+                        <IconFilter />
+                    </ButtonPrimitive>
+                    <ButtonPrimitive onClick={() => {}} iconOnly tooltip="AI Autofix">
+                        <IconRobot />
+                    </ButtonPrimitive>
+                    <ButtonPrimitive onClick={() => {}} iconOnly tooltip="Similar issues">
+                        <IconSearch />
+                    </ButtonPrimitive>
+                </div>
+            ) : (
+                <>
+                    <div className="flex justify-between items-center pr-1">
+                        <SceneBreadcrumbBackButton />
+                        <div>
+                            {comment}
+                            {copyLink}
+                        </div>
                     </div>
-                </TabsPrimitiveContent>
-                <TabsPrimitiveContent value="breakdowns">
-                    <BreakdownsSearchBar />
-                    <BreakdownsChart />
-                </TabsPrimitiveContent>
-                <TabsPrimitiveContent value="autofix">AI autofix</TabsPrimitiveContent>
-                <TabsPrimitiveContent value="similar_issues">Similar issues</TabsPrimitiveContent>
-            </TabsPrimitive>
+
+                    <LemonDivider className="mt-1" />
+
+                    <TabsPrimitive defaultValue="overview" className="flex flex-col gap-y-2">
+                        <TabsPrimitiveList className="flex justify-between space-x-2 border-b">
+                            <TabsPrimitiveTrigger className="px-2 py-1.5" value="overview">
+                                <IconWarning className="mr-1" />
+                                Overview
+                            </TabsPrimitiveTrigger>
+                            <TabsPrimitiveTrigger className="px-2 py-1.5" value="exceptions">
+                                <IconList className="mr-1" />
+                                Exceptions
+                            </TabsPrimitiveTrigger>
+                            <TabsPrimitiveTrigger className="px-2 py-1.5" value="breakdowns">
+                                <IconFilter className="mr-1" />
+                                Breakdowns
+                            </TabsPrimitiveTrigger>
+                            <TabsPrimitiveTrigger className="px-2 py-1.5" value="autofix">
+                                <IconRobot className="mr-1" />
+                                Autofix
+                            </TabsPrimitiveTrigger>
+                            <TabsPrimitiveTrigger className="px-2 py-1.5" value="similar_issues">
+                                <IconSearch className="mr-1" />
+                                Similar issues
+                            </TabsPrimitiveTrigger>
+                        </TabsPrimitiveList>
+                        <TabsPrimitiveContent value="overview" className="pr-2">
+                            <ErrorTrackingIssueScenePanel showActions={false} />
+                        </TabsPrimitiveContent>
+                        <TabsPrimitiveContent value="exceptions">
+                            <ExceptionsTab />
+                        </TabsPrimitiveContent>
+                        <TabsPrimitiveContent value="breakdowns">
+                            <BreakdownsSearchBar />
+                            <BreakdownsChart />
+                        </TabsPrimitiveContent>
+                        <TabsPrimitiveContent value="autofix">AI autofix</TabsPrimitiveContent>
+                        <TabsPrimitiveContent value="similar_issues">Similar issues</TabsPrimitiveContent>
+                    </TabsPrimitive>
+                </>
+            )}
 
             <Resizer {...resizerLogicProps} />
+        </div>
+    )
+}
+
+const ExceptionsTab = (): JSX.Element => {
+    const { eventsQuery, eventsQueryKey } = useValues(errorTrackingIssueSceneLogic)
+    const { selectEvent, setExceptionsCategory } = useActions(errorTrackingIssueSceneLogic)
+
+    return (
+        <div className="flex flex-col gap-y-2 pr-2">
+            <ErrorFilters.Root>
+                <div className="flex gap-2 justify-between">
+                    <ErrorFilters.DateRange />
+                    <ErrorFilters.InternalAccounts />
+                </div>
+                <ErrorFilters.FilterGroup />
+            </ErrorFilters.Root>
+            <Metadata className="">
+                <EventsTable
+                    query={eventsQuery}
+                    queryKey={eventsQueryKey}
+                    selectedEvent={null}
+                    onEventSelect={(selectedEvent) => {
+                        if (selectedEvent) {
+                            selectEvent(selectedEvent)
+                            setExceptionsCategory('exception')
+                        }
+                    }}
+                />
+            </Metadata>
         </div>
     )
 }
