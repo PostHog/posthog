@@ -32,7 +32,10 @@ describe('EvaluationManagerService', () => {
         evaluations.push(
             await insertEvaluation(hub.postgres, teamId1, {
                 name: 'Test Evaluation team 1',
-                prompt: 'Test prompt 1',
+                evaluation_type: 'llm_judge',
+                evaluation_config: { prompt: 'Test prompt 1' },
+                output_type: 'boolean',
+                output_config: {},
                 enabled: true,
             })
         )
@@ -40,7 +43,10 @@ describe('EvaluationManagerService', () => {
         evaluations.push(
             await insertEvaluation(hub.postgres, teamId1, {
                 name: 'Test Evaluation team 1 - disabled',
-                prompt: 'Test prompt disabled',
+                evaluation_type: 'llm_judge',
+                evaluation_config: { prompt: 'Test prompt disabled' },
+                output_type: 'boolean',
+                output_config: {},
                 enabled: false,
             })
         )
@@ -48,7 +54,10 @@ describe('EvaluationManagerService', () => {
         evaluations.push(
             await insertEvaluation(hub.postgres, teamId2, {
                 name: 'Test Evaluation team 2',
-                prompt: 'Test prompt 2',
+                evaluation_type: 'llm_judge',
+                evaluation_config: { prompt: 'Test prompt 2' },
+                output_type: 'boolean',
+                output_config: {},
                 enabled: true,
             })
         )
@@ -178,7 +187,10 @@ describe('EvaluationManagerService', () => {
     it('handles evaluations with bytecode errors', async () => {
         await insertEvaluation(hub.postgres, teamId1, {
             name: 'Evaluation with bytecode error',
-            prompt: 'Test prompt',
+            evaluation_type: 'llm_judge',
+            evaluation_config: { prompt: 'Test prompt' },
+            output_type: 'boolean',
+            output_config: {},
             enabled: true,
             conditions: [
                 {

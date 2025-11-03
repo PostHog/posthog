@@ -23,7 +23,7 @@ export const scene: SceneExport<ExperimentLogicProps> = {
 export function Experiment(): JSX.Element {
     const { formMode, experimentMissing, experimentId } = useValues(experimentLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const isUnifiedCreateFormEnabled = useFeatureFlag('EXPERIMENTS_UNIFIED_CREATE_FORM', 'test')
+    const isCreateFormEnabled = useFeatureFlag('EXPERIMENTS_CREATE_FORM', 'test')
 
     useFileSystemLogView({
         type: 'experiment',
@@ -36,7 +36,7 @@ export function Experiment(): JSX.Element {
         return <NotFound object="experiment" />
     }
 
-    if (isUnifiedCreateFormEnabled && formMode === FORM_MODES.create) {
+    if (isCreateFormEnabled && formMode === FORM_MODES.create) {
         return <CreateExperiment />
     }
 

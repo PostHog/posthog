@@ -38,7 +38,15 @@ from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
-from posthog.schema import PropertyFilterType, PropertyOperator, QueryTiming, RecordingPropertyFilter, RecordingsQuery
+from posthog.schema import (
+    MatchedRecordingEvent,
+    MatchingEventsResponse,
+    PropertyFilterType,
+    PropertyOperator,
+    QueryTiming,
+    RecordingPropertyFilter,
+    RecordingsQuery,
+)
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -643,7 +651,11 @@ class SessionRecordingViewSet(
 
         results, _, timings = ReplayFiltersEventsSubQuery(query=query, team=self.team).get_event_ids_for_session()
 
-        response = JsonResponse(data={"results": results})
+        response = JsonResponse(
+            data=MatchingEventsResponse(
+                results=[MatchedRecordingEvent(uuid=str(row[0]), timestamp=row[1].isoformat()) for row in results]
+            ).model_dump()
+        )
 
         response.headers["Server-Timing"] = ServerTimingsGathered().to_header_string(timings)
         return response

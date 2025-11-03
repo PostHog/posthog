@@ -9,6 +9,7 @@ from django.conf import settings
 import structlog
 import temporalio
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.event.util import create_event
@@ -79,7 +80,10 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
             return {
                 "id": str(evaluation.id),
                 "name": evaluation.name,
-                "prompt": evaluation.prompt,
+                "evaluation_type": evaluation.evaluation_type,
+                "evaluation_config": evaluation.evaluation_config,
+                "output_type": evaluation.output_type,
+                "output_config": evaluation.output_config,
                 "team_id": evaluation.team_id,
             }
         except Evaluation.DoesNotExist:
@@ -93,6 +97,17 @@ async def fetch_evaluation_activity(inputs: RunEvaluationInputs) -> dict[str, An
 async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> dict[str, Any]:
     """Execute LLM judge to evaluate the target event"""
     import openai
+
+    if evaluation["evaluation_type"] != "llm_judge" or evaluation["output_type"] != "boolean":
+        raise ApplicationError(
+            f"Unsupported evaluation: {evaluation['evaluation_type']}/{evaluation['output_type']}",
+            non_retryable=True,
+        )
+
+    evaluation_config = evaluation.get("evaluation_config", {})
+    prompt = evaluation_config.get("prompt")
+    if not prompt:
+        raise ApplicationError("Missing prompt in evaluation_config", non_retryable=True)
 
     # Build context from event
     event_type = event_data["event"]
@@ -120,7 +135,7 @@ async def execute_llm_judge_activity(evaluation: dict[str, Any], event_data: dic
     # Build judge prompt
     system_prompt = f"""You are an evaluator. Evaluate the following generation according to this criteria:
 
-{evaluation["prompt"]}
+{prompt}
 
 Respond with ONLY a JSON object in this exact format:
 {{
@@ -240,7 +255,15 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             fetch_target_event_activity,
             args=[inputs, evaluation["team_id"]],
             schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            # On ingestion, there's a race condition where the workflow can run
+            # before the event is committed to ClickHouse. We should probably
+            # find a more robust solution for this.
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=1),
+                maximum_interval=timedelta(seconds=10),
+                maximum_attempts=10,
+                backoff_coefficient=2.0,
+            ),
         )
 
         # Activity 3: Execute LLM judge

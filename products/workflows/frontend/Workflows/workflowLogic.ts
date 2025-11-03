@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
 import { router } from 'kea-router'
@@ -8,10 +8,12 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { LiquidRenderer } from 'lib/utils/liquid'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { HogFunctionTemplateType } from '~/types'
 
@@ -107,6 +109,9 @@ export const workflowLogic = kea<workflowLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic']),
     props({ id: 'new' } as WorkflowLogicProps),
     key((props) => props.id || 'new'),
+    connect(() => ({
+        values: [userLogic, ['user']],
+    })),
     actions({
         partialSetWorkflowActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({
             actionId,
@@ -118,6 +123,7 @@ export const workflowLogic = kea<workflowLogicType>([
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
+        triggerManualWorkflow: true,
         discardChanges: true,
     }),
     loaders(({ props, values }) => ({
@@ -359,7 +365,13 @@ export const workflowLogic = kea<workflowLogicType>([
             }
 
             action.config = { ...config } as HogFlowAction['config']
-            actions.setWorkflowValues({ actions: [...values.workflow.actions] })
+
+            const changes = { actions: [...values.workflow.actions] } as Partial<HogFlow>
+            if (action.type === 'trigger') {
+                changes.trigger = action.config as TriggerAction['config']
+            }
+
+            actions.setWorkflowValues(changes)
         },
         partialSetWorkflowActionConfig: async ({ actionId, config }) => {
             const action = values.workflow.actions.find((action) => action.id === actionId)
@@ -379,6 +391,31 @@ export const workflowLogic = kea<workflowLogicType>([
             const newEdges = values.workflow.edges.filter((e) => !actionEdges.includes(e))
 
             actions.setWorkflowValues({ edges: [...newEdges, ...edges] })
+        },
+        triggerManualWorkflow: async () => {
+            if (!values.workflow.id || values.workflow.id === 'new') {
+                lemonToast.error('You need to save the workflow before triggering it manually.')
+                return
+            }
+
+            const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
+
+            lemonToast.info('Triggering workflow...')
+            try {
+                await api.create(webhookUrl, {
+                    user_id: values.user?.id,
+                })
+            } catch (e) {
+                lemonToast.error('Error triggering workflow: ' + (e as Error).message)
+                // return
+            }
+
+            lemonToast.success('Workflow triggered', {
+                button: {
+                    label: 'View logs',
+                    action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
+                },
+            })
         },
     })),
     afterMount(({ actions }) => {

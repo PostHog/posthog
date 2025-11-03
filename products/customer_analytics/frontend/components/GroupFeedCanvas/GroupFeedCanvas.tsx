@@ -9,6 +9,7 @@ type GroupFeedCanvas = {
 
 const GroupFeedCanvas = ({ group }: GroupFeedCanvas): JSX.Element => {
     const groupKey = group.group_key
+    const groupTypeIndex = group.group_type_index
 
     return (
         <Notebook
@@ -22,14 +23,14 @@ const GroupFeedCanvas = ({ group }: GroupFeedCanvas): JSX.Element => {
                         type: 'ph-usage-metrics',
                         attrs: {
                             groupKey,
-                            groupTypeIndex: group.group_type_index,
+                            groupTypeIndex,
                             nodeId: uuid(),
                             children: [
                                 {
                                     type: 'ph-group',
                                     attrs: {
                                         id: groupKey,
-                                        groupTypeIndex: group.group_type_index,
+                                        groupTypeIndex,
                                         nodeId: uuid(),
                                         title: 'Info',
                                     },
@@ -38,11 +39,33 @@ const GroupFeedCanvas = ({ group }: GroupFeedCanvas): JSX.Element => {
                                     type: 'ph-group-properties',
                                     attrs: {
                                         groupKey,
-                                        groupTypeIndex: group.group_type_index,
+                                        groupTypeIndex,
                                         nodeId: uuid(),
                                     },
                                 },
+                                {
+                                    type: 'ph-related-groups',
+                                    attrs: {
+                                        id: groupKey,
+                                        groupTypeIndex,
+                                        nodeId: uuid(),
+                                        title: 'Related people',
+                                        type: 'person',
+                                    },
+                                },
                             ],
+                        },
+                    },
+                    {
+                        type: 'ph-issues',
+                        attrs: { groupKey, groupTypeIndex, nodeId: uuid() },
+                    },
+                    {
+                        type: 'ph-llm-trace',
+                        attrs: {
+                            groupKey,
+                            groupTypeIndex,
+                            nodeId: uuid(),
                         },
                     },
                 ],

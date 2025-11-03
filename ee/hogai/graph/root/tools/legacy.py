@@ -22,7 +22,7 @@ class create_and_query_insight(BaseModel):
 
     # Data schema
 
-    The subagent will have access to the read_taxonomy tool. You can pass events, actions, properties, and property values to this tool by specifying the "Data schema" section.
+    You can pass events, actions, properties, and property values to this tool by specifying the "Data schema" section.
 
     <example>
     User: Calculate onboarding completion rate for the last week.

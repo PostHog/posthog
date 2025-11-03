@@ -1072,3 +1072,46 @@ def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correc
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["detail"] == "Integration is not a Databricks integration."
+
+
+@pytest.mark.parametrize(
+    "model,expected_status,expected_error",
+    [
+        ("events", status.HTTP_201_CREATED, None),
+        (None, status.HTTP_201_CREATED, None),
+        ("persons", status.HTTP_400_BAD_REQUEST, "HTTP batch exports only support the events model"),
+    ],
+)
+def test_creating_http_batch_export_only_allows_events_model(
+    client: HttpClient, temporal, organization, team, user, model, expected_status, expected_error
+):
+    """HTTP batch exports are used for migrations, and therefore only support the events model."""
+
+    destination_data = {
+        "type": "HTTP",
+        "config": {
+            "url": "https://test.i.posthog.com/batch/",
+            "token": "secret-token",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-http-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    if model is not None:
+        batch_export_data["model"] = model
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == expected_status, response.json()
+
+    if expected_error:
+        assert response.json()["detail"] == expected_error

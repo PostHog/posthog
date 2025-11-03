@@ -40,6 +40,7 @@ import { NotebookNodePersonProperties } from '../Nodes/NotebookNodePersonPropert
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
+import { NotebookNodeRelatedGroups } from '../Nodes/NotebookNodeRelatedGroups'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { NotebookNodeTaskCreate } from '../Nodes/NotebookNodeTaskCreate'
@@ -143,6 +144,7 @@ export function Editor(): JSX.Element {
         NotebookNodeIssues,
         NotebookNodeUsageMetrics,
         NotebookNodeZendeskTickets,
+        NotebookNodeRelatedGroups,
     ]
 
     if (hasCollapsibleSections) {
