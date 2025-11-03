@@ -1,4 +1,4 @@
-from posthog.schema import HogQLFilters, PropertyGroupsMode
+from posthog.schema import PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -11,6 +11,7 @@ from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQuery
 
 class SparklineQueryRunner(LogsQueryRunner):
     def _calculate(self) -> LogsQueryResponse:
+        self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = execute_hogql_query(
             query_type="LogsQuery",
@@ -20,7 +21,6 @@ class SparklineQueryRunner(LogsQueryRunner):
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
-            filters=HogQLFilters(dateRange=self.query.dateRange),
             settings=self.settings,
         )
 
@@ -53,22 +53,25 @@ class SparklineQueryRunner(LogsQueryRunner):
                                      {date_to_start_of_interval}) / {interval_count} + 1
                                     )
                         )
-                    WHERE time_bucket >= {date_from}
+                    WHERE time_bucket >= {date_from} and time_bucket <= toStartOfInterval({date_to} - toIntervalSecond(1), {one_interval_period})
                 ) AS am
                 LEFT JOIN (
                     SELECT
-                        toStartOfInterval(timestamp, {one_interval_period}) AS time,
+                        toStartOfInterval({time_field}, {one_interval_period}) AS time,
                         severity_text,
                         count() AS event_count
                     FROM logs
-                    WHERE {where}
+                    WHERE {where} AND time >= {date_from} AND time < {date_to}
                     GROUP BY severity_text, time
                 ) AS ac ON am.time_bucket = ac.time
-                ORDER BY time asc
+                ORDER BY time asc, severity_text asc
                 LIMIT 1000
         """,
             placeholders={
                 **self.query_date_range.to_placeholders(),
+                "time_field": ast.Field(chain=["time_bucket"])
+                if self.query_date_range.interval_name != "second"
+                else ast.Field(chain=["timestamp"]),
                 "where": self.where(),
             },
         )

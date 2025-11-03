@@ -17,7 +17,7 @@ from ee.hogai.utils.tests import FakeChatOpenAI
 class TestSearchToolDocumentation(BaseTest):
     def setUp(self):
         super().setUp()
-        self.tool = SearchTool(team=self.team, user=self.user)
+        self.tool = SearchTool(team=self.team, user=self.user, tool_call_id="test-tool-call-id")
 
     @override_settings(INKEEP_API_KEY="test-inkeep-key")
     @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")
@@ -225,3 +225,39 @@ class TestSearchToolDocumentation(BaseTest):
 
         self.assertEqual(result, "Search tool executed")
         self.assertEqual(artifact, {"kind": "insights", "query": "test insight query"})
+
+    @patch("ee.hogai.graph.root.tools.search.EntitySearchToolkit.execute")
+    async def test_arun_impl_error_tracking_issues_returns_routing_data(self, mock_execute):
+        mock_execute.return_value = "Search results for error tracking issues"
+
+        result, artifact = await self.tool._arun_impl(
+            kind="error_tracking_issues", query="test error tracking issue query"
+        )
+
+        self.assertEqual(result, "Search results for error tracking issues")
+        self.assertIsNone(artifact)
+        mock_execute.assert_called_once_with("test error tracking issue query", "error_tracking_issues")
+
+    @patch("ee.hogai.graph.root.tools.search.EntitySearchToolkit.execute")
+    @patch("ee.hogai.graph.root.tools.search.SearchTool._has_fts_search_feature_flag")
+    async def test_arun_impl_insight_with_feature_flag_disabled(self, mock_has_fts_search_feature_flag, mock_execute):
+        mock_has_fts_search_feature_flag.return_value = False
+        mock_execute.return_value = "Search results for insights"
+
+        result, artifact = await self.tool._arun_impl(kind="insights", query="test insight query")
+
+        self.assertEqual(result, "Search tool executed")
+        self.assertEqual(artifact, {"kind": "insights", "query": "test insight query"})
+        mock_execute.assert_not_called()
+
+    @patch("ee.hogai.graph.root.tools.search.EntitySearchToolkit.execute")
+    @patch("ee.hogai.graph.root.tools.search.SearchTool._has_fts_search_feature_flag")
+    async def test_arun_impl_insight_with_feature_flag_enabled(self, mock_has_fts_search_feature_flag, mock_execute):
+        mock_has_fts_search_feature_flag.return_value = True
+        mock_execute.return_value = "Search results for insights"
+
+        result, artifact = await self.tool._arun_impl(kind="insights", query="test insight query")
+
+        self.assertEqual(result, "Search results for insights")
+        self.assertIsNone(artifact)
+        mock_execute.assert_called_once_with("test insight query", "insights")

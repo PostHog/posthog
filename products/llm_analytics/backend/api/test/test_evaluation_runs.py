@@ -14,7 +14,10 @@ class TestEvaluationRunViewSet(APIBaseTest):
         self.evaluation = Evaluation.objects.create(
             team=self.team,
             name="Test Evaluation",
-            prompt="Is this response accurate?",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this response accurate?"},
+            output_type="boolean",
+            output_config={},
             enabled=True,
         )
 
@@ -80,7 +83,10 @@ class TestEvaluationRunViewSet(APIBaseTest):
         other_evaluation = Evaluation.objects.create(
             team=other_team,
             name="Other Evaluation",
-            prompt="Test",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test"},
+            output_type="boolean",
+            output_config={},
             enabled=True,
         )
 

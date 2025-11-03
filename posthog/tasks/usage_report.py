@@ -6,7 +6,7 @@ import logging
 import dataclasses
 from collections import Counter
 from collections.abc import Callable, Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.conf import settings
@@ -927,9 +927,31 @@ def get_teams_with_ai_event_count_in_period(
     return results
 
 
+dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
+dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list:
+    if begin >= dwh_pricing_free_period_start and begin < dwh_pricing_free_period_end:
+        # during the free period, everyone gets free rows synced
+        return []
+
+    if begin >= dwh_pricing_free_period_end:
+        # after the free period, don't include rows reported in the free historical period
+        return list(
+            ExternalDataJob.objects.filter(
+                ~Q(pipeline__created_at__gte=end - timedelta(days=7)),
+                finished_at__gte=begin,
+                finished_at__lte=end,
+                billable=True,
+                status=ExternalDataJob.Status.COMPLETED,
+            )
+            .values("team_id")
+            .annotate(total=Sum("rows_synced"))
+        )
+
     return list(
         ExternalDataJob.objects.filter(
             finished_at__gte=begin, finished_at__lte=end, billable=True, status=ExternalDataJob.Status.COMPLETED
@@ -942,6 +964,16 @@ def get_teams_with_rows_synced_in_period(begin: datetime, end: datetime) -> list
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_free_historical_rows_synced_in_period(begin: datetime, end: datetime) -> list:
+    if begin >= dwh_pricing_free_period_start and begin < dwh_pricing_free_period_end:
+        # during the free period, all rows get reported as free historical rows synced
+        return list(
+            ExternalDataJob.objects.filter(
+                finished_at__gte=begin, finished_at__lte=end, billable=True, status=ExternalDataJob.Status.COMPLETED
+            )
+            .values("team_id")
+            .annotate(total=Sum("rows_synced"))
+        )
+
     return list(
         ExternalDataJob.objects.filter(
             finished_at__gte=begin,
@@ -1224,6 +1256,7 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.local_evaluation_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
+        or report.free_historical_rows_synced_in_period > 0
         or report.cdp_billable_invocations_in_period > 0
         or report.rows_exported_in_period > 0
         or report.exceptions_captured_in_period > 0

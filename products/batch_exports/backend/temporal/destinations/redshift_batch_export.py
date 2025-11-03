@@ -13,6 +13,7 @@ from django.conf import settings
 import psycopg
 import pyarrow as pa
 import aioboto3
+import botocore.exceptions
 from psycopg import sql
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -106,7 +107,71 @@ NON_RETRYABLE_ERROR_TYPES = (
     # usually means the table was created by the user, as we resolve types the
     # same way every time.
     "DatatypeMismatch",
+    # Raised when multiple S3 operations failed with a ClientError.
+    "ClientErrorGroup",
+    # Raised by PostgreSQL client when a function doesn't exist for the specified types.
+    # This can indicate, for example, attempting to compare two types that cannot be
+    # compared.
+    "UndefinedFunction",
 )
+
+
+class ClientErrorGroup(ExceptionGroup):
+    """Exception group wrapping multiple `botocore.exceptions.ClientError`.
+
+    We detail each operation that failed, summarizing the results if only one type
+    of operation failed with the same error multiple times. This is common in situations
+    when permissions are missing.
+    """
+
+    def __new__(cls, exceptions: collections.abc.Sequence[botocore.exceptions.ClientError]):
+        ops = {}
+        for err in exceptions:
+            op_name = err.operation_name
+            error_code = err.response.get("Error", {}).get("Code", "Unknown")
+
+            if op_name not in ops:
+                ops[op_name] = {error_code}
+
+            else:
+                ops[op_name].add(error_code)
+
+        if len(ops) == 1:
+            op_name, error_codes = next(iter(ops.items()))
+
+            if len(error_codes) == 1:
+                # One type of operation failed, one error.
+                error_code = next(iter(error_codes))
+
+                self = super().__new__(
+                    ClientErrorGroup, f"S3 operation '{op_name}' failed with error: '{error_code}'", exceptions
+                )
+            else:
+                # One type of operation failed, but with multiple errors.
+                self = super().__new__(
+                    ClientErrorGroup,
+                    f"S3 operation '{op_name}' failed with multiple errors: {', '.join(f"'{error_code}'" for error_code in error_codes)}",
+                    exceptions,
+                )
+        else:
+            # Many operations failed with multiple errors.
+            pairs = ((op_name, error_code) for op_name, error_codes in ops.items() for error_code in error_codes)
+
+            self = super().__new__(
+                ClientErrorGroup,
+                f"Multiple S3 operations failed: {', '.join(f"'{op_name}' failed with error '{error_code}'" for op_name, error_code in pairs)}",
+                exceptions,
+            )
+
+        # This __new__ is based on the documentation on subclassing exception groups:
+        # https://docs.python.org/3.12/library/exceptions.html#ExceptionGroup
+        # Not sure how to tell mypy this is "fine".
+        self.ops = ops  # type: ignore
+
+        return self
+
+    def derive(self, excs):
+        return ClientErrorGroup(excs)
 
 
 class RedshiftClient(PostgreSQLClient):
@@ -155,6 +220,7 @@ class RedshiftClient(PostgreSQLClient):
         final_table_fields: Fields,
         update_when_matched: Fields = (),
         stage_fields_cast_to_super: collections.abc.Container[str] | None = None,
+        remove_duplicates: bool = True,
     ) -> None:
         """Merge two tables in Redshift.
 
@@ -228,7 +294,6 @@ class RedshiftClient(PostgreSQLClient):
         MERGE INTO {final_table}
         USING (SELECT {select_stage_table_fields} FROM {stage_table}) AS stage
         ON {merge_condition}
-        REMOVE DUPLICATES
         """
         ).format(
             final_table=final_table_identifier,
@@ -236,10 +301,56 @@ class RedshiftClient(PostgreSQLClient):
             stage_table=stage_table_identifier,
             merge_condition=merge_condition,
         )
+        if remove_duplicates:
+            merge_query = merge_query + sql.SQL("REMOVE DUPLICATES")
+        else:
+            update_values = sql.SQL(",").join(
+                sql.SQL("{final_field} = {stage_field}").format(
+                    final_field=sql.Identifier(field[0]),
+                    stage_field=sql.Identifier("stage", field[0]),
+                )
+                for field in final_table_fields
+            )
+
+            insert_values = sql.SQL(",").join(
+                sql.SQL("{stage_field}").format(
+                    stage_field=sql.Identifier("stage", field[0]),
+                )
+                for field in final_table_fields
+            )
+
+            merge_query = merge_query + sql.SQL(
+                """\
+                WHEN MATCHED THEN UPDATE SET {update_values}
+                WHEN NOT MATCHED THEN INSERT VALUES ({insert_values})
+                """
+            ).format(update_values=update_values, insert_values=insert_values)
 
         async with self.connection.transaction():
             async with self.connection.cursor() as cursor:
-                await cursor.execute(delete_query)
+                try:
+                    await cursor.execute(delete_query)
+                except psycopg.errors.UndefinedFunction:
+                    self.logger.exception(
+                        "Query failed",
+                        table=final_table_name,
+                        schema=schema,
+                        stage_table=stage_table_name,
+                        query="DELETE",
+                    )
+                    self.external_logger.error(  # noqa: TRY400
+                        "A non-retryable 'UndefinedFunction' error happened when attempting to"
+                        " delete existing rows from '%s.%s' before a 'MERGE' command can be executed."
+                        " This can indicate that the schema of the table does not match what the"
+                        " batch export expects."
+                        " Please review the table schema before retrying again, there may be fields"
+                        " that have been created with incorrect types. The batch export will always"
+                        " create a table with the correct schema if it doesn't already exist.",
+                        schema,
+                        final_table_name,
+                    )
+                    raise
+
                 await cursor.execute(merge_query)
 
     async def acopy_from_s3_bucket(
@@ -652,6 +763,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchEx
             try:
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
                 table_fields = [field for field in table_fields if field[0] in columns]
+
             except psycopg.errors.UndefinedTable:
                 pass
 
@@ -976,9 +1088,22 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
         )
 
         async with RedshiftClient.from_inputs(inputs.connection).connect() as redshift_client:
+            remove_duplicates = True
             # filter out fields that are not in the destination table
             try:
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
+                if len(columns) > len(tuple(table_schemas.table_schema)):
+                    # MERGE cannot remove duplicates if table columns don't match.
+                    remove_duplicates = False
+                    external_logger.warning(
+                        "Table %s.%s has %d columns instead of %d as expected. "
+                        "MERGE command may perform worse and not properly clean up duplicates",
+                        inputs.table.schema_name,
+                        inputs.table.name,
+                        len(columns),
+                        len(tuple(table_schemas.table_schema)),
+                    )
+
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
             except psycopg.errors.UndefinedTable:
                 table_fields = list(table_schemas.table_schema)
@@ -1027,6 +1152,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                         merge_key=merge_settings.merge_key,
                         update_key=merge_settings.update_key,
                         stage_fields_cast_to_super=table_schemas.super_columns if table_schemas.use_super else None,
+                        remove_duplicates=remove_duplicates,
                     )
 
                 return result
@@ -1039,6 +1165,7 @@ async def upload_manifest_file(
     aws_secret_access_key: str | None,
     files_uploaded: list[str],
     manifest_key: str,
+    endpoint_url: str | None = None,
 ):
     """Upload manifest file used by Redshift COPY.
 
@@ -1054,6 +1181,7 @@ async def upload_manifest_file(
         region_name=region_name,
         aws_access_key_id=aws_access_key_id,
         aws_secret_access_key=aws_secret_access_key,
+        endpoint_url=endpoint_url,
     ) as client:
         entries = []
 
@@ -1076,9 +1204,40 @@ async def upload_manifest_file(
                 }
             )
 
-        async with asyncio.TaskGroup() as tg:
-            for f in files_uploaded:
-                tg.create_task(populate_entry(f))
+        try:
+            async with asyncio.TaskGroup() as tg:
+                for f in files_uploaded:
+                    tg.create_task(populate_entry(f))
+        except* botocore.exceptions.ClientError as err_group:
+            LOGGER.exception("Failed to populate manifest entries")
+
+            # According to type hints, ExceptionGroup.exceptions can be either
+            # ClientError or nested ExceptionGroup[ClientError]. At the moment, there
+            # isn't a good way to flatten these without a recursive function, so we keep
+            # only the top level ClientErrors for analysis. There shouldn't be any
+            # nested ExceptionGroup as the populate_entry task doesn't run a
+            # TaskGroup, so this should be good enough.
+            # There is an ongoing discussion in PEP-0785:
+            # https://peps.python.org/pep-0785/#a-leaf-exceptions-helper-function.
+            top_level_errors = tuple(
+                err for err in err_group.exceptions if isinstance(err, botocore.exceptions.ClientError)
+            )
+
+            error_codes = {err.response.get("Error", {}).get("Code", None) for err in top_level_errors}
+            for error_code in error_codes:
+                if error_code == "AccessDenied":
+                    # This reports the error to the user, we have already logged the exception above.
+                    EXTERNAL_LOGGER.error(  # noqa: TRY400
+                        "Missing permissions when attempting to list uploaded files while preparing for manifest upload. Have you granted 's3:ListBucket' permissions to the provided user on the bucket '%s'?",
+                        bucket,
+                    )
+                else:
+                    EXTERNAL_LOGGER.error(  # noqa: TRY400
+                        "Unknown error when attempting to list uploaded files: %s",
+                        error_code,
+                    )
+
+            raise ClientErrorGroup(top_level_errors)
 
         manifest = {"entries": entries}
 
@@ -1212,6 +1371,12 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
         )
 
+        # Redshift recommends files should be between 1MB-1GB, and that we
+        # should aim for files to be equally distributed across cluster slices.
+        # We don't know the number of slices in our user's cluster, so I've chosen
+        # some nice round somewhere in the range (100MB).
+        # TODO: Maybe derive this from user's input?
+        max_file_size_mb = 100
         consumer = ConcurrentS3Consumer(
             bucket=inputs.copy.s3_bucket.name,
             region_name=inputs.copy.s3_bucket.region_name,
@@ -1224,7 +1389,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             encryption=None,
             aws_access_key_id=inputs.copy.s3_bucket.credentials.aws_access_key_id,
             aws_secret_access_key=inputs.copy.s3_bucket.credentials.aws_secret_access_key,
-            max_file_size_mb=1024,
+            max_file_size_mb=max_file_size_mb,
             part_size=settings.BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES,
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
@@ -1259,7 +1424,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             producer_task=producer_task,
             transformer=transformer,
             schema=record_batch_schema,
-            max_file_size_bytes=1024,
+            max_file_size_bytes=max_file_size_mb * 1024**2,
             json_columns=table_schemas.super_columns,
         )
 
@@ -1267,9 +1432,23 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             return result
 
         async with RedshiftClient.from_inputs(inputs.connection).connect() as redshift_client:
+            remove_duplicates = True
+
             # filter out fields that are not in the destination table
             try:
                 columns = await redshift_client.aget_table_columns(inputs.table.schema_name, inputs.table.name)
+                if len(columns) > len(tuple(table_schemas.table_schema)):
+                    # MERGE cannot remove duplicates if table columns don't match.
+                    remove_duplicates = False
+                    external_logger.warning(
+                        "Table %s.%s has %d columns instead of %d as expected. "
+                        "MERGE command may perform worse and not properly clean up duplicates",
+                        inputs.table.schema_name,
+                        inputs.table.name,
+                        len(columns),
+                        len(tuple(table_schemas.table_schema)),
+                    )
+
                 table_fields = [field for field in table_schemas.table_schema if field[0] in columns]
 
             except psycopg.errors.UndefinedTable:
@@ -1332,6 +1511,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                             merge_key=merge_settings.merge_key,
                             update_key=merge_settings.update_key,
                             stage_fields_cast_to_super=table_schemas.super_columns if table_schemas.use_super else None,
+                            remove_duplicates=remove_duplicates,
                         )
 
                     external_logger.info(f"Finished {len(consumer.files_uploaded)} copying file/s into Redshift")

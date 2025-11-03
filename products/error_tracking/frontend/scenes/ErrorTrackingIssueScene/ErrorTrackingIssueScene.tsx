@@ -2,6 +2,8 @@ import './ErrorTrackingIssueScene.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
@@ -20,6 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
+import { errorTrackingBreakdownsLogic } from '../../components/Breakdowns/errorTrackingBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -53,11 +56,17 @@ export function ErrorTrackingIssueScene(): JSX.Element {
         v.includes('persistence.isDisabled is not a function')
     )
 
+    useEffect(() => {
+        posthog.capture('error_tracking_issue_viewed', { issue_id: issueId })
+    }, [issueId])
+
     if (hasNewIssueLayout) {
         return (
             <ErrorTrackingSetupPrompt>
                 <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                    <V2Layout />
+                    <BindLogic logic={errorTrackingBreakdownsLogic} props={{ id: issueId }}>
+                        <V2Layout />
+                    </BindLogic>
                 </BindLogic>
             </ErrorTrackingSetupPrompt>
         )

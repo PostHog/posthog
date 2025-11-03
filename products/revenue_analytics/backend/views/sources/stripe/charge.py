@@ -31,7 +31,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found yet
             prefix=prefix,
-            query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys())),
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
             test_comments="no_schema",
         )
 
@@ -40,7 +40,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         return BuiltQuery(
             key=str(source.id),  # Using source rather than table because table hasn't been found
             prefix=prefix,
-            query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys())),
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
             test_comments="no_table",
         )
 

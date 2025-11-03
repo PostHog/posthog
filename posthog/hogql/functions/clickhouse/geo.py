@@ -1,6 +1,7 @@
 from posthog.hogql.ast import ArrayType, FloatType, IntegerType, StringType, TupleType
 from posthog.hogql.functions.core import HogQLFunctionMeta
 
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 GEO_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "greatCircleDistance": HogQLFunctionMeta("greatCircleDistance", 4, 4),
     "geoDistance": HogQLFunctionMeta("geoDistance", 4, 4),

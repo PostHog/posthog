@@ -11,8 +11,10 @@ import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -27,6 +29,7 @@ import {
     EventDefinitionType,
     HogQLMathType,
     InsightShortId,
+    ProductKey,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -65,8 +68,13 @@ export interface QueryTile {
 }
 
 export interface LLMAnalyticsLogicProps {
-    personId?: string
+    logicKey?: string
     tabId?: string
+    personId?: string
+    group?: {
+        groupKey: string
+        groupTypeIndex: number
+    }
 }
 
 /**
@@ -85,8 +93,11 @@ function getDayDateRange(day: string): { date_from: string; date_to: string } {
 export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'llmAnalyticsLogic']),
     props({} as LLMAnalyticsLogicProps),
-    key((props: LLMAnalyticsLogicProps) => props?.personId || 'llmAnalyticsScene'),
-    connect(() => ({ values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']] })),
+    key(({ logicKey }: LLMAnalyticsLogicProps) => logicKey || 'llmAnalyticsScene'),
+    connect(() => ({
+        values: [sceneLogic, ['sceneKey'], groupsModel, ['groupsEnabled']],
+        actions: [teamLogic, ['addProductIntent']],
+    })),
 
     actions({
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
@@ -170,6 +181,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 refreshAllDashboardItems: () => ({}),
             },
         ],
+
         newestRefreshed: [
             null as Date | null,
             {
@@ -682,6 +694,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 s.shouldFilterTestAccounts,
                 s.propertyFilters,
                 (_, props) => props.personId,
+                (_, props) => props.group,
                 groupsModel.selectors.groupsTaxonomicTypes,
                 featureFlagLogic.selectors.featureFlags,
             ],
@@ -690,6 +703,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 shouldFilterTestAccounts,
                 propertyFilters,
                 personId,
+                group,
                 groupsTaxonomicTypes,
                 featureFlags
             ): DataTableNode => ({
@@ -702,7 +716,9 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     },
                     filterTestAccounts: shouldFilterTestAccounts ?? false,
                     properties: propertyFilters,
-                    ...(personId ? { personId } : {}),
+                    personId: personId ?? undefined,
+                    groupKey: group?.groupKey,
+                    groupTypeIndex: group?.groupTypeIndex,
                 },
                 columns: [
                     'id',
@@ -883,7 +899,13 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         }
 
         return {
-            [urls.llmAnalyticsDashboard()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsDashboard()]: (_, searchParams) => {
+                applySearchParams(searchParams)
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_VIEWED,
+                })
+            },
             [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),

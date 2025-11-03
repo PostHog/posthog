@@ -56,6 +56,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
             self.assertTrue(view.is_materialized)
             self.assertIsNotNone(view.query)
             self.assertIsNotNone(view.columns)
+            self.assertIsNotNone(view.external_tables)
             self.assertIn("HogQLQuery", view.query.get("kind", ""))  # type: ignore
 
         expected_view_names = sorted(
@@ -108,6 +109,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         saved_query.refresh_from_db()
         self.assertNotEqual(saved_query.query, old_query)
         self.assertNotEqual(saved_query.columns, old_columns)
+        self.assertIsNotNone(saved_query.external_tables)  # Was unset, guarantee we've set it
         self.assertIn("HogQLQuery", saved_query.query.get("kind", ""))  # type: ignore
 
     def test_delete_with_views(self):
