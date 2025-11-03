@@ -2,7 +2,7 @@ import './ErrorTrackingIssueScene.scss'
 
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 
 import { IconFilter, IconList, IconSearch, IconShare, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
@@ -36,6 +36,7 @@ import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupProm
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
+import { errorTrackingIssueSceneConfigurationLogic } from './errorTrackingIssueSceneConfigurationLogic'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 export function V2Layout(): JSX.Element {
@@ -71,7 +72,7 @@ const RightHandColumn = (): JSX.Element => {
     const tagRenderer = useErrorTagRenderer()
 
     return (
-        <div className="flex flex-1 flex-col gap-y-1 pl-4 overflow-y-auto">
+        <div className="flex flex-1 flex-col gap-y-1 pl-4 overflow-y-auto min-w-[375px]">
             <ExceptionCard
                 issue={issue ?? undefined}
                 issueLoading={issueLoading}
@@ -83,18 +84,20 @@ const RightHandColumn = (): JSX.Element => {
     )
 }
 
-const CLOSE_THRESHOLD = 300
+const CLOSE_THRESHOLD = 370
 
 const LeftHandColumn = (): JSX.Element => {
+    const { category, isSidebarOpen } = useValues(errorTrackingIssueSceneConfigurationLogic)
+    const { setCategory, setIsSidebarOpen } = useActions(errorTrackingIssueSceneConfigurationLogic)
+
     const ref = useRef<HTMLDivElement>(null)
-    const [isClosed, setIsClosed] = useState<boolean>(false)
     const resizerLogicProps: ResizerLogicProps = {
         containerRef: ref,
         logicKey: 'error-tracking-issue',
         persistent: true,
         closeThreshold: CLOSE_THRESHOLD,
-        onToggleClosed: (closed) => setIsClosed(closed),
-        onDoubleClick: () => setIsClosed(!isClosed),
+        onToggleClosed: (open) => setIsSidebarOpen(open),
+        onDoubleClick: () => setIsSidebarOpen(!isSidebarOpen),
         placement: 'right',
     }
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
@@ -102,7 +105,7 @@ const LeftHandColumn = (): JSX.Element => {
     const { openSidePanel } = useActions(sidePanelLogic)
     const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
-    const style = isClosed ? {} : { width: desiredSize ?? '30%', minWidth: CLOSE_THRESHOLD + 80 }
+    const style = isSidebarOpen ? { width: desiredSize ?? '30%', minWidth: CLOSE_THRESHOLD + 80 } : {}
 
     const comment = (
         <ButtonPrimitive
@@ -113,7 +116,7 @@ const LeftHandColumn = (): JSX.Element => {
                 openSidePanel(SidePanelTab.Discussion)
             }}
             tooltip="Comment"
-            iconOnly={isClosed}
+            iconOnly={!isSidebarOpen}
         >
             <IconComment />
         </ButtonPrimitive>
@@ -126,7 +129,7 @@ const LeftHandColumn = (): JSX.Element => {
                     void copyToClipboard(window.location.origin + urls.errorTrackingIssue(issue.id), 'issue link')
                 }
             }}
-            iconOnly={isClosed}
+            iconOnly={!isSidebarOpen}
             tooltip="Share"
         >
             <IconShare />
@@ -140,29 +143,7 @@ const LeftHandColumn = (): JSX.Element => {
             style={style}
             className="flex flex-col relative"
         >
-            {isClosed ? (
-                <div className="flex flex-col pr-0.5">
-                    <SceneBreadcrumbBackButton iconOnly />
-                    {comment}
-                    {copyLink}
-                    <LemonDivider />
-                    <ButtonPrimitive onClick={() => {}} iconOnly tooltip="Overview">
-                        <IconWarning />
-                    </ButtonPrimitive>
-                    <ButtonPrimitive onClick={() => {}} iconOnly tooltip="Exceptions">
-                        <IconList />
-                    </ButtonPrimitive>
-                    <ButtonPrimitive onClick={() => {}} iconOnly tooltip="Breakdowns">
-                        <IconFilter />
-                    </ButtonPrimitive>
-                    <ButtonPrimitive onClick={() => {}} iconOnly tooltip="AI Autofix">
-                        <IconRobot />
-                    </ButtonPrimitive>
-                    <ButtonPrimitive onClick={() => {}} iconOnly tooltip="Similar issues">
-                        <IconSearch />
-                    </ButtonPrimitive>
-                </div>
-            ) : (
+            {isSidebarOpen ? (
                 <>
                     <div className="flex justify-between items-center pr-1">
                         <SceneBreadcrumbBackButton />
@@ -174,14 +155,14 @@ const LeftHandColumn = (): JSX.Element => {
 
                     <LemonDivider className="mt-1" />
 
-                    <TabsPrimitive defaultValue="paragraphs" className="flex flex-col overflow-y-auto">
+                    <TabsPrimitive
+                        value={category}
+                        onValueChange={(value) => setCategory(value)}
+                        className="flex flex-col min-h-0"
+                    >
                         <div>
                             <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
                                 <TabsPrimitiveList className="flex justify-between space-x-2">
-                                    <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="paragraphs">
-                                        <IconWarning className="mr-1" />
-                                        <span className="text-nowrap">Overview</span>
-                                    </TabsPrimitiveTrigger>
                                     <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="overview">
                                         <IconWarning className="mr-1" />
                                         <span className="text-nowrap">Overview</span>
@@ -208,96 +189,44 @@ const LeftHandColumn = (): JSX.Element => {
                                 </TabsPrimitiveList>
                             </ScrollableShadows>
                         </div>
-                        <div className="flex-1 overflow-y-auto pt-2">
-                            <TabsPrimitiveContent value="paragraphs" className="pr-2">
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is a paragraph</p>
-                                <p>This is the last paragraph</p>
-                            </TabsPrimitiveContent>
-                            <TabsPrimitiveContent value="overview" className="pr-2">
-                                <ErrorTrackingIssueScenePanel showActions={false} showSimilarIssues={false} />
-                            </TabsPrimitiveContent>
-                            <TabsPrimitiveContent value="exceptions">
-                                <ExceptionsTab />
-                            </TabsPrimitiveContent>
-                            <TabsPrimitiveContent value="breakdowns">
-                                <BreakdownsSearchBar />
-                                <BreakdownsChart />
-                            </TabsPrimitiveContent>
-                            <TabsPrimitiveContent value="autofix">AI autofix</TabsPrimitiveContent>
-                            <TabsPrimitiveContent value="similar_issues">
-                                <SimilarIssuesList />
-                            </TabsPrimitiveContent>
-                        </div>
+                        <TabsPrimitiveContent value="overview" className="flex flex-col overflow-y-auto pt-2 pr-2">
+                            <ErrorTrackingIssueScenePanel showActions={false} showSimilarIssues={false} />
+                        </TabsPrimitiveContent>
+                        <TabsPrimitiveContent value="exceptions" className="h-full min-h-0">
+                            <ExceptionsTab />
+                        </TabsPrimitiveContent>
+                        <TabsPrimitiveContent value="breakdowns">
+                            <BreakdownsSearchBar />
+                            <BreakdownsChart />
+                        </TabsPrimitiveContent>
+                        <TabsPrimitiveContent value="autofix">AI autofix</TabsPrimitiveContent>
+                        <TabsPrimitiveContent value="similar_issues">
+                            <SimilarIssuesList />
+                        </TabsPrimitiveContent>
                     </TabsPrimitive>
                 </>
+            ) : (
+                <div className="flex flex-col pr-0.5">
+                    <SceneBreadcrumbBackButton iconOnly />
+                    {comment}
+                    {copyLink}
+                    <LemonDivider />
+                    <ButtonPrimitive onClick={() => setCategory('overview')} iconOnly tooltip="Overview">
+                        <IconWarning />
+                    </ButtonPrimitive>
+                    <ButtonPrimitive onClick={() => setCategory('exceptions')} iconOnly tooltip="Exceptions">
+                        <IconList />
+                    </ButtonPrimitive>
+                    <ButtonPrimitive onClick={() => setCategory('breakdowns')} iconOnly tooltip="Breakdowns">
+                        <IconFilter />
+                    </ButtonPrimitive>
+                    <ButtonPrimitive onClick={() => setCategory('autofix')} iconOnly tooltip="AI Autofix">
+                        <IconRobot />
+                    </ButtonPrimitive>
+                    <ButtonPrimitive onClick={() => setCategory('similar_issues')} iconOnly tooltip="Similar issues">
+                        <IconSearch />
+                    </ButtonPrimitive>
+                </div>
             )}
 
             <Resizer {...resizerLogicProps} />
@@ -307,18 +236,18 @@ const LeftHandColumn = (): JSX.Element => {
 
 const ExceptionsTab = (): JSX.Element => {
     const { eventsQuery, eventsQueryKey } = useValues(errorTrackingIssueSceneLogic)
-    const { selectEvent, setExceptionsCategory } = useActions(errorTrackingIssueSceneLogic)
+    const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
 
     return (
-        <div className="flex flex-col gap-y-2">
-            <ErrorFilters.Root>
+        <div className="flex flex-col h-full gap-y-2">
+            <ErrorFilters.Root className="pt-2 pr-2">
                 <div className="flex gap-2 justify-between flex-wrap">
                     <ErrorFilters.DateRange />
                     <ErrorFilters.InternalAccounts />
                 </div>
                 <ErrorFilters.FilterGroup />
             </ErrorFilters.Root>
-            <Metadata className="">
+            <Metadata className="flex flex-col overflow-y-auto rounded-r-none border-r-0">
                 <EventsTable
                     query={eventsQuery}
                     queryKey={eventsQueryKey}
@@ -326,7 +255,6 @@ const ExceptionsTab = (): JSX.Element => {
                     onEventSelect={(selectedEvent) => {
                         if (selectedEvent) {
                             selectEvent(selectedEvent)
-                            setExceptionsCategory('exception')
                         }
                     }}
                 />

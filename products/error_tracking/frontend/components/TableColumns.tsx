@@ -100,7 +100,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
                         status={record.status}
                         onChange={(status) => updateIssueStatus(record.id, status)}
                     />
-                    <CustomGroupSeparator />
+                    <CustomSeparator />
                     <AssigneeSelect
                         assignee={record.assignee}
                         onChange={(assignee) => updateIssueAssignee(record.id, assignee)}
@@ -120,7 +120,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
                             </div>
                         )}
                     </AssigneeSelect>
-                    <CustomGroupSeparator />
+                    <CustomSeparator />
                     <TZLabel time={record.first_seen} className="border-dotted border-b text-xs ml-1" delayMs={750} />
                     <IconChevronRight className="text-quaternary mx-1" />
                     {record.last_seen ? (
@@ -134,4 +134,4 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
     )
 }
 
-const CustomGroupSeparator = (): JSX.Element => <IconMinus className="text-quaternary rotate-90" />
+export const CustomSeparator = (): JSX.Element => <IconMinus className="text-quaternary rotate-90" />

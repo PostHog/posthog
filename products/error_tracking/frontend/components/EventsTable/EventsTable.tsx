@@ -23,6 +23,7 @@ import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { cancelEvent } from '../../utils'
 import { DataSourceTable, DataSourceTableColumn } from '../DataSourceTable'
 import { ExceptionAttributesPreview } from '../ExceptionAttributesPreview'
+import { CustomSeparator } from '../TableColumns'
 import { eventsSourceLogic } from './eventsSourceLogic'
 
 export interface EventsTableProps {
@@ -57,31 +58,34 @@ export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: E
     function renderTitle(record: ErrorEventType): JSX.Element {
         return (
             <LemonTableLink
-                onClick={() => onEventSelect(record)}
-                title={record.properties.$exception_types[0]}
-                description={
-                    <div>
-                        <span>{record.properties.$exception_values[0]}</span>
-                        <div>{renderTime(record)}</div>
-                        <ExceptionAttributesPreview attributes={getExceptionAttributes(record.properties)} />
+                title={
+                    <div className="flex gap-x-1">
+                        <Link onClick={() => onEventSelect(record)} subtle className="line-clamp-1">
+                            {record.properties.$exception_types[0]}
+                        </Link>
                         {tagRenderer(record)}
                     </div>
                 }
+                description={
+                    <div className="space-y-0.5">
+                        <span className="line-clamp-1">{record.properties.$exception_values[0]}</span>
+                        <div className="flex items-center">
+                            <div>{renderTime(record)}</div>
+                            <CustomSeparator />
+                            <Person person={record.person} />
+                        </div>
+                    </div>
+                }
+                className="w-full"
             />
         )
     }
 
     function renderPerson(record: ErrorEventType): JSX.Element {
-        const display = asDisplay(record.person)
         return (
             <div className="flex items-center">
                 <span onClick={cancelEvent}>
-                    <PersonDisplay person={record.person} noLink>
-                        <Link subtle className={clsx('flex items-center')}>
-                            <PersonIcon displayName={display} person={record.person} size="md" />
-                            <span className={clsx('ph-no-capture', 'truncate')}>{display}</span>
-                        </Link>
-                    </PersonDisplay>
+                    <Person person={record.person} />
                 </span>
             </div>
         )
@@ -90,7 +94,7 @@ export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: E
     function renderAttributes(record: ErrorEventType): JSX.Element {
         return (
             <div className="flex justify-end gap-1">
-                {tagRenderer(record)}
+                {!hasNewIssueLayout && tagRenderer(record)}
                 <ExceptionAttributesPreview attributes={getExceptionAttributes(record.properties)} />
             </div>
         )
@@ -100,31 +104,47 @@ export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: E
         return <TZLabel time={record.timestamp} />
     }
 
+    if (hasNewIssueLayout) {
+        return (
+            <DataSourceTable<ErrorEventType>
+                dataSource={dataSource}
+                embedded
+                onRowClick={undefined}
+                className="overflow-auto"
+            >
+                <DataSourceTableColumn<ErrorEventType> title="Exeption" cellRenderer={renderTitle} />
+                <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
+                <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={Actions} />
+            </DataSourceTable>
+        )
+    }
+
     return (
         <DataSourceTable<ErrorEventType>
             dataSource={dataSource}
             embedded
-            onRowClick={hasNewIssueLayout ? undefined : toggleSelectedEvent}
+            onRowClick={toggleSelectedEvent}
             className="overflow-auto"
         >
-            <DataSourceTableColumn<ErrorEventType>
-                width="200px"
-                title="Exeption"
-                cellRenderer={hasNewIssueLayout ? renderTitle : renderUUID}
-            />
+            <DataSourceTableColumn<ErrorEventType> title="Exeption" cellRenderer={renderUUID} />
             <DataSourceTableColumn<ErrorEventType> width="100px" title="Person" cellRenderer={renderPerson} />
-            {!hasNewIssueLayout && (
-                <>
-                    <DataSourceTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
-                    <DataSourceTableColumn<ErrorEventType>
-                        title="Labels"
-                        align="right"
-                        cellRenderer={renderAttributes}
-                    />
-                </>
-            )}
+            <DataSourceTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
+            <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
             <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={Actions} />
         </DataSourceTable>
+    )
+}
+
+const Person = ({ person }: { person: ErrorEventType['person'] }): JSX.Element => {
+    const display = asDisplay(person)
+
+    return (
+        <PersonDisplay person={person} noLink>
+            <Link subtle className={clsx('flex items-center')}>
+                <PersonIcon displayName={display} person={person} size="md" />
+                <span className={clsx('ph-no-capture', 'truncate')}>{display}</span>
+            </Link>
+        </PersonDisplay>
     )
 }
 
