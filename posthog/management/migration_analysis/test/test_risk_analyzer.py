@@ -420,7 +420,7 @@ class TestRunSQLOperations:
         assert risk.score == 2
         assert risk.level == RiskLevel.NEEDS_REVIEW
         assert "fast" in risk.reason.lower()
-        assert "deployment safety" in risk.reason.lower() or "deployment" in risk.guidance.lower()
+        assert "deployment safety" in risk.reason.lower() or (risk.guidance and "deployment" in risk.guidance.lower())
 
     def test_run_sql_drop_constraint_cascade(self):
         """Test DROP CONSTRAINT CASCADE - may be slow (score 3)."""
