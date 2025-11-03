@@ -36,7 +36,7 @@ import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
-    title: 'Scenes-App/Max AI',
+    title: 'Scenes-App/PostHog AI',
     decorators: [
         mswDecorator({
             post: {
@@ -1278,6 +1278,53 @@ export const MultiVisualizationInThread: StoryFn = () => {
     }
 
     return <Template />
+}
+
+export const ThreadWithSQLQueryOverflow: StoryFn = () => {
+    // Create a message with a long SQL query without newlines to test overflow
+    const sqlMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: `Here's the SQL query you requested:\n\n\`\`\`sql\nSELECT users.id, users.email, users.name, orders.order_id, orders.total_amount, orders.order_date, products.product_name, products.category, order_items.quantity, order_items.price FROM users INNER JOIN orders ON users.id = orders.user_id INNER JOIN order_items ON orders.order_id = order_items.order_id INNER JOIN products ON order_items.product_id = products.id WHERE orders.order_date >= '2024-01-01' AND orders.status = 'completed' AND users.country = 'US' ORDER BY orders.total_amount DESC LIMIT 100\n\`\`\`\n\nThis query joins multiple tables to get comprehensive order information.`,
+        id: 'sql-msg-1',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Show me a complex SQL query' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(sqlMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me a complex SQL query')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template className="w-md" />
 }
 
 function generateChunk(events: string[]): string {
