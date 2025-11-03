@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -162,7 +162,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         return None
 
     def get_managed_viewset_kind(self, view: DataWarehouseSavedQuery) -> DataWarehouseManagedViewsetKind | None:
-        return view.managed_viewset.kind if view.managed_viewset else None
+        return cast(DataWarehouseManagedViewsetKind, view.managed_viewset.kind) if view.managed_viewset else None
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]

@@ -39,9 +39,11 @@ def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str
     if len(views) == 0:
         return []
 
-    selects = [
-        ast.SelectQuery(select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=view.name)) for view in views
+    selects: list[ast.SelectQuery | ast.SelectSetQuery] = [
+        ast.SelectQuery(select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=ast.Field(chain=[view.name])))
+        for view in views
     ]
+
     if len(selects) == 1:
         select_from = selects[0]
     else:
