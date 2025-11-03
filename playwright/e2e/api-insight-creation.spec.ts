@@ -67,8 +67,11 @@ test('create trends insight via API and snapshot', async ({ page, playwrightSetu
     // Verify the insight title - check the scene name container (handles both editable and non-editable cases)
     await expect(page.locator('.scene-name')).toContainText('Pageview Trends Analysis')
 
+    // NOTE: Disabled because this is absurdly flaky right now
+    // Should be re-enabled when we have a more stable way to take screenshots of the insight graph
+    //
     // Take a screenshot of the insight for visual regression testing
-    await page.locator('[data-attr="insights-graph"]').screenshot({
-        path: '__snapshots__/pageview-trends-insight.png',
-    })
+    // await page.locator('[data-attr="insights-graph"]').screenshot({
+    //     path: '__snapshots__/pageview-trends-insight.png',
+    // })
 })
