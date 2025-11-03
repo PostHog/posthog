@@ -16,7 +16,7 @@ import {
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
-import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
+import { FEATURE_FLAGS, MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -37,6 +37,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType, FeatureFlagType } from '~/types'
 
+import { CreateExperiment } from './create/CreateExperiment'
 import { experimentLogic } from './experimentLogic'
 
 const ExperimentFormFields = (): JSX.Element => {
@@ -428,7 +429,11 @@ export const HoldoutSelector = (): JSX.Element => {
 }
 
 export function ExperimentForm(): JSX.Element {
-    const { props } = useValues(experimentLogic)
+    const { props, featureFlags } = useValues(experimentLogic)
+
+    if (featureFlags[FEATURE_FLAGS.EXPERIMENTS_CREATE_FORM] === 'test') {
+        return <CreateExperiment />
+    }
 
     return (
         <div>
