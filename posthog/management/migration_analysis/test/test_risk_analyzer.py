@@ -341,6 +341,27 @@ class TestRunSQLOperations:
         assert "override" in risk.reason.lower()
         assert "Cleanup table with minimal rows" in risk.details.get("override_reason", "")
 
+    def test_run_sql_override_doesnt_apply_to_wrong_operation(self):
+        """Test that override comment doesn't apply if SQL doesn't contain UPDATE/DELETE.
+
+        Security: Ensure override comment mentioning "update" doesn't trigger override
+        for non-UPDATE operations like DROP.
+        """
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="""
+            -- migration-analyzer: safe reason=Need to update this column later
+            DROP TABLE IF EXISTS posthog_old_table;
+            """,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # Should still be scored as DROP (5 - BLOCKED), not override (2 - NEEDS_REVIEW)
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
+        assert "drop" in risk.reason.lower()
+
     def test_run_sql_with_alter(self):
         op = create_mock_operation(
             migrations.RunSQL,

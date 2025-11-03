@@ -377,8 +377,14 @@ class RunSQLAnalyzer(OperationAnalyzer):
         return None
 
     def analyze(self, op, migration: Optional[Any] = None, loader: Optional[Any] = None) -> OperationRisk:
-        sql = str(op.sql).upper()
+        # Parse override from original SQL (before stripping comments)
         override = self._parse_override_comment(op)
+
+        # Strip comments before detecting SQL keywords to avoid false matches
+        sql_original = str(op.sql)
+        sql_without_comments = re.sub(r"--[^\n]*", "", sql_original)  # Remove -- comments
+        sql_without_comments = re.sub(r"#[^\n]*", "", sql_without_comments)  # Remove # comments
+        sql = sql_without_comments.upper()
 
         # Check for CONCURRENTLY operations first (these are safe)
         # This must come before DROP check to avoid flagging DROP INDEX CONCURRENTLY as dangerous
