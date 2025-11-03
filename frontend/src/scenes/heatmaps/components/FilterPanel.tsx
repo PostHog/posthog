@@ -11,9 +11,8 @@ import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { heatmapLogic } from 'scenes/heatmaps/scenes/heatmap/heatmapLogic'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
-
-import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
 const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
     const [debouncedLoading, setDebouncedLoading] = useState(false)
@@ -30,10 +29,8 @@ const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
 }
 
 export function ViewportChooser(): JSX.Element {
-    const logic = heatmapsBrowserLogic()
-
-    const { widthOverride } = useValues(logic)
-    const { setIframeWidth } = useActions(logic)
+    const { widthOverride } = useValues(heatmapLogic)
+    const { setIframeWidth } = useActions(heatmapLogic)
 
     const options = [
         {

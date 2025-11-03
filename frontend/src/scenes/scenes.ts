@@ -65,6 +65,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         defaultDocsPath: '/blog/introducing-notebooks',
         hideProjectNotice: true,
     },
+    [Scene.CLIAuthorize]: {
+        name: 'Authorize CLI',
+        projectBased: false,
+        organizationBased: false,
+        layout: 'plain',
+    },
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.CohortCalculationHistory]: { projectBased: true, name: 'Cohort Calculation History' },
     [Scene.Cohorts]: {
@@ -231,6 +237,21 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Heatmaps',
         iconType: 'heatmap',
         description: 'Heatmaps are a way to visualize user behavior on your website.',
+    },
+    [Scene.Heatmap]: {
+        projectBased: true,
+        name: 'Heatmap',
+        iconType: 'heatmap',
+    },
+    [Scene.HeatmapNew]: {
+        projectBased: true,
+        name: 'New heatmap',
+        iconType: 'heatmap',
+    },
+    [Scene.HeatmapRecording]: {
+        projectBased: true,
+        name: 'Heatmap recording',
+        iconType: 'heatmap',
     },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
     [Scene.Insight]: {
@@ -659,6 +680,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.site(':url')]: [Scene.Site, 'site'],
     [urls.login()]: [Scene.Login, 'login'],
     [urls.login2FA()]: [Scene.Login2FA, 'login2FA'],
+    [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
     [urls.emailMFAVerify()]: [Scene.EmailMFAVerify, 'emailMFAVerify'],
     [urls.preflight()]: [Scene.PreflightCheck, 'preflight'],
     [urls.signup()]: [Scene.Signup, 'signup'],
@@ -681,6 +703,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
     [urls.heatmaps()]: [Scene.Heatmaps, 'heatmaps'],
+    [urls.heatmapNew()]: [Scene.HeatmapNew, 'heatmapNew'],
+    [urls.heatmapRecording()]: [Scene.HeatmapRecording, 'heatmapRecording'],
+    [urls.heatmap(':id')]: [Scene.Heatmap, 'heatmap'],
     [urls.liveDebugger()]: [Scene.LiveDebugger, 'liveDebugger'],
     [urls.links()]: [Scene.Links, 'links'],
     [urls.link(':id')]: [Scene.Link, 'link'],

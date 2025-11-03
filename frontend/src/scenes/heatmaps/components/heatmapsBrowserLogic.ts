@@ -42,9 +42,6 @@ export interface ReplayIframeData {
     url: string | undefined
 }
 
-// team id is always available on window
-const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
-
 // Helper function to detect if a URL contains regex pattern characters
 const isUrlPattern = (url: string): boolean => {
     return /[*+?^${}()|[\]\\]/.test(url)
@@ -58,7 +55,7 @@ const normalizeUrlPath = (urlObj: URL): string => {
 }
 
 export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
-    path(['scenes', 'heatmaps', 'heatmapsBrowserLogic']),
+    path(['scenes', 'heatmaps', 'components', 'heatmapsBrowserLogic']),
     props({} as HeatmapsBrowserLogicProps),
 
     connect(() => ({
@@ -215,7 +212,6 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         ],
         dataUrl: [
             null as string | null,
-            { persist: true, prefix: `${teamId}__` },
             {
                 setDataUrl: (_, { url }) => url,
             },
@@ -237,14 +233,13 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             },
         ],
         widthOverride: [
-            null as number | null,
+            1024 as number | null,
             {
                 setIframeWidth: (_, { width }) => width,
             },
         ],
         displayUrl: [
             null as string | null,
-            { persist: true, prefix: `${teamId}__` },
             {
                 setDisplayUrl: (_, { url }) => url,
             },
@@ -305,12 +300,7 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
 
     listeners(({ actions, props, values, cache }) => ({
         setDisplayUrl: ({ url }) => {
-            if (!values.dataUrl || values.dataUrl.trim() === '') {
-                actions.setDataUrl(url)
-            }
-            if (!url || url.trim() === '') {
-                actions.setDataUrl(null)
-            }
+            actions.setDataUrl(url?.trim() ?? null)
         },
         setReplayIframeData: ({ replayIframeData }) => {
             if (replayIframeData && replayIframeData.url) {
@@ -451,6 +441,8 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (searchParams.commonFilters && !objectsEqual(searchParams.commonFilters, values.commonFilters)) {
                 actions.setCommonFilters(searchParams.commonFilters as CommonFilters)
             }
+        },
+        '/heatmaps/recording': (_, searchParams) => {
             if (searchParams.iframeStorage) {
                 const replayFrameData = JSON.parse(
                     localStorage.getItem(searchParams.iframeStorage) || '{}'
