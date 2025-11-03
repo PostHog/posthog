@@ -3,9 +3,10 @@ import fs from 'fs/promises'
 import { Counter } from 'prom-client'
 
 import { Hub } from '../../types'
+import { isDevEnv } from '../../utils/env-utils'
 import { logger } from '../../utils/logger'
 
-const EVALUATION_TASK_QUEUE = 'general-purpose-task-queue'
+const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'general-purpose-task-queue'
 
 const temporalWorkflowsStarted = new Counter({
     name: 'evaluation_run_workflows_started',
