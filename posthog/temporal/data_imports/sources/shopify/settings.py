@@ -15,7 +15,8 @@ from posthog.temporal.data_imports.sources.shopify.constants import (
     UPDATED_AT,
 )
 from posthog.temporal.data_imports.sources.shopify.utils import safe_set, unwrap
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 
 # TODO: andrew - pull EndpointConfig out from reddit_ads and into common place. make this extend that class
