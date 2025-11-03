@@ -139,6 +139,33 @@ function LLMAnalyticsGenerations(): JSX.Element {
     } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    // Helper to safely extract uuid and traceId from a result row based on current column configuration
+    const getRowIds = (result: unknown): { uuid: string; traceId: string } | null => {
+        if (!Array.isArray(result) || !isEventsQuery(generationsQuery.source)) {
+            return null
+        }
+
+        const columns =
+            generationsQuery.source.select ||
+            getDefaultGenerationsColumns(!!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT])
+
+        const uuidIndex = columns.findIndex((col) => col === 'uuid')
+        const traceIdIndex = columns.findIndex((col) => col === 'properties.$ai_trace_id')
+
+        if (uuidIndex < 0 || traceIdIndex < 0) {
+            return null
+        }
+
+        const uuid = result[uuidIndex]
+        const traceId = result[traceIdIndex]
+
+        if (typeof uuid === 'string' && typeof traceId === 'string') {
+            return { uuid, traceId }
+        }
+
+        return null
+    }
+
     return (
         <DataTable
             query={{
@@ -175,15 +202,15 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return null
                             }
 
-                            const traceId = Array.isArray(record) && record.length > 1 ? record[1] : undefined
+                            const ids = getRowIds(record)
                             const visualValue = truncateValue(value)
 
-                            return !traceId || typeof traceId !== 'string' ? (
+                            return !ids ? (
                                 <strong>{visualValue}</strong>
                             ) : (
                                 <strong>
                                     <Tooltip title={value}>
-                                        <Link to={`/llm-analytics/traces/${traceId}?event=${value}`}>
+                                        <Link to={`/llm-analytics/traces/${ids.traceId}?event=${value}`}>
                                             {visualValue}
                                         </Link>
                                     </Tooltip>
@@ -194,14 +221,19 @@ function LLMAnalyticsGenerations(): JSX.Element {
                 },
                 expandable: {
                     expandedRowRender: function renderExpandedGeneration({ result }: DataTableRow) {
-                        if (!Array.isArray(result)) {
-                            return null
+                        const ids = getRowIds(result)
+
+                        if (!ids) {
+                            return (
+                                <div className="p-4 text-danger">
+                                    Cannot expand: required columns (uuid, properties.$ai_trace_id) are missing. Please
+                                    reset your column configuration.
+                                </div>
+                            )
                         }
 
-                        const uuid = result[0] as string
-                        const traceId = result[1] as string
-                        const trace = loadedTraces[traceId]
-                        const event = trace?.events.find((e) => e.id === uuid)
+                        const trace = loadedTraces[ids.traceId]
+                        const event = trace?.events.find((e) => e.id === ids.uuid)
 
                         if (!trace) {
                             return (
@@ -231,18 +263,21 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             </div>
                         )
                     },
-                    rowExpandable: ({ result }: DataTableRow) =>
-                        !!result && Array.isArray(result) && !!result[0] && !!result[1],
-                    isRowExpanded: ({ result }: DataTableRow) =>
-                        Array.isArray(result) && !!result[0] && expandedGenerationIds.has(result[0] as string),
+                    rowExpandable: ({ result }: DataTableRow) => !!getRowIds(result),
+                    isRowExpanded: ({ result }: DataTableRow) => {
+                        const ids = getRowIds(result)
+                        return !!ids && expandedGenerationIds.has(ids.uuid)
+                    },
                     onRowExpand: ({ result }: DataTableRow) => {
-                        if (Array.isArray(result) && result[0] && result[1]) {
-                            toggleGenerationExpanded(result[0] as string, result[1] as string)
+                        const ids = getRowIds(result)
+                        if (ids) {
+                            toggleGenerationExpanded(ids.uuid, ids.traceId)
                         }
                     },
                     onRowCollapse: ({ result }: DataTableRow) => {
-                        if (Array.isArray(result) && result[0] && result[1]) {
-                            toggleGenerationExpanded(result[0] as string, result[1] as string)
+                        const ids = getRowIds(result)
+                        if (ids) {
+                            toggleGenerationExpanded(ids.uuid, ids.traceId)
                         }
                     },
                     noIndent: true,
