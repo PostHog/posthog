@@ -1,6 +1,7 @@
 from posthog.temporal.data_imports.sources.shopify.queries.fragments import (
     COUNT_FRAGMENT,
     METAFIELD_CONNECTIONS_FRAGMENT,
+    NODE_CONNECTION_ID_FRAGMENT,
 )
 
 COLLECTIONS_SORTKEY = "UPDATED_AT"
@@ -35,11 +36,7 @@ query PaginatedCollections($pageSize: Int!, $cursor: String, $query: String) {{
             handle
             id
             metafields(first: 250) {METAFIELD_CONNECTIONS_FRAGMENT}
-            products(first: 250) {{
-                nodes {{
-                    id
-                }}
-            }}
+            products(first: 250) {NODE_CONNECTION_ID_FRAGMENT}
             productsCount {COUNT_FRAGMENT}
             ruleSet {{
                 appliedDisjunctively
