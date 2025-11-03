@@ -63,7 +63,7 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
 
     # Get all customer/revenue item pairs from the existing views making sure we ignore `all`
     # since the `persons` join is in the child view
-    all_views = defaultdict[str, dict[type[RevenueAnalyticsBaseView], RevenueAnalyticsBaseView]](defaultdict)
+    all_views = defaultdict[str, dict[DatabaseSchemaManagedViewTableKind, RevenueAnalyticsBaseView]](defaultdict)
     for view_name in context.database.get_view_names():
         view = cast(SavedQuery | RevenueAnalyticsBaseView, context.database.get_table(view_name))
         prefix = ".".join(view_name.split(".")[:-1])

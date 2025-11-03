@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from django.db import models, transaction
 
@@ -36,11 +36,8 @@ class ExpectedView:
 
 
 class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
-    class Kind(models.TextChoices):
-        REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
-
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    kind = models.CharField(max_length=64, choices=Kind.choices)
+    kind = models.CharField(max_length=64, choices=DataWarehouseManagedViewSetKind.choices)
 
     class Meta:
         constraints = [
@@ -77,7 +74,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         if self.kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
             expected_views = self._get_expected_views_for_revenue_analytics()
         else:
-            raise DataWarehouseManagedViewSet.UnsupportedViewsetKind(self.kind)
+            raise DataWarehouseManagedViewSet.UnsupportedViewsetKind(cast(DataWarehouseManagedViewSetKind, self.kind))
 
         # NOTE: Views that depend on other views MUST be placed AFTER the views they depend on
         # or else we'll fail to build the paths properly.
