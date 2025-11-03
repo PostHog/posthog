@@ -179,7 +179,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         return notebook_version
 
     def test_can_list_all_activity(self) -> None:
-        res = self.client.get(f"/api/projects/{self.team.id}/activity_log")
+        res = self.client.get(f"/api/projects/{self.team.id}/activity_log?include_organization_scoped=1")
 
         assert res.status_code == status.HTTP_200_OK
         assert len(res.json()["results"]) == 39
