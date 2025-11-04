@@ -12,16 +12,6 @@ import { actionsModel } from '~/models/actionsModel'
 
 import { ProductTab } from './common'
 
-/**
- * WebConversionGoal - Flexible conversion goal selector for Web Analytics
- *
- * Can be used in two modes:
- * 1. Web Analytics Dashboard mode: No props needed, uses webAnalyticsLogic
- * 2. Standalone mode: Pass value and onChange props
- *
- * This allows the component to be reused in Product Analytics insights.
- */
-
 export interface WebConversionGoalProps {
     value?: { actionId: number } | { customEventName: string } | null
     onChange?: (value: { actionId: number } | { customEventName: string } | null) => void
@@ -33,7 +23,6 @@ export const WebConversionGoal = ({
 }: WebConversionGoalProps = {}): JSX.Element | null => {
     const { isWindowLessThan } = useWindowSize()
 
-    // Always call hooks unconditionally (React Rules of Hooks)
     const { conversionGoal: logicConversionGoal, productTab } = useValues(webAnalyticsLogic)
     const { setConversionGoal: logicSetConversionGoal } = useActions(webAnalyticsLogic)
     const { actions } = useValues(actionsModel)

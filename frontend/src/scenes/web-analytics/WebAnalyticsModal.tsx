@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -21,6 +23,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
         productTab,
     } = useValues(webAnalyticsLogic)
     const { modal } = useValues(webAnalyticsModalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { setDates } = useActions(webAnalyticsLogic)
     const { closeModal } = useActions(webAnalyticsModalLogic)
@@ -56,7 +59,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                     />
                 </LemonModal.Content>
                 <div className="flex flex-row justify-end">
-                    {modal.canOpenInsight ? (
+                    {modal.canOpenInsight && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT] ? (
                         <LemonButton
                             to={urls.insightNew({ query: modal.query, sceneSource: 'web-analytics' })}
                             icon={<IconOpenInNew />}

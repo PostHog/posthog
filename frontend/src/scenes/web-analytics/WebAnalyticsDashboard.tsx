@@ -106,10 +106,11 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 
     const { openModal } = useActions(webAnalyticsModalLogic)
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const buttonsRow = [
         <WebAnalyticsExport key="export-button" query={query} insightProps={insightProps} />,
-        tile.canOpenInsight ? (
+        tile.canOpenInsight && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT] ? (
             <LemonButton
                 key="open-insight-button"
                 to={getNewInsightUrl(tile.tileId)}
@@ -270,6 +271,7 @@ export const WebTabs = ({
     const { openModal } = useActions(webAnalyticsModalLogic)
     const { setTileVisualization } = useActions(webAnalyticsLogic)
     const { tileVisualizations } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const visualization = tileVisualizations[tileId]
 
     const isVisualizationToggleEnabled = [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
@@ -284,7 +286,7 @@ export const WebTabs = ({
                 insightProps={activeTabData.insightProps}
             />
         ) : null,
-        activeTab?.canOpenInsight && newInsightUrl ? (
+        activeTab?.canOpenInsight && newInsightUrl && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT] ? (
             <LemonButton
                 key="open-insight-button"
                 to={newInsightUrl}

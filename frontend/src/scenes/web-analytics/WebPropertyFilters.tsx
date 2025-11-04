@@ -15,9 +15,7 @@ import { AnyPropertyFilter } from '~/types'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 /**
- * WebPropertyFilters - Flexible property filter component for Web Analytics
- *
- * Can be used in two modes:
+ * As of today, this file can be used in two modes:
  * 1. Web Analytics Dashboard mode: No props needed, uses webAnalyticsLogic
  * 2. Standalone mode: Pass webAnalyticsFilters and setWebAnalyticsFilters props
  *
