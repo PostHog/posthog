@@ -122,7 +122,7 @@ async fn process_request_inner(
         tracing::debug!(
             "Team fetched: team_id={}, project_id={}",
             team.id,
-            team.project_id
+            team.project_id()
         );
 
         // Early exit if flags are disabled
@@ -147,7 +147,7 @@ async fn process_request_inner(
 
             let (filtered_flags, had_flag_errors) = flags::fetch_and_filter(
                 &flag_service,
-                team.project_id,
+                team.project_id(),
                 &context.meta,
                 &context.headers,
                 request.evaluation_runtime,
@@ -163,7 +163,7 @@ async fn process_request_inner(
             let mut response = flags::evaluate_for_request(
                 &context.state,
                 team.id,
-                team.project_id,
+                team.project_id(),
                 distinct_id.clone(),
                 filtered_flags.clone(),
                 property_overrides.person_properties,

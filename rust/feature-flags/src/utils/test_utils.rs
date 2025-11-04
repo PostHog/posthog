@@ -12,7 +12,7 @@ use anyhow::Error;
 use axum::async_trait;
 use common_database::{get_pool, Client, CustomDatabaseError};
 use common_redis::{Client as RedisClientTrait, RedisClient};
-use common_types::{PersonId, TeamId};
+use common_types::{PersonId, ProjectId, TeamId};
 use rand::{distributions::Alphanumeric, Rng};
 use serde_json::{json, Value};
 use sqlx::{pool::PoolConnection, Error as SqlxError, Postgres, Row};
@@ -35,7 +35,7 @@ pub async fn insert_new_team_in_redis(
     let token = random_string("phc_", 12);
     let team = Team {
         id,
-        project_id: i64::from(id),
+        project_id: Some(i64::from(id)),
         name: "team".to_string(),
         api_token: token,
         cookieless_server_hash_mode: Some(0),
@@ -57,7 +57,7 @@ pub async fn insert_new_team_in_redis(
 pub async fn insert_flags_for_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
     team_id: i32,
-    project_id: i64,
+    project_id: ProjectId,
     json_value: Option<String>,
 ) -> Result<(), Error> {
     let payload = match json_value {
@@ -318,7 +318,7 @@ pub async fn insert_new_team_in_pg(
     let token = random_string("phc_", 12);
     let team = Team {
         id,
-        project_id: id as i64,
+        project_id: Some(id as i64),
         name: "Test Team".to_string(),
         api_token: token.clone(),
         cookieless_server_hash_mode: Some(0),
@@ -1120,7 +1120,7 @@ impl TestContext {
         let id = rand::thread_rng().gen_range(0..10_000_000);
         let team = Team {
             id,
-            project_id: id as i64,
+            project_id: Some(id as i64),
             name: "Test Team".to_string(),
             api_token: public_token.clone(),
             cookieless_server_hash_mode: Some(0),
