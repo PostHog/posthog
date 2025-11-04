@@ -265,7 +265,7 @@ export function SourceFormComponent({
                     label="Table prefix (optional)"
                     help="Use only letters, numbers, and underscores. Must start with a letter or underscore."
                 >
-                    {({ value, onChange, error }) => {
+                    {({ value, onChange }) => {
                         const cleaned = value ? value.trim().replace(/^_+|_+$/g, '') : ''
                         let validationError = ''
 
