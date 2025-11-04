@@ -922,32 +922,22 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     kind: NodeKind.HogQLQuery,
                     query: `
                 SELECT
-                    ai_session_id as session_id,
-                    countDistinctIf(ai_trace_id, notEmpty(ai_trace_id)) as traces,
-                    countIf(event_type = '$ai_span') as spans,
-                    countIf(event_type = '$ai_generation') as generations,
-                    countIf(event_type = '$ai_embedding') as embeddings,
-                    countIf(notEmpty(ai_error) OR ai_is_error = 'true') as errors,
-                    round(sum(toFloat(ai_total_cost_usd)), 4) as total_cost,
-                    round(sum(toFloat(ai_latency)), 2) as total_latency,
+                    properties.$ai_session_id as session_id,
+                    countDistinctIf(properties.$ai_trace_id, isNotNull(properties.$ai_trace_id)) as traces,
+                    countIf(event = '$ai_span') as spans,
+                    countIf(event = '$ai_generation') as generations,
+                    countIf(event = '$ai_embedding') as embeddings,
+                    countIf(isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true') as errors,
+                    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) as total_cost,
+                    round(sum(toFloat(properties.$ai_latency)), 2) as total_latency,
                     min(timestamp) as first_seen,
                     max(timestamp) as last_seen
-                FROM (
-                    SELECT
-                        event as event_type,
-                        timestamp,
-                        JSONExtractString(properties, '$ai_session_id') as ai_session_id,
-                        JSONExtractRaw(properties, '$ai_trace_id') as ai_trace_id,
-                        JSONExtractRaw(properties, '$ai_total_cost_usd') as ai_total_cost_usd,
-                        JSONExtractRaw(properties, '$ai_latency') as ai_latency,
-                        JSONExtractRaw(properties, '$ai_error') as ai_error,
-                        JSONExtractString(properties, '$ai_is_error') as ai_is_error
-                    FROM events
-                    WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
-                        AND notEmpty(JSONExtractString(properties, '$ai_session_id'))
-                        AND {filters}
-                )
-                GROUP BY ai_session_id
+                FROM events
+                WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
+                    AND isNotNull(properties.$ai_session_id)
+                    AND properties.$ai_session_id != ''
+                    AND {filters}
+                GROUP BY properties.$ai_session_id
                 ORDER BY ${sessionsSort.column} ${sessionsSort.direction}
                 LIMIT 50
                     `,
