@@ -90,13 +90,16 @@ def create_bytecode(
     enclosing: Optional["BytecodeCompiler"] = None,
     in_repl: Optional[bool] = False,
     locals: Optional[list[Local]] = None,
+    cohort_membership_supported: Optional[bool] = False,
 ) -> CompiledBytecode:
     supported_functions = supported_functions or set()
     bytecode: list[Any] = []
     if args is None:
         bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
         bytecode.append(HOGQL_BYTECODE_VERSION)
-    compiler = BytecodeCompiler(supported_functions, args, context, enclosing, in_repl, locals)
+    compiler = BytecodeCompiler(
+        supported_functions, args, context, enclosing, in_repl, locals, cohort_membership_supported
+    )
     bytecode.extend(compiler.visit(expr))
     return CompiledBytecode(bytecode, locals=compiler.locals, upvalues=compiler.upvalues)
 
@@ -112,6 +115,7 @@ class BytecodeCompiler(Visitor):
         enclosing: Optional["BytecodeCompiler"] = None,
         in_repl: Optional[bool] = False,
         locals: Optional[list[Local]] = None,
+        cohort_membership_supported: Optional[bool] = False,
     ):
         super().__init__()
         self.enclosing = enclosing
@@ -122,6 +126,7 @@ class BytecodeCompiler(Visitor):
         self.upvalues: list[UpValue] = []
         self.scope_depth = 0
         self.args = args
+        self.cohort_membership_supported = cohort_membership_supported
         # we're in a function definition
         if args is not None:
             for arg in args:
@@ -192,15 +197,21 @@ class BytecodeCompiler(Visitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         operation = COMPARE_OPERATIONS[node.op]
         if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
-            cohort_name = ""
-            if isinstance(node.right, ast.Constant):
-                if isinstance(node.right.value, int):
-                    cohort_name = f" (cohort id={node.right.value})"
+            if self.cohort_membership_supported:
+                if operation == Operation.IN_COHORT:
+                    return self.visit(ast.Call(name="inCohort", args=[node.right]))
                 else:
-                    cohort_name = f" (cohort: {str(node.right.value)})"
-            raise QueryError(
-                f"Can't use cohorts in real-time filters. Please inline the relevant expressions{cohort_name}."
-            )
+                    return self.visit(ast.Call(name="notInCohort", args=[node.right]))
+            else:
+                cohort_name = ""
+                if isinstance(node.right, ast.Constant):
+                    if isinstance(node.right.value, int):
+                        cohort_name = f" (cohort id={node.right.value})"
+                    else:
+                        cohort_name = f" (cohort: {str(node.right.value)})"
+                raise QueryError(
+                    f"Can't use cohorts in real-time filters. Please inline the relevant expressions{cohort_name}."
+                )
         return [*self.visit(node.right), *self.visit(node.left), operation]
 
     def visit_between_expr(self, node: ast.BetweenExpr):
