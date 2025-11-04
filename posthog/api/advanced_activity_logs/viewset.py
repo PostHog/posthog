@@ -17,7 +17,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 from posthog.models import NotificationViewed
-from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
 
@@ -107,8 +107,6 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         return self.request.query_params.get("include_organization_scoped") == "1"
 
     def safely_get_queryset(self, queryset) -> QuerySet:
-        from posthog.models.activity_logging.activity_log import apply_activity_visibility_restrictions
-
         params = self.request.GET.dict()
 
         queryset = apply_organization_scoped_filter(
