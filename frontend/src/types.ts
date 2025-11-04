@@ -143,6 +143,7 @@ export enum AvailableFeature {
     ROLE_BASED_ACCESS = 'role_based_access',
     SOCIAL_SSO = 'social_sso',
     SAML = 'saml',
+    SCIM = 'scim',
     SSO_ENFORCEMENT = 'sso_enforcement',
     WHITE_LABELLING = 'white_labelling',
     COMMUNITY_SUPPORT = 'community_support',
@@ -482,6 +483,9 @@ export interface OrganizationDomainType {
     saml_entity_id: string
     saml_acs_url: string
     saml_x509_cert: string
+    scim_enabled?: boolean
+    scim_base_url?: string
+    scim_bearer_token?: string
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -689,6 +693,7 @@ export interface TeamType extends TeamBasicType {
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
+    receive_org_level_activity_logs: boolean | null
 }
 
 export interface ProductIntentType {
@@ -1185,6 +1190,7 @@ export enum SessionPlayerState {
     PAUSE = 'pause',
     SCRUB = 'scrub',
     SKIP = 'skip',
+    SKIP_TO_MATCHING_EVENT = 'skip_to_matching_event',
     ERROR = 'error',
 }
 
@@ -1382,6 +1388,7 @@ export type CreateGroupParams = {
 
 export interface MatchedRecordingEvent {
     uuid: string
+    timestamp: string
 }
 
 export interface MatchedRecording {
@@ -2465,7 +2472,7 @@ export type BreakdownType =
     | 'data_warehouse'
     | 'data_warehouse_person_property'
     | 'revenue_analytics'
-export type IntervalType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type IntervalType = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
 export type InsightSceneSource = 'web-analytics' | 'llm-analytics'
@@ -4554,6 +4561,7 @@ export type APIScopeObject =
     | 'hog_function'
     | 'insight'
     | 'integration'
+    | 'live_debugger'
     | 'notebook'
     | 'organization'
     | 'organization_member'
@@ -4570,10 +4578,10 @@ export type APIScopeObject =
     | 'survey'
     | 'task'
     | 'user'
+    | 'warehouse_table'
+    | 'warehouse_view'
     | 'web_analytics'
     | 'webhook'
-    | 'warehouse_view'
-    | 'warehouse_table'
 
 export type APIScopeAction = 'read' | 'write'
 
@@ -4670,6 +4678,7 @@ export enum ActivityScope {
     BATCH_IMPORT = 'BatchImport',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
+    PERSONAL_API_KEY = 'PersonalAPIKey',
     GROUP = 'Group',
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
@@ -4700,6 +4709,7 @@ export enum ActivityScope {
     EXTERNAL_DATA_SOURCE = 'ExternalDataSource',
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
+    HEATMAP = 'Heatmap',
 }
 
 export type CommentType = {
@@ -5213,6 +5223,7 @@ export type SDK = {
 export enum SDKKey {
     ANDROID = 'android',
     ANGULAR = 'angular',
+    ANTHROPIC = 'anthropic',
     ASTRO = 'astro',
     API = 'api',
     BUBBLE = 'bubble',
@@ -5224,6 +5235,7 @@ export enum SDKKey {
     FLUTTER = 'flutter',
     GATSBY = 'gatsby',
     GO = 'go',
+    GOOGLE_GEMINI = 'google_gemini',
     GOOGLE_TAG_MANAGER = 'google_tag_manager',
     HELICONE = 'helicone',
     HTML_SNIPPET = 'html',
@@ -5231,10 +5243,15 @@ export enum SDKKey {
     JAVA = 'java',
     JS_WEB = 'javascript_web',
     LARAVEL = 'laravel',
+    LANGCHAIN = 'langchain',
     LANGFUSE = 'langfuse',
+    LITELLM = 'litellm',
+    MANUAL_CAPTURE = 'manual_capture',
     NEXT_JS = 'nextjs',
     NODE_JS = 'nodejs',
     NUXT_JS = 'nuxtjs',
+    OPENAI = 'openai',
+    OPENROUTER = 'openrouter',
     PHP = 'php',
     PYTHON = 'python',
     REACT = 'react',
@@ -5249,6 +5266,7 @@ export enum SDKKey {
     SHOPIFY = 'shopify',
     SVELTE = 'svelte',
     TRACELOOP = 'traceloop',
+    VERCEL_AI = 'vercel_ai',
     VUE_JS = 'vuejs',
     WEBFLOW = 'webflow',
     WORDPRESS = 'wordpress',
@@ -5336,7 +5354,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.SURVEYS
     | ProductKey.DATA_WAREHOUSE
     | ProductKey.WEB_ANALYTICS
-    | ProductKey.ERROR_TRACKING,
+    | ProductKey.ERROR_TRACKING
+    | ProductKey.LLM_ANALYTICS,
     OnboardingProduct
 >
 
@@ -5446,6 +5465,7 @@ export type HogFunctionType = {
     id: string
     type: HogFunctionTypeType
     icon_url?: string
+    icon_class_name?: string // allow for overriding css styling on the icon case by case
     name: string
     description: string
     created_by: UserBasicType | null
@@ -5499,7 +5519,7 @@ export type HogFunctionSubTemplateType = Pick<
 
 export type HogFunctionTemplateType = Pick<
     HogFunctionType,
-    'id' | 'type' | 'name' | 'inputs_schema' | 'filters' | 'icon_url' | 'masking' | 'mappings'
+    'id' | 'type' | 'name' | 'inputs_schema' | 'filters' | 'icon_url' | 'icon_class_name' | 'masking' | 'mappings'
 > & {
     status: HogFunctionTemplateStatus
     free: boolean
@@ -5575,6 +5595,8 @@ export type CyclotronJobInvocationGlobals = {
         headers: Record<string, string>
         ip?: string
     }
+    // For HogFlows, workflow-level variables
+    variables?: Record<string, any>
 }
 
 export type CyclotronJobInvocationGlobalsWithInputs = Partial<CyclotronJobInvocationGlobals> & {
@@ -5860,6 +5882,39 @@ export interface DataWarehouseActivityRecord {
     finished_at: string | null
     latest_error: string | null
     workflow_run_id?: string
+}
+
+export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
+export type HeatmapStatus = 'processing' | 'completed' | 'failed'
+
+export interface HeatmapScreenshotType {
+    id: number
+    name: string
+    short_id: string
+    url: string
+    data_url: string | null
+    type: HeatmapType
+    width: number
+    status: HeatmapStatus
+    has_content: boolean
+    created_at: string
+    updated_at: string
+    exception?: string
+    error?: string // Added for error responses from content endpoint
+    created_by?: UserBasicType | null
+}
+
+export type HeatmapScreenshotContentResponse =
+    | { success: true; data: Response } // 200: PNG image data
+    | { success: false; data: HeatmapScreenshotType } // 202/404/501: JSON with screenshot metadata
+
+export interface HeatmapSavedFilters {
+    order: string
+    search: string
+    createdBy: number | 'All users'
+    page: number
+    limit: number
+    offset: number
 }
 
 export interface DataWarehouseDashboardDataSource {

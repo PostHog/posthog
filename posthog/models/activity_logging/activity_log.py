@@ -1,6 +1,6 @@
 import json
 import dataclasses
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union
 from uuid import UUID
 
 from django.conf import settings
@@ -51,6 +51,7 @@ ActivityScope = Literal[
     "ErrorTrackingIssue",
     "DataWarehouseSavedQuery",
     "Organization",
+    "OrganizationDomain",
     "OrganizationMembership",
     "Role",
     "UserGroup",
@@ -70,7 +71,7 @@ ActivityScope = Literal[
     "ExternalDataSource",
     "ExternalDataSchema",
 ]
-ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
+ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported", "revoked"]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -215,6 +216,9 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     ],
     "ExternalDataSource": [
         "job_inputs",
+    ],
+    "OrganizationDomain": [
+        "scim_bearer_token",
     ],
 }
 
@@ -411,6 +415,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "value",
         "secure_value",
         "last_used_at",
+        "last_rolled_at",
     ],
     "User": [
         "password",
@@ -642,6 +647,27 @@ def dict_changes_between(
     return changes
 
 
+def _handle_activity_log_transaction(create_fn, error_context: dict):
+    try:
+        # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
+        if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
+            transaction.on_commit(create_fn)
+            return None
+        else:
+            return create_fn()
+
+    except Exception as e:
+        logger.warn(
+            "activity_log.failed_to_write_to_activity_log",
+            **error_context,
+            exception=e,
+        )
+        capture_exception(e)
+        if settings.TEST:
+            raise
+        return None
+
+
 def log_activity(
     *,
     organization_id: Optional[UUID],
@@ -653,6 +679,7 @@ def log_activity(
     detail: Detail,
     was_impersonated: Optional[bool],
     force_save: bool = False,
+    instance_only: bool = False,
 ) -> ActivityLog | None:
     if was_impersonated and user is None:
         logger.warn(
@@ -675,8 +702,8 @@ def log_activity(
             )
             return None
 
-        def _do_log_activity():
-            return ActivityLog.objects.create(
+        def _create_activity_log_instance():
+            return ActivityLog(
                 organization_id=organization_id,
                 team_id=team_id,
                 user=user,
@@ -688,12 +715,32 @@ def log_activity(
                 detail=detail,
             )
 
-        # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
-        if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
-            transaction.on_commit(_do_log_activity)
-            return None
-        else:
-            return _do_log_activity()
+        def _do_log_activity():
+            log = _create_activity_log_instance()
+            return ActivityLog.objects.create(
+                organization_id=log.organization_id,
+                team_id=log.team_id,
+                user=log.user,
+                was_impersonated=log.was_impersonated,
+                is_system=log.is_system,
+                item_id=log.item_id,
+                scope=log.scope,
+                activity=log.activity,
+                detail=log.detail,
+            )
+
+        if instance_only:
+            return _create_activity_log_instance()
+
+        return _handle_activity_log_transaction(
+            _do_log_activity,
+            {
+                "team": team_id,
+                "organization_id": organization_id,
+                "scope": scope,
+                "activity": activity,
+            },
+        )
 
     except Exception as e:
         logger.warn(
@@ -704,12 +751,70 @@ def log_activity(
             activity=activity,
             exception=e,
         )
+        capture_exception(e)
         if settings.TEST:
-            # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
-            # as we currently don't treat activity logs as critical
             raise
+        return None
 
-    return None
+
+class LogActivityEntry(TypedDict, total=False):
+    organization_id: Optional[UUID]
+    team_id: Optional[int]
+    user: Optional["User"]
+    item_id: Optional[Union[int, str, UUID]]
+    scope: Required[str]
+    activity: Required[str]
+    detail: Required[Detail]
+    was_impersonated: Optional[bool]
+    force_save: bool
+
+
+def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500) -> list[ActivityLog]:
+    if not log_entries:
+        return []
+
+    activity_logs = []
+    dropped_count = 0
+    for entry in log_entries:
+        log = log_activity(**entry, instance_only=True)
+
+        if log:
+            activity_logs.append(log)
+        else:
+            dropped_count += 1
+            logger.info(
+                "bulk_log_activity.entry_dropped",
+                scope=entry.get("scope"),
+                activity=entry.get("activity"),
+                team_id=entry.get("team_id"),
+                organization_id=entry.get("organization_id"),
+            )
+
+    if dropped_count > 0:
+        logger.info(
+            "bulk_log_activity.entries_dropped",
+            total_entries=len(log_entries),
+            dropped_count=dropped_count,
+            created_count=len(activity_logs),
+        )
+
+    if not activity_logs:
+        return []
+
+    def _do_bulk_create():
+        return ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
+
+    result = _handle_activity_log_transaction(
+        _do_bulk_create,
+        {
+            "count": len(activity_logs),
+            "scope": "bulk_log_activity",
+            "activity": "bulk_create",
+            "log_entries": log_entries,
+        },
+    )
+
+    return result or []
 
 
 @dataclasses.dataclass(frozen=True)
@@ -774,23 +879,32 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
         # TODO: Move this into the producer to support dataclasses
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 
-        if created and instance.team_id is not None:
-            produce_internal_event(
-                team_id=instance.team_id,
-                event=InternalEventEvent(
-                    event="$activity_log_entry_created",
-                    distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
-                    properties=serialized_data,
-                ),
-                person=(
-                    InternalEventPerson(
-                        id=user_data["id"],
-                        properties=user_data,
-                    )
-                    if user_data
-                    else None
-                ),
-            )
+        if created:
+            if instance.team_id is not None:
+                produce_internal_event(
+                    team_id=instance.team_id,
+                    event=InternalEventEvent(
+                        event="$activity_log_entry_created",
+                        distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
+                        properties=serialized_data,
+                    ),
+                    person=(
+                        InternalEventPerson(
+                            id=user_data["id"],
+                            properties=user_data,
+                        )
+                        if user_data
+                        else None
+                    ),
+                )
+            elif instance.organization_id is not None:
+                from posthog.tasks.activity_log import broadcast_activity_log_to_organization
+
+                broadcast_activity_log_to_organization.delay(
+                    organization_id=instance.organization_id,
+                    serialized_data=serialized_data,
+                    user_data=user_data,
+                )
     except Exception as e:
         # We don't want to hard fail here.
         logger.exception("Failed to produce internal event", data=serialized_data, error=e)

@@ -1,4 +1,3 @@
-import json
 import datetime as dt
 from zoneinfo import ZoneInfo
 
@@ -33,6 +32,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
     def __init__(self, query, *args, **kwargs):
         # defensive copy of query because we mutate it
         super().__init__(query.model_copy(deep=True), *args, **kwargs)
+        assert isinstance(self.query, LogsQuery)
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,
@@ -109,7 +109,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                     "trace_id": result[1],
                     "span_id": result[2],
                     "body": result[3],
-                    "attributes": {k: json.loads(v) for k, v in result[4].items()},
+                    "attributes": result[4],
                     "timestamp": result[5].replace(tzinfo=ZoneInfo("UTC")),
                     "observed_timestamp": result[6].replace(tzinfo=ZoneInfo("UTC")),
                     "severity_text": result[7],
@@ -144,7 +144,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         query.order_by = [
             parse_order_expr("team_id"),
             parse_order_expr(f"time_bucket {order_dir}"),
-            parse_order_expr(f"toUnixTimestamp(timestamp) {order_dir}"),
             parse_order_expr(f"timestamp {order_dir}"),
         ]
         final_query = parse_select(
@@ -163,11 +162,11 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 resource_attributes,
                 instrumentation_scope,
                 event_name
-            FROM logs where (_part_starting_offset+_part_offset) in (select 1)
-        """
+            FROM logs where (_part_starting_offset+_part_offset) in ({query})
+        """,
+            placeholders={"query": query},
         )
         assert isinstance(final_query, ast.SelectQuery)
-        final_query.where.right = query  # type: ignore
         final_query.order_by = [parse_order_expr(f"timestamp {order_dir}")]
         return final_query
 
@@ -205,6 +204,14 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                     placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%")},
                 )
             )
+            # ip addresses are particularly bad at full text searches with our ngram 3 index
+            # match them separately against a materialized column of ip addresses
+            exprs.append(
+                parse_expr(
+                    "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
+                    placeholders={"searchTerm": ast.Constant(value=f"{self.query.searchTerm}")},
+                )
+            )
 
         if self.query.filterGroup:
             exprs.append(property_to_expr(self.query.filterGroup, team=self.team))
@@ -235,11 +242,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         )
 
         _step = (qdr.date_to() - qdr.date_from()) / 50
-        if _step < dt.timedelta(minutes=1):
-            _step = dt.timedelta(minutes=1)
-
-        _step = dt.timedelta(seconds=int(60 * round(_step.total_seconds() / 60)))
-        interval_type = IntervalType.MINUTE
+        interval_type = IntervalType.SECOND
 
         def find_closest(target, arr):
             if not arr:
@@ -251,7 +254,14 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         # set the number of intervals to a "round" number of minutes
         # it's hard to reason about the rate of logs on e.g. 13 minute intervals
         # the min interval is 1 minute and max interval is 1 day
-        interval_count = find_closest(_step.total_seconds() // 60, [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440])
+        interval_count = find_closest(
+            _step.total_seconds(),
+            [1, 5, 10] + [x * 60 for x in [1, 2, 5, 10, 15, 30, 60, 120, 240, 360, 720, 1440]],
+        )
+
+        if _step >= dt.timedelta(minutes=1):
+            interval_type = IntervalType.MINUTE
+            interval_count //= 60
 
         return QueryDateRange(
             date_range=self.query.dateRange,

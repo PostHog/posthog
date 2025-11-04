@@ -1,4 +1,5 @@
 import io
+import csv
 import gzip
 import json
 import typing
@@ -559,3 +560,87 @@ def remove_escaped_whitespace_recursive(value):
 
         case value:
             return value
+
+
+def ensure_curly_brackets_array(v: list[typing.Any]) -> str:
+    """Convert list to str and replace ends with curly braces for PostgreSQL arrays.
+
+    NOTE: This doesn't support nested arrays (i.e. multi-dimensional arrays).
+    """
+    str_list = str(v)
+    return f"{{{str_list[1:len(str_list)-1]}}}"
+
+
+class CSVStreamTransformer:
+    """A transformer to convert record batches into CSV/TSV format.
+
+    TODO: Do we need to support compression and use ProcessPoolExecutor?
+    """
+
+    def __init__(
+        self,
+        field_names: collections.abc.Sequence[str],
+        delimiter: str = ",",
+        quote_char: str = '"',
+        escape_char: str | None = "\\",
+        line_terminator: str = "\n",
+        quoting: typing.Literal[0, 1, 2, 3, 4, 5] = csv.QUOTE_NONE,
+        include_inserted_at: bool = False,
+    ):
+        self.field_names = field_names
+        self.delimiter = delimiter
+        self.quote_char = quote_char
+        self.escape_char = escape_char
+        self.line_terminator = line_terminator
+        self.quoting = quoting
+        self.include_inserted_at = include_inserted_at
+
+    async def iter(
+        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch], max_file_size_bytes: int = 0
+    ) -> collections.abc.AsyncIterator[Chunk]:
+        """Iterate over record batches transforming them into CSV chunks."""
+        current_file_size = 0
+
+        async for record_batch in record_batches:
+            chunk = await asyncio.to_thread(self.write_record_batch, record_batch)
+
+            yield Chunk(chunk, False)
+
+            if max_file_size_bytes and current_file_size + len(chunk) > max_file_size_bytes:
+                yield Chunk(b"", True)
+                current_file_size = 0
+
+            else:
+                current_file_size += len(chunk)
+
+        yield Chunk(b"", True)
+
+    def write_record_batch(self, record_batch: pa.RecordBatch) -> bytes:
+        """Write record batch to CSV bytes."""
+
+        column_names = list(self.field_names)
+        if not self.include_inserted_at and "_inserted_at" in column_names:
+            column_names.pop(column_names.index("_inserted_at"))
+
+        buffer = io.BytesIO()
+        text_wrapper = io.TextIOWrapper(buffer, encoding="utf-8", newline="")
+
+        writer = csv.DictWriter(
+            text_wrapper,
+            fieldnames=column_names,
+            extrasaction="ignore",
+            delimiter=self.delimiter,
+            quotechar=self.quote_char,
+            escapechar=self.escape_char,
+            quoting=self.quoting,
+            lineterminator=self.line_terminator,
+        )
+
+        rows = []
+        for record in record_batch.select(column_names).to_pylist():
+            rows.append({k: ensure_curly_brackets_array(v) if isinstance(v, list) else v for k, v in record.items()})
+
+        writer.writerows(rows)
+        text_wrapper.flush()
+
+        return buffer.getvalue()

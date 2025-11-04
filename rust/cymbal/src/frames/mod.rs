@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use common_types::error_tracking::{FrameData, FrameId};
+use common_types::error_tracking::{FrameData, FrameId, RawFrameId};
 use releases::ReleaseRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -9,8 +9,9 @@ use crate::{
     error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
-        custom::CustomFrame, go::RawGoFrame, hermes::RawHermesFrame, java::RawJavaFrame,
-        js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame, ruby::RawRubyFrame,
+        custom::CustomFrame, dart::RawDartFrame, go::RawGoFrame, hermes::RawHermesFrame,
+        java::RawJavaFrame, js::RawJSFrame, node::RawNodeFrame, python::RawPythonFrame,
+        ruby::RawRubyFrame,
     },
     metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},
     sanitize_string,
@@ -40,6 +41,8 @@ pub enum RawFrame {
     Hermes(RawHermesFrame),
     #[serde(rename = "java")]
     Java(RawJavaFrame),
+    #[serde(rename = "dart")]
+    Dart(RawDartFrame),
     #[serde(rename = "custom")]
     Custom(CustomFrame),
     // TODO - remove once we're happy no clients are using this anymore
@@ -48,30 +51,40 @@ pub enum RawFrame {
 }
 
 impl RawFrame {
-    pub async fn resolve(&self, team_id: i32, catalog: &Catalog) -> Result<Frame, UnhandledError> {
+    pub async fn resolve(
+        &self,
+        team_id: i32,
+        catalog: &Catalog,
+    ) -> Result<Vec<Frame>, UnhandledError> {
         let frame_resolve_time = common_metrics::timing_guard(PER_FRAME_TIME, &[]);
         let (res, lang_tag) = match self {
-            RawFrame::JavaScriptWeb(frame) => (frame.resolve(team_id, catalog).await, "javascript"),
+            RawFrame::JavaScriptWeb(frame) => {
+                (to_vec(frame.resolve(team_id, catalog).await), "javascript")
+            }
             RawFrame::LegacyJS(frame) => {
                 // TODO: monitor this metric and remove the legacy frame type when it hits 0
                 metrics::counter!(LEGACY_JS_FRAME_RESOLVED).increment(1);
-                (frame.resolve(team_id, catalog).await, "javascript")
+                (to_vec(frame.resolve(team_id, catalog).await), "javascript")
             }
             RawFrame::JavaScriptNode(frame) => {
-                (frame.resolve(team_id, catalog).await, "javascript")
+                (to_vec(frame.resolve(team_id, catalog).await), "javascript")
             }
-            RawFrame::Python(frame) => (Ok(frame.into()), "python"),
-            RawFrame::Ruby(frame) => (Ok(frame.into()), "ruby"),
-            RawFrame::Custom(frame) => (Ok(frame.into()), "custom"),
-            RawFrame::Go(frame) => (Ok(frame.into()), "go"),
-            RawFrame::Hermes(frame) => (frame.resolve(team_id, catalog).await, "hermes"),
-            RawFrame::Java(frame) => (Ok(frame.into()), "java"),
+
+            RawFrame::Dart(frame) => (to_vec(Ok(frame.into())), "dart"),
+            RawFrame::Python(frame) => (to_vec(Ok(frame.into())), "python"),
+            RawFrame::Ruby(frame) => (to_vec(Ok(frame.into())), "ruby"),
+            RawFrame::Custom(frame) => (to_vec(Ok(frame.into())), "custom"),
+            RawFrame::Go(frame) => (to_vec(Ok(frame.into())), "go"),
+            RawFrame::Hermes(frame) => (to_vec(frame.resolve(team_id, catalog).await), "hermes"),
+            RawFrame::Java(frame) => (frame.resolve(team_id, catalog).await, "java"),
         };
 
         // The raw id of the frame is set after it's resolved
-        let res = res.map(|mut f| {
-            f.raw_id = self.frame_id(team_id);
-            f
+        let res = res.map(|mut fs| {
+            fs.iter_mut()
+                .enumerate()
+                .for_each(|(index, f)| f.frame_id = self.frame_id(team_id, index));
+            fs
         });
 
         if res.is_err() {
@@ -89,16 +102,18 @@ impl RawFrame {
         match self {
             RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => frame.symbol_set_ref(),
             RawFrame::JavaScriptNode(frame) => frame.chunk_id.clone(),
-            RawFrame::Hermes(frame) => frame.chunk_id.clone(),
-            // TODO - Python and Go frames don't use symbol sets for frame resolution, but could still use "marker" symbol set
-            // to associate a given frame with a given release (basically, a symbol set with no data, just some id,
-            // which we'd then use to do a join on the releases table to get release information)
-            RawFrame::Python(_) | RawFrame::Ruby(_) | RawFrame::Go(_) | RawFrame::Java(_) => None,
-            RawFrame::Custom(_) => None,
+            RawFrame::Hermes(frame) => frame.symbol_set_ref(),
+            RawFrame::Java(frame) => frame.symbol_set_ref(),
+            // Frames with no symbol sets
+            RawFrame::Python(_)
+            | RawFrame::Ruby(_)
+            | RawFrame::Go(_)
+            | RawFrame::Dart(_)
+            | RawFrame::Custom(_) => None,
         }
     }
 
-    pub fn frame_id(&self, team_id: i32) -> FrameId {
+    pub fn raw_id(&self, team_id: i32) -> RawFrameId {
         let hash_id = match self {
             RawFrame::JavaScriptWeb(raw) | RawFrame::LegacyJS(raw) => raw.frame_id(),
             RawFrame::JavaScriptNode(raw) => raw.frame_id(),
@@ -108,9 +123,14 @@ impl RawFrame {
             RawFrame::Custom(raw) => raw.frame_id(),
             RawFrame::Hermes(raw) => raw.frame_id(),
             RawFrame::Java(raw) => raw.frame_id(),
+            RawFrame::Dart(raw) => raw.frame_id(),
         };
 
-        FrameId::new(hash_id, team_id)
+        RawFrameId::new(hash_id, team_id)
+    }
+
+    pub fn frame_id(&self, team_id: i32, index: usize) -> FrameId {
+        self.raw_id(team_id).to_full(index as i32)
     }
 
     pub fn is_suspicious(&self) -> bool {
@@ -124,9 +144,9 @@ impl RawFrame {
 // We emit a single, unified representation of a frame, which is what we pass on to users.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Frame {
-    // Properties used in processing
-    #[serde(flatten)]
-    pub raw_id: FrameId, // The raw frame id this was resolved from
+    // Renamed for legacy reasons - resolved frames have a full FrameId, not a RawFrameId
+    #[serde(rename = "raw_id")]
+    pub frame_id: FrameId, // The frame id this was resolved from. This has a custom serde impl to be string represented, and drops team_id on serialization
     pub mangled_name: String, // Mangled name of the function
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u32>, // Line the function is define on, if known
@@ -179,7 +199,7 @@ pub struct ContextLine {
 impl FingerprintComponent for Frame {
     fn update(&self, fp: &mut FingerprintBuilder) {
         let get_part = |s: &FrameId, p: Vec<&str>| FingerprintRecordPart::Frame {
-            raw_id: s.raw_id.to_string(),
+            raw_id: s.to_string(),
             pieces: p.into_iter().map(String::from).collect(),
         };
 
@@ -201,7 +221,7 @@ impl FingerprintComponent for Frame {
             fp.update(resolved.as_bytes());
             included_pieces.push("Resolved function name");
 
-            fp.add_part(get_part(&self.raw_id, included_pieces));
+            fp.add_part(get_part(&self.frame_id, included_pieces));
             return;
         }
 
@@ -221,7 +241,7 @@ impl FingerprintComponent for Frame {
 
         fp.update(self.lang.as_bytes());
         included_pieces.push("Language");
-        fp.add_part(get_part(&self.raw_id, included_pieces));
+        fp.add_part(get_part(&self.frame_id, included_pieces));
     }
 }
 
@@ -258,7 +278,7 @@ impl ContextLine {
 
 impl std::fmt::Display for Frame {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Frame {}:", self.raw_id.raw_id)?;
+        writeln!(f, "Frame {}:", self.frame_id)?;
 
         // Function name and location
         write!(
@@ -325,7 +345,7 @@ impl std::fmt::Display for Frame {
 impl From<Frame> for FrameData {
     fn from(frame: Frame) -> Self {
         FrameData {
-            raw_id: frame.raw_id.raw_id,
+            frame_id: frame.frame_id.clone(),
             synthetic: frame.synthetic,
             resolved_name: frame.resolved_name,
             mangled_name: frame.mangled_name,
@@ -337,6 +357,10 @@ impl From<Frame> for FrameData {
             lang: frame.lang,
         }
     }
+}
+
+fn to_vec<T, E>(item: Result<T, E>) -> Result<Vec<T>, E> {
+    item.map(|t| vec![t])
 }
 
 #[cfg(test)]

@@ -32,7 +32,8 @@ pub struct InjectArgs {
     pub project: Option<String>,
 
     /// The version of the project - this can be a version number, semantic version, or a git commit hash. Required
-    /// to have the uploaded chunks associated with a specific release.
+    /// to have the uploaded chunks associated with a specific release. We will try to auto-derive this from git information
+    /// if not provided.
     #[arg(long)]
     pub version: Option<String>,
 }
