@@ -7,3 +7,9 @@ posthog/clickhouse/migrations/** @PostHog/clickhouse
 # HogQL team owns HogQL changes 
 
 posthog/hogql/** @PostHog/hogql
+
+# Platform (the `/flags` and `/decide` endpoints + associated utils)
+
+rust/feature-flags/ @PostHog/team-feature-flags
+posthog/api/decide.py @PostHog/team-feature-flags
+posthog/models/flag_matching.py @PostHog/team-feature-flags
