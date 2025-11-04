@@ -39,6 +39,7 @@ impl CacheConfig {
 }
 
 /// Indicates where a cached value came from and what operations were performed
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheSource {
     // Value found cases
