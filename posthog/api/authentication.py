@@ -267,8 +267,9 @@ class LoginSerializer(serializers.Serializer):
         if not was_authenticated_before_login_attempt:
             short_user_agent = get_short_user_agent(request)
             ip_address = get_ip_address(request)
+            backend_name = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
             login_from_new_device_notification.delay(
-                user.id, timezone.now(), short_user_agent, ip_address, "email_password"
+                user.id, timezone.now(), short_user_agent, ip_address, backend_name
             )
 
         report_user_logged_in(user, social_provider="")
