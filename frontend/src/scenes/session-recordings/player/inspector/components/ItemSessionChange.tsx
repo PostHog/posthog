@@ -5,7 +5,11 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { InspectorListSessionChange } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { urls } from 'scenes/urls'
 
-export function ItemSessionChange({ item }: { item: InspectorListSessionChange }): JSX.Element | null {
+export interface ItemSessionChangeProps {
+    item: InspectorListSessionChange
+}
+
+export function ItemSessionChange({ item }: ItemSessionChangeProps): JSX.Element | null {
     const targetSession = item.data.previousSessionId || item.data.nextSessionId
 
     if (!targetSession) {
