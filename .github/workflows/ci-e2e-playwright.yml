@@ -357,12 +357,14 @@ jobs:
               id: create-tar
               if: (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
               run: |
-                  cd playwright
                   # Check if there are any changed files first
-                  CHANGED_FILES=$(git diff --name-only --diff-filter=AM . | wc -l)
+                  CHANGED_FILES=$(git diff --name-only --diff-filter=AM playwright/ | wc -l)
                   if [ "$CHANGED_FILES" -gt 0 ]; then
                     # Create tar of only git-modified files (added or modified)
-                    git diff --name-only --diff-filter=AM . | tar -czf /tmp/playwright-snapshots.tar.gz -T -
+                    # Use -C to change directory for tar, so paths are relative
+                    git diff --name-only --diff-filter=AM playwright/ | \
+                      sed 's|^playwright/||' | \
+                      tar -czf /tmp/playwright-snapshots.tar.gz -C playwright -T -
                     echo "Created tar with $CHANGED_FILES changed screenshot(s)"
                     echo "has-changes=true" >> $GITHUB_OUTPUT
                   else
