@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_warehouse", "0003_backfill_partition_format"),
+        ("data_warehouse", "0005_dwh_anchor_time_reset"),
     ]
 
     operations = [
