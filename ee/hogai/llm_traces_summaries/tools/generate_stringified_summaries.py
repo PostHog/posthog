@@ -74,8 +74,7 @@ class LLMTraceSummarizerGenerator:
         # Limit to 10 concurrent API calls
         semaphore = asyncio.Semaphore(10)
         async with asyncio.TaskGroup() as tg:
-            limit = 100  # TODO: Temporary limit to test
-            for trace_id, stringified_trace in list(stringified_traces.items())[:limit]:
+            for trace_id, stringified_trace in list(stringified_traces.items()):
                 if trace_id in existing_trace_ids:
                     # Avoid re-generating summaries that already exist for this team + trace + type
                     continue
