@@ -65,7 +65,7 @@ class DeepResearchAssistant(BaseAssistant):
             stream_processor=AssistantStreamProcessor(
                 verbose_nodes=VERBOSE_NODES,
                 streaming_nodes=STREAMING_NODES,
-                visualization_nodes=set(),
+                state_type=DeepResearchState,
             ),
         )
 

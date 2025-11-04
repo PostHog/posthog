@@ -5,7 +5,7 @@ from posthog.models import Team, User
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.utils.types import PartialStateType, StateType
-from ee.hogai.utils.types.base import AssistantGraphName, NodePath
+from ee.hogai.utils.types.base import AssistantGraphName
 
 from .nodes import StateClassMixin, TaxonomyAgentNode, TaxonomyAgentToolsNode
 from .toolkit import TaxonomyAgentToolkit
@@ -21,12 +21,11 @@ class TaxonomyAgent(
         self,
         team: Team,
         user: User,
-        node_path: tuple[NodePath, ...],
         loop_node_class: type["TaxonomyAgentNode"],
         tools_node_class: type["TaxonomyAgentToolsNode"],
         toolkit_class: type["TaxonomyAgentToolkit"],
     ):
-        super().__init__(team, user, node_path)
+        super().__init__(team, user)
         self._loop_node_class = loop_node_class
         self._tools_node_class = tools_node_class
         self._toolkit_class = toolkit_class

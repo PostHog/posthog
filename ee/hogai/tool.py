@@ -18,6 +18,7 @@ from posthog.models import Team, User
 import products
 
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.graph.base.context import get_node_path, set_node_path
 from ee.hogai.graph.mixins import AssistantContextMixin, AssistantDispatcherMixin
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 
@@ -109,10 +110,9 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         super().__init__(**tool_kwargs, **kwargs)
         self._team = team
         self._user = user
-        self._node_path = (
-            *(node_path or ()),
-            NodePath(name=f"max_tool.{self.get_name()}", message_id=None, tool_call_id=None),
-        )
+        if node_path is None:
+            node_path = get_node_path()
+        self._node_path = node_path or ()
         self._state = state if state else AssistantState(messages=[])
         self._config = config if config else RunnableConfig(configurable={})
         self._context_manager = context_manager or AssistantContextManager(team, user, self._config)
@@ -130,18 +130,34 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         CONTEXTUAL_TOOL_NAME_TO_TOOL[accepted_name] = cls
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
+        """LangChain default runner."""
         try:
-            return self._run_impl(*args, **kwargs)
+            return self._run_with_context(*args, **kwargs)
         except NotImplementedError:
             pass
-        return async_to_sync(self._arun_impl)(*args, **kwargs)
+        return async_to_sync(self._arun_with_context)(*args, **kwargs)
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
+        """LangChain default runner."""
         try:
-            return await self._arun_impl(*args, **kwargs)
+            return await self._arun_with_context(*args, **kwargs)
         except NotImplementedError:
             pass
         return await super()._arun(*args, config=config, **kwargs)
+
+    def _run_with_context(self, *args, **kwargs):
+        """Sets the context for the tool."""
+        with set_node_path(self.node_path):
+            return self._run_impl(*args, **kwargs)
+
+    async def _arun_with_context(self, *args, **kwargs):
+        """Sets the context for the tool."""
+        with set_node_path(self.node_path):
+            return await self._arun_impl(*args, **kwargs)
+
+    @property
+    def node_name(self) -> str:
+        return f"max_tool.{self.get_name()}"
 
     @property
     def context(self) -> dict:
@@ -182,7 +198,6 @@ class MaxSubtool(AssistantDispatcherMixin, ABC):
         *,
         team: Team,
         user: User,
-        node_path: tuple[NodePath, ...],
         state: AssistantState,
         config: RunnableConfig,
         context_manager: AssistantContextManager,
@@ -191,8 +206,11 @@ class MaxSubtool(AssistantDispatcherMixin, ABC):
         self._user = user
         self._state = state
         self._context_manager = context_manager
-        self._node_path = node_path
 
     @abstractmethod
     async def execute(self, *args, **kwargs) -> Any:
         pass
+
+    @property
+    def node_name(self) -> str:
+        return f"max_subtool.{self.__class__.__name__}"

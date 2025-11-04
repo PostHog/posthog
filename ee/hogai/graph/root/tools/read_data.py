@@ -103,7 +103,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 billing_tool = ReadBillingTool(
                     team=self._team,
                     user=self._user,
-                    node_path=self._node_path,
                     state=self._state,
                     config=self._config,
                     context_manager=self._context_manager,

@@ -1,4 +1,4 @@
-from typing import Protocol, cast, get_args
+from typing import Generic, Protocol, TypeVar, cast, get_args
 
 import structlog
 from langchain_core.messages import AIMessageChunk
@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 from ee.hogai.utils.helpers import normalize_ai_message, should_output_assistant_message
-from ee.hogai.utils.state import is_message_update, merge_message_chunk
+from ee.hogai.utils.state import is_message_update, is_state_update, merge_message_chunk
 from ee.hogai.utils.types.base import (
     AssistantDispatcherEvent,
     AssistantGraphName,
@@ -55,7 +55,10 @@ class AssistantStreamProcessorProtocol(Protocol):
         self._streamed_update_ids.add(message_id)
 
 
-class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
+StateType = TypeVar("StateType", bound=BaseStateWithMessages)
+
+
+class AssistantStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateType]):
     """
     Reduces streamed actions to client-facing messages.
 
@@ -67,12 +70,14 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
     """Nodes that emit messages."""
     _streaming_nodes: set[MaxNodeName]
     """Nodes that produce streaming messages."""
-    _tool_call_id_to_message: dict[str, AssistantMessage]
-    """Maps tool call IDs to their parent messages for message chain tracking."""
     _chunks: dict[str, AIMessageChunk]
     """Tracks the current message chunk."""
+    _state: StateType | None
+    """Tracks the current state."""
+    _state_type: type[StateType]
+    """The type of the state."""
 
-    def __init__(self, verbose_nodes: set[MaxNodeName], streaming_nodes: set[MaxNodeName]):
+    def __init__(self, verbose_nodes: set[MaxNodeName], streaming_nodes: set[MaxNodeName], state_type: type[StateType]):
         """
         Initialize the stream processor with node configuration.
 
@@ -83,9 +88,10 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         # If a node is streaming node, it should also be verbose.
         self._verbose_nodes = verbose_nodes | streaming_nodes
         self._streaming_nodes = streaming_nodes
-        self._tool_call_id_to_message = {}
         self._streamed_update_ids = set()
         self._chunks = {}
+        self._state_type = state_type
+        self._state = None
 
     def process(self, event: AssistantDispatcherEvent) -> list[AssistantResultUnion] | None:
         """
@@ -134,11 +140,16 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
             )
             return self.process(action)
 
+        if is_state_update(event.update):
+            new_state = self._state_type.model_validate(event.update[1])
+            self._state = new_state
+
         return None
 
     def _handle_message(
         self, action: AssistantDispatcherEvent, message: AssistantMessageUnion
     ) -> AssistantResultUnion | None:
+        """Handle a message from a node."""
         node_name = cast(MaxNodeName, action.node_name)
 
         # Set the parent tool call id on the message if it's required,
@@ -162,6 +173,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         return produced_message
 
     def _is_message_from_nested_node_or_graph(self, node_path: tuple[NodePath, ...]) -> bool:
+        """Check if the message is from a nested node or graph."""
         if not node_path:
             return False
         # The first path is always the top-level graph.
@@ -192,12 +204,11 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
         if not parent_path:
             return None
 
-        message_id = parent_path.message_id
         tool_call_id = parent_path.tool_call_id
-        if not message_id or not tool_call_id:
-            return None
+        if tool_call_id and (message_id := self._find_message_id_by_tool_call_id(tool_call_id)):
+            return AssistantUpdateEvent(id=message_id, tool_call_id=tool_call_id, content=action.content)
 
-        return AssistantUpdateEvent(id=message_id, tool_call_id=tool_call_id, content=action.content)
+        return None
 
     def _handle_special_child_message(
         self, message: AssistantMessageUnion, node_name: MaxNodeName
@@ -246,6 +257,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
     def _handle_node_end(
         self, event: AssistantDispatcherEvent, action: NodeEndAction
     ) -> list[AssistantResultUnion] | None:
+        """Handle the end of a node. Reset the streaming chunks."""
         if not isinstance(action.state, BaseStateWithMessages):
             return None
         results: list[AssistantResultUnion] = []
@@ -260,3 +272,16 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol):
             ):
                 results.extend(new_event)
         return results
+
+    def _find_message_id_by_tool_call_id(self, tool_call_id: str) -> str | None:
+        """
+        Find the message ID by the tool call ID.
+        """
+        if not self._state or not self._state.messages:
+            return None
+        for message in reversed(self._state.messages):
+            if isinstance(message, AssistantMessage):
+                for tool_call in message.tool_calls or []:
+                    if tool_call.id == tool_call_id:
+                        return message.id
+        return None

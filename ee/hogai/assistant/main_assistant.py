@@ -81,7 +81,9 @@ class MainAssistant(BaseAssistant):
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
-            stream_processor=AssistantStreamProcessor(verbose_nodes=VERBOSE_NODES, streaming_nodes=STREAMING_NODES),
+            stream_processor=AssistantStreamProcessor(
+                verbose_nodes=VERBOSE_NODES, streaming_nodes=STREAMING_NODES, state_type=AssistantState
+            ),
         )
 
     def get_initial_state(self) -> AssistantState:

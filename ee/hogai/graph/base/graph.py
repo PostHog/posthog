@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Generic, Literal
+from collections.abc import Callable
+from functools import wraps
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from langgraph.graph.state import StateGraph
 
@@ -8,6 +10,7 @@ from posthog.models import Team, User
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, NodePath, PartialStateType, StateType
 
+from .context import get_node_path, set_node_path
 from .node import BaseAssistantNode
 
 if TYPE_CHECKING:
@@ -17,24 +20,39 @@ if TYPE_CHECKING:
 # Base checkpointer for all graphs
 global_checkpointer = DjangoCheckpointer()
 
+T = TypeVar("T")
+
+
+def with_node_path(func: Callable[..., T]) -> Callable[..., T]:
+    @wraps(func)
+    def wrapper(self, *args: Any, **kwargs: Any) -> T:
+        with set_node_path(self.node_path):
+            return func(self, *args, **kwargs)
+
+    return wrapper
+
 
 class BaseAssistantGraph(Generic[StateType, PartialStateType], ABC):
     _team: Team
     _user: User
     _graph: StateGraph
-    _node_path: tuple[NodePath, ...]
 
     def __init__(
         self,
         team: Team,
         user: User,
-        node_path: tuple[NodePath, ...],
     ):
         self._team = team
         self._user = user
-        self._graph = StateGraph(self.state_type)
         self._has_start_node = False
-        self._node_path = (*node_path, NodePath(name=self.graph_name.value))
+        self._graph = StateGraph(self.state_type)
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        # Wrap all public methods with the node path context
+        for name, method in cls.__dict__.items():
+            if callable(method) and not name.startswith("_") and name not in ("graph_name", "state_type", "node_path"):
+                setattr(cls, name, with_node_path(method))
 
     @property
     @abstractmethod
@@ -43,6 +61,11 @@ class BaseAssistantGraph(Generic[StateType, PartialStateType], ABC):
     @property
     @abstractmethod
     def graph_name(self) -> AssistantGraphName: ...
+
+    @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        node_path = get_node_path() or ()
+        return (*node_path, NodePath(name=self.graph_name.value))
 
     def add_edge(self, from_node: "MaxNodeName", to_node: "MaxNodeName"):
         if from_node == AssistantNodeName.START:

@@ -1,5 +1,5 @@
 import datetime
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Any, get_args, get_origin
 from uuid import UUID
 
@@ -197,13 +197,18 @@ class TaxonomyUpdateDispatcherNodeMixin:
         self.dispatcher.update(content)
 
 
-class AssistantDispatcherMixin:
+class AssistantDispatcherMixin(ABC):
     _node_path: tuple[NodePath, ...]
     _config: RunnableConfig | None
+    _dispatcher: AssistantDispatcher | None = None
 
     @property
     def node_path(self) -> tuple[NodePath, ...]:
-        return self._node_path
+        return (*self._node_path, NodePath(name=self.node_name))
+
+    @property
+    @abstractmethod
+    def node_name(self) -> str: ...
 
     @property
     def tool_call_id(self) -> str | None:
@@ -215,5 +220,5 @@ class AssistantDispatcherMixin:
         """Create a dispatcher for this node"""
         if self._dispatcher:
             return self._dispatcher
-        self._dispatcher = create_dispatcher_from_config(self._config or {}, self._node_path)
+        self._dispatcher = create_dispatcher_from_config(self._config or {}, self.node_path)
         return self._dispatcher

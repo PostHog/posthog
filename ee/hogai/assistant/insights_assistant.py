@@ -45,7 +45,7 @@ class InsightsAssistant(BaseAssistant):
             conversation,
             new_message=new_message,
             user=user,
-            graph=InsightsGraph(team, user, ()).compile_full_graph(),
+            graph=InsightsGraph(team, user).compile_full_graph(),
             state_type=AssistantState,
             partial_state_type=PartialAssistantState,
             mode=AssistantMode.INSIGHTS_TOOL,
@@ -55,7 +55,9 @@ class InsightsAssistant(BaseAssistant):
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
-            stream_processor=AssistantStreamProcessor(verbose_nodes=STREAMING_NODES, streaming_nodes=STREAMING_NODES),
+            stream_processor=AssistantStreamProcessor(
+                verbose_nodes=STREAMING_NODES, streaming_nodes=STREAMING_NODES, state_type=AssistantState
+            ),
         )
 
     def get_initial_state(self) -> AssistantState:

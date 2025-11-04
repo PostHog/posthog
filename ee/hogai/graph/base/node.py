@@ -12,8 +12,8 @@ from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context import AssistantContextManager
+from ee.hogai.graph.base.context import get_node_path, set_node_path
 from ee.hogai.graph.mixins import AssistantContextMixin, AssistantDispatcherMixin
-from ee.hogai.utils.dispatcher import AssistantDispatcher
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import find_start_message
 from ee.hogai.utils.types.base import (
@@ -31,11 +31,13 @@ from ee.models import Conversation
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, AssistantDispatcherMixin, ABC):
     _config: RunnableConfig | None = None
     _context_manager: AssistantContextManager | None = None
-    _dispatcher: AssistantDispatcher | None = None
+    _node_path: tuple[NodePath, ...]
 
     def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
         self._team = team
         self._user = user
+        if node_path is None:
+            node_path = get_node_path()
         self._node_path = node_path or ()
 
     async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
@@ -54,9 +56,9 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
             raise GenerationCanceled
 
         try:
-            new_state = await self.arun(state, config)
+            new_state = await self._arun_with_context(state, config)
         except NotImplementedError:
-            new_state = await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
+            new_state = await database_sync_to_async(self._run_with_context, thread_sensitive=False)(state, config)
 
         self.dispatcher.dispatch(NodeEndAction(state=new_state))
 
@@ -68,6 +70,14 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
 
     async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         raise NotImplementedError
+
+    def _run_with_context(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
+        with set_node_path(self.node_path):
+            return self.run(state, config)
+
+    async def _arun_with_context(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
+        with set_node_path(self.node_path):
+            return await self.arun(state, config)
 
     @property
     def context_manager(self) -> AssistantContextManager:
@@ -82,6 +92,13 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
                 config = self._config
             self._context_manager = AssistantContextManager(self._team, self._user, config)
         return self._context_manager
+
+    @property
+    def node_name(self) -> str:
+        config_name: str | None = None
+        if self._config:
+            config_name = self._config["metadata"].get("langgraph_node")
+        return config_name or self.__class__.__name__
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)

@@ -90,11 +90,10 @@ class SessionReplayFilterOptionsGraph(
 ):
     """Graph for generating filtering options for session replay."""
 
-    def __init__(self, team: Team, user: User, tool_call_id: str):
+    def __init__(self, team: Team, user: User):
         super().__init__(
             team,
             user,
-            tool_call_id=tool_call_id,
             loop_node_class=SessionReplayFilterNode,
             tools_node_class=SessionReplayFilterOptionsToolsNode,
             toolkit_class=SessionReplayFilterOptionsToolkit,
@@ -126,12 +125,12 @@ class SearchSessionRecordingsTool(MaxTool):
     context_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
 
-    async def _invoke_graph(self, change: str, tool_call_id: str) -> dict[str, Any] | Any:
+    async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """
         Reusable method to call graph to avoid code/prompt duplication and enable
         different processing of the results, based on the place the tool is used.
         """
-        graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user, tool_call_id=tool_call_id)
+        graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
         user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
         graph_context = {

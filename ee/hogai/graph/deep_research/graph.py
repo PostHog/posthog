@@ -1,8 +1,5 @@
 from typing import Literal, Optional
 
-from posthog.models.team.team import Team
-from posthog.models.user import User
-
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlanningNode
@@ -16,9 +13,6 @@ from ee.hogai.utils.types.base import AssistantGraphName
 
 
 class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState, PartialDeepResearchState]):
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user, ())
-
     @property
     def graph_name(self) -> AssistantGraphName:
         return AssistantGraphName.DEEP_RESEARCH
@@ -32,7 +26,7 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState, PartialDe
     ):
         builder = self._graph
         self._has_start_node = True
-        deep_research_onboarding = DeepResearchOnboardingNode(self._team, self._user, self._node_path)
+        deep_research_onboarding = DeepResearchOnboardingNode(self._team, self._user)
         builder.add_node(DeepResearchNodeName.ONBOARDING, deep_research_onboarding)
         builder.add_conditional_edges(
             DeepResearchNodeName.START,
@@ -49,7 +43,7 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState, PartialDe
     def add_notebook_nodes(self, next_node: DeepResearchNodeName = DeepResearchNodeName.PLANNER):
         builder = self._graph
 
-        deep_research_notebook_planning = DeepResearchNotebookPlanningNode(self._team, self._user, self._node_path)
+        deep_research_notebook_planning = DeepResearchNotebookPlanningNode(self._team, self._user)
         builder.add_node(DeepResearchNodeName.NOTEBOOK_PLANNING, deep_research_notebook_planning)
         builder.add_edge(DeepResearchNodeName.NOTEBOOK_PLANNING, next_node)
 
@@ -57,8 +51,8 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState, PartialDe
 
     def add_planner_nodes(self, next_node: DeepResearchNodeName = DeepResearchNodeName.REPORT):
         builder = self._graph
-        deep_research_planner = DeepResearchPlannerNode(self._team, self._user, self._node_path)
-        deep_research_planner_tools = DeepResearchPlannerToolsNode(self._team, self._user, self._node_path)
+        deep_research_planner = DeepResearchPlannerNode(self._team, self._user)
+        deep_research_planner_tools = DeepResearchPlannerToolsNode(self._team, self._user)
         builder.add_node(DeepResearchNodeName.PLANNER, deep_research_planner)
         builder.add_node(DeepResearchNodeName.PLANNER_TOOLS, deep_research_planner_tools)
         builder.add_edge(DeepResearchNodeName.PLANNER, DeepResearchNodeName.PLANNER_TOOLS)
@@ -78,14 +72,14 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState, PartialDe
         """
         Add the core task executor node that handles task execution.
         """
-        executor_node = DeepResearchTaskExecutorNode(self._team, self._user, self._node_path)
+        executor_node = DeepResearchTaskExecutorNode(self._team, self._user)
         self.add_node(DeepResearchNodeName.TASK_EXECUTOR, executor_node)
         self.add_edge(DeepResearchNodeName.TASK_EXECUTOR, next_node)
         return self
 
     def add_report_node(self, next_node: DeepResearchNodeName = DeepResearchNodeName.END):
         builder = self._graph
-        deep_research_report = DeepResearchReportNode(self._team, self._user, self._node_path)
+        deep_research_report = DeepResearchReportNode(self._team, self._user)
         builder.add_node(DeepResearchNodeName.REPORT, deep_research_report)
         builder.add_edge(DeepResearchNodeName.REPORT, next_node)
         return self
@@ -93,7 +87,7 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState, PartialDe
     def add_title_generator(self, end_node: DeepResearchNodeName = DeepResearchNodeName.END):
         self._has_start_node = True
 
-        title_generator = TitleGeneratorNode(self._team, self._user, self._node_path)
+        title_generator = TitleGeneratorNode(self._team, self._user)
         self._graph.add_node(DeepResearchNodeName.TITLE_GENERATOR, title_generator)
         self._graph.add_edge(DeepResearchNodeName.START, DeepResearchNodeName.TITLE_GENERATOR)
         self._graph.add_edge(DeepResearchNodeName.TITLE_GENERATOR, end_node)

@@ -406,10 +406,8 @@ class RootNodeTools(AssistantNode):
         tool_class = await ToolClass.create_tool_class(
             team=self._team,
             user=self._user,
-            node_path=(
-                *self._node_path,
-                NodePath(name=AssistantNodeName.ROOT_TOOLS, message_id=last_message.id, tool_call_id=tool_call.id),
-            ),
+            # Tricky: set the node path to associated with the tool call
+            node_path=(*self.node_path, NodePath(name=AssistantNodeName.ROOT_TOOLS, tool_call_id=tool_call.id)),
             state=state,
             config=config,
             context_manager=self.context_manager,

@@ -35,7 +35,6 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.tool = ReadBillingTool(
             team=self.team,
             user=self.user,
-            node_path=(),
             state=AssistantState(messages=[], root_tool_call_id=str(uuid4())),
             config=RunnableConfig(configurable={}),
             context_manager=AssistantContextManager(self.team, self.user, {}),

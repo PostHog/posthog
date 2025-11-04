@@ -110,7 +110,6 @@ class SearchTool(MaxTool):
             docs_tool = InkeepDocsSearchTool(
                 team=self._team,
                 user=self._user,
-                node_path=self._node_path,
                 state=self._state,
                 config=self._config,
                 context_manager=self._context_manager,
@@ -121,7 +120,6 @@ class SearchTool(MaxTool):
             insights_tool = InsightSearchTool(
                 team=self._team,
                 user=self._user,
-                node_path=self._node_path,
                 state=self._state,
                 config=self._config,
                 context_manager=self._context_manager,
@@ -134,7 +132,6 @@ class SearchTool(MaxTool):
         entity_search_toolkit = EntitySearchTool(
             team=self._team,
             user=self._user,
-            node_path=self._node_path,
             state=self._state,
             config=self._config,
             context_manager=self._context_manager,
@@ -196,7 +193,7 @@ class InkeepDocsSearchTool(MaxSubtool):
         from ee.hogai.graph.inkeep_docs.nodes import InkeepDocsNode
 
         # Init the graph
-        node = InkeepDocsNode(self._team, self._user, self._node_path)
+        node = InkeepDocsNode(self._team, self._user)
         chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
         copied_state = self._state.model_copy(deep=True, update={"root_tool_call_id": tool_call_id})
         result = await chain.ainvoke(copied_state)
@@ -256,7 +253,7 @@ The user doesn't have any insights created yet.
 class InsightSearchTool(MaxSubtool):
     async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
         try:
-            node = InsightSearchNode(self._team, self._user, self._node_path)
+            node = InsightSearchNode(self._team, self._user)
             copied_state = self._state.model_copy(
                 deep=True, update={"search_insights_query": query, "root_tool_call_id": tool_call_id}
             )

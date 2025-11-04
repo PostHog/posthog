@@ -77,9 +77,7 @@ class WithInsightCreationTaskExecution:
         )
 
         subgraph_result_messages: list[AssistantMessageUnion] = []
-        assistant_graph = InsightsGraph(
-            self._team, self._user, tool_call_id=self._parent_tool_call_id
-        ).compile_full_graph()
+        assistant_graph = InsightsGraph(self._team, self._user).compile_full_graph()
         try:
             async for chunk in assistant_graph.astream(
                 input_state,
@@ -194,9 +192,7 @@ class WithInsightSearchTaskExecution:
         )
 
         try:
-            result = await InsightSearchNode(self._team, self._user, tool_call_id=self._parent_tool_call_id).arun(
-                input_state, config
-            )
+            result = await InsightSearchNode(self._team, self._user).arun(input_state, config)
 
             if not result or not result.messages:
                 logger.warning("Task failed: no messages received from node executor", task_id=task.id)
