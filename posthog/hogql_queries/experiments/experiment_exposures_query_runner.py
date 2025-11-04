@@ -28,7 +28,6 @@ from posthog.hogql_queries.experiments.experiment_query_builder import (
 from posthog.hogql_queries.experiments.exposure_query_logic import get_entity_key
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.experiment import Experiment
 
 QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * variants)
 
@@ -42,11 +41,6 @@ class ExperimentExposuresQueryRunner(QueryRunner):
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
-
-        try:
-            self.experiment = Experiment.objects.get(id=self.query.experiment_id)
-        except Experiment.DoesNotExist:
-            raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
 
         feature_flag_key = self.query.feature_flag.get("key")
         if not isinstance(feature_flag_key, str) or not feature_flag_key:
