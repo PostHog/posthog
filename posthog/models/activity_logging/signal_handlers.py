@@ -14,6 +14,7 @@ from loginas.utils import is_impersonated_session
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
+from posthog.utils import get_ip_address, get_short_user_agent
 
 logger = structlog.get_logger(__name__)
 
@@ -141,11 +142,8 @@ def _determine_login_method(request, was_impersonated, user):
 def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # noqa: ARG001
     try:
         was_impersonated, log_user, item_id, _ = _detect_impersonation_for_login(user, request)
-        ip_address = request.META.get("HTTP_X_FORWARDED_FOR", request.META.get("REMOTE_ADDR", ""))
-        if ip_address and "," in ip_address:
-            ip_address = ip_address.split(",")[0].strip()
-
-        user_agent = request.META.get("HTTP_USER_AGENT", "")
+        ip_address = get_ip_address(request)
+        user_agent = get_short_user_agent(request)
         reauth_sensitive_ops = request.session.get("reauth") == "true"
 
         organization_id = user.current_organization_id
@@ -186,11 +184,8 @@ def log_user_logout_activity(sender, user, request: HttpRequest, **kwargs):  # n
     try:
         was_impersonated, log_user, item_id = _get_logout_user_context(user, request)
 
-        ip_address = request.META.get("HTTP_X_FORWARDED_FOR", request.META.get("REMOTE_ADDR", ""))
-        if ip_address and "," in ip_address:
-            ip_address = ip_address.split(",")[0].strip()
-
-        user_agent = request.META.get("HTTP_USER_AGENT", "")
+        ip_address = get_ip_address(request)
+        user_agent = get_short_user_agent(request)
 
         organization_id = user.current_organization_id
 
