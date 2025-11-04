@@ -1,10 +1,10 @@
-from copy import deepcopy
 import json
 import uuid
 import asyncio
 import dataclasses
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager, contextmanager
+from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -68,7 +68,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
     EnrichedSessionGroupSummaryPatternStats,
     RawSessionGroupSummaryPatternsList,
 )
-from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
+from ee.models.session_summaries import SingleSessionSummary
 
 pytestmark = pytest.mark.django_db
 
@@ -196,12 +196,6 @@ async def test_validate_llm_single_session_summary_with_videos_activity_standalo
     updated_summary["key_actions"][1]["events"][1]["exception"] = "non-blocking"
     updated_summary["key_actions"][1]["events"][1]["description"] = "Something not so bad happened"
     # Simulate an updated summary and run metadata
-    updated_summary_serializer = SessionSummarySerializer(data=updated_summary)
-    updated_run_metadata = SessionSummaryRunMeta(
-        model_used=SESSION_SUMMARIES_SYNC_MODEL,
-        visual_confirmation=True,
-        visual_confirmation_results=[],
-    )
     mocket_video_validator.validate_session_summary_with_videos = mocker.AsyncMock(return_value=None)
     # Execute the activity and verify results
     with (
