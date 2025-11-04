@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0898_hogflow_variables"),
+        ("posthog", "0899_add_cohort_type"),
     ]
 
     operations = [
