@@ -199,7 +199,7 @@ async fn process_request_inner(
             request_id = %context.request_id,
             distinct_id = %distinct_id_for_logging,
             team_id = team.id,
-            project_id = team.project_id,
+            project_id = team.project_id(),
             flags_count = response.flags.len(),
             flags_disabled = request.is_flags_disabled(),
             quota_limited = response.quota_limited.is_some(),

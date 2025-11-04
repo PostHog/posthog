@@ -293,7 +293,7 @@ async fn insert_team_group_mappings(
         .bind(group_type)
         .bind(group_type_index)
         .bind(team.id)
-        .bind(team.project_id)
+        .bind(team.project_id())
         .execute(&mut *persons_conn)
         .await?;
         assert_eq!(res.rows_affected(), 1);
@@ -336,7 +336,7 @@ pub async fn insert_new_team_in_pg(
         (id, organization_id, name, created_at) VALUES
         ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#,
     )
-    .bind(team.project_id)
+    .bind(team.project_id())
     .bind(org_id)
     .bind(&team.name)
     .execute(&mut *non_persons_conn)
@@ -348,7 +348,7 @@ pub async fn insert_new_team_in_pg(
         r#"INSERT INTO posthog_team
         (id, uuid, organization_id, project_id, api_token, name, created_at, updated_at, app_urls, anonymize_ips, completed_snippet_onboarding, ingested_event, session_recording_opt_in, is_demo, access_control, test_account_filters, timezone, data_attributes, plugins_opt_in, opt_out_capture, event_names, event_names_with_usage, event_properties, event_properties_with_usage, event_properties_numerical, cookieless_server_hash_mode, base_currency, session_recording_retention_period, web_analytics_pre_aggregated_tables_enabled) VALUES
         ($1, $2, $3::uuid, $4, $5, $6, '2024-06-17 14:40:51.332036+00:00', '2024-06-17', '{}', false, false, false, false, false, false, '{}', 'UTC', '["data-attr"]', false, false, '[]', '[]', '[]', '[]', '[]', $7, 'USD', '30d', false)"#
-    ).bind(team.id).bind(uuid).bind(org_id).bind(team.project_id).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode.unwrap_or(0)).execute(&mut *non_persons_conn).await?;
+    ).bind(team.id).bind(uuid).bind(org_id).bind(team.project_id()).bind(&team.api_token).bind(&team.name).bind(team.cookieless_server_hash_mode.unwrap_or(0)).execute(&mut *non_persons_conn).await?;
     assert_eq!(res.rows_affected(), 1);
 
     // Insert group type mappings
@@ -1138,7 +1138,7 @@ impl TestContext {
             (id, organization_id, name, created_at) VALUES
             ($1, $2::uuid, $3, '2024-06-17 14:40:51.332036+00:00')"#,
         )
-        .bind(team.project_id)
+        .bind(team.project_id())
         .bind(ORG_ID)
         .bind(&team.name)
         .execute(&mut *conn)
@@ -1169,7 +1169,7 @@ impl TestContext {
             .bind(team.id)
             .bind(uuid)
             .bind(ORG_ID)
-            .bind(team.project_id)
+            .bind(team.project_id())
             .bind(&team.api_token)
             .bind(&secret_token);
 
@@ -1223,7 +1223,7 @@ impl TestContext {
         let mut conn = self.non_persons_reader.get_connection().await?;
         let org_id: uuid::Uuid =
             sqlx::query_scalar("SELECT organization_id FROM posthog_project WHERE id = $1")
-                .bind(team.project_id)
+                .bind(team.project_id())
                 .fetch_one(&mut *conn)
                 .await?;
         Ok(org_id)
