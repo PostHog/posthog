@@ -399,17 +399,13 @@ class ExperimentQueryBuilder:
         Supports both regular events and data warehouse sources.
         """
         assert isinstance(self.metric, ExperimentMeanMetric)
-        is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
 
-        if is_dw:
-            assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
-            table = self.metric.source.table_name
-            timestamp_field = f"{table}.{self.metric.source.timestamp_field}"
-            join_condition = "{join_condition}"
-        else:
-            table = "events"
-            timestamp_field = "timestamp"
-            join_condition = "exposures.entity_id = metric_events.entity_id"
+        # Get table configuration for the metric source
+        config = self._get_table_config(self.metric.source)
+        table = config["table"]
+        timestamp_field = config["timestamp_field"]
+        is_dw = config["is_dw"]
+        join_condition = "{join_condition}" if is_dw else "exposures.entity_id = metric_events.entity_id"
 
         return f"""
             exposures AS (
@@ -446,7 +442,12 @@ class ExperimentQueryBuilder:
         Supports both regular events and data warehouse sources.
         """
         assert isinstance(self.metric, ExperimentMeanMetric)
-        is_dw = isinstance(self.metric.source, ExperimentDataWarehouseNode)
+
+        # Get table configuration for the metric source
+        config = self._get_table_config(self.metric.source)
+        table = config["table"]
+        entity_field = config["entity_field"]
+        is_dw = config["is_dw"]
 
         # Build exposure query with exposure_identifier for data warehouse
         exposure_query = self._build_exposure_select_query()
@@ -461,14 +462,6 @@ class ExperimentQueryBuilder:
             )
             if exposure_query.group_by:
                 exposure_query.group_by.append(ast.Field(chain=events_join_key_parts))
-
-        if is_dw:
-            assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
-            table = self.metric.source.table_name
-            entity_field = self.metric.source.data_warehouse_join_key
-        else:
-            table = "events"
-            entity_field = self.entity_key
 
         placeholders: dict = {
             "exposure_select_query": exposure_query,
@@ -843,31 +836,18 @@ class ExperimentQueryBuilder:
         """
         assert isinstance(self.metric, ExperimentRatioMetric)
 
-        # Check if we're dealing with data warehouse sources
-        num_is_dw = isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
-        denom_is_dw = isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
+        # Get table configuration for numerator and denominator
+        num_config = self._get_table_config(self.metric.numerator)
+        num_table = num_config["table"]
+        num_entity_field = num_config["entity_field"]
+        num_timestamp_field = f"{num_table}.{self.metric.numerator.timestamp_field if isinstance(self.metric.numerator, ExperimentDataWarehouseNode) else 'timestamp'}"
+        num_is_dw = num_config["is_dw"]
 
-        # Build numerator events CTE
-        if num_is_dw:
-            assert isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
-            num_table = self.metric.numerator.table_name
-            num_entity_field = f"{self.metric.numerator.data_warehouse_join_key}"
-            num_timestamp_field = f"{num_table}.{self.metric.numerator.timestamp_field}"
-        else:
-            num_table = "events"
-            num_entity_field = self.entity_key
-            num_timestamp_field = f"{num_table}.timestamp"
-
-        # Build denominator events CTE
-        if denom_is_dw:
-            assert isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
-            denom_table = self.metric.denominator.table_name
-            denom_entity_field = f"{self.metric.denominator.data_warehouse_join_key}"
-            denom_timestamp_field = f"{denom_table}.{self.metric.denominator.timestamp_field}"
-        else:
-            denom_table = "events"
-            denom_entity_field = self.entity_key
-            denom_timestamp_field = f"{denom_table}.timestamp"
+        denom_config = self._get_table_config(self.metric.denominator)
+        denom_table = denom_config["table"]
+        denom_entity_field = denom_config["entity_field"]
+        denom_timestamp_field = f"{denom_table}.{self.metric.denominator.timestamp_field if isinstance(self.metric.denominator, ExperimentDataWarehouseNode) else 'timestamp'}"
+        denom_is_dw = denom_config["is_dw"]
 
         # Build exposure query with conditional exposure_identifier(s)
         exposure_query = self._build_exposure_select_query()
