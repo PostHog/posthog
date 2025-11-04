@@ -247,6 +247,25 @@ async function takeSnapshotWithTheme(
         await page.waitForTimeout(1000)
     }
 
+    // reset scroll positions to ensure consistent snapshots
+    await page.evaluate(() => {
+        // scroll main viewport to top
+        window.scrollTo(0, 0)
+        // scroll all overflow containers to top
+        document.querySelectorAll('[style*="overflow"]').forEach((el) => {
+            if (el instanceof HTMLElement) {
+                el.scrollTop = 0
+                el.scrollLeft = 0
+            }
+        })
+        document.querySelectorAll('.overflow-auto, .overflow-y-auto, .overflow-x-auto').forEach((el) => {
+            if (el instanceof HTMLElement) {
+                el.scrollTop = 0
+                el.scrollLeft = 0
+            }
+        })
+    })
+
     // wait for content to stabilize - detects when DOM stops changing
     await page
         .waitForFunction(
@@ -254,15 +273,32 @@ async function takeSnapshotWithTheme(
                 return new Promise<boolean>((resolve) => {
                     let lastHeight = document.body.scrollHeight
                     let lastWidth = document.body.scrollWidth
+                    let lastClientHeight = document.body.clientHeight
                     let stableCount = 0
 
                     const checkStability = (): void => {
                         const currentHeight = document.body.scrollHeight
                         const currentWidth = document.body.scrollWidth
+                        const currentClientHeight = document.body.clientHeight
 
-                        if (currentHeight === lastHeight && currentWidth === lastWidth) {
+                        // also check for any elements with explicit height calculations still in progress
+                        const flexElements = document.querySelectorAll('.flex-1, [class*="flex-"]')
+                        const allFlexSettled = Array.from(flexElements).every((el) => {
+                            if (el instanceof HTMLElement) {
+                                const rect = el.getBoundingClientRect()
+                                return rect.height > 0 && rect.width > 0
+                            }
+                            return true
+                        })
+
+                        if (
+                            currentHeight === lastHeight &&
+                            currentWidth === lastWidth &&
+                            currentClientHeight === lastClientHeight &&
+                            allFlexSettled
+                        ) {
                             stableCount++
-                            if (stableCount >= 3) {
+                            if (stableCount >= 5) {
                                 resolve(true)
                                 return
                             }
@@ -270,6 +306,7 @@ async function takeSnapshotWithTheme(
                             stableCount = 0
                             lastHeight = currentHeight
                             lastWidth = currentWidth
+                            lastClientHeight = currentClientHeight
                         }
 
                         setTimeout(checkStability, 100)
@@ -278,7 +315,7 @@ async function takeSnapshotWithTheme(
                     checkStability()
                 })
             },
-            { timeout: 3000 }
+            { timeout: 4000 }
         )
         .catch(() => {
             // if content keeps changing, that's okay - we'll proceed anyway
