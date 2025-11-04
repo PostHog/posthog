@@ -12,6 +12,7 @@ import structlog
 from loginas import settings as la_settings
 from loginas.utils import is_impersonated_session
 
+from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
 from posthog.utils import get_ip_address, get_short_user_agent
@@ -96,44 +97,14 @@ def _detect_impersonation_for_login(user, request):
     return False, user, str(user.id), "normal"
 
 
-def _determine_login_method(request, was_impersonated, user):
+def _determine_login_method(request, was_impersonated):
     """Determine the login method based on the request and impersonation status."""
 
-    login_method = "email_password"
-
     if was_impersonated:
-        login_method = "impersonation"
-    elif hasattr(request, "session") and request.session:
-        backend = None
-        for key in ["backend", "social_auth_last_login_backend", "partial_pipeline_backend"]:
-            if key in request.session:
-                backend = request.session[key]
-                break
+        return "Impersonation"
 
-        if backend:
-            backend_lower = backend.lower()
-            if "github" in backend_lower:
-                login_method = "github_sso"
-            elif "gitlab" in backend_lower:
-                login_method = "gitlab_sso"
-            elif "google" in backend_lower:
-                login_method = "google_sso"
-            elif "saml" in backend_lower:
-                login_method = "saml"
-            else:
-                login_method = "sso"
-        else:
-            if user.social_auth.exists():
-                providers = list(user.social_auth.values_list("provider", flat=True))
-                most_recent_provider = providers[-1].lower() if providers else ""
-                if "github" in most_recent_provider:
-                    login_method = "github_sso"
-                elif "gitlab" in most_recent_provider:
-                    login_method = "gitlab_sso"
-                elif "google" in most_recent_provider:
-                    login_method = "google_sso"
-                else:
-                    login_method = "sso"
+    backend = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
+    login_method = AUTH_BACKEND_DISPLAY_NAMES.get(backend, "Email/password")
 
     return login_method
 
@@ -163,7 +134,7 @@ def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # no
                 name=user.email,
                 changes=[],
                 context=UserLoginContext(
-                    login_method=_determine_login_method(request, was_impersonated, user),
+                    login_method=_determine_login_method(request, was_impersonated),
                     ip_address=ip_address,
                     user_agent=user_agent,
                     reauth=reauth,
