@@ -369,7 +369,7 @@ class GeminiVideoUnderstandingProvider:
             response = await self.client.aio.models.generate_content(
                 model=self.model_id,
                 contents=contents,
-                # TODO: Add trace ID, when PostHog wrapper supports async
+                # Add trace ID, when PostHog wrapper supports async
             )
             return response.text
         except APIError as e:
