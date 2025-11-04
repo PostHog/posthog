@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonCollapse, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse } from '@posthog/lemon-ui'
 
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import {
@@ -73,14 +73,12 @@ export function SelectorQualityWarning({
                 <div className="text-warning text-xl shrink-0">{icon}</div>
                 <div className="text-primary text-xs grow">
                     {issueText}. {firstRecommendation}.{' '}
-                    <Link
-                        to="https://posthog.com/docs/toolbar#2-element-filters"
-                        target="_blank"
-                        disableClientSideRouting
-                        className="text-link underline"
+                    <button
+                        onClick={() => window.open('https://posthog.com/docs/toolbar#2-element-filters', '_blank')}
+                        className="text-link underline cursor-pointer bg-transparent border-0 p-0"
                     >
                         Learn more
-                    </Link>
+                    </button>
                 </div>
             </div>
         )
@@ -148,14 +146,12 @@ export function SelectorQualityWarning({
                 )}
 
                 <div className="mt-3">
-                    <Link
-                        to="https://posthog.com/docs/toolbar#2-element-filters"
-                        target="_blank"
-                        disableClientSideRouting
-                        className="text-link underline"
+                    <button
+                        onClick={() => window.open('https://posthog.com/docs/toolbar#2-element-filters', '_blank')}
+                        className="text-link underline cursor-pointer bg-transparent border-0 p-0"
                     >
                         Learn more about selector best practices
-                    </Link>
+                    </button>
                 </div>
             </div>
         </LemonBanner>
