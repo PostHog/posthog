@@ -81,9 +81,38 @@ jobs:
                         - Dockerfile
                         - playwright/**
 
+    detect-snapshot-mode:
+        name: Detect snapshot mode
+        runs-on: ubuntu-latest
+        needs: [changes]
+        if: needs.changes.outputs.shouldRun == 'true'
+        outputs:
+            mode: ${{ steps.detect.outputs.mode }}
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 50
+
+            - name: Detect mode
+              id: detect
+              run: |
+                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+                    echo "mode=verify" >> $GITHUB_OUTPUT
+                    echo "Fork detected - running in VERIFY mode only"
+                  else
+                    MODE=$(.github/scripts/detect-snapshot-mode.sh)
+                    echo "mode=$MODE" >> $GITHUB_OUTPUT
+                    echo "Snapshot mode: $MODE"
+                    if [ "$MODE" = "check" ]; then
+                      echo "⚠️  Running in CHECK mode - snapshots must match exactly"
+                    else
+                      echo "✓ Running in UPDATE mode - snapshots can be updated"
+                    fi
+                  fi
+
     playwright:
         name: Playwright E2E tests
-        needs: [changes]
+        needs: [changes, detect-snapshot-mode]
         if: needs.changes.outputs.shouldRun == 'true'
         runs-on: depot-ubuntu-latest-16
         timeout-minutes: 30
@@ -306,29 +335,6 @@ jobs:
                   interval: 2000
                   verbose: true
 
-            # Detect whether to run in CHECK or UPDATE mode
-            # Human commit → UPDATE (can update snapshots)
-            # Bot commit → CHECK (must match exactly, prevents infinite loops)
-            # Forks always run in verify mode (no snapshot commits)
-            - name: Detect snapshot mode
-              id: snapshot-mode
-              if: needs.changes.outputs.shouldRun == 'true'
-              run: |
-                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
-                    echo "mode=verify" >> $GITHUB_OUTPUT
-                    echo "Fork detected - running in VERIFY mode only"
-                  else
-                    MODE=$(.github/scripts/detect-snapshot-mode.sh)
-                    echo "mode=$MODE" >> $GITHUB_OUTPUT
-                    echo "Snapshot mode: $MODE"
-                    if [ "$MODE" = "check" ]; then
-                      echo "⚠️  Running in CHECK mode - snapshots must match exactly"
-                      echo "Any snapshot differences will fail the workflow"
-                    else
-                      echo "✓ Running in UPDATE mode - snapshots can be updated"
-                    fi
-                  fi
-
             - name: Run Playwright tests
               continue-on-error: true
               id: playwright-tests
@@ -338,7 +344,7 @@ jobs:
                   # In CHECK mode, fail on snapshot mismatches
                   # In UPDATE mode, allow snapshot updates
                   # In VERIFY mode (forks), fail on mismatches
-                  if [ "${{ steps.snapshot-mode.outputs.mode }}" = "update" ]; then
+                  if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" = "update" ]; then
                     pnpm --filter=@posthog/playwright exec playwright test --workers=10 --update-snapshots
                   else
                     pnpm --filter=@posthog/playwright exec playwright test --workers=10
@@ -360,7 +366,7 @@ jobs:
             # In CHECK mode, test runner already failed if snapshots differ
             - name: Commit updated screenshots
               uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
-              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && steps.snapshot-mode.outputs.mode == 'update'
+              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
               id: commit
               with:
                   # Use -A flag to also stage deletions (when tests are removed)
@@ -386,7 +392,7 @@ jobs:
                   GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
               run: |
                   # Determine comment mode based on snapshot mode and test result
-                  if [ "${{ steps.snapshot-mode.outputs.mode }}" = "update" ]; then
+                  if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" = "update" ]; then
                     COMMENT_MODE="update"
                   elif [ "${{ steps.playwright-tests.outcome }}" = "success" ]; then
                     COMMENT_MODE="check"

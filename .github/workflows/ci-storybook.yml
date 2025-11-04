@@ -82,6 +82,35 @@ jobs:
                   path: common/storybook/dist
                   retention-days: 1
 
+    detect-snapshot-mode:
+        name: Detect snapshot mode
+        runs-on: ubuntu-latest
+        needs: [changes]
+        if: needs.changes.outputs.frontend == 'true'
+        outputs:
+            mode: ${{ steps.detect.outputs.mode }}
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 50
+
+            - name: Detect mode
+              id: detect
+              run: |
+                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+                    echo "mode=verify" >> $GITHUB_OUTPUT
+                    echo "Fork detected - running in VERIFY mode only"
+                  else
+                    MODE=$(.github/scripts/detect-snapshot-mode.sh)
+                    echo "mode=$MODE" >> $GITHUB_OUTPUT
+                    echo "Snapshot mode: $MODE"
+                    if [ "$MODE" = "check" ]; then
+                      echo "⚠️  Running in CHECK mode - snapshots must match exactly"
+                    else
+                      echo "✓ Running in UPDATE mode - snapshots can be updated"
+                    fi
+                  fi
+
     storybook-chromatic:
         name: Publish to Chromatic
         runs-on: ubuntu-latest
@@ -129,7 +158,7 @@ jobs:
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ubuntu-latest
-        needs: [changes, build-storybook]
+        needs: [changes, build-storybook, detect-snapshot-mode]
         if: needs.changes.outputs.frontend == 'true'
         timeout-minutes: 20
         container:
@@ -398,33 +427,11 @@ jobs:
                       exit 1
                   fi
 
-            # Detect whether to run in CHECK or UPDATE mode
-            # Human commit → UPDATE (can update snapshots)
-            # Bot commit → CHECK (must match exactly, prevents infinite loops)
-            # Forks always run in verify mode (no snapshot commits)
-            - name: Detect snapshot mode
-              id: snapshot-mode
-              run: |
-                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
-                    echo "mode=verify" >> $GITHUB_OUTPUT
-                    echo "Fork detected - running in VERIFY mode only"
-                  else
-                    MODE=$(.github/scripts/detect-snapshot-mode.sh)
-                    echo "mode=$MODE" >> $GITHUB_OUTPUT
-                    echo "Snapshot mode: $MODE"
-                    if [ "$MODE" = "check" ]; then
-                      echo "⚠️  Running in CHECK mode - snapshots must match exactly"
-                      echo "Any snapshot differences will fail the workflow"
-                    else
-                      echo "✓ Running in UPDATE mode - snapshots can be updated"
-                    fi
-                  fi
-
             - name: Run @storybook/test-runner (up to 3 attempts)
               id: test-runner
               env:
                   HOME: /root
-                  VARIANT: ${{ steps.snapshot-mode.outputs.mode == 'update' && 'update' || 'verify' }}
+                  VARIANT: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && 'update' || 'verify' }}
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
                   for i in 1 2 3; do
@@ -459,7 +466,7 @@ jobs:
             # In CHECK mode, test runner already failed if snapshots differ
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
-              if: github.event.pull_request.head.repo.full_name == github.repository && steps.snapshot-mode.outputs.mode == 'update'
+              if: github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
               id: commit
               with:
                   # Use -A flag to also stage deletions (when stories are removed)
@@ -487,7 +494,7 @@ jobs:
                   GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
               run: |
                   # Determine comment mode based on snapshot mode and test result
-                  if [ "${{ steps.snapshot-mode.outputs.mode }}" = "update" ]; then
+                  if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" = "update" ]; then
                     COMMENT_MODE="update"
                   elif [ "${{ steps.test-runner.outcome }}" = "success" ]; then
                     COMMENT_MODE="check"

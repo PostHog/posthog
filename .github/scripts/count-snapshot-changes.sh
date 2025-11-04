@@ -32,6 +32,9 @@ ADDED=$(grep '^A' /tmp/snapshot-diff.txt | wc -l | xargs)
 MODIFIED=$(grep '^M' /tmp/snapshot-diff.txt | wc -l | xargs)
 DELETED=$(grep '^D' /tmp/snapshot-diff.txt | wc -l | xargs)
 
+# Track which file to read from for JSON building
+DIFF_FILE="/tmp/snapshot-diff.txt"
+
 # Run OptiPNG if there are added or modified files
 if [ "$ADDED" -gt 0 ] || [ "$MODIFIED" -gt 0 ]; then
     echo "Running OptiPNG optimization on $((ADDED + MODIFIED)) files..." >&2
@@ -50,6 +53,7 @@ if [ "$ADDED" -gt 0 ] || [ "$MODIFIED" -gt 0 ]; then
 
     # Re-count after OptiPNG (may have eliminated some diffs)
     git diff --name-status "$SNAPSHOT_DIR" > /tmp/snapshot-diff-after.txt || true
+    DIFF_FILE="/tmp/snapshot-diff-after.txt"
     ADDED=$(grep '^A' /tmp/snapshot-diff-after.txt | wc -l | xargs)
     MODIFIED=$(grep '^M' /tmp/snapshot-diff-after.txt | wc -l | xargs)
     DELETED=$(grep '^D' /tmp/snapshot-diff-after.txt | wc -l | xargs)
@@ -85,7 +89,7 @@ while IFS= read -r line; do
         FILES+=",\"shard\":$shard"
     fi
     FILES+="}"
-done < /tmp/snapshot-diff-after.txt
+done < "$DIFF_FILE"
 FILES+="]"
 
 # Output JSON
