@@ -135,7 +135,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         if (hidePlayerElements) {
             setSkipInactivitySetting(false)
         }
-    }, [mode, setSkipInactivitySetting, setSpeed, hidePlayerElements, resolution])
+    }, [mode, setSkipInactivitySetting, hidePlayerElements, resolution])
 
     useEffect(
         () => {
