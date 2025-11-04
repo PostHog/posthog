@@ -69,10 +69,12 @@ class ExperimentQueryRunner(QueryRunner):
         self,
         *args,
         override_end_date: Optional[datetime] = None,
+        user_facing: bool = True,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.override_end_date = override_end_date
+        self.user_facing = user_facing
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
