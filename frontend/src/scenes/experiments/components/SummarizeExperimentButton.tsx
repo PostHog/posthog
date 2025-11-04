@@ -108,7 +108,7 @@ export function SummarizeExperimentButton(): JSX.Element | null {
             type="secondary"
             icon={<IconAI />}
         >
-            Summarize with AI
+            Summarize
         </LemonButton>
     )
 }

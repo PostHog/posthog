@@ -281,6 +281,7 @@ class AssistantTool(StrEnum):
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
+    CREATE_FEATURE_FLAG = "create_feature_flag"
 
 
 class AssistantToolCall(BaseModel):
@@ -1139,6 +1140,14 @@ class ErrorTrackingIssueAssigneeType(StrEnum):
     ROLE = "role"
 
 
+class ErrorTrackingIssueCohort(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: float
+    name: str
+
+
 class OrderBy1(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
@@ -1361,6 +1370,7 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
 
 
 class ExternalDataSourceType(StrEnum):
+    GITHUB = "Github"
     STRIPE = "Stripe"
     HUBSPOT = "Hubspot"
     POSTGRES = "Postgres"
@@ -1475,6 +1485,7 @@ class FileSystemIconType(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     TASK = "task"
     LINK = "link"
+    LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
@@ -1927,7 +1938,15 @@ class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    timestamp: str
     uuid: str
+
+
+class MatchingEventsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: list[MatchedRecordingEvent]
 
 
 class MaxActionContext(BaseModel):
@@ -2614,6 +2633,7 @@ class SessionData(BaseModel):
     event_uuid: str
     person_id: str
     session_id: str
+    timestamp: str
 
 
 class SessionEventsItem(BaseModel):
@@ -4308,6 +4328,7 @@ class LLMTrace(BaseModel):
     )
     aiSessionId: Optional[str] = None
     createdAt: str
+    errorCount: Optional[float] = None
     events: list[LLMTraceEvent]
     id: str
     inputCost: Optional[float] = None
@@ -8766,6 +8787,7 @@ class ErrorTrackingIssue(BaseModel):
     )
     aggregations: Optional[ErrorTrackingIssueAggregations] = None
     assignee: Optional[ErrorTrackingIssueAssignee] = None
+    cohort: Optional[ErrorTrackingIssueCohort] = None
     description: Optional[str] = None
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_event: Optional[FirstEvent] = None
@@ -8849,6 +8871,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
+    cohort: Optional[ErrorTrackingIssueCohort] = None
     description: Optional[str] = None
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_seen: datetime
@@ -11698,6 +11721,8 @@ class TracesQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     filterTestAccounts: Optional[bool] = None
+    groupKey: Optional[str] = None
+    groupTypeIndex: Optional[int] = None
     kind: Literal["TracesQuery"] = "TracesQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -12471,6 +12496,7 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
+    cohort: Optional[ErrorTrackingIssueCohort] = None
     description: Optional[str] = None
     event: str
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
@@ -13468,6 +13494,8 @@ class ErrorTrackingQuery(BaseModel):
     dateRange: DateRange
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
+    groupKey: Optional[str] = None
+    groupTypeIndex: Optional[int] = None
     issueId: Optional[str] = None
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: Optional[int] = None
@@ -15928,6 +15956,7 @@ class SourceConfig(BaseModel):
             SourceFieldSSHTunnelConfig,
         ]
     ]
+    iconClassName: Optional[str] = None
     iconPath: str
     label: Optional[str] = None
     name: ExternalDataSourceType
