@@ -36,15 +36,9 @@ class ClickhouseFunnel(ClickhouseFunnelBase):
         SELECT {self._get_count_columns(max_steps)} {self._get_step_time_avgs(max_steps)} {self._get_step_time_median(max_steps)} {breakdown_clause} FROM (
                 {self.get_step_counts_query()}
         ) {'GROUP BY prop' if breakdown_clause != '' else ''}
-        {'ORDER BY prop' if breakdown_clause != '' else ''}
-        {self.get_limit()}
+        {self._order_by(max_steps) if breakdown_clause != '' else ''}
+        {self._get_limit() if breakdown_clause != '' else ''}
         """
-
-    def get_limit(self):
-        if self._filter.limit:
-            return f"LIMIT {self._filter.limit}"
-        # TODO figure out some good default limit
-        return "LIMIT 1000"
 
     def get_step_counts_query(self):
         steps_per_person_query = self.get_step_counts_without_aggregation_query()
