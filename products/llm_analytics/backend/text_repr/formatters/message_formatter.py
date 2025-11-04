@@ -158,14 +158,27 @@ def safe_extract_text(content: Any) -> str:
 
     if isinstance(content, list):
         text_parts = []
-        for item in content:
+        prev_type = None
+        for i, item in enumerate(content):
             if isinstance(item, dict):
-                if item.get("type") == "text" and "text" in item:
-                    text_parts.append(item["text"])
-                elif "text" in item:
-                    text_parts.append(str(item["text"]))
+                item_type = item.get("type")
+                text_value = item.get("text")
+
+                if text_value:
+                    # Add spacing between content blocks only when type changes
+                    if i > 0 and text_parts and item_type != prev_type:
+                        text_parts.append("")  # Blank line separator
+
+                    # If we have a type and it's not just "text", label it
+                    if item_type and item_type != "text":
+                        text_parts.append(f"[{item_type.upper()}]")
+                        text_parts.append("")  # Blank line after label
+
+                    text_parts.append(str(text_value))
+                    prev_type = item_type
             elif isinstance(item, str):
                 text_parts.append(item)
+                prev_type = None
         if text_parts:
             return "\n".join(text_parts)
 
@@ -178,55 +191,65 @@ def extract_text_content(content: Any) -> str:
     Extract text content from various message content formats.
     Uses safe extraction with fallback for unparseable content.
     """
-    # Use safe extraction
-    extracted = safe_extract_text(content)
-
-    # Handle special cases that need inline formatting
+    # Handle special cases that need inline formatting (tool calls, etc)
     if isinstance(content, list):
-        text_parts: list[str] = []
-        for block in content:
-            if isinstance(block, dict):
-                # Handle tool-call type directly (format: {type: "tool-call", toolName, input})
-                if block.get("type") == "tool-call":
-                    tool_name = block.get("toolName", "unknown")
-                    tool_input = block.get("input", {})
-                    text_parts.append(format_single_tool_call(tool_name, tool_input))
-                    continue
+        # Check if any blocks need special handling (tool calls, functions, etc)
+        has_special_blocks = any(
+            isinstance(block, dict)
+            and (
+                block.get("type") in ("tool-call", "tool_use", "function")
+                or ("content" in block and isinstance(block["content"], dict) and "toolName" in block["content"])
+            )
+            for block in content
+        )
 
-                # Handle tool_use type (Anthropic format)
-                if block.get("type") == "tool_use":
-                    tool_name = block.get("name", "unknown")
-                    tool_input = block.get("input", {})
-                    text_parts.append(format_single_tool_call(tool_name, tool_input))
-                    continue
-
-                # Skip function blocks as they'll be handled separately
-                if block.get("type") == "function":
-                    continue
-
-                # Handle tool-call content for inline display
-                if "content" in block:
-                    block_content = block["content"]
-                    if isinstance(block_content, dict) and "toolName" in block_content:
-                        tool_name = block_content.get("toolName", "unknown")
-                        args = block_content.get("args", "")
-                        text_parts.append(format_single_tool_call(tool_name, args))
-                        continue
-                    # Handle tool-result content
-                    elif isinstance(block_content, dict) and "result" in block_content:
-                        tool_name = block_content.get("toolName", "unknown")
-                        text_parts.append(f"[Tool result: {tool_name}]")
+        # If we have special blocks, handle them individually
+        if has_special_blocks:
+            text_parts: list[str] = []
+            for block in content:
+                if isinstance(block, dict):
+                    # Handle tool-call type directly (format: {type: "tool-call", toolName, input})
+                    if block.get("type") == "tool-call":
+                        tool_name = block.get("toolName", "unknown")
+                        tool_input = block.get("input", {})
+                        text_parts.append(format_single_tool_call(tool_name, tool_input))
                         continue
 
-            # For regular blocks, use safe extraction
-            block_text = safe_extract_text(block)
-            if block_text and not block_text.startswith("[UNABLE_TO_PARSE"):
-                text_parts.append(block_text)
+                    # Handle tool_use type (Anthropic format)
+                    if block.get("type") == "tool_use":
+                        tool_name = block.get("name", "unknown")
+                        tool_input = block.get("input", {})
+                        text_parts.append(format_single_tool_call(tool_name, tool_input))
+                        continue
 
-        if text_parts:
-            return "\n".join(text_parts)
+                    # Skip function blocks as they'll be handled separately
+                    if block.get("type") == "function":
+                        continue
 
-    return extracted
+                    # Handle tool-call content for inline display
+                    if "content" in block:
+                        block_content = block["content"]
+                        if isinstance(block_content, dict) and "toolName" in block_content:
+                            tool_name = block_content.get("toolName", "unknown")
+                            args = block_content.get("args", "")
+                            text_parts.append(format_single_tool_call(tool_name, args))
+                            continue
+                        # Handle tool-result content
+                        elif isinstance(block_content, dict) and "result" in block_content:
+                            tool_name = block_content.get("toolName", "unknown")
+                            text_parts.append(f"[Tool result: {tool_name}]")
+                            continue
+
+                # For regular blocks, use safe extraction
+                block_text = safe_extract_text(block)
+                if block_text and not block_text.startswith("[UNABLE_TO_PARSE"):
+                    text_parts.append(block_text)
+
+            if text_parts:
+                return "\n".join(text_parts)
+
+    # Use safe extraction for non-special content (handles type labels for text/reasoning/etc)
+    return safe_extract_text(content)
 
 
 def format_input_messages(ai_input: Any, options: FormatterOptions | None = None) -> list[str]:
