@@ -116,13 +116,12 @@ class TeamManager(models.Manager):
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
         # Get organization to apply defaults
-        organization_id = kwargs.get("organization_id") or kwargs["organization"].id
-        organization = Organization.objects.get(id=organization_id)
+        organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
 
         # Apply organization-level IP anonymization default
         team.anonymize_ips = organization.default_anonymize_ips
 
-        team.test_account_filters = self.set_test_account_filters(organization_id)
+        team.test_account_filters = self.set_test_account_filters(organization.id)
 
         # Create default dashboards
         dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
