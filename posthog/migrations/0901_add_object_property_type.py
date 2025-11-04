@@ -9,15 +9,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddConstraint(
-            model_name="schemapropertygroupproperty",
-            constraint=models.CheckConstraint(
-                name="property_type_is_valid_schema_v2",
-                check=models.Q(
-                    ("property_type__in", ["DateTime", "String", "Numeric", "Boolean", "Duration", "Object"])
-                ),
-            ),
-        ),
         migrations.RemoveConstraint(
             model_name="schemapropertygroupproperty",
             name="property_type_is_valid_schema",
