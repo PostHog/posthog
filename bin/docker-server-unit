@@ -11,11 +11,40 @@ trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
 
 export PROMETHEUS_METRICS_EXPORT_PORT=8001
 export STATSD_PORT=${STATSD_PORT:-8125}
-export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
-export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
-envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
 
+# Dual-mode support: USE_GRANIAN env var switches between Granian (default) and Unit
+if [ "${USE_GRANIAN:-true}" = "true" ]; then
+    echo "🚀 Starting with Granian ASGI server..."
 
-# We need to run as --user root so that nginx unit can proxy the control socket for stats
-# However each application is run as "nobody"
-exec /usr/local/bin/docker-entrypoint.sh unitd --no-daemon --user root
+    # Granian configuration
+    export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
+    export GRANIAN_THREADS=2
+
+    # Start metrics HTTP server in background on port 8001
+    python ./bin/granian_metrics.py &
+    METRICS_PID=$!
+    trap 'kill $METRICS_PID 2>/dev/null; rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+
+    exec granian \
+        --interface asgi \
+        posthog.asgi:application \
+        --workers $GRANIAN_WORKERS \
+        --runtime-threads $GRANIAN_THREADS \
+        --runtime-mode mt \
+        --loop uvloop \
+        --host 0.0.0.0 \
+        --port 8000 \
+        --log-level warning \
+        --access-log \
+        --respawn-failed-workers
+else
+    echo "🔧 Starting with Nginx Unit server..."
+
+    export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
+    export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
+    envsubst < /docker-entrypoint.d/unit.json.tpl > /docker-entrypoint.d/unit.json
+
+    # We need to run as --user root so that nginx unit can proxy the control socket for stats
+    # However each application is run as "nobody"
+    exec /usr/local/bin/docker-entrypoint.sh unitd --no-daemon --user root
+fi

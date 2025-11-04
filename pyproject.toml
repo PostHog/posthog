@@ -57,6 +57,7 @@ dependencies = [
     "google-ads==26.1.0",
     "google-cloud-bigquery==3.26",
     "google-genai==1.10.0",
+    "granian[uvloop,reload,pname]==2.5.5",
     "gspread==6.2.1",
     "gunicorn==20.1.0",
     "hogql-parser==1.2.0",
