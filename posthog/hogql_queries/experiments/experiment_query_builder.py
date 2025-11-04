@@ -190,7 +190,7 @@ class ExperimentQueryBuilder:
                 # Here, we add the field we need, first_exposure_timestamp
                 if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
                     first_exposure_timestamp_expr = parse_expr(
-                        "minIf(timestamp, step_0) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
+                        "minIf(timestamp, exposure_condition) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
                     )
                     metric_events_cte.expr.select.extend([first_exposure_timestamp_expr])
 
@@ -862,24 +862,28 @@ class ExperimentQueryBuilder:
 
     def _build_funnel_step_columns(self, exposure_condition: ast.Expr) -> list[ast.Alias]:
         """
-        Builds list of step column AST expressions: step_0, step_1, etc.
+        Builds list of step column AST expressions: step_0, exposure_condition, step_1, etc.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
-        exposure_criteria = ast.Alias(
-            alias="step_0",
-            expr=ast.Call(
-                name="if",
-                args=[exposure_condition, ast.Constant(value=1), ast.Constant(value=0)],
+        step_columns: list[ast.Alias] = [
+            ast.Alias(
+                alias="step_0",
+                expr=ast.Call(
+                    name="if",
+                    args=[deepcopy(exposure_condition), ast.Constant(value=1), ast.Constant(value=0)],
+                ),
             ),
-        )
-        step_columns = [exposure_criteria]
+            ast.Alias(alias="exposure_condition", expr=exposure_condition),
+        ]
+
         for i, funnel_step in enumerate(self.metric.series):
             step_filter = event_or_action_to_filter(self.team, funnel_step)
-            step_column = ast.Alias(
-                alias=f"step_{i + 1}",
-                expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
+            step_columns.append(
+                ast.Alias(
+                    alias=f"step_{i + 1}",
+                    expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
+                )
             )
-            step_columns.append(step_column)
 
         return step_columns
 
