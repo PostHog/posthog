@@ -269,7 +269,7 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
                             }}
                         >
                             <p className="font-semibold">
-                                An outdated SDK means you're missing out on bug fixes and enhacements.
+                                An outdated SDK means you're missing out on bug fixes and enhancements.
                             </p>
                             <p className="text-sm mt-1">Check the links below to get caught up.</p>
                         </LemonBanner>
