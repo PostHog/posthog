@@ -1116,20 +1116,6 @@ def funnel_breakdown_test_factory(
             self._assert_funnel_breakdown_result_is_correct(
                 results[0],
                 [
-                    FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),
-                    FunnelStepResult(name="play movie", count=0, breakdown=["Chrome"]),
-                ],
-            )
-
-            self.assertCountEqual(
-                self._get_actor_ids_at_step(filters, 1, "Chrome"),
-                [people["person1"].uuid],
-            )
-            self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, "Chrome"), [])
-
-            self._assert_funnel_breakdown_result_is_correct(
-                results[1],
-                [
                     FunnelStepResult(name="sign up", count=1, breakdown=["Safari"]),
                     FunnelStepResult(
                         name="play movie",
@@ -1149,6 +1135,20 @@ def funnel_breakdown_test_factory(
                 self._get_actor_ids_at_step(filters, 2, "Safari"),
                 [people["person1"].uuid],
             )
+
+            self._assert_funnel_breakdown_result_is_correct(
+                results[1],
+                [
+                    FunnelStepResult(name="sign up", count=1, breakdown=["Chrome"]),
+                    FunnelStepResult(name="play movie", count=0, breakdown=["Chrome"]),
+                ],
+            )
+
+            self.assertCountEqual(
+                self._get_actor_ids_at_step(filters, 1, "Chrome"),
+                [people["person1"].uuid],
+            )
+            self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, "Chrome"), [])
 
         @also_test_with_materialized_columns(person_properties=["key"], verify_no_jsonextract=False)
         def test_funnel_cohort_breakdown(self):
