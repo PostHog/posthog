@@ -29,7 +29,7 @@ CACHE_SYNC_COUNTER = Counter(
 CACHE_SYNC_DURATION_HISTOGRAM = Histogram(
     "posthog_hypercache_sync_duration_seconds",
     "Time taken to sync hypercache in seconds",
-    labelnames=["namespace", "value"],
+    labelnames=["result", "namespace", "value"],
     buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, float("inf")),
 )
 
@@ -135,23 +135,23 @@ class HyperCache:
         logger.info(f"Syncing {self.namespace} cache for team {key}")
 
         start_time = time.time()
+        success = False
         try:
             data = self.load_fn(key)
             self.set_cache_value(key, data)
-
-            duration = time.time() - start_time
-            CACHE_SYNC_DURATION_HISTOGRAM.labels(namespace=self.namespace, value=self.value).observe(duration)
-            CACHE_SYNC_COUNTER.labels(result="success", namespace=self.namespace, value=self.value).inc()
-
+            success = True
             return True
         except Exception as e:
-            duration = time.time() - start_time
-            CACHE_SYNC_DURATION_HISTOGRAM.labels(namespace=self.namespace, value=self.value).observe(duration)
-
             capture_exception(e)
             logger.exception(f"Failed to sync {self.namespace} cache for team {key}", exception=str(e))
-            CACHE_SYNC_COUNTER.labels(result="failure", namespace=self.namespace, value=self.value).inc()
             return False
+        finally:
+            duration = time.time() - start_time
+            result = "success" if success else "failure"
+            CACHE_SYNC_DURATION_HISTOGRAM.labels(result=result, namespace=self.namespace, value=self.value).observe(
+                duration
+            )
+            CACHE_SYNC_COUNTER.labels(result=result, namespace=self.namespace, value=self.value).inc()
 
     def set_cache_value(self, key: KeyType, data: dict | None | HyperCacheStoreMissing) -> None:
         self._set_cache_value_redis(key, data)
