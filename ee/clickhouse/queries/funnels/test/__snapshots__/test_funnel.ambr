@@ -132,6 +132,8 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY prop
+  LIMIT 100
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -281,6 +283,8 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY prop
+  LIMIT 100
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group
@@ -426,6 +430,8 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY prop
+  LIMIT 100
   '''
 # ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.2
@@ -1133,6 +1139,8 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY prop
+  LIMIT 100
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -1282,6 +1290,8 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY prop
+  LIMIT 100
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group
@@ -1427,6 +1437,8 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY prop
+  LIMIT 100
   '''
 # ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.2
@@ -2042,6 +2054,8 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY prop
+  LIMIT 100
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_poe_v2
@@ -2191,6 +2205,8 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY prop
+  LIMIT 100
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group
@@ -2336,6 +2352,8 @@
               prop
      HAVING steps = max(max_steps))
   GROUP BY prop
+  ORDER BY prop
+  LIMIT 100
   '''
 # ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.10
