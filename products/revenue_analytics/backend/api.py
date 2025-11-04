@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthoganalytics import capture_exception
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -35,7 +37,7 @@ def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str
     for view_name in database.get_view_names():
         if view_name.endswith(schema.source_suffix) or view_name.endswith(schema.events_suffix):
             view = database.get_table(view_name)
-            views.append(view)
+            views.append(cast(RevenueAnalyticsBaseView, view))
 
     if len(views) == 0:
         return []
