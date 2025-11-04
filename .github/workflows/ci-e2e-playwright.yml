@@ -358,10 +358,12 @@ jobs:
               if: (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
               run: |
                   cd playwright
-                  # Create tar of only git-modified files (added or modified)
-                  git diff --name-only --diff-filter=AM . | tar -czf /tmp/playwright-snapshots.tar.gz -T - 2>/dev/null || true
-                  if [ -f /tmp/playwright-snapshots.tar.gz ] && [ -s /tmp/playwright-snapshots.tar.gz ]; then
-                    echo "Created tar with changed screenshots"
+                  # Check if there are any changed files first
+                  CHANGED_FILES=$(git diff --name-only --diff-filter=AM . | wc -l)
+                  if [ "$CHANGED_FILES" -gt 0 ]; then
+                    # Create tar of only git-modified files (added or modified)
+                    git diff --name-only --diff-filter=AM . | tar -czf /tmp/playwright-snapshots.tar.gz -T -
+                    echo "Created tar with $CHANGED_FILES changed screenshot(s)"
                     echo "has-changes=true" >> $GITHUB_OUTPUT
                   else
                     echo "No screenshot changes to upload"

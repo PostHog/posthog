@@ -461,10 +461,12 @@ jobs:
               if: (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
               run: |
                   cd frontend/__snapshots__
-                  # Create tar of only git-modified files (added or modified)
-                  git diff --name-only --diff-filter=AM . | tar -czf /tmp/snapshots-${{ matrix.browser }}-${{ matrix.shard }}.tar.gz -T - 2>/dev/null || true
-                  if [ -f /tmp/snapshots-${{ matrix.browser }}-${{ matrix.shard }}.tar.gz ] && [ -s /tmp/snapshots-${{ matrix.browser }}-${{ matrix.shard }}.tar.gz ]; then
-                    echo "Created tar with changed snapshots"
+                  # Check if there are any changed files first
+                  CHANGED_FILES=$(git diff --name-only --diff-filter=AM . | wc -l)
+                  if [ "$CHANGED_FILES" -gt 0 ]; then
+                    # Create tar of only git-modified files (added or modified)
+                    git diff --name-only --diff-filter=AM . | tar -czf /tmp/snapshots-${{ matrix.browser }}-${{ matrix.shard }}.tar.gz -T -
+                    echo "Created tar with $CHANGED_FILES changed snapshot(s)"
                     echo "has-changes=true" >> $GITHUB_OUTPUT
                   else
                     echo "No snapshot changes to upload"
