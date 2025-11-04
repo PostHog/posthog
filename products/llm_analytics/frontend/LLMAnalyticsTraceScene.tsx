@@ -915,16 +915,19 @@ function DisplayOptionsSelect(): JSX.Element {
         {
             value: DisplayOption.ExpandAll,
             label: 'Expand all',
+            tooltip: 'Show all messages and full conversation history',
         },
         {
             value: DisplayOption.CollapseExceptOutputAndLastInput,
             label: 'Collapse except output and last input',
+            tooltip: 'Focus on the most recent input and final output',
         },
         ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW]
             ? [
                   {
                       value: DisplayOption.TextView,
                       label: 'Text view',
+                      tooltip: 'Simple human readable text view',
                   },
               ]
             : []),
