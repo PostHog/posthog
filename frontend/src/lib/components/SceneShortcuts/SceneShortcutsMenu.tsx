@@ -9,6 +9,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { ListBoxHandle } from 'lib/ui/ListBox/ListBox'
+import { cn } from 'lib/utils/css-classes'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { Combobox } from '~/lib/ui/Combobox/Combobox'
@@ -84,7 +85,7 @@ export function SceneShortcutsMenu(): JSX.Element | null {
                 const orderB = b.order ?? 0
                 return orderA - orderB
             }),
-            title: key === 'app' ? 'General' : key.charAt(0).toUpperCase() + key.slice(1),
+            title: key === 'app' ? 'App' : key.charAt(0).toUpperCase() + key.slice(1),
         }))
     }, [activeSceneShortcuts])
 
@@ -224,8 +225,12 @@ export function SceneShortcutsMenu(): JSX.Element | null {
                         ) : (
                             groupedShortcuts.map((group, groupIndex) => (
                                 <React.Fragment key={group.key}>
-                                    {groupIndex > 0 && <div className="h-px bg-border mx-2 my-1" />}
-                                    <Label intent="menu" className="px-1">
+                                    <Label
+                                        intent="menu"
+                                        className={cn('px-1', {
+                                            'pt-1': groupIndex > 0,
+                                        })}
+                                    >
                                         {group.title}
                                     </Label>
                                     <DropdownMenuSeparator />
