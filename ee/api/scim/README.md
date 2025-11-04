@@ -401,7 +401,7 @@ The SCIM configuration interface is available in the PostHog settings:
 - Modal component: `frontend/src/scenes/settings/organization/VerifiedDomains/ConfigureSCIMModal.tsx`
 - Logic: `frontend/src/scenes/settings/organization/VerifiedDomains/verifiedDomainsLogic.ts`
 
-## Remaining Nice-to-Haves:
+## Remaining Nice-to-Haves
 
 1. **Pagination**:
     - Support `startIndex` and `count` params

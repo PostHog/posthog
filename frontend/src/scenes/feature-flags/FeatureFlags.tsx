@@ -200,12 +200,28 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             <LemonButton
                                 status="danger"
                                 onClick={() => {
-                                    void deleteWithUndo({
-                                        endpoint: `projects/${currentProjectId}/feature_flags`,
-                                        object: { name: featureFlag.key, id: featureFlag.id },
-                                        callback: loadFeatureFlags,
-                                    }).catch((e) => {
-                                        lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
+                                    LemonDialog.open({
+                                        title: 'Delete feature flag?',
+                                        description: `Are you sure you want to delete "${featureFlag.key}"?`,
+                                        primaryButton: {
+                                            children: 'Delete',
+                                            status: 'danger',
+                                            onClick: () => {
+                                                void deleteWithUndo({
+                                                    endpoint: `projects/${currentProjectId}/feature_flags`,
+                                                    object: { name: featureFlag.key, id: featureFlag.id },
+                                                    callback: loadFeatureFlags,
+                                                }).catch((e) => {
+                                                    lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
+                                                })
+                                            },
+                                            size: 'small',
+                                        },
+                                        secondaryButton: {
+                                            children: 'Cancel',
+                                            type: 'tertiary',
+                                            size: 'small',
+                                        },
                                     })
                                 }}
                                 disabledReason={
