@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -38,6 +39,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
             {
                 "evaluation_id": str(self.evaluation.id),
                 "target_event_id": target_event_id,
+                "timestamp": datetime.now().isoformat(),
             },
         )
 
@@ -63,6 +65,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
             {
                 "evaluation_id": str(uuid.uuid4()),
                 "target_event_id": str(uuid.uuid4()),
+                "timestamp": datetime.now().isoformat(),
             },
         )
 
@@ -97,6 +100,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
             {
                 "evaluation_id": str(other_evaluation.id),
                 "target_event_id": str(uuid.uuid4()),
+                "timestamp": datetime.now().isoformat(),
             },
         )
 
