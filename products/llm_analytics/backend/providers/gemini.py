@@ -72,11 +72,9 @@ class GeminiProvider:
                                     "id": f"gemini_tool_{hash(str(part.function_call))}",
                                     "function": {
                                         "name": part.function_call.name,
-                                        "arguments": (
-                                            json.dumps(dict(part.function_call.args))
-                                            if part.function_call.args
-                                            else "{}"
-                                        ),
+                                        "arguments": json.dumps(dict(part.function_call.args))
+                                        if part.function_call.args
+                                        else "{}",
                                     },
                                 }
 
