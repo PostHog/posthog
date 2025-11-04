@@ -135,38 +135,6 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
                     actions.setOptionKeyHeld(true)
                 }
 
-                // Handle action palette shortcut (Cmd/Ctrl+K)
-                if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
-                    const element = event.target as HTMLElement
-                    if (element?.closest('.NotebookEditor')) {
-                        return
-                    }
-
-                    event.preventDefault()
-                    event.stopPropagation()
-                    actions.setActionPaletteOpen(true)
-                    return
-                }
-
-                // Handle tab shortcuts (Cmd/Ctrl+B)
-                if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
-                    const element = event.target as HTMLElement
-                    if (element?.closest('.NotebookEditor')) {
-                        return
-                    }
-
-                    event.preventDefault()
-                    event.stopPropagation()
-                    if (event.shiftKey) {
-                        if (values.activeTab) {
-                            actions.removeTab(values.activeTab)
-                        }
-                    } else {
-                        actions.newTab()
-                    }
-                    return
-                }
-
                 // Handle scene shortcuts
                 const activeShortcuts = values.activeSceneShortcuts
                 if (activeShortcuts.length === 0) {
@@ -235,9 +203,7 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
     }),
 ])
 
-type ShortcutDefinition = Omit<SceneShortcutProps, 'children'> & {
-    active?: () => boolean // Allow active to be a function in the definition
-}
+type ShortcutDefinition = Omit<SceneShortcutProps, 'children'>
 
 type SceneShortcuts = {
     app: Record<string, ShortcutDefinition>
@@ -260,13 +226,14 @@ export const SHORTCUTS: SceneShortcuts = {
             onAction: () => sceneShortcutLogic.actions.triggerCloseCurrentTab(),
             order: -1,
         },
-        toggleSearchBar: {
-            keys: ['command', 'option', 'k'],
-            description: 'Toggle search bar',
+        toggleShortcutMenu: {
+            keys: ['command', 'k'],
+            description: 'Toggle shortcut menu',
             onAction: () => {
-                sceneShortcutLogic.actions.toggleSearchBar()
+                sceneShortcutLogic.actions.setActionPaletteOpen(true)
             },
             type: 'toggle',
+            active: true,
         },
     },
     // Here we define shortcuts that are available in specific scenes

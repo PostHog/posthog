@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom'
 import { IconListCheck, IconX } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
-import { SceneShortcuts } from 'lib/components/SceneShortcuts/SceneShortcuts'
+import { SceneShortcutsMenu } from 'lib/components/SceneShortcuts/SceneShortcutsMenu'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
@@ -179,7 +179,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                 </>
             )}
 
-            <SceneShortcuts />
+            <SceneShortcutsMenu />
         </>
     )
 }

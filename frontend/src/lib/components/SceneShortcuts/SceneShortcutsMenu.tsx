@@ -9,12 +9,12 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import { ListBoxHandle } from 'lib/ui/ListBox/ListBox'
-import { sceneLogic } from 'scenes/sceneLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { Combobox } from '~/lib/ui/Combobox/Combobox'
 
-import type { SceneShortcut } from '../SceneShortcuts/SceneShortcut'
+import type { SceneShortcut } from './SceneShortcut'
+import { sceneShortcutLogic } from './sceneShortcutLogic'
 
 function getShortcutIcon(shortcut: SceneShortcut): JSX.Element | null {
     switch (shortcut.type) {
@@ -40,9 +40,9 @@ function getShortcutIcon(shortcut: SceneShortcut): JSX.Element | null {
     }
 }
 
-export function SceneActionPalette(): JSX.Element | null {
-    const { actionPaletteOpen, activeSceneShortcuts } = useValues(sceneLogic)
-    const { setActionPaletteOpen } = useActions(sceneLogic)
+export function SceneShortcutsMenu(): JSX.Element | null {
+    const { actionPaletteOpen, activeSceneShortcuts } = useValues(sceneShortcutLogic)
+    const { setActionPaletteOpen } = useActions(sceneShortcutLogic)
     const comboboxRef = useRef<ListBoxHandle>(null)
 
     // Group shortcuts by sceneKey, with scene-specific first and app shortcuts last

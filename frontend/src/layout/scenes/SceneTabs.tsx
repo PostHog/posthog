@@ -7,12 +7,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 
-import { IconPlus, IconSearch, IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 
-import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
-import { BarStatus } from 'lib/components/CommandBar/types'
 import { SceneShortcut } from 'lib/components/SceneShortcuts/SceneShortcut'
-import { SHORTCUTS } from 'lib/components/SceneShortcuts/sceneShortcutLogic'
+import { SHORTCUTS, sceneShortcutLogic } from 'lib/components/SceneShortcuts/sceneShortcutLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
@@ -37,13 +35,12 @@ export interface SceneTabsProps {
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { tabs } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
-    const { toggleSearchBar } = useActions(commandBarLogic)
-    const { barStatus } = useValues(commandBarLogic)
     const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+    const { setActionPaletteOpen } = useActions(sceneShortcutLogic)
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (over && active.id !== over.id) {
@@ -80,30 +77,17 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div className="pl-[2px] shrink-0">
-                            <SceneShortcut
-                                {...SHORTCUTS.app.toggleSearchBar}
-                                active={barStatus === BarStatus.SHOW_SEARCH}
-                            >
+                            <SceneShortcut {...SHORTCUTS.app.toggleShortcutMenu}>
                                 <ButtonPrimitive
                                     iconOnly
-                                    onClick={toggleSearchBar}
-                                    data-attr="tree-navbar-search-button"
+                                    onClick={() => setActionPaletteOpen(true)}
+                                    data-attr="action-palette-button"
                                     className="z-20"
                                     size="sm"
-                                    aria-label="Search (Command + K) or Commands (Command + Shift + K)"
+                                    aria-label="Search "
                                     aria-describedby="search-tooltip"
-                                    tooltip={
-                                        <div className="flex flex-col gap-0.5" id="search-tooltip">
-                                            <span>
-                                                For search, press <KeyboardShortcut command option k />
-                                            </span>
-                                            <span>
-                                                For commands, press <KeyboardShortcut command shift k />
-                                            </span>
-                                        </div>
-                                    }
                                 >
-                                    <IconSearch className="text-secondary size-4" />
+                                    <KeyboardShortcut command k className="bg-transparent shadow-none" />
                                 </ButtonPrimitive>
                             </SceneShortcut>
                         </div>
