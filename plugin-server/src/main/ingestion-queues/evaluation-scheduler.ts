@@ -69,6 +69,7 @@ export function filterAndParseMessages(messages: Message[]): RawKafkaEvent[] {
             }
         })
         .filter((event): event is RawKafkaEvent => event !== null)
+        .filter((event) => event.event === '$ai_generation')
 }
 
 export function groupEventsByTeam(events: RawKafkaEvent[]): Map<number, RawKafkaEvent[]> {
