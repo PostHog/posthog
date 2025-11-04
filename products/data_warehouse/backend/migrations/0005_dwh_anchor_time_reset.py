@@ -7,10 +7,13 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL("""
+        migrations.RunSQL(
+            """
         -- migration-analyzer: safe reason=Data warehouse table with limited customer usage
         UPDATE posthog_externaldataschema
         SET sync_time_of_day = null
         WHERE sync_time_of_day = '00:00:00';
-    """)
+    """,
+            reverse_sql=migrations.RunSQL.noop,
+        ),
     ]
