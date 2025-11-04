@@ -196,7 +196,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(methods=["GET"], detail=False)
     def completed_activity(self, request: Request, **kwargs) -> Response:
         """
-        Returns completed/non-running activities (jobs with status not 'Running').
+        Returns completed/non-running activities (jobs with status 'Completed').
         Supports pagination and cutoff time filtering.
         """
         DEFAULT_LIMIT = 20
@@ -225,7 +225,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         FROM posthog_externaldatajob edj
                         LEFT JOIN posthog_externaldataschema eds ON edj.schema_id = eds.id
                         LEFT JOIN posthog_externaldatasource edsrc ON eds.source_id = edsrc.id
-                        WHERE edj.team_id = %s AND edj.status != 'Running' AND edj.created_at >= %s
+                        WHERE edj.team_id = %s AND edj.status == 'Completed' AND edj.created_at >= %s
                     ),
                     modeling_jobs AS (
                         SELECT dmj.id, 'Materialized view' as type, dwsq.name, dmj.status,
@@ -233,7 +233,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                dmj.last_run_at as finished_at, dmj.error as latest_error, dmj.workflow_run_id
                         FROM posthog_datamodelingjob dmj
                         LEFT JOIN posthog_datawarehousesavedquery dwsq ON dmj.saved_query_id = dwsq.id
-                        WHERE dmj.team_id = %s AND dmj.status != 'Running' AND dmj.created_at >= %s
+                        WHERE dmj.team_id = %s AND dmj.status == 'Completed' AND dmj.created_at >= %s
                     )
                     SELECT * FROM external_jobs
                     UNION ALL
