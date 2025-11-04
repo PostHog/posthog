@@ -47,7 +47,7 @@ runs:
               path: /tmp/snapshot-artifacts/
               merge-multiple: true
 
-        - name: Extract tar archives
+        - name: Apply snapshot patches
           shell: bash
           run: |
               # Check if download succeeded and artifacts exist
@@ -56,24 +56,22 @@ runs:
                 exit 0
               fi
 
-              # Clear snapshot directory to handle deletions properly
-              # Without this, deleted snapshots would remain from the checkout
-              if [ -d "${{ inputs.snapshot-path }}" ]; then
-                echo "Clearing existing snapshots to handle deletions..."
-                rm -rf ${{ inputs.snapshot-path }}
-              fi
-              mkdir -p ${{ inputs.snapshot-path }}
-
-              if [ -d /tmp/snapshot-artifacts/ ] && [ "$(ls -A /tmp/snapshot-artifacts/*.tar.gz 2>/dev/null)" ]; then
-                for tar in /tmp/snapshot-artifacts/*.tar.gz; do
-                  if [ -f "$tar" ]; then
-                    echo "Extracting $tar..."
-                    tar -xzf "$tar" -C ${{ inputs.snapshot-path }}
-                  fi
-                done
-                echo "Extracted all snapshot archives"
+              # Apply all patch files from downloaded artifacts
+              # Patches handle A/M/D automatically including binary files
+              if [ -d /tmp/snapshot-artifacts/ ]; then
+                PATCHES=$(find /tmp/snapshot-artifacts -name "*.patch" | sort)
+                if [ -n "$PATCHES" ]; then
+                  echo "Applying patches..."
+                  for patch in $PATCHES; do
+                    echo "Applying $patch"
+                    git apply --index "$patch"
+                  done
+                  echo "Applied all patches successfully"
+                else
+                  echo "No patch files found"
+                fi
               else
-                echo "No artifacts to extract"
+                echo "No artifacts to process"
               fi
 
         - name: Configure git

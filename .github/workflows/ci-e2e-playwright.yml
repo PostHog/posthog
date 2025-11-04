@@ -351,34 +351,30 @@ jobs:
                     pnpm --filter=@posthog/playwright exec playwright test --workers=10
                   fi
 
-            # Upload screenshots as artifact for aggregation
-            # Only upload changed files to reduce artifact size
+            # Create git patch for aggregation (handles A/M/D including binary files)
             # Run even if tests fail to capture updated snapshots
-            - name: Create tar of changed screenshots
-              id: create-tar
+            - name: Create screenshot patch
+              id: create-patch
               if: (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
               run: |
-                  # Check if there are any changed files first
-                  CHANGED_FILES=$(git diff --name-only --diff-filter=AM playwright/ | wc -l)
-                  if [ "$CHANGED_FILES" -gt 0 ]; then
-                    # Create tar of only git-modified files (added or modified)
-                    # Use -C to change directory for tar, so paths are relative
-                    git diff --name-only --diff-filter=AM playwright/ | \
-                      sed 's|^playwright/||' | \
-                      tar -czf /tmp/playwright-snapshots.tar.gz -C playwright -T -
-                    echo "Created tar with $CHANGED_FILES changed screenshot(s)"
-                    echo "has-changes=true" >> $GITHUB_OUTPUT
-                  else
-                    echo "No screenshot changes to upload"
+                  # Check if there are any changes in the playwright directory
+                  if git diff --quiet playwright/; then
+                    echo "No screenshot changes"
                     echo "has-changes=false" >> $GITHUB_OUTPUT
+                  else
+                    # Create binary-safe patch file
+                    mkdir -p /tmp/patches
+                    git diff --binary --full-index playwright/ > /tmp/patches/playwright-patch.patch
+                    echo "Created patch file"
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
                   fi
 
-            - name: Upload screenshot artifact
-              if: steps.create-tar.outputs.has-changes == 'true'
+            - name: Upload screenshot patch
+              if: steps.create-patch.outputs.has-changes == 'true'
               uses: actions/upload-artifact@v4
               with:
-                  name: playwright-snapshots
-                  path: /tmp/playwright-snapshots.tar.gz
+                  name: playwright-patch
+                  path: /tmp/patches/playwright-patch.patch
                   retention-days: 1
                   if-no-files-found: ignore
 
@@ -467,7 +463,7 @@ jobs:
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: playwright
-                  artifact-pattern: playwright-snapshots
+                  artifact-pattern: playwright-patch
                   snapshot-path: playwright/
                   commit-message: Update E2E screenshots (Playwright)
                   pr-number: ${{ github.event.pull_request.number }}

@@ -454,34 +454,30 @@ jobs:
             - name: Configure global git diff log
               run: git config --global --add safe.directory '*'
 
-            # Upload snapshots as artifact for aggregation
-            # Only upload changed files to reduce artifact size
+            # Create git patch for aggregation (handles A/M/D including binary files)
             # Run even if tests fail to capture updated snapshots
-            - name: Create tar of changed snapshots
-              id: create-tar
+            - name: Create snapshot patch
+              id: create-patch
               if: (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
               run: |
-                  # Check if there are any changed files first
-                  CHANGED_FILES=$(git diff --name-only --diff-filter=AM frontend/__snapshots__/ | wc -l)
-                  if [ "$CHANGED_FILES" -gt 0 ]; then
-                    # Create tar of only git-modified files (added or modified)
-                    # Use -C to change directory for tar, so paths are relative
-                    git diff --name-only --diff-filter=AM frontend/__snapshots__/ | \
-                      sed 's|^frontend/__snapshots__/||' | \
-                      tar -czf /tmp/snapshots-${{ matrix.browser }}-${{ matrix.shard }}.tar.gz -C frontend/__snapshots__ -T -
-                    echo "Created tar with $CHANGED_FILES changed snapshot(s)"
-                    echo "has-changes=true" >> $GITHUB_OUTPUT
-                  else
-                    echo "No snapshot changes to upload"
+                  # Check if there are any changes in the snapshot directory
+                  if git diff --quiet frontend/__snapshots__/; then
+                    echo "No snapshot changes"
                     echo "has-changes=false" >> $GITHUB_OUTPUT
+                  else
+                    # Create binary-safe patch file
+                    mkdir -p /tmp/patches
+                    git diff --binary --full-index frontend/__snapshots__/ > /tmp/patches/shard-${{ matrix.browser }}-${{ matrix.shard }}.patch
+                    echo "Created patch file"
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
                   fi
 
-            - name: Upload snapshot artifact
-              if: steps.create-tar.outputs.has-changes == 'true'
+            - name: Upload snapshot patch
+              if: steps.create-patch.outputs.has-changes == 'true'
               uses: actions/upload-artifact@v4
               with:
-                  name: snapshots-${{ matrix.browser }}-${{ matrix.shard }}
-                  path: /tmp/snapshots-${{ matrix.browser }}-${{ matrix.shard }}.tar.gz
+                  name: snapshot-patch-${{ matrix.browser }}-${{ matrix.shard }}
+                  path: /tmp/patches/shard-${{ matrix.browser }}-${{ matrix.shard }}.patch
                   retention-days: 1
                   if-no-files-found: ignore
 
@@ -519,7 +515,7 @@ jobs:
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: storybook
-                  artifact-pattern: snapshots-*
+                  artifact-pattern: snapshot-patch-*
                   snapshot-path: frontend/__snapshots__/
                   commit-message: Update UI snapshots (all browsers)
                   pr-number: ${{ github.event.pull_request.number }}
