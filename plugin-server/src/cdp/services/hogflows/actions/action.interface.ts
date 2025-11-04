@@ -8,6 +8,8 @@ export interface ActionHandlerResult {
     nextAction?: HogFlowAction
     scheduledAt?: DateTime
     finished?: boolean
+    result?: unknown
+    error?: any
 }
 
 export interface ActionHandlerOptions<T extends HogFlowAction> {
