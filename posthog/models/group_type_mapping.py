@@ -29,7 +29,9 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
 
     default_columns = ArrayField(models.TextField(), null=True, blank=True)
 
-    detail_dashboard = models.ForeignKey("Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
+    detail_dashboard = models.ForeignKey(
+        "Dashboard", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
     created_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
