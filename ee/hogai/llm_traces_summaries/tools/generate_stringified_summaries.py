@@ -71,13 +71,18 @@ class LLMTraceSummarizerGenerator:
         existing_trace_ids = await database_sync_to_async(self._check_existing_summaries)(
             trace_ids=list(stringified_traces.keys())
         )
+        # Limit to 10 concurrent API calls
+        semaphore = asyncio.Semaphore(10)
         async with asyncio.TaskGroup() as tg:
-            for trace_id, stringified_trace in stringified_traces.items():
+            limit = 100  # TODO: Temporary limit to test
+            for trace_id, stringified_trace in list(stringified_traces.items())[:limit]:
                 if trace_id in existing_trace_ids:
                     # Avoid re-generating summaries that already exist for this team + trace + type
                     continue
                 tasks[trace_id] = tg.create_task(
-                    self._generate_trace_summary(trace_id=trace_id, stringified_trace=stringified_trace)
+                    self._generate_trace_summary_with_semaphore(
+                        semaphore=semaphore, trace_id=trace_id, stringified_trace=stringified_trace
+                    )
                 )
         summarized_traces: dict[str, str] = {}
         for trace_id, task in tasks.items():
@@ -88,9 +93,22 @@ class LLMTraceSummarizerGenerator:
                     error=str(res),
                 )
                 continue
+            # If the summary generated is too large to store - skip it
+            if len(res) > 1000:
+                logger.warning(
+                    f"Summary for trace {trace_id} from team {self._team.id} is too large to store (over 1000 characters), skipping",
+                )
+                continue
             # Return only successful summaries
             summarized_traces[trace_id] = res
         return summarized_traces
+
+    async def _generate_trace_summary_with_semaphore(
+        self, semaphore: asyncio.Semaphore, trace_id: str, stringified_trace: str
+    ) -> str | Exception:
+        """Wrapper to limit concurrent API calls using a semaphore."""
+        async with semaphore:
+            return await self._generate_trace_summary(trace_id=trace_id, stringified_trace=stringified_trace)
 
     async def _generate_trace_summary(self, trace_id: str, stringified_trace: str) -> str | Exception:
         prompt = GENERATE_STRINGIFIED_TRACE_SUMMARY_PROMPT.format(stringified_trace=stringified_trace)
