@@ -137,8 +137,6 @@ export const sceneLogic = kea<sceneLogicType>([
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
         cache.lastTrackedSceneByTab = {} as Record<string, { sceneId?: string; sceneKey?: string }>
-        cache.optionClickTimestamp = 0
-        cache.optionClickTimeout = null
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -1180,6 +1178,19 @@ export const sceneLogic = kea<sceneLogicType>([
                     actions.setOptionKeyHeld(true)
                 }
 
+                // Handle action palette shortcut (Cmd/Ctrl+K)
+                if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
+                    const element = event.target as HTMLElement
+                    if (element?.closest('.NotebookEditor')) {
+                        return
+                    }
+
+                    event.preventDefault()
+                    event.stopPropagation()
+                    actions.setActionPaletteOpen(true)
+                    return
+                }
+
                 // Handle tab shortcuts (Cmd/Ctrl+B)
                 if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
                     const element = event.target as HTMLElement
@@ -1286,24 +1297,9 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             const onKeyUp = (event: KeyboardEvent): void => {
-                // Track option key release and double click detection
+                // Track option key release
                 if (!event.altKey && values.optionKeyHeld) {
                     actions.setOptionKeyHeld(false)
-
-                    // Handle double option click for command palette
-                    if (event.key === 'Alt') {
-                        const now = Date.now()
-                        const timeSinceLastClick = now - cache.optionClickTimestamp
-
-                        if (timeSinceLastClick < 500) {
-                            // Double click detected
-                            actions.setActionPaletteOpen(true)
-                            cache.optionClickTimestamp = 0 // Reset to prevent triple clicks
-                        } else {
-                            // First click, start timer
-                            cache.optionClickTimestamp = now
-                        }
-                    }
                 }
             }
 

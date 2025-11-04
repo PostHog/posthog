@@ -211,7 +211,7 @@ export function SceneActionPalette(): JSX.Element | null {
     }
 
     const paletteContent = (
-        <div className="fixed inset-0 z-top flex items-end justify-center p-6">
+        <div className="fixed inset-0 z-top flex items-end justify-center p-6 backdrop-blur-[var(--modal-backdrop-blur)]">
             <div
                 className="bg-surface-secondary border-3 border-tertiary rounded-lg shadow-2xl w-96 max-h-96 overflow-hidden backdrop-blur-sm"
                 id="scene-action-palette"
