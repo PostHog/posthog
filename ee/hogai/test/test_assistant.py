@@ -343,7 +343,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_ai_messages_appended_after_interrupt(self):
         with patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model") as mock:
-            graph = InsightsGraph(self.team, self.user, ()).compile_full_graph()
+            graph = InsightsGraph(self.team, self.user).compile_full_graph()
             config: RunnableConfig = {
                 "configurable": {
                     "thread_id": self.conversation.id,
@@ -1251,12 +1251,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
     @title_generator_mock
+    @query_executor_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode")
-    async def test_insights_tool_mode_flow(
-        self, query_executor_mock, planner_mock, generator_mock, title_generator_mock
-    ):
+    async def test_insights_tool_mode_flow(self, planner_mock, generator_mock, title_generator_mock):
         """Test that the insights tool mode works correctly."""
         query = AssistantTrendsQuery(series=[])
         tool_call_id = str(uuid4())
@@ -1283,25 +1281,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
 
-        class QueryExecutorNodeMock(AssistantNode):
-            def __init__(self, team, user):
-                super().__init__(team, user)
-
-            @property
-            def node_name(self):
-                return AssistantNodeName.QUERY_EXECUTOR
-
-            async def arun(self, state, config):
-                return PartialAssistantState(
-                    messages=[
-                        AssistantToolCallMessage(
-                            content="The results indicate a great future for you.", tool_call_id=tool_call_id
-                        )
-                    ]
-                )
-
-        query_executor_mock.return_value = QueryExecutorNodeMock(self.team, self.user)
-
         # Run in insights tool mode
         output, _ = await self._run_assistant_graph(
             conversation=self.conversation,
@@ -1315,9 +1294,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             (
                 "message",
-                AssistantToolCallMessage(
-                    content="The results indicate a great future for you.", tool_call_id=tool_call_id
-                ),
+                AssistantToolCallMessage(content="Result", tool_call_id=tool_call_id),
             ),
         ]
         self.assertConversationEqual(output, expected_output)

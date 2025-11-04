@@ -8,17 +8,23 @@ from posthog.models import Team, User
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
-from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
 from ee.hogai.utils.stream_processor import AssistantStreamProcessor
 from ee.hogai.utils.types import AssistantMode, AssistantOutput, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
 from ee.models import Conversation
 
 if TYPE_CHECKING:
     from ee.hogai.utils.types.composed import MaxNodeName
 
 
-STREAMING_NODES: set["MaxNodeName"] = {
-    TaxonomyNodeName.LOOP_NODE,
+VERBOSE_NODES: set["MaxNodeName"] = {
+    AssistantNodeName.QUERY_EXECUTOR,
+    AssistantNodeName.FUNNEL_GENERATOR,
+    AssistantNodeName.RETENTION_GENERATOR,
+    AssistantNodeName.SQL_GENERATOR,
+    AssistantNodeName.TRENDS_GENERATOR,
+    AssistantNodeName.ROOT,
+    AssistantNodeName.ROOT_TOOLS,
 }
 
 
@@ -56,7 +62,7 @@ class InsightsAssistant(BaseAssistant):
             billing_context=billing_context,
             initial_state=initial_state,
             stream_processor=AssistantStreamProcessor(
-                verbose_nodes=STREAMING_NODES, streaming_nodes=STREAMING_NODES, state_type=AssistantState
+                verbose_nodes=VERBOSE_NODES, streaming_nodes=set(), state_type=AssistantState
             ),
         )
 
