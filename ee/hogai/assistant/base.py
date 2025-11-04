@@ -105,6 +105,7 @@ class BaseAssistant(ABC):
                 distinct_id=user.distinct_id if user else None,
                 properties={
                     "conversation_id": str(self._conversation.id),
+                    "$ai_session_id": str(self._conversation.id),
                     "is_first_conversation": is_new_conversation,
                     "$session_id": self._session_id,
                     "assistant_mode": mode.value,
@@ -390,6 +391,7 @@ class BaseAssistant(ABC):
             distinct_id=self._user.distinct_id if self._user else None,
             properties={
                 "$session_id": self._session_id,
+                "$ai_session_id": str(self._conversation.id),
                 "$ai_trace_id": self._trace_id,
                 "thread_id": self._conversation.id,
                 "tag": "max_ai",
