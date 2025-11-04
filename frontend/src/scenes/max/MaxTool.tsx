@@ -4,9 +4,9 @@ import React from 'react'
 import { IconSparkles, IconWrench } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { AnimatedSparkles } from './components/AnimatedSparkles'
 import { ToolRegistration } from './max-constants'
 import { useMaxTool } from './useMaxTool'
-import { generateBurstPoints } from './utils'
 
 interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
     /** The child element(s) that will be wrapped by this component */
@@ -21,7 +21,6 @@ interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
 
 export function MaxTool({
     identifier,
-    icon,
     context,
     introOverride,
     callback,
@@ -35,7 +34,6 @@ export function MaxTool({
 }: MaxToolProps): JSX.Element {
     const { definition, isMaxOpen, openMax } = useMaxTool({
         identifier,
-        icon,
         context,
         introOverride,
         callback,
@@ -62,7 +60,7 @@ export function MaxTool({
                             <>
                                 PostHog AI can use this tool
                                 <br />
-                                {icon || <IconWrench />}
+                                {definition.icon || <IconWrench />}
                                 <i className="ml-1.5">{definition.name}</i>
                             </>
                         )
@@ -72,7 +70,7 @@ export function MaxTool({
                 >
                     <button
                         className={clsx(
-                            'absolute z-10 transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110',
+                            'absolute z-10 transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110 rounded-lg border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)]',
                             position === 'top-right' && '-top-2 -right-2',
                             position === 'bottom-right' && '-bottom-2 -right-2',
                             position === 'top-left' && '-top-2 -left-2',
@@ -81,11 +79,7 @@ export function MaxTool({
                         type="button"
                         onClick={openMax || undefined}
                     >
-                        {/* Burst border - the inset and size vals are very specific just bc these look nice */}
-                        <svg className="absolute -inset-1 size-8" viewBox="0 0 100 100">
-                            <polygon points={generateBurstPoints(16, 3 / 16)} fill="var(--primary-3000)" />
-                        </svg>
-                        <IconSparkles className="relative size-6 pl-0.5 pb-0.5 text-bg-light" />
+                        <AnimatedSparkles className="relative size-full pl-0.5 pb-0.5" />
                     </button>
                 </Tooltip>
                 {typeof Children === 'function' ? <Children toolAvailable={true} /> : Children}

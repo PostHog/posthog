@@ -1,7 +1,8 @@
 from datetime import datetime
 
-from django.db.models import Q, QuerySet
+from django.db.models import Count, Q, QuerySet
 
+from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.models import Organization
 from posthog.models.dashboard import Dashboard
 from posthog.models.event_definition import EventDefinition
@@ -10,15 +11,24 @@ from posthog.models.feature_flag import FeatureFlag
 from posthog.models.organization import OrganizationMembership
 from posthog.models.surveys.survey import Survey
 from posthog.models.team import Team
+from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.sync import database_sync_to_async
-from posthog.warehouse.models.external_data_source import ExternalDataSource
+
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
 
 def query_teams_for_digest() -> QuerySet:
     return (
         Team.objects.select_related("organization")
         .exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True))
-        .only("id", "name", "organization__id", "organization__name", "organization__created_at")
+        .only(
+            "id",
+            "name",
+            "organization__id",
+            "organization__name",
+            "organization__created_at",
+            "organization__available_product_features",
+        )
     )
 
 
@@ -94,6 +104,35 @@ def query_new_feature_flags(period_start: datetime, period_end: datetime) -> Que
         .exclude(name__contains="Feature Flag for Experiment")
         .exclude(name__contains="Targeting flag for survey")
         .values("team_id", "name", "id", "key")
+    )
+
+
+def query_saved_filters(period_start: datetime, period_end: datetime) -> QuerySet:
+    return (
+        SessionRecordingPlaylist.objects.exclude(
+            (Q(name__isnull=True) | Q(name="Unnamed") | Q(name=""))
+            & (
+                Q(derived_name__isnull=True)
+                | Q(derived_name="(Untitled)")
+                | Q(derived_name="Unnamed")
+                | Q(derived_name="")
+            )
+        )
+        .exclude(deleted=True)
+        .exclude(name__in=DEFAULT_PLAYLIST_NAMES)
+        .exclude(type="collection")
+        .exclude(type__isnull=True)
+        .annotate(
+            view_count=Count(
+                "sessionrecordingplaylistviewed",
+                filter=(
+                    Q(sessionrecordingplaylistviewed__viewed_at__gt=period_start)
+                    & Q(sessionrecordingplaylistviewed__viewed_at__lte=period_end)
+                ),
+            ),
+        )
+        .values("name", "short_id", "view_count")
+        .order_by("-view_count")
     )
 
 
