@@ -180,9 +180,7 @@ class DashboardCreationNode(AssistantNode):
         message = AssistantMessage(content="", id=str(uuid4()), tool_calls=tool_calls)
 
         executor = DashboardCreationExecutorNode(self._team, self._user)
-        result = await executor.arun(
-            AssistantState(messages=[message], root_tool_call_id=self._parent_tool_call_id), config
-        )
+        result = await executor.arun(AssistantState(messages=[message], root_tool_call_id=self.tool_call_id), config)
 
         query_metadata = await self._process_insight_creation_results(tool_calls, result.task_results, query_metadata)
 
@@ -204,9 +202,7 @@ class DashboardCreationNode(AssistantNode):
         message = AssistantMessage(content="", id=str(uuid4()), tool_calls=tool_calls)
 
         executor = DashboardCreationExecutorNode(self._team, self._user)
-        result = await executor.arun(
-            AssistantState(messages=[message], root_tool_call_id=self._parent_tool_call_id), config
-        )
+        result = await executor.arun(AssistantState(messages=[message], root_tool_call_id=self.tool_call_id), config)
         final_task_executor_state = BaseStateWithTasks.model_validate(result)
 
         for task_result in final_task_executor_state.task_results:

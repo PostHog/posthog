@@ -5,7 +5,7 @@ from braintrust import EvalCase
 
 from posthog.schema import AssistantMessage, HumanMessage
 
-from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 

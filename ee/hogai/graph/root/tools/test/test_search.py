@@ -36,7 +36,6 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
             state=self.state,
             context_manager=self.context_manager,
-            tool_call_id="test-tool-call-id",
         )
 
     async def test_run_docs_search_without_api_key(self):

@@ -52,7 +52,7 @@ class CreateSurveyTool(MaxTool):
         Create a survey from natural language instructions.
         """
 
-        graph = FeatureFlagLookupGraph(team=self._team, user=self._user, tool_call_id=tool_call_id)
+        graph = FeatureFlagLookupGraph(team=self._team, user=self._user)
 
         graph_context = {
             "change": f"Create a survey based on these instructions: {instructions}",
@@ -286,11 +286,10 @@ class SurveyLookupToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyA
 class FeatureFlagLookupGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[SurveyCreationSchema]]):
     """Graph for feature flag lookup operations."""
 
-    def __init__(self, team: Team, user: User, tool_call_id: str):
+    def __init__(self, team: Team, user: User):
         super().__init__(
             team,
             user,
-            tool_call_id,
             loop_node_class=SurveyLoopNode,
             tools_node_class=SurveyLookupToolsNode,
             toolkit_class=SurveyToolkit,
