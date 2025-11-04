@@ -60,11 +60,7 @@ export const ErrorTrackingIssueScenePanel = ({
             <IssueExternalReference />
             <IssueCohort issue={issue} />
             {hasIssueSplitting && <IssueFingerprints />}
-            {hasTasks && (
-                <ScenePanelLabel title="Tasks">
-                    <IssueTasks />
-                </ScenePanelLabel>
-            )}
+            {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
             {hasSimilarIssues && showSimilarIssues ? (
                 <ScenePanelLabel title="Similar issues">

@@ -126,8 +126,8 @@ export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: E
             onRowClick={toggleSelectedEvent}
             className="overflow-auto"
         >
-            <DataSourceTableColumn<ErrorEventType> title="Exeption" cellRenderer={renderUUID} />
-            <DataSourceTableColumn<ErrorEventType> width="100px" title="Person" cellRenderer={renderPerson} />
+            <DataSourceTableColumn<ErrorEventType> width="40px" cellRenderer={renderUUID} />
+            <DataSourceTableColumn<ErrorEventType> title="Person" cellRenderer={renderPerson} />
             <DataSourceTableColumn<ErrorEventType> title="Time" cellRenderer={renderTime} />
             <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
             <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={Actions} />
