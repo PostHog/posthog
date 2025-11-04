@@ -40,6 +40,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertEqual(context["user_email"], self.user.email)
         self.assertEqual(context["organization_name"], self.organization.name)
         self.assertEqual(context["team_name"], "Unknown Project")  # Global keys have no team context
+        self.assertEqual(context["scopes"], ["*"])
 
     def test_personal_api_key_update_activity_logging(self):
         api_key = self.create_personal_api_key(label="Original API Key")
@@ -86,6 +87,10 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertEqual(scopes_change["action"], "changed")
         self.assertEqual(scopes_change["before"], ["*"])
         self.assertEqual(scopes_change["after"], ["insight:read", "insight:write"])
+
+        context = update_log.detail.get("context")
+        assert context is not None
+        self.assertEqual(context["scopes"], ["insight:read", "insight:write"])
 
     def test_personal_api_key_deletion_activity_logging(self):
         api_key = self.create_personal_api_key(label="To Delete API Key")
@@ -269,6 +274,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertEqual(context["user_email"], self.user.email)
         self.assertEqual(context["organization_name"], self.organization.name)
         self.assertEqual(context["team_name"], self.team.name)
+        self.assertEqual(context["scopes"], ["*"])
 
 
 class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):

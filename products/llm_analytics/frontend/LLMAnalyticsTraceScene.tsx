@@ -792,7 +792,12 @@ const EventContent = React.memo(
                                           {
                                               key: TraceViewMode.Evals,
                                               label: 'Evaluations',
-                                              content: <EvalsTabContent generationEventId={event.id} />,
+                                              content: (
+                                                  <EvalsTabContent
+                                                      generationEventId={event.id}
+                                                      timestamp={event.createdAt}
+                                                  />
+                                              ),
                                           },
                                       ]
                                     : []),
