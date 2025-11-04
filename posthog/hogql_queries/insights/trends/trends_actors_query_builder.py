@@ -93,11 +93,21 @@ class TrendsActorsQueryBuilder:
 
     @cached_property
     def trends_date_range(self) -> QueryDateRange:
+        exact_time_range = False
+        if self.trends_query.trendsFilter and self.trends_query.trendsFilter.exactTimeRange:
+            exact_time_range = True
+
+        # Force explicitDate=True when exactTimeRange is True
+        date_range = self.trends_query.dateRange
+        if exact_time_range and date_range:
+            date_range = date_range.model_copy(update={"explicitDate": True})
+
         return QueryDateRange(
-            date_range=self.trends_query.dateRange,
+            date_range=date_range,
             team=self.team,
             interval=self.trends_query.interval,
             now=datetime.now(),
+            exact_timerange=exact_time_range,
         )
 
     @cached_property

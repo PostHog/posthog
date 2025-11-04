@@ -665,7 +665,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     @property
     def exact_timerange(self):
-        return self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
+        return (self.query.trendsFilter and self.query.trendsFilter.exactTimeRange) or (
+            self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
+        )
 
     @cached_property
     def _earliest_timestamp(self) -> datetime | None:

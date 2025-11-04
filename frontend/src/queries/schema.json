@@ -26812,6 +26812,11 @@
                     "$ref": "#/definitions/ChartDisplayType",
                     "default": "ActionsLineGraph"
                 },
+                "exactTimeRange": {
+                    "default": false,
+                    "description": "Use exact time range filtering without adjusting to interval boundaries. When enabled, filters events strictly within the specified date range, even if the grouping interval is larger than the date range.",
+                    "type": "boolean"
+                },
                 "formula": {
                     "deprecated": "Use formulaNodes instead.",
                     "type": "string"

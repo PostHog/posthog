@@ -231,6 +231,42 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
+        ...(isTrends && display !== ChartDisplayType.CalendarHeatmap
+            ? [
+                  {
+                      title: 'Date range',
+                      items: [
+                          {
+                              label: () => (
+                                  <LemonSwitch
+                                      label="Use exact time range"
+                                      className="pb-2"
+                                      fullWidth
+                                      checked={
+                                          isTrendsQuery(querySource)
+                                              ? !!querySource.trendsFilter?.exactTimeRange
+                                              : false
+                                      }
+                                      disabledReason={
+                                          !isTrends ? 'Exact time range is only available for trends' : undefined
+                                      }
+                                      onChange={(checked) => {
+                                          if (isTrendsQuery(querySource)) {
+                                              const newQuery = { ...querySource }
+                                              newQuery.trendsFilter = {
+                                                  ...trendsFilter,
+                                                  exactTimeRange: checked,
+                                              }
+                                              updateQuerySource(newQuery)
+                                          }
+                                      }}
+                                  />
+                              ),
+                          },
+                      ],
+                  },
+              ]
+            : []),
         ...(isRetention
             ? [
                   {
