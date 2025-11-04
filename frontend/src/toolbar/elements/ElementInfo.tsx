@@ -10,6 +10,7 @@ import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLo
 
 import { actionsTabLogic } from '../actions/actionsTabLogic'
 import { ElementStatistic } from './ElementStatistic'
+import { SelectorQualityWarning } from './SelectorQualityWarning'
 
 export function ElementInfo(): JSX.Element | null {
     const { clickCount: totalClickCount, dateRange } = useValues(heatmapToolbarMenuLogic)
@@ -29,6 +30,15 @@ export function ElementInfo(): JSX.Element | null {
             <div className="p-3 border-l-[5px] border-l-warning bg-bg-light">
                 <h1 className="section-title">Selected Element</h1>
                 <ActionStep actionStep={actionStep} />
+
+                <div className="mt-2">
+                    <SelectorQualityWarning
+                        selector={actionStep?.selector}
+                        element={element}
+                        compact={true}
+                        minSeverity="fragile"
+                    />
+                </div>
             </div>
 
             {position ? (

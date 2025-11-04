@@ -1,5 +1,7 @@
 import { ActionStepType, ActionType, ElementType, Experiment } from '~/types'
 
+import { SelectorQualityResult } from './utils/selectorQuality'
+
 export type ElementsEventType = {
     count: number
     elements: ElementType[]
@@ -67,6 +69,9 @@ export interface ElementWithMetadata {
     position?: number
     apparentZIndex?: number
     visible?: boolean
+    actionStep?: ActionStepType
+    selectorQuality?: SelectorQualityResult | null
+    actions?: ActionElementWithMetadata[]
 }
 
 export interface ActionElementWithMetadata extends ElementWithMetadata {

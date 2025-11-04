@@ -11,6 +11,7 @@ import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { StepField } from '~/toolbar/actions/StepField'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
+import { SelectorQualityWarning } from '~/toolbar/elements/SelectorQualityWarning'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 
 export const ActionsEditingToolbarMenu = (): JSX.Element => {
@@ -113,6 +114,12 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                                                 label="Selector"
                                                 caption="CSS selector that uniquely identifies your element"
                                             />
+                                            <div className="mb-2">
+                                                <SelectorQualityWarning
+                                                    selector={step?.selector}
+                                                    minSeverity="warning"
+                                                />
+                                            </div>
                                             <div className="flex flex-row justify-end mb-2">
                                                 <LemonButton
                                                     size="small"
