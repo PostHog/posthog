@@ -37,31 +37,31 @@ products/
 
 - Register it in `INSTALLED_APPS` via `AppConfig`:
 
-    ```python
-    # products/feature_flags/backend/apps.py
-    from django.apps import AppConfig
+  ```python
+  # products/feature_flags/backend/apps.py
+  from django.apps import AppConfig
 
-    class FeatureFlagsConfig(AppConfig):
-        name = "products.feature_flags.backend"
-        label = "feature_flags"
-        verbose_name = "Feature Flags"
-    ```
+  class FeatureFlagsConfig(AppConfig):
+      name = "products.feature_flags.backend"
+      label = "feature_flags"
+      verbose_name = "Feature Flags"
+  ```
 
 - ✅ Always use the **real Python path** for imports:
 
-    ```python
-    from products.feature_flags.backend.models import FeatureFlag
-    ```
+  ```python
+  from products.feature_flags.backend.models import FeatureFlag
+  ```
 
 - ✅ For relations, use **string app labels**:
 
-    ```python
-    class Experiment(models.Model):
-        feature_flag = models.ForeignKey(
-            "feature_flags.FeatureFlag",
-            on_delete=models.CASCADE,
-        )
-    ```
+  ```python
+  class Experiment(models.Model):
+      feature_flag = models.ForeignKey(
+          "feature_flags.FeatureFlag",
+          on_delete=models.CASCADE,
+      )
+  ```
 
 - ❌ Do **not** import models from `posthog.models` or create re-exports like `products.feature_flags.models`.
 
