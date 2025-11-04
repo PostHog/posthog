@@ -4566,6 +4566,10 @@
                 "prompt_token": 4e-8,
                 "completion_token": 4e-7
             },
+            "amazon-bedrock": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7
+            },
             "atlas-cloud-fp8": {
                 "prompt_token": 1e-7,
                 "completion_token": 5e-7
@@ -4681,6 +4685,10 @@
             "default": {
                 "prompt_token": 3e-8,
                 "completion_token": 1.4e-7
+            },
+            "amazon-bedrock": {
+                "prompt_token": 7e-8,
+                "completion_token": 1.5e-7
             },
             "deepinfra-fp4": {
                 "prompt_token": 3e-8,
@@ -5859,6 +5867,10 @@
                 "prompt_token": 7.5e-7,
                 "completion_token": 0.00000375
             },
+            "amazon-bedrock": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7
+            },
             "chutes-bf16": {
                 "prompt_token": 6e-8,
                 "completion_token": 2.5e-7
@@ -6128,8 +6140,8 @@
                 "completion_token": 6e-7
             },
             "deepinfra-fp8": {
-                "prompt_token": 2.9e-7,
-                "completion_token": 9.9e-7
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7
             },
             "fireworks": {
                 "prompt_token": 1.5e-7,
