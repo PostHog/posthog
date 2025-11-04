@@ -363,7 +363,8 @@ function hashSnapshot(snapshot: RecordingSnapshot): number {
         }
         // For other events, use generic data size
         else {
-            dataHash = `other-${JSON.stringify(data).length}`
+            dataHash = `other-${cyrb53(JSON.stringify(data))}`
+        }
         }
     }
     const identityString = `${snapshot.type}-${snapshot.timestamp}-${snapshot.windowId}-${dataHash}`
