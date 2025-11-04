@@ -2,10 +2,9 @@ import './ErrorTrackingIssueScene.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { IconShare } from '@posthog/icons'
+import { IconComment, IconShare } from '@posthog/icons'
 import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
 
-import { IconComment } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
