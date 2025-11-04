@@ -10,8 +10,8 @@ if (process.argv.length !== 8 && process.argv.length !== 9) {
     process.exit(1);
 }
 
-// Parse changes JSON
-const changes = JSON.parse(changesJson);
+// Parse changes JSON (may be empty in check-failed mode)
+const changes = changesJson ? JSON.parse(changesJson) : { total: 0, added: 0, modified: 0, deleted: 0, files: [] };
 const { total, added, modified, deleted } = changes;
 
 // Set workflow-specific labels
@@ -72,32 +72,20 @@ Ready to merge!`;
 
 } else if (mode === 'check-failed') {
     // CHECK mode failed: snapshots differ (flapping)
-    const filesList = changes.files
-        .slice(0, 20)
-        .map(f => `- \`${f.path.replace(config.filesFilter, '')}\``)
-        .join('\n');
-
-    const moreFiles = changes.files.length > 20
-        ? `\n- _(and ${changes.files.length - 20} more)_`
-        : '';
-
     comment = `### Visual regression: ${config.label} ${config.type} failed verification ✗
 
 **Mode:** \`CHECK\` (triggered by bot commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
 
 **Problem:** Snapshots differ from previous run - indicates flapping/instability
 
-**Changes:** ${total} snapshots still changing
-${filesList}${moreFiles}
-
 **What this means:**
-- These snapshots are non-deterministic (timing issues, animations, etc.)
+- Snapshots are non-deterministic (timing issues, animations, etc.)
 - This prevents reliable verification and blocks merge
 - Human intervention required
 
 **How to fix:**
 1. Run ${config.localCmd} locally
-2. Investigate flaky stories/tests (list above)
+2. Investigate flaky stories/tests (check CI logs for failures)
 3. Fix underlying issues:
    - Add proper waits for async operations
    - Stabilize animations (disable or wait for completion)

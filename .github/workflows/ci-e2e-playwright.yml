@@ -483,13 +483,6 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   fetch-depth: 0
 
-            - name: Count snapshot changes
-              id: count
-              run: |
-                  CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh playwright/)
-                  echo "changes=$CHANGES_JSON" >> $GITHUB_OUTPUT
-                  echo "Snapshot changes: $CHANGES_JSON"
-
             - name: Post check-failed comment
               env:
                   GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
@@ -497,7 +490,7 @@ jobs:
                   .github/scripts/post-snapshot-comment.js \
                     "playwright" \
                     "check-failed" \
-                    '${{ steps.count.outputs.changes }}' \
+                    "" \
                     "${{ github.event.pull_request.number }}" \
                     "${{ github.repository }}" \
                     "${{ github.event.pull_request.head.sha }}"
