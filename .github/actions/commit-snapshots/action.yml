@@ -1,0 +1,102 @@
+name: Commit Aggregated Snapshots
+description: Downloads snapshot artifacts, counts changes, commits, and posts PR comment
+
+inputs:
+    workflow-type:
+        description: 'Workflow type (storybook or playwright)'
+        required: true
+    artifact-pattern:
+        description: 'Pattern to match snapshot artifacts (e.g., snapshots-* or playwright-snapshots)'
+        required: true
+    snapshot-path:
+        description: 'Path to snapshot directory (e.g., frontend/__snapshots__/ or playwright/)'
+        required: true
+    commit-message:
+        description: 'Commit message for snapshot changes'
+        required: true
+    pr-number:
+        description: 'Pull request number'
+        required: true
+    repository:
+        description: 'Repository name (owner/repo)'
+        required: true
+    commit-sha:
+        description: 'Commit SHA'
+        required: true
+    github-token:
+        description: 'GitHub token for authentication'
+        required: true
+
+outputs:
+    committed:
+        description: 'Whether snapshots were committed (true/false)'
+        value: ${{ steps.commit.outputs.committed }}
+    changes:
+        description: 'JSON object with change counts'
+        value: ${{ steps.commit.outputs.changes }}
+
+runs:
+    using: composite
+    steps:
+        - name: Download all snapshot artifacts
+          uses: actions/download-artifact@v4
+          with:
+              pattern: ${{ inputs.artifact-pattern }}
+              path: ${{ inputs.snapshot-path }}
+              merge-multiple: true
+
+        - name: Configure git
+          shell: bash
+          run: |
+              git config --global --add safe.directory '*'
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+
+        - name: Count and commit changes
+          id: commit
+          shell: bash
+          run: |
+              CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh ${{ inputs.snapshot-path }})
+              echo "changes=$CHANGES_JSON" >> $GITHUB_OUTPUT
+              echo "Snapshot changes: $CHANGES_JSON"
+
+              TOTAL=$(echo "$CHANGES_JSON" | jq -r '.total')
+              if [ "$TOTAL" -gt 0 ]; then
+                git add ${{ inputs.snapshot-path }} -A
+                git commit -m "${{ inputs.commit-message }}"
+                git push
+                echo "committed=true" >> $GITHUB_OUTPUT
+              else
+                echo "No snapshot changes to commit"
+                echo "committed=false" >> $GITHUB_OUTPUT
+              fi
+
+        - name: Disable auto-merge
+          if: steps.commit.outputs.committed == 'true'
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.github-token }}
+          run: |
+              gh pr merge --disable-auto ${{ inputs.pr-number }}
+              echo "Auto-merge disabled - snapshot changes require human review"
+
+        - name: Post snapshot comment
+          if: steps.commit.outputs.committed == 'true'
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.github-token }}
+          run: |
+              .github/scripts/post-snapshot-comment.js \
+                "${{ inputs.workflow-type }}" \
+                "update" \
+                '${{ steps.commit.outputs.changes }}' \
+                "${{ inputs.pr-number }}" \
+                "${{ inputs.repository }}" \
+                "${{ inputs.commit-sha }}"
+
+        - name: Fail workflow to trigger CHECK mode
+          if: steps.commit.outputs.committed == 'true'
+          shell: bash
+          run: |
+              echo "::notice::Snapshots were updated. Workflow will fail to trigger CHECK mode on next run."
+              exit 1

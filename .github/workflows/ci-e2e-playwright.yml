@@ -350,63 +350,15 @@ jobs:
                     pnpm --filter=@posthog/playwright exec playwright test --workers=10
                   fi
 
-            - name: Configure global git diff log
-              run: git config --global --add safe.directory '*'
-
-            # Count and optimize snapshots using consolidated script
-            - name: Count and optimize updated screenshots
-              id: diff
-              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
-              run: |
-                  CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh playwright/)
-                  echo "changes=$CHANGES_JSON" >> $GITHUB_OUTPUT
-                  echo "Screenshot changes: $CHANGES_JSON"
-
-            # Only commit snapshots in UPDATE mode
-            # In CHECK mode, test runner already failed if snapshots differ
-            - name: Commit updated screenshots
-              uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
+            # Upload screenshots as artifact for aggregation
+            - name: Upload screenshot changes
               if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
-              id: commit
+              uses: actions/upload-artifact@v4
               with:
-                  # Use -A flag to also stage deletions (when tests are removed)
-                  add: 'playwright/ -A'
-                  message: 'Update E2E screenshots for Playwright'
-                  pull: --rebase --autostash # Make sure we're up to date with other commits
-                  default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-
-            # Disable auto-merge if bot committed snapshots (requires human review)
-            - name: Disable auto-merge
-              if: steps.commit.outputs.pushed == 'true'
-              env:
-                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-              run: |
-                  gh pr merge --disable-auto ${{ github.event.pull_request.number }}
-                  echo "Auto-merge disabled - snapshot changes require human review"
-
-            # Post PR comment about snapshot changes
-            - name: Post snapshot comment
-              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
-              env:
-                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-              run: |
-                  # Determine comment mode based on snapshot mode and test result
-                  if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" = "update" ]; then
-                    COMMENT_MODE="update"
-                  elif [ "${{ steps.playwright-tests.outcome }}" = "success" ]; then
-                    COMMENT_MODE="check"
-                  else
-                    COMMENT_MODE="check-failed"
-                  fi
-
-                  .github/scripts/post-snapshot-comment.js \
-                    "playwright" \
-                    "$COMMENT_MODE" \
-                    '${{ steps.diff.outputs.changes }}' \
-                    "${{ github.event.pull_request.number }}" \
-                    "${{ github.repository }}" \
-                    "${{ github.sha }}"
+                  name: playwright-snapshots
+                  path: playwright/
+                  retention-days: 1
+                  if-no-files-found: ignore
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Show celery logs
@@ -476,3 +428,27 @@ jobs:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
+
+    # Aggregate all screenshot artifacts and commit once
+    commit-snapshots:
+        name: Commit aggregated screenshots
+        runs-on: ubuntu-latest
+        needs: [playwright, detect-snapshot-mode, changes]
+        if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+
+            - name: Commit snapshots
+              uses: ./.github/actions/commit-snapshots
+              with:
+                  workflow-type: playwright
+                  artifact-pattern: playwright-snapshots
+                  snapshot-path: playwright/
+                  commit-message: Update E2E screenshots (Playwright)
+                  pr-number: ${{ github.event.pull_request.number }}
+                  repository: ${{ github.repository }}
+                  commit-sha: ${{ github.sha }}
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
