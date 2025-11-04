@@ -316,8 +316,10 @@ export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): 
     return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node)
 }
 
-export function isInsightQueryWithCompare(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
-    return isTrendsQuery(node) || isStickinessQuery(node)
+export function isInsightQueryWithCompare(
+    node?: Record<string, any> | null
+): node is TrendsQuery | StickinessQuery | WebStatsTableQuery | WebOverviewQuery {
+    return isTrendsQuery(node) || isStickinessQuery(node) || isWebStatsTableQuery(node) || isWebOverviewQuery(node)
 }
 
 export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {
@@ -386,6 +388,9 @@ export function dateRangeFor(node?: Node): DateRange | undefined {
 export const getInterval = (query: InsightQueryNode): IntervalType | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.interval
+    }
+    if (isWebStatsTableQuery(query) || isWebOverviewQuery(query)) {
+        return query.interval ?? 'day'
     }
     return undefined
 }

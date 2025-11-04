@@ -1955,6 +1955,8 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     sampling?: WebAnalyticsSampling
     filterTestAccounts?: boolean
     includeRevenue?: boolean
+    /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
+    interval?: IntervalType
     orderBy?: WebAnalyticsOrderBy
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
