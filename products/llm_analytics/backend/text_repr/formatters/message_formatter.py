@@ -31,15 +31,6 @@ class ToolCall(TypedDict, total=False):
     args: Any  # LangChain format
 
 
-class Message(TypedDict, total=False):
-    """Message structure."""
-
-    role: str
-    type: str
-    content: Any
-    tool_calls: list[ToolCall]
-
-
 def truncate_content(content: str, options: FormatterOptions | None = None) -> tuple[list[str], bool]:
     """
     Truncate content with middle ellipsis for long text.
