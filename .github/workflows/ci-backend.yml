@@ -105,7 +105,7 @@ jobs:
     check-migrations:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
-        timeout-minutes: 10
+        timeout-minutes: 20
 
         name: Validate Django and CH migrations
         runs-on: ubuntu-latest
@@ -141,6 +141,9 @@ jobs:
               with:
                   toolchain: 1.88.0
                   components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
 
             - name: Install sqlx-cli
               run: |

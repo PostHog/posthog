@@ -22,11 +22,13 @@ from posthog.schema import HogQLQueryResponse
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.utils import ExternalDataWorkflowInputs
-from posthog.warehouse.models import ExternalDataJob
-from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
-from posthog.warehouse.models.external_table_definitions import external_tables
+
+from products.data_warehouse.backend.models import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
+from products.data_warehouse.backend.models.external_table_definitions import external_tables
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -101,9 +103,7 @@ async def run_external_data_job_workflow(
             AIRBYTE_BUCKET_REGION="us-east-1",
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         ),
-        mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.trigger_compaction_job"
-        ) as mock_trigger_compaction_job,
+        mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
@@ -138,7 +138,7 @@ async def run_external_data_job_workflow(
     if expected_rows_synced is not None:
         assert run.rows_synced == expected_rows_synced
 
-    mock_trigger_compaction_job.assert_called()
+    mock_compact_table.assert_called()
     mock_get_data_import_finished_metric.assert_called_with(
         source_type=external_data_source.source_type, status=ExternalDataJob.Status.COMPLETED.lower()
     )

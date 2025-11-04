@@ -434,6 +434,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     person_display_name_properties: createArrayChangeHandler('person display name properties'),
     person_on_events_querying_enabled: createBooleanToggleHandler('querying person on events'),
     human_friendly_comparison_periods: createBooleanToggleHandler('human friendly comparison periods'),
+    receive_org_level_activity_logs: createBooleanToggleHandler('organization-level activity logs'),
     test_account_filters: (change) => {
         // change.after is an array of property filters
         // change.before is an array o property filters

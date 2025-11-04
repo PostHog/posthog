@@ -186,8 +186,12 @@ class ExperimentQueryBuilder:
                 # event. For ordered funnel metrics, the UDF does this for us.
                 # Here, we add the field we need, first_exposure_timestamp
                 if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+                    exposure_condition_for_window = self._build_exposure_predicate()
                     first_exposure_timestamp_expr = parse_expr(
-                        "minIf(timestamp, step_0 = 1) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
+                        "minIf(timestamp, {exposure_condition}) OVER (PARTITION BY entity_id) AS first_exposure_timestamp",
+                        placeholders={
+                            "exposure_condition": exposure_condition_for_window,
+                        },
                     )
                     metric_events_cte.expr.select.extend([first_exposure_timestamp_expr])
 
@@ -820,9 +824,9 @@ class ExperimentQueryBuilder:
                 SELECT
                     {entity_key} AS entity_id,
                     {variant_expr} AS variant,
-                    minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
-                    argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
+                    min(timestamp) AS first_exposure_time,
+                    argMin(uuid, timestamp) AS exposure_event_uuid,
+                    argMin(`$session_id`, timestamp) AS exposure_session_id
                 FROM events
                 WHERE {exposure_predicate}
                 GROUP BY entity_id
@@ -843,18 +847,16 @@ class ExperimentQueryBuilder:
 
         if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
             return parse_expr(
-                "argMinIf({variant_property}, timestamp, {exposure_predicate})",
+                "argMin({variant_property}, timestamp)",
                 placeholders={
                     "variant_property": self._build_variant_property(),
-                    "exposure_predicate": self._build_exposure_predicate(),
                 },
             )
         else:
             return parse_expr(
-                "if(uniqExactIf({variant_property}, {exposure_predicate}) > 1, {multiple_key}, anyIf({variant_property}, {exposure_predicate}))",
+                "if(uniqExact({variant_property}) > 1, {multiple_key}, any({variant_property}))",
                 placeholders={
                     "variant_property": self._build_variant_property(),
-                    "exposure_predicate": self._build_exposure_predicate(),
                     "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                 },
             )

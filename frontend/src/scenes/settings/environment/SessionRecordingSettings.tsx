@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, memo, useMemo, useState } from 'react'
 
-import { IconCalendar, IconCheck, IconClock, IconHourglass, IconInfo, IconPlus, IconX } from '@posthog/icons'
+import {
+    IconCalendar,
+    IconCheck,
+    IconClock,
+    IconHourglass,
+    IconInfinity,
+    IconInfo,
+    IconPlus,
+    IconX,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -23,7 +32,7 @@ import { PropertySelect } from 'lib/components/PropertySelect/PropertySelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { IconInfinity, IconSelectEvents } from 'lib/lemon-ui/icons'
+import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { isObject, objectsEqual } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getAppContext } from 'lib/utils/getAppContext'

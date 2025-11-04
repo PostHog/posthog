@@ -66,7 +66,7 @@ import {
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery } from '~/queries/utils'
+import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
@@ -294,7 +294,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                         })()
 
                         return (
-                            <div key={key} className="flex flex-col gap-1.5">
+                            <div key={key} className="flex flex-col gap-1.5 w-full">
                                 {thinkingElement}
                                 {textElement}
                                 {toolCallElements}
@@ -1005,6 +1005,12 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     }, [isEditingInsight])
 
     const query = useMemo(() => visualizationTypeToQuery(message), [message])
+    const queryWithShowHeader = useMemo(() => {
+        if (query && isInsightVizNode(query)) {
+            return { ...query, showHeader: true }
+        }
+        return query
+    }, [query])
 
     return status !== 'completed'
         ? null
@@ -1040,7 +1046,11 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                                       to={
                                           message.short_id
                                               ? urls.insightView(message.short_id as InsightShortId)
-                                              : urls.insightNew({ query })
+                                              : urls.insightNew({
+                                                    query: queryWithShowHeader as
+                                                        | InsightVizNode
+                                                        | DataVisualizationNode,
+                                                })
                                       }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"
