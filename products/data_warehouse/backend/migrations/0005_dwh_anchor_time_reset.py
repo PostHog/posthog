@@ -3,7 +3,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_warehouse", "0003_backfill_partition_format"),
+        ("data_warehouse", "0004_add_saved_query_origin"),
     ]
 
     operations = [
