@@ -144,7 +144,7 @@ def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # no
         was_impersonated, log_user, item_id, _ = _detect_impersonation_for_login(user, request)
         ip_address = get_ip_address(request)
         user_agent = get_short_user_agent(request)
-        reauth_sensitive_ops = request.session.get("reauth") == "true"
+        reauth = request.session.get("reauth") == "true"
 
         organization_id = user.current_organization_id
 
@@ -166,7 +166,7 @@ def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # no
                     login_method=_determine_login_method(request, was_impersonated, user),
                     ip_address=ip_address,
                     user_agent=user_agent,
-                    reauth_sensitive_ops=reauth_sensitive_ops,
+                    reauth=reauth,
                 ),
             ),
             was_impersonated=was_impersonated,

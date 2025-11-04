@@ -632,9 +632,9 @@ export interface TeamType extends TeamBasicType {
     session_recording_minimum_duration_milliseconds: number | null
     session_recording_linked_flag: ({ variant?: string | null } & Pick<FeatureFlagBasicType, 'id' | 'key'>) | null
     session_recording_network_payload_capture_config:
-    | { recordHeaders?: boolean; recordBody?: boolean }
-    | undefined
-    | null
+        | { recordHeaders?: boolean; recordBody?: boolean }
+        | undefined
+        | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
@@ -1106,18 +1106,18 @@ export interface SessionRecordingSnapshotSource {
 
 export type SessionRecordingSnapshotParams = (
     | {
-        source: 'blob'
-        blob_key?: string
-    }
+          source: 'blob'
+          blob_key?: string
+      }
     | {
-        source: 'blob_v2'
-        blob_key?: string
-    }
+          source: 'blob_v2'
+          blob_key?: string
+      }
     | {
-        source: 'blob_v2'
-        start_blob_key?: string
-        end_blob_key?: string
-    }
+          source: 'blob_v2'
+          start_blob_key?: string
+          end_blob_key?: string
+      }
 ) & {
     decompress?: boolean
 }
@@ -1580,7 +1580,7 @@ export interface RecordingTimeMixinType {
 
 export interface RecordingEventType
     extends Pick<EventType, 'id' | 'event' | 'properties' | 'timestamp' | 'elements'>,
-    RecordingTimeMixinType {
+        RecordingTimeMixinType {
     fullyLoaded: boolean
     // allowing for absent distinct id which events don't
     distinct_id?: EventType['distinct_id']
@@ -1777,23 +1777,23 @@ export interface PerformanceEvent {
     encoded_body_size?: number
 
     initiator_type?:
-    | 'navigation'
-    | 'css'
-    | 'script'
-    | 'xmlhttprequest'
-    | 'fetch'
-    | 'beacon'
-    | 'video'
-    | 'audio'
-    | 'track'
-    | 'img'
-    | 'image'
-    | 'input'
-    | 'a'
-    | 'iframe'
-    | 'frame'
-    | 'link'
-    | 'other'
+        | 'navigation'
+        | 'css'
+        | 'script'
+        | 'xmlhttprequest'
+        | 'fetch'
+        | 'beacon'
+        | 'video'
+        | 'audio'
+        | 'track'
+        | 'img'
+        | 'image'
+        | 'input'
+        | 'a'
+        | 'iframe'
+        | 'frame'
+        | 'link'
+        | 'other'
     next_hop_protocol?: string
     render_blocking_status?: string
     response_status?: number
@@ -1948,11 +1948,11 @@ export interface BillingProductV2AddonType {
     percentage_usage?: number
     features: BillingFeatureType[]
     included_if?:
-    | 'no_active_subscription'
-    | 'has_subscription'
-    | 'no_active_parent_subscription'
-    | 'has_parent_subscription'
-    | null
+        | 'no_active_subscription'
+        | 'has_subscription'
+        | 'no_active_parent_subscription'
+        | 'has_parent_subscription'
+        | null
     usage_limit?: number | null
     trial?: BillingTrialType | null
     legacy_product?: boolean | null
@@ -2029,11 +2029,11 @@ export interface BillingPlanType {
     tiers?: BillingTierType[] | null
     unit_amount_usd: string | null
     included_if?:
-    | 'no_active_subscription'
-    | 'has_subscription'
-    | 'no_active_parent_subscription'
-    | 'has_parent_subscription'
-    | null
+        | 'no_active_subscription'
+        | 'has_subscription'
+        | 'no_active_parent_subscription'
+        | 'has_parent_subscription'
+        | null
     initial_billing_limit?: number | null
     contact_support: boolean | null
 }
@@ -2992,9 +2992,9 @@ export interface FunnelCorrelation {
     failure_people_url: string
     correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
     result_type:
-    | FunnelCorrelationResultsType.Events
-    | FunnelCorrelationResultsType.Properties
-    | FunnelCorrelationResultsType.EventWithProperties
+        | FunnelCorrelationResultsType.Events
+        | FunnelCorrelationResultsType.Properties
+        | FunnelCorrelationResultsType.EventWithProperties
 }
 
 export enum FunnelCorrelationType {
@@ -3326,10 +3326,10 @@ export interface SurveyQuestionBase {
     optional?: boolean
     buttonText?: string
     branching?:
-    | NextQuestionBranching
-    | ConfirmationMessageBranching
-    | ResponseBasedBranching
-    | SpecificQuestionBranching
+        | NextQuestionBranching
+        | ConfirmationMessageBranching
+        | ResponseBasedBranching
+        | SpecificQuestionBranching
 }
 
 export interface BasicSurveyQuestion extends SurveyQuestionBase {
@@ -3349,10 +3349,10 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     upperBoundLabel: string
     skipSubmitButton?: boolean
     branching?:
-    | NextQuestionBranching
-    | ConfirmationMessageBranching
-    | ResponseBasedBranching
-    | SpecificQuestionBranching
+        | NextQuestionBranching
+        | ConfirmationMessageBranching
+        | ResponseBasedBranching
+        | SpecificQuestionBranching
 }
 
 export interface MultipleSurveyQuestion extends SurveyQuestionBase {
@@ -3362,10 +3362,10 @@ export interface MultipleSurveyQuestion extends SurveyQuestionBase {
     hasOpenChoice?: boolean
     skipSubmitButton?: boolean
     branching?:
-    | NextQuestionBranching
-    | ConfirmationMessageBranching
-    | ResponseBasedBranching
-    | SpecificQuestionBranching
+        | NextQuestionBranching
+        | ConfirmationMessageBranching
+        | ResponseBasedBranching
+        | SpecificQuestionBranching
 }
 
 export type SurveyQuestion = BasicSurveyQuestion | LinkSurveyQuestion | RatingSurveyQuestion | MultipleSurveyQuestion
@@ -3581,9 +3581,9 @@ export type ScheduledChangePayload =
     | { operation: ScheduledChangeOperationType.UpdateStatus; value: boolean }
     | { operation: ScheduledChangeOperationType.AddReleaseCondition; value: FeatureFlagFilters }
     | {
-        operation: ScheduledChangeOperationType.UpdateVariants
-        value: { variants: MultivariateFlagVariant[]; payloads?: Record<string, any> }
-    }
+          operation: ScheduledChangeOperationType.UpdateVariants
+          value: { variants: MultivariateFlagVariant[]; payloads?: Record<string, any> }
+      }
 
 export interface ScheduledChangeType {
     id: number
@@ -4616,7 +4616,7 @@ export interface AccessControlTypeBase {
     role?: RoleType['id'] | null
 }
 
-export interface AccessControlTypeProject extends AccessControlTypeBase { }
+export interface AccessControlTypeProject extends AccessControlTypeBase {}
 
 export interface AccessControlTypeMember extends AccessControlTypeBase {
     organization_member: OrganizationMemberType['id']
@@ -5120,15 +5120,15 @@ export type BatchExportConfigurationTest = {
 export type RawBatchExportRun = {
     id: string
     status:
-    | 'Cancelled'
-    | 'Completed'
-    | 'ContinuedAsNew'
-    | 'Failed'
-    | 'FailedRetryable'
-    | 'Terminated'
-    | 'TimedOut'
-    | 'Running'
-    | 'Starting'
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
     created_at: string
     data_interval_start?: string
     data_interval_end: string
@@ -5138,15 +5138,15 @@ export type RawBatchExportRun = {
 export type BatchExportRun = {
     id: string
     status:
-    | 'Cancelled'
-    | 'Completed'
-    | 'ContinuedAsNew'
-    | 'Failed'
-    | 'FailedRetryable'
-    | 'Terminated'
-    | 'TimedOut'
-    | 'Running'
-    | 'Starting'
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
     created_at: Dayjs
     data_interval_start?: Dayjs
     data_interval_end: Dayjs
@@ -5169,15 +5169,15 @@ export type BatchExportBackfillProgress = {
 export type RawBatchExportBackfill = {
     id: string
     status:
-    | 'Cancelled'
-    | 'Completed'
-    | 'ContinuedAsNew'
-    | 'Failed'
-    | 'FailedRetryable'
-    | 'Terminated'
-    | 'TimedOut'
-    | 'Running'
-    | 'Starting'
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
     created_at: string
     finished_at?: string
     start_at?: string
@@ -5189,15 +5189,15 @@ export type RawBatchExportBackfill = {
 export type BatchExportBackfill = {
     id: string
     status:
-    | 'Cancelled'
-    | 'Completed'
-    | 'ContinuedAsNew'
-    | 'Failed'
-    | 'FailedRetryable'
-    | 'Terminated'
-    | 'TimedOut'
-    | 'Running'
-    | 'Starting'
+        | 'Cancelled'
+        | 'Completed'
+        | 'ContinuedAsNew'
+        | 'Failed'
+        | 'FailedRetryable'
+        | 'Terminated'
+        | 'TimedOut'
+        | 'Running'
+        | 'Starting'
     created_at?: Dayjs
     finished_at?: Dayjs
     start_at?: Dayjs
@@ -5212,12 +5212,12 @@ export type SDK = {
     recommended?: boolean
     tags: SDKTag[]
     image:
-    | string
-    | JSX.Element
-    // storybook handles require() differently, so we need to support both
-    | {
-        default: string
-    }
+        | string
+        | JSX.Element
+        // storybook handles require() differently, so we need to support both
+        | {
+              default: string
+          }
     docsLink: string
 }
 
@@ -5371,16 +5371,16 @@ export type OnboardingProduct = {
 
 export type CyclotronJobInputSchemaType = {
     type:
-    | 'string'
-    | 'number'
-    | 'boolean'
-    | 'dictionary'
-    | 'choice'
-    | 'json'
-    | 'integration'
-    | 'integration_field'
-    | 'email'
-    | 'native_email'
+        | 'string'
+        | 'number'
+        | 'boolean'
+        | 'dictionary'
+        | 'choice'
+        | 'json'
+        | 'integration'
+        | 'integration_field'
+        | 'email'
+        | 'native_email'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -5813,19 +5813,19 @@ export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
     dnsRecords: (
         | {
-            type: 'dkim'
-            recordType: 'TXT'
-            recordHostname: string
-            recordValue: string
-            status: 'pending' | 'success'
-        }
+              type: 'dkim'
+              recordType: 'TXT'
+              recordHostname: string
+              recordValue: string
+              status: 'pending' | 'success'
+          }
         | {
-            type: 'spf'
-            recordType: 'TXT'
-            recordHostname: '@'
-            recordValue: string
-            status: 'pending' | 'success'
-        }
+              type: 'spf'
+              recordType: 'TXT'
+              recordHostname: '@'
+              recordValue: string
+              status: 'pending' | 'success'
+          }
     )[]
 }
 
