@@ -416,6 +416,7 @@ jobs:
                   fi
 
             - name: Run @storybook/test-runner (up to 3 attempts)
+              id: test-runner
               env:
                   HOME: /root
                   VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && steps.snapshot-mode.outputs.mode == 'update' && 'update' || 'verify' }}
@@ -440,51 +441,14 @@ jobs:
             - name: Configure global git diff log
               run: git config --global --add safe.directory '*'
 
+            # Count and optimize snapshots using consolidated script
             - name: Count and optimize updated snapshots
               id: diff
-              # Skip on forks
               if: github.event.pull_request.head.repo.full_name == github.repository
               run: |
-                  echo $(git diff --name-status frontend/__snapshots__) # Wrapped to ignore exit 1 on empty diff
-                  ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)
-                  MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
-                  DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
-                  TOTAL=$(git diff --name-status frontend/__snapshots__/ | wc -l)
-
-                  # If added or modified, run OptiPNG
-                  if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
-                    echo "Snapshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
-                    apt update && apt install -y optipng
-                    # TODO: RESTORE OptiPNG - it turns out it never worked before
-                    # optipng -clobber -o4 -strip all frontend/__snapshots__/*.png
-
-                    # we don't want to _always_ run OptiPNG
-                    # so, we run it after checking for a diff
-                    # but, the files we diffed might then be changed by OptiPNG
-                    # and as a result they might no longer be different...
-
-                    # we check again
-                    git diff --name-status frontend/__snapshots__/ # For debugging
-                    ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)
-                    MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
-                    DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
-                    TOTAL=$(git diff --name-status frontend/__snapshots__/ | wc -l)
-
-                    if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
-                        echo "Snapshots updated ($ADDED new, $MODIFIED changed), _even after_ running OptiPNG"
-                        git add frontend/__snapshots__/ playwright/
-                    fi
-                  fi
-
-                  echo "Snapshot changes:"
-                  echo "Added: $ADDED"
-                  echo "Modified: $MODIFIED"
-                  echo "Deleted: $DELETED"
-                  echo "Total: $TOTAL"
-                  echo "${{ matrix.browser }}-${{ matrix.shard }}-added=$ADDED" >> $GITHUB_OUTPUT
-                  echo "${{ matrix.browser }}-${{ matrix.shard }}-modified=$MODIFIED" >> $GITHUB_OUTPUT
-                  echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
-                  echo "${{ matrix.browser }}-${{ matrix.shard }}-total=$TOTAL" >> $GITHUB_OUTPUT
+                  CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh frontend/__snapshots__)
+                  echo "changes=$CHANGES_JSON" >> $GITHUB_OUTPUT
+                  echo "Snapshot changes: $CHANGES_JSON"
 
             # Only commit snapshots in UPDATE mode
             # In CHECK mode, test runner already failed if snapshots differ
@@ -499,112 +463,32 @@ jobs:
                   pull: --rebase --autostash # Make sure we're up to date with other browsers' updates
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-            - name: Add commit hash to outputs, including browser name
-              id: commit-hash
-              if: steps.commit.outputs.pushed == 'true'
-              run: echo "${{ matrix.browser }}-${{ matrix.shard }}-commitHash=${{ steps.commit.outputs.commit_long_sha }}" >> $GITHUB_OUTPUT
 
-    visual-regression-summary:
-        name: Summarize visual regression tests
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        needs: [visual-regression, changes]
-        # Run even if visual-regression fails for one (or more) of the browsers
-        if: always()
-        steps:
-            - name: Post comment about updated snapshots
-              if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
-              uses: actions/github-script@v6
-              with:
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-                  script: |
-                      const BROWSERS = ['chromium', 'webkit']
+            # Post PR comment about snapshot changes
+            # Only post from one shard to avoid duplicate comments
+            - name: Post snapshot comment
+              if: github.event.pull_request.head.repo.full_name == github.repository && matrix.browser == 'chromium' && matrix.shard == 1
+              env:
+                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+              run: |
+                  # Determine comment mode based on snapshot mode and test result
+                  if [ "${{ steps.snapshot-mode.outputs.mode }}" = "update" ]; then
+                    COMMENT_MODE="update"
+                  elif [ "${{ steps.test-runner.outcome }}" = "success" ]; then
+                    COMMENT_MODE="check"
+                  else
+                    COMMENT_MODE="check-failed"
+                  fi
 
-                      const diffJobOutputs = ${{ toJson(needs.visual-regression.outputs) }}
-                      const summaryDiff = { total: 0, added: 0, modified: 0, deleted: 0 }
-                      const flaps = []
-                      const diffByBrowser = Object.fromEntries(BROWSERS.map(browser => [browser, {
-                        total: 0, added: 0, modified: 0, deleted: 0, commitHashes: []
-                      }]))
-                      for (const [key, rawValue] of Object.entries(diffJobOutputs)) {
-                        // Split e.g. 'chromium-1-commitHash' into ['chromium', '1' 'commitHash']
-                        const [browser, shardNumber, diffKey] = key.split('-')
-                        // Sum up the counts - but not the commit hash
-                        if (diffKey === 'pathsFlapping') {
-                          if (rawValue && typeof rawValue === 'string') { // Ensure rawValue is a string and not empty
-                            for (const path of rawValue.split(' ')) {
-                              flaps.push([browser, parseInt(shardNumber), path.trim()])
-                            }
-                          }
-                        } else if (diffKey === 'commitHash') {
-                          diffByBrowser[browser].commitHashes.push([parseInt(shardNumber), rawValue])
-                        } else {
-                          const value = parseInt(rawValue)
-                          diffByBrowser[browser][diffKey] += value
-                          summaryDiff[diffKey] += value
-                        }
-                      }
+                  .github/scripts/post-snapshot-comment.sh \
+                    "storybook" \
+                    "$COMMENT_MODE" \
+                    '${{ steps.diff.outputs.changes }}' \
+                    "${{ github.event.pull_request.number }}" \
+                    "${{ github.repository }}" \
+                    "${{ github.sha }}"
 
-                      for (const browser of BROWSERS) {
-                        if (diffByBrowser[browser]?.total === undefined) {
-                          diffByBrowser[browser] = null // Null means failure
-                        }
-                      }
-
-                      if (summaryDiff.total === 0) {
-                        console.log('No changes were made, skipping comment')
-                        return
-                      }
-
-                      const diffByBrowserDisplay = Object.entries(diffByBrowser).map(([browser, diff]) => {
-                        if (!diff) {
-                          return `- \`${browser}\`: failed`
-                        }
-                        const { added: a, modified: m, deleted: d, commitHashes } = diff
-                        const b = a + m + d > 0 ? '**' : '' // Bold list item if there were changes
-                        let extraInfo = ''
-                        if (b) {
-                          const commitInfo = commitHashes.map(
-                            ([shardNumber, commitHash]) =>
-                            `[diff for shard ${shardNumber}](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${commitHash})`
-                          ).join(', ') || "wasn't pushed!"
-                          extraInfo = ` (${commitInfo})`
-                        }
-                        return `- ${b}\`${browser}\`${b}: **${a}** added, **${m}** modified, **${d}** deleted${extraInfo}`
-                      }).join('\n')
-
-                      let flapsDisplay = ''
-                      if (flaps.length > 0) {
-                        flapsDisplay = [
-                          '\n> [!CAUTION]',
-                          '> ### Detected flapping snapshots',
-                          '>',
-                          '> These snapshots have auto-updated more than once since the last human commit:',
-                          '>',
-                          ...flaps.map(([browser, shardNumber, path]) => `> - \`${path.replace('frontend/__snapshots__/', '')}\` (${browser}, shard ${shardNumber})`),
-                          '>',
-                          '> **The flippy-flappies are deadly and must be fixed ASAP.** They\'re productivity killers.',
-                          '> Run `pnpm storybook` locally and make the fix now.',
-                          '> (Often, the cause is `ResizeObserver` being used instead of the better CSS container queries.)\n'
-                        ].join('\n')
-                      }
-
-                      github.rest.issues.createComment({
-                        issue_number: context.issue.number,
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        body: `## 📸 UI snapshots have been updated
-
-                      **${summaryDiff.total}** snapshot changes in total. **${summaryDiff.added}** added, **${summaryDiff.modified}** modified, **${summaryDiff.deleted}** deleted:
-
-                      ${flapsDisplay}${diffByBrowserDisplay}
-
-                      _Triggered by [this commit](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${{ github.sha }})._
-
-                      👉 **[Review this PR's diff of snapshots.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/files#:~:text=frontend/__snapshots__/)**`
-                      })
-
-    # Job just to collate the status of the matrix jobs for requiring passing status
+    # Job to collate the status of the matrix jobs for requiring passing status
     visual_regression_tests:
         needs: [visual-regression]
         name: Visual regression tests pass

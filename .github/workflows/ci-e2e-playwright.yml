@@ -340,47 +340,14 @@ jobs:
             - name: Configure global git diff log
               run: git config --global --add safe.directory '*'
 
+            # Count and optimize snapshots using consolidated script
             - name: Count and optimize updated screenshots
               id: diff
-              # Skip on forks
               if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               run: |
-                  echo $(git diff --name-status playwright/__snapshots__) # Wrapped to ignore exit 1 on empty diff
-                  ADDED=$(git diff --name-status playwright/__snapshots__/ | grep '^A' | wc -l)
-                  MODIFIED=$(git diff --name-status playwright/__snapshots__/ | grep '^M' | wc -l)
-                  DELETED=$(git diff --name-status playwright/__snapshots__/ | grep '^D' | wc -l)
-                  TOTAL=$(git diff --name-status playwright/__snapshots__/ | wc -l)
-
-                  # If added or modified, run OptiPNG
-                  if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
-                    echo "Screenshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
-                    apt update && apt install -y optipng
-                    # TODO: RESTORE OptiPNG - it turns out it never worked before
-                    # optipng -clobber -o4 -strip all playwright/__snapshots__/**/*.png
-
-                    # we don't want to _always_ run OptiPNG
-                    # so, we run it after checking for a diff
-                    # but, the files we diffed might then be changed by OptiPNG
-                    # and as a result they might no longer be different...
-
-                    # we check again
-                    git diff --name-status playwright/__snapshots__/ # For debugging
-                    ADDED=$(git diff --name-status playwright/__snapshots__/ | grep '^A' | wc -l)
-                    MODIFIED=$(git diff --name-status playwright/__snapshots__/ | grep '^M' | wc -l)
-                    DELETED=$(git diff --name-status playwright/__snapshots__/ | grep '^D' | wc -l)
-                    TOTAL=$(git diff --name-status playwright/__snapshots__/ | wc -l)
-
-                    if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
-                        echo "Screenshots updated ($ADDED new, $MODIFIED changed), _even after_ running OptiPNG"
-                        git add playwright/__snapshots__/ playwright/
-                    fi
-                  fi
-
-                  echo "Screenshot changes:"
-                  echo "Added: $ADDED"
-                  echo "Modified: $MODIFIED"
-                  echo "Deleted: $DELETED"
-                  echo "Total: $TOTAL"
+                  CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh playwright/)
+                  echo "changes=$CHANGES_JSON" >> $GITHUB_OUTPUT
+                  echo "Screenshot changes: $CHANGES_JSON"
 
             # Only commit snapshots in UPDATE mode
             # In CHECK mode, test runner already failed if snapshots differ
@@ -395,6 +362,29 @@ jobs:
                   pull: --rebase --autostash # Make sure we're up to date with other commits
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+
+            # Post PR comment about snapshot changes
+            - name: Post snapshot comment
+              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              env:
+                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+              run: |
+                  # Determine comment mode based on snapshot mode and test result
+                  if [ "${{ steps.snapshot-mode.outputs.mode }}" = "update" ]; then
+                    COMMENT_MODE="update"
+                  elif [ "${{ steps.playwright-tests.outcome }}" = "success" ]; then
+                    COMMENT_MODE="check"
+                  else
+                    COMMENT_MODE="check-failed"
+                  fi
+
+                  .github/scripts/post-snapshot-comment.sh \
+                    "playwright" \
+                    "$COMMENT_MODE" \
+                    '${{ steps.diff.outputs.changes }}' \
+                    "${{ github.event.pull_request.number }}" \
+                    "${{ github.repository }}" \
+                    "${{ github.sha }}"
 
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Show celery logs
