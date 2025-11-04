@@ -229,7 +229,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         #
         # If the types here prove to be wrong, we can easily run the following script to update the types:
         # ```python
-        # from posthog.warehouse.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+        # from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
         # for viewset in DataWarehouseManagedViewSet.objects.():
         #     viewset.sync_views()
         # ```

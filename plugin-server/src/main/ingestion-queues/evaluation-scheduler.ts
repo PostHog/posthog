@@ -69,6 +69,7 @@ export function filterAndParseMessages(messages: Message[]): RawKafkaEvent[] {
             }
         })
         .filter((event): event is RawKafkaEvent => event !== null)
+        .filter((event) => event.event === '$ai_generation')
 }
 
 export function groupEventsByTeam(events: RawKafkaEvent[]): Map<number, RawKafkaEvent[]> {
@@ -288,6 +289,6 @@ async function processEventEvaluationMatch(
 
     evaluationMatchesCounter.labels({ outcome: 'matched' }).inc()
 
-    await temporalService.startEvaluationRunWorkflow(evaluationDefinition.id, event.uuid)
+    await temporalService.startEvaluationRunWorkflow(evaluationDefinition.id, event.uuid, event.timestamp)
     evaluationSchedulerEventsProcessed.labels({ status: 'success' }).inc()
 }

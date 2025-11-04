@@ -1,7 +1,8 @@
 import { forwardRef } from 'react'
 import TextareaAutosize, { TextareaAutosizeProps } from 'react-textarea-autosize'
 
-import { IconMarkdown } from 'lib/lemon-ui/icons/icons'
+import { IconMarkdownFilled } from '@posthog/icons'
+
 import { cn } from 'lib/utils/css-classes'
 
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
@@ -43,7 +44,7 @@ export const TextareaPrimitive = forwardRef<HTMLTextAreaElement, TextareaPrimiti
                         iconOnly
                         aria-hidden
                     >
-                        <IconMarkdown className="text-tertiary size-4" />
+                        <IconMarkdownFilled className="text-tertiary size-4" />
                     </ButtonPrimitive>
                 )}
             </div>

@@ -527,7 +527,14 @@ export function LLMAnalyticsScene(): JSX.Element {
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
         tabs.push({
             key: 'sessions',
-            label: 'Sessions',
+            label: (
+                <>
+                    Sessions{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
             content: (
                 <LLMAnalyticsSetupPrompt>
                     <LLMAnalyticsSessionsScene />

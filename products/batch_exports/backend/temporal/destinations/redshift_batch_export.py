@@ -835,7 +835,7 @@ class RedshiftConsumerFromStage(ConsumerFromStage):
         self.current_file_index = 0
         self.current_buffer = io.BytesIO()
 
-        self.logger.bind(table=table)
+        self.logger = self.logger.bind(table=table)
 
     async def consume_chunk(self, data: bytes):
         self.current_buffer.write(data)

@@ -1,13 +1,10 @@
 import './ErrorTrackingIssueScene.scss'
 
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 
-import { IconShare } from '@posthog/icons'
+import { IconComment, IconShare } from '@posthog/icons'
 import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -40,7 +37,6 @@ import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 export function V2Layout(): JSX.Element {
     const { issue, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
-    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const { openSidePanel } = useActions(sidePanelLogic)
 
     const isPostHogSDKIssue = selectedEvent?.properties.$exception_values?.some((v: string) =>
@@ -65,15 +61,7 @@ export function V2Layout(): JSX.Element {
                     <div className="flex justify-between p-1">
                         <SceneBreadcrumbBackButton />
                         <div>
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    if (!hasDiscussions) {
-                                        posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
-                                    }
-                                    openSidePanel(SidePanelTab.Discussion)
-                                }}
-                                tooltip="Comment"
-                            >
+                            <ButtonPrimitive onClick={() => openSidePanel(SidePanelTab.Discussion)} tooltip="Comment">
                                 <IconComment />
                             </ButtonPrimitive>
 
