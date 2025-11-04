@@ -85,7 +85,6 @@ class ConversationSerializer(serializers.ModelSerializer):
                     "tag": "max_ai",
                     "exception_type": "ValidationError",
                     "conversation_id": str(conversation.id),
-                    "$ai_session_id": str(conversation.id),
                 },
             )
             return [], True
@@ -98,7 +97,6 @@ class ConversationSerializer(serializers.ModelSerializer):
                     "tag": "max_ai",
                     "exception_type": type(e).__name__,
                     "conversation_id": str(conversation.id),
-                    "$ai_session_id": str(conversation.id),
                 },
             )
             return [], False
