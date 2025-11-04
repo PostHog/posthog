@@ -30,6 +30,7 @@ DEFAULT_JUDGE_MODEL = "gpt-4"
 class RunEvaluationInputs:
     evaluation_id: str
     target_event_id: str
+    timestamp: str
 
 
 @temporalio.activity.defn
@@ -45,12 +46,15 @@ async def fetch_target_event_activity(inputs: RunEvaluationInputs, team_id: int)
             distinct_id,
             person_id
         FROM events
-        WHERE uuid = %(event_id)s AND team_id = %(team_id)s
+        WHERE team_id = %(team_id)s
+            AND toDate(timestamp) = toDate(parseDateTimeBestEffort(%(target_timestamp)s))
+            AND event = '$ai_generation'
+            AND uuid = %(event_id)s
         LIMIT 1
     """
 
     result = await database_sync_to_async(sync_execute, thread_sensitive=False)(
-        query, {"event_id": inputs.target_event_id, "team_id": team_id}
+        query, {"event_id": inputs.target_event_id, "team_id": team_id, "target_timestamp": inputs.timestamp}
     )
 
     if not result:
@@ -239,6 +243,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         return RunEvaluationInputs(
             evaluation_id=inputs[0],
             target_event_id=inputs[1],
+            timestamp=inputs[2],
         )
 
     @temporalio.workflow.run
@@ -255,7 +260,15 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             fetch_target_event_activity,
             args=[inputs, evaluation["team_id"]],
             schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            # On ingestion, there's a race condition where the workflow can run
+            # before the event is committed to ClickHouse. We should probably
+            # find a more robust solution for this.
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=1),
+                maximum_interval=timedelta(seconds=10),
+                maximum_attempts=10,
+                backoff_coefficient=2.0,
+            ),
         )
 
         # Activity 3: Execute LLM judge

@@ -136,8 +136,10 @@ class ExperimentQueryBuilder:
                     {{variant_expr}} as variant,
                     argMinIf(uuid, timestamp, step_0 = 1) AS exposure_event_uuid,
                     argMinIf(session_id, timestamp, step_0 = 1) AS exposure_session_id,
+                    argMinIf(timestamp, timestamp, step_0 = 1) AS exposure_timestamp,
                     {{funnel_aggregation}} AS value,
-                    {{uuid_to_session_map}} AS uuid_to_session
+                    {{uuid_to_session_map}} AS uuid_to_session,
+                    {{uuid_to_timestamp_map}} AS uuid_to_timestamp
                 FROM metric_events
                 GROUP BY entity_id
             )
@@ -165,6 +167,7 @@ class ExperimentQueryBuilder:
                 "funnel_aggregation": self._build_funnel_aggregation_expr(),
                 "num_steps_minus_1": ast.Constant(value=num_steps - 1),
                 "uuid_to_session_map": self._build_uuid_to_session_map(),
+                "uuid_to_timestamp_map": self._build_uuid_to_timestamp_map(),
             },
         )
 
@@ -183,8 +186,12 @@ class ExperimentQueryBuilder:
                 # event. For ordered funnel metrics, the UDF does this for us.
                 # Here, we add the field we need, first_exposure_timestamp
                 if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+                    exposure_condition_for_window = self._build_exposure_predicate()
                     first_exposure_timestamp_expr = parse_expr(
-                        "minIf(timestamp, step_0 = 1) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
+                        "minIf(timestamp, {exposure_condition}) OVER (PARTITION BY entity_id) AS first_exposure_timestamp",
+                        placeholders={
+                            "exposure_condition": exposure_condition_for_window,
+                        },
                     )
                     metric_events_cte.expr.select.extend([first_exposure_timestamp_expr])
 
@@ -204,17 +211,17 @@ class ExperimentQueryBuilder:
             step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
         step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
 
-        # For each step in the funnel, get at least 100 pairs of person_id, session_id and event uuid, that have
+        # For each step in the funnel, get at least 100 tuples of person_id, session_id, event uuid, and timestamp, that have
         # that step as their last step in the funnel.
-        # For the users that have 0 matching steps in the funnel (-1), we return the event uuid for the exposure event.
+        # For the users that have 0 matching steps in the funnel (-1), we return the event data for the exposure event.
         event_uuids_exprs = []
         for i in range(1, num_steps + 1):
             event_uuids_expr = f"""
                 groupArraySampleIf(100)(
                     if(
                         entity_metrics.value.2 != '',
-                        tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2),
-                        tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid))
+                        tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2, toString(uuid_to_timestamp[entity_metrics.value.2])),
+                        tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))
                     ),
                     entity_metrics.value.1 = {i} - 1
                 )
@@ -817,9 +824,9 @@ class ExperimentQueryBuilder:
                 SELECT
                     {entity_key} AS entity_id,
                     {variant_expr} AS variant,
-                    minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
-                    argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
+                    min(timestamp) AS first_exposure_time,
+                    argMin(uuid, timestamp) AS exposure_event_uuid,
+                    argMin(`$session_id`, timestamp) AS exposure_session_id
                 FROM events
                 WHERE {exposure_predicate}
                 GROUP BY entity_id
@@ -840,18 +847,16 @@ class ExperimentQueryBuilder:
 
         if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
             return parse_expr(
-                "argMinIf({variant_property}, timestamp, {exposure_predicate})",
+                "argMin({variant_property}, timestamp)",
                 placeholders={
                     "variant_property": self._build_variant_property(),
-                    "exposure_predicate": self._build_exposure_predicate(),
                 },
             )
         else:
             return parse_expr(
-                "if(uniqExactIf({variant_property}, {exposure_predicate}) > 1, {multiple_key}, anyIf({variant_property}, {exposure_predicate}))",
+                "if(uniqExact({variant_property}) > 1, {multiple_key}, any({variant_property}))",
                 placeholders={
                     "variant_property": self._build_variant_property(),
-                    "exposure_predicate": self._build_exposure_predicate(),
                     "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                 },
             )
@@ -917,6 +922,14 @@ class ExperimentQueryBuilder:
         """
         return parse_expr(
             "mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), '')))"
+        )
+
+    def _build_uuid_to_timestamp_map(self) -> ast.Expr:
+        """
+        Creates a map from event UUID to timestamp for funnel metrics.
+        """
+        return parse_expr(
+            "mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0))))"
         )
 
 

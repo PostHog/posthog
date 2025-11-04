@@ -1838,7 +1838,8 @@
                 "search",
                 "read_data",
                 "todo_write",
-                "filter_revenue_analytics"
+                "filter_revenue_analytics",
+                "create_feature_flag"
             ],
             "type": "string"
         },
@@ -10742,6 +10743,9 @@
                         }
                     ]
                 },
+                "cohort": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCohort"
+                },
                 "description": {
                     "type": ["string", "null"]
                 },
@@ -10860,6 +10864,9 @@
                             "type": "null"
                         }
                     ]
+                },
+                "cohort": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCohort"
                 },
                 "description": {
                     "type": ["string", "null"]
@@ -10991,6 +10998,19 @@
         "ErrorTrackingIssueAssigneeType": {
             "enum": ["user", "role"],
             "type": "string"
+        },
+        "ErrorTrackingIssueCohort": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name"],
+            "type": "object"
         },
         "ErrorTrackingIssueCorrelationQuery": {
             "additionalProperties": false,
@@ -11176,6 +11196,12 @@
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
+                "groupKey": {
+                    "type": "string"
+                },
+                "groupTypeIndex": {
+                    "$ref": "#/definitions/integer"
+                },
                 "issueId": {
                     "type": "string"
                 },
@@ -11312,6 +11338,9 @@
                             "type": "null"
                         }
                     ]
+                },
+                "cohort": {
+                    "$ref": "#/definitions/ErrorTrackingIssueCohort"
                 },
                 "description": {
                     "type": ["string", "null"]
@@ -12468,6 +12497,69 @@
             "required": ["id", "name", "description", "filters", "created_by", "created_at", "updated_at"],
             "type": "object"
         },
+        "ExperimentIdType": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "const": "new",
+                    "type": "string"
+                },
+                {
+                    "const": "web",
+                    "type": "string"
+                }
+            ]
+        },
+        "ExperimentMaxBayesianContext": {
+            "additionalProperties": false,
+            "properties": {
+                "chance_to_win": {
+                    "type": "number"
+                },
+                "credible_interval": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "chance_to_win", "credible_interval", "significant"],
+            "type": "object"
+        },
+        "ExperimentMaxFrequentistContext": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence_interval": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "p_value": {
+                    "type": "number"
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "p_value", "confidence_interval", "significant"],
+            "type": "object"
+        },
         "ExperimentMeanMetric": {
             "additionalProperties": false,
             "properties": {
@@ -13006,6 +13098,10 @@
             "required": ["key", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
+        "ExperimentStatsMethod": {
+            "enum": ["bayesian", "frequentist"],
+            "type": "string"
+        },
         "ExperimentStatsValidationFailure": {
             "enum": ["not-enough-exposures", "baseline-mean-is-zero", "not-enough-metric-data"],
             "type": "string"
@@ -13291,6 +13387,7 @@
         },
         "ExternalDataSourceType": {
             "enum": [
+                "Github",
                 "Stripe",
                 "Hubspot",
                 "Postgres",
@@ -13530,6 +13627,7 @@
                 "data_warehouse",
                 "task",
                 "link",
+                "live_debugger",
                 "logs",
                 "workflows",
                 "notebook",
@@ -16215,6 +16313,9 @@
                 "createdAt": {
                     "type": "string"
                 },
+                "errorCount": {
+                    "type": "number"
+                },
                 "events": {
                     "items": {
                         "$ref": "#/definitions/LLMTraceEvent"
@@ -17177,11 +17278,27 @@
         "MatchedRecordingEvent": {
             "additionalProperties": false,
             "properties": {
+                "timestamp": {
+                    "type": "string"
+                },
                 "uuid": {
                     "type": "string"
                 }
             },
-            "required": ["uuid"],
+            "required": ["uuid", "timestamp"],
+            "type": "object"
+        },
+        "MatchingEventsResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MatchedRecordingEvent"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "MathType": {
@@ -17535,6 +17652,125 @@
                 }
             },
             "required": ["type", "id"],
+            "type": "object"
+        },
+        "MaxExperimentMetricResult": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "variant_results": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/MaxExperimentVariantResultBayesian"
+                            },
+                            {
+                                "$ref": "#/definitions/MaxExperimentVariantResultFrequentist"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "variant_results"],
+            "type": "object"
+        },
+        "MaxExperimentSummaryContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "experiment_id": {
+                    "$ref": "#/definitions/ExperimentIdType"
+                },
+                "experiment_name": {
+                    "type": "string"
+                },
+                "metrics_results": {
+                    "items": {
+                        "$ref": "#/definitions/MaxExperimentMetricResult"
+                    },
+                    "type": "array"
+                },
+                "stats_method": {
+                    "$ref": "#/definitions/ExperimentStatsMethod"
+                },
+                "variants": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "experiment_id",
+                "experiment_name",
+                "description",
+                "variants",
+                "metrics_results",
+                "stats_method"
+            ],
+            "type": "object"
+        },
+        "MaxExperimentVariantResultBayesian": {
+            "additionalProperties": false,
+            "properties": {
+                "chance_to_win": {
+                    "type": ["number", "null"]
+                },
+                "credible_interval": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "key": {
+                    "type": "string"
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "chance_to_win", "credible_interval", "significant"],
+            "type": "object"
+        },
+        "MaxExperimentVariantResultFrequentist": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence_interval": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "key": {
+                    "type": "string"
+                },
+                "p_value": {
+                    "type": ["number", "null"]
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "p_value", "confidence_interval", "significant"],
             "type": "object"
         },
         "MaxInnerUniversalFiltersGroup": {
@@ -24836,9 +25072,12 @@
                 },
                 "session_id": {
                     "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
                 }
             },
-            "required": ["person_id", "session_id", "event_uuid"],
+            "required": ["person_id", "session_id", "event_uuid", "timestamp"],
             "type": "object"
         },
         "SessionEventsItem": {
@@ -25157,6 +25396,9 @@
                         "$ref": "#/definitions/SourceFieldConfig"
                     },
                     "type": "array"
+                },
+                "iconClassName": {
+                    "type": "string"
                 },
                 "iconPath": {
                     "type": "string"
@@ -26216,6 +26458,7 @@
                 "revenue_analytics_properties",
                 "resources",
                 "error_tracking_properties",
+                "activity_log_properties",
                 "max_ai_context"
             ],
             "type": "string"
@@ -26603,6 +26846,12 @@
                 },
                 "filterTestAccounts": {
                     "type": "boolean"
+                },
+                "groupKey": {
+                    "type": "string"
+                },
+                "groupTypeIndex": {
+                    "$ref": "#/definitions/integer"
                 },
                 "kind": {
                     "const": "TracesQuery",

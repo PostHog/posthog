@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import Mock, patch
 
 from django.conf import settings
@@ -9,7 +9,7 @@ from ee.hogai.graph.root.tools.full_text_search.tool import ENTITY_MAP, EntitySe
 from ee.hogai.graph.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 
 
-class TestEntitySearchToolkit(BaseTest):
+class TestEntitySearchToolkit(NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         self.team = Mock()
@@ -95,8 +95,7 @@ class TestEntitySearchToolkit(BaseTest):
         assert "No search query was provided" in result
 
     @patch("ee.hogai.graph.root.tools.full_text_search.tool.search_entities")
-    @patch("ee.hogai.graph.root.tools.full_text_search.tool.database_sync_to_async")
-    async def test_search_no_entity_types(self, mock_db_sync, mock_search_entities):
+    async def test_search_no_entity_types(self, mock_search_entities):
         all_results: list[dict] = [
             {"type": "cohort", "result_id": "123", "extra_fields": {"name": "Test cohort"}, "rank": 0.95},
             {"type": "dashboard", "result_id": "456", "extra_fields": {"name": "Test Dashboard"}, "rank": 0.90},
@@ -104,15 +103,8 @@ class TestEntitySearchToolkit(BaseTest):
         ]
 
         def side_effect_func(entities, query, project_id, view, entity_map):
-            return (all_results, {entity: 1 for entity in entities})
+            return (all_results, dict.fromkeys(entities, 1))
 
-        def async_wrapper(func):
-            async def inner(*args, **kwargs):
-                return func(*args, **kwargs)
-
-            return inner
-
-        mock_db_sync.side_effect = async_wrapper
         mock_search_entities.side_effect = side_effect_func
 
         _ = await self.toolkit.execute(query="test query", search_kind=FTSKind.ALL)
@@ -122,8 +114,7 @@ class TestEntitySearchToolkit(BaseTest):
         )
 
     @patch("ee.hogai.graph.root.tools.full_text_search.tool.search_entities")
-    @patch("ee.hogai.graph.root.tools.full_text_search.tool.database_sync_to_async")
-    async def test_arun_with_results(self, mock_db_sync, mock_search_entities):
+    async def test_arun_with_results(self, mock_search_entities):
         all_results: list[dict] = [
             {
                 "kind": FTSKind.COHORTS,
@@ -152,13 +143,6 @@ class TestEntitySearchToolkit(BaseTest):
             result = [result for result in all_results if result["type"] in entities]
             return (result, {result["type"]: len(result) for result in result})
 
-        def async_wrapper(func):
-            async def inner(*args, **kwargs):
-                return func(*args, **kwargs)
-
-            return inner
-
-        mock_db_sync.side_effect = async_wrapper
         mock_search_entities.side_effect = side_effect_func
 
         for expected_result in all_results:
