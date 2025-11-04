@@ -76,9 +76,12 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], AssistantGenerationStatusEvent)
-        self.assertEqual(result[0].type, AssistantGenerationStatusType.ACK)
+        first_result = result[0]
+        self.assertIsInstance(first_result, AssistantGenerationStatusEvent)
+        assert isinstance(first_result, AssistantGenerationStatusEvent)
+        self.assertEqual(first_result.type, AssistantGenerationStatusType.ACK)
         self.assertIn(run_id, self.stream_processor._chunks)
         self.assertEqual(self.stream_processor._chunks[run_id].content, "")
 
@@ -106,6 +109,7 @@ class TestStreamProcessor(BaseTest):
         results = self.stream_processor.process(event)
 
         self.assertIsNotNone(results)
+        assert results is not None
         self.assertEqual(len(results), 2)
         self.assertEqual(results[0], message1)
         self.assertEqual(results[1], message2)
@@ -123,8 +127,10 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0], AssistantMessage)
+        assert isinstance(result[0], AssistantMessage)
         self.assertEqual(result[0].content, "Hello ")
         self.assertIsNone(result[0].id)
 
@@ -157,8 +163,12 @@ class TestStreamProcessor(BaseTest):
         result2 = self.stream_processor.process(event2)
 
         self.assertIsNotNone(result1)
+        assert result1 is not None
+        assert isinstance(result1[0], AssistantMessage)
         self.assertEqual(result1[0].content, "Hello ")
         self.assertIsNotNone(result2)
+        assert result2 is not None
+        assert isinstance(result2[0], AssistantMessage)
         self.assertEqual(result2[0].content, "Hello world!")
 
     def test_concurrent_chunks_from_different_runs(self):
@@ -201,6 +211,8 @@ class TestStreamProcessor(BaseTest):
 
         # The result should normalize to string content
         self.assertIsNotNone(result)
+        assert result is not None
+        assert isinstance(result[0], AssistantMessage)
         self.assertEqual(result[0].content, "list content")
 
     # Root vs nested message handling tests
@@ -216,6 +228,7 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], message)
 
@@ -250,6 +263,7 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], viz_message)
 
@@ -272,6 +286,7 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], multi_viz_message)
 
@@ -293,6 +308,7 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], notebook_message)
 
@@ -313,6 +329,7 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], failure_message)
 
@@ -347,6 +364,7 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], message)
 
@@ -369,6 +387,7 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0], AssistantUpdateEvent)
         update_event = cast(AssistantUpdateEvent, result[0])
@@ -416,6 +435,7 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         update_event = cast(AssistantUpdateEvent, result[0])
         # Should use the closest parent (last one in reversed path)
@@ -438,6 +458,7 @@ class TestStreamProcessor(BaseTest):
         )
         result1 = self.stream_processor.process(event1)
         self.assertIsNotNone(result1)
+        assert result1 is not None
         self.assertEqual(result1[0], message1)
 
         # Process second message with same ID - should be filtered
@@ -459,6 +480,7 @@ class TestStreamProcessor(BaseTest):
         )
         result1 = self.stream_processor.process(event1)
         self.assertIsNotNone(result1)
+        assert result1 is not None
         self.assertEqual(result1[0], message1)
 
         event2 = self._create_dispatcher_event(
@@ -466,6 +488,7 @@ class TestStreamProcessor(BaseTest):
         )
         result2 = self.stream_processor.process(event2)
         self.assertIsNotNone(result2)
+        assert result2 is not None
         self.assertEqual(result2[0], message2)
 
     def test_preexisting_message_ids_filtered(self):
@@ -498,8 +521,10 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process_langgraph_update(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         self.assertIsInstance(result[0], AssistantMessage)
+        assert isinstance(result[0], AssistantMessage)
         self.assertEqual(result[0].content, "LangGraph chunk")
 
     def test_langgraph_state_update_stored(self):
@@ -512,6 +537,7 @@ class TestStreamProcessor(BaseTest):
 
         self.assertIsNone(result)
         self.assertIsNotNone(self.stream_processor._state)
+        assert self.stream_processor._state is not None
         self.assertEqual(self.stream_processor._state.plan, "Test plan")
 
     def test_langgraph_non_message_chunk_ignored(self):
@@ -547,6 +573,7 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], message)
 
@@ -560,6 +587,7 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], message)
 
@@ -596,5 +624,6 @@ class TestStreamProcessor(BaseTest):
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
+        assert result is not None
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0], viz_message)

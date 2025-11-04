@@ -113,11 +113,10 @@ class HogQLGeneratorToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, Taxonom
 
 
 class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]]):
-    def __init__(self, team: Team, user: User, tool_call_id: str):
+    def __init__(self, team: Team, user: User):
         super().__init__(
             team,
             user,
-            tool_call_id,
             loop_node_class=HogQLGeneratorNode,
             tools_node_class=HogQLGeneratorToolsNode,
             toolkit_class=HogQLGeneratorToolkit,
@@ -134,7 +133,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
         current_query: str | None = self.context.get("current_query", "")
         user_prompt = HOGQL_GENERATOR_USER_PROMPT.format(instructions=instructions, current_query=current_query)
 
-        graph = HogQLGeneratorGraph(team=self._team, user=self._user, tool_call_id=tool_call_id).compile_full_graph()
+        graph = HogQLGeneratorGraph(team=self._team, user=self._user).compile_full_graph()
 
         graph_context = {
             "change": user_prompt,

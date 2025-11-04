@@ -24,7 +24,6 @@ class TestEntitySearchToolkit(BaseTest):
         self.toolkit = EntitySearchTool(
             team=self.team,
             user=self.user,
-            node_path=(),
             state=AssistantState(messages=[]),
             config=RunnableConfig(configurable={}),
             context_manager=AssistantContextManager(self.team, self.user, {}),

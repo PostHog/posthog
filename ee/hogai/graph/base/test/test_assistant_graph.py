@@ -21,7 +21,7 @@ class TestAssistantGraph(BaseTest):
             def graph_name(self) -> AssistantGraphName:
                 return AssistantGraphName.ASSISTANT
 
-        graph = TestAssistantGraph(self.team, self.user, ())
+        graph = TestAssistantGraph(self.team, self.user)
 
         class TestNode(AssistantNode):
             @property

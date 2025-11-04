@@ -137,7 +137,6 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.tool = InkeepDocsSearchTool(
             team=self.team,
             user=self.user,
-            node_path=(),
             state=self.state,
             config=RunnableConfig(configurable={}),
             context_manager=self.context_manager,
@@ -237,7 +236,6 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.tool = InsightSearchTool(
             team=self.team,
             user=self.user,
-            node_path=(),
             state=self.state,
             config=RunnableConfig(configurable={}),
             context_manager=self.context_manager,

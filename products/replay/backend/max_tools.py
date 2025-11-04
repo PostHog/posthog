@@ -142,8 +142,8 @@ class SearchSessionRecordingsTool(MaxTool):
         result = await graph.compile_full_graph().ainvoke(graph_context)
         return result
 
-    async def _arun_impl(self, change: str, tool_call_id: str) -> tuple[str, MaxRecordingUniversalFilters]:
-        result = await self._invoke_graph(change, tool_call_id)
+    async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
+        result = await self._invoke_graph(change)
         if type(result["output"]) is not MaxRecordingUniversalFilters:
             content = result["intermediate_steps"][-1][0].tool_input
             filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))
