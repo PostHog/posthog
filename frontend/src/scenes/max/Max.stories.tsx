@@ -655,7 +655,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         registerTool({
             identifier: 'query_insights' as ToolRegistration['identifier'],
             name: 'Query insights',
-            description: 'Max can query insights and their properties',
+            description: 'PostHog AI can query insights and their properties',
             context: {
                 available_insights: ['pageview_trends', 'user_retention', 'conversion_rates'],
                 active_filters: { date_from: '-7d', properties: [{ key: 'browser', value: 'Chrome' }] },
@@ -669,7 +669,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         registerTool({
             identifier: 'manage_cohorts' as ToolRegistration['identifier'],
             name: 'Manage cohorts',
-            description: 'Max can manage cohorts and their properties',
+            description: 'PostHog AI can manage cohorts and their properties',
             context: {
                 existing_cohorts: [
                     { id: 1, name: 'Power Users', size: 1250 },
@@ -685,7 +685,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         registerTool({
             identifier: 'feature_flags' as ToolRegistration['identifier'],
             name: 'Feature flags',
-            description: 'Max can manage feature flags and their properties',
+            description: 'PostHog AI can manage feature flags and their properties',
             context: {
                 active_flags: ['new-dashboard', 'beta-feature', 'experiment-checkout'],
                 flag_stats: { total: 15, active: 8, inactive: 7 },
