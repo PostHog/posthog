@@ -39,6 +39,13 @@ impl CacheConfig {
 }
 
 /// Indicates where a cached value came from and what operations were performed
+///
+/// This type implements `Display` for use in logging and metrics:
+/// ```
+/// # use common_cache::CacheSource;
+/// let source = CacheSource::PositiveCache;
+/// println!("Cache result: {}", source); // "positive_cache"
+/// ```
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheSource {
