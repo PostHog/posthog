@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::async_trait;
 use kafka_deduplicator::kafka::{
     batch_consumer::*, batch_message::*, test_utils::TestRebalanceHandler,
 };
@@ -52,8 +53,9 @@ fn create_batch_kafka_consumer(
         sender: UnboundedSender<Batch<CapturedEvent>>,
     }
 
+    #[async_trait]
     impl BatchConsumerProcessor<CapturedEvent> for TestProcessor {
-        fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
+        async fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
             let mut batch = Batch::new();
             for msg in messages {
                 batch.push_message(msg);

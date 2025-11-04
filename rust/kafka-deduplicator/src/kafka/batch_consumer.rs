@@ -10,6 +10,7 @@ use crate::kafka::types::Partition;
 
 use anyhow::anyhow;
 use anyhow::{Context, Result};
+use axum::async_trait;
 use futures_util::StreamExt;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{CommitMode, Consumer, MessageStream, StreamConsumer};
@@ -21,8 +22,9 @@ use tokio::sync::oneshot::Receiver;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
+#[async_trait]
 pub trait BatchConsumerProcessor<T>: Send + Sync {
-    fn process_batch(&self, messages: Vec<KafkaMessage<T>>) -> Result<()>;
+    async fn process_batch(&self, messages: Vec<KafkaMessage<T>>) -> Result<()>;
 }
 
 pub struct BatchConsumer<T> {
@@ -120,7 +122,7 @@ where
                             .increment(batch.error_count() as u64);
 
                             let (messages, _errors) = batch.unpack();
-                            if let Err(e) = self.processor.process_batch(messages) {
+                            if let Err(e) = self.processor.process_batch(messages).await {
                                 // TODO: stat this
                                 error!("Error processing batch: {e}");
                             }

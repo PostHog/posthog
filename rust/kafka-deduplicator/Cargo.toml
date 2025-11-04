@@ -50,6 +50,11 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.8"
+rand = "0.8"
+
+[[bench]]
+name = "batch_processing_benchmark"
+harness = false
 
 [package.metadata.cargo-shear]
 ignored = ["strum"]

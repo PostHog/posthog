@@ -1,14 +1,17 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
+use axum::async_trait;
 use common_kafka::kafka_producer::KafkaContext;
 use common_types::{CapturedEvent, RawEvent};
+use futures::future::join_all;
 use itertools::Itertools;
 use rayon::prelude::*;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use tracing::{debug, error};
 
+use crate::kafka::types::Partition;
 use crate::{
     deduplication_processor::{DeduplicationConfig, DuplicateEventProducerWrapper},
     duplicate_event::DuplicateEvent,
@@ -66,8 +69,9 @@ pub struct BatchDeduplicationProcessor {
     store_manager: Arc<StoreManager>,
 }
 
+#[async_trait]
 impl BatchConsumerProcessor<CapturedEvent> for BatchDeduplicationProcessor {
-    fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
+    async fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
         // Organize messages by partition
         let messages_by_partition = messages
             .iter()
@@ -76,17 +80,13 @@ impl BatchConsumerProcessor<CapturedEvent> for BatchDeduplicationProcessor {
 
         // Process partitions in parallel using rayon
         // Each partition has its own RocksDB store, so parallel processing is safe
-        let results: Vec<Result<()>> = messages_by_partition
-            .par_iter()
-            .map(|(partition, messages)| {
-                // Use block_in_place since we need to call async functions (store creation)
-                // but RocksDB operations themselves are sync
-                tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current()
-                        .block_on(self.process_partition_batch(partition, messages))
-                })
-            })
-            .collect();
+
+        let mut promises = vec![];
+        for (partition, messages) in messages_by_partition {
+            promises.push(self.process_partition_batch(partition, messages));
+        }
+
+        let results = join_all(promises).await;
 
         // Check for any errors
         for result in results {
@@ -115,8 +115,8 @@ impl BatchDeduplicationProcessor {
 
     async fn process_partition_batch(
         &self,
-        partition: &crate::kafka::types::Partition,
-        messages: &[&KafkaMessage<CapturedEvent>],
+        partition: Partition,
+        messages: Vec<&KafkaMessage<CapturedEvent>>,
     ) -> Result<()> {
         // Parse events in parallel (CPU-bound work - good use of rayon)
         let parsed_events: Vec<Result<RawEvent>> =
