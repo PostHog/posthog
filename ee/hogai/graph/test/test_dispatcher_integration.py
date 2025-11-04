@@ -261,7 +261,7 @@ class TestDispatcherIntegration(BaseTest):
     async def test_node_returns_none_state_handling(self):
         """Test that node can return None state without errors."""
 
-        class NoneStateNode(BaseAssistantNode[AssistantState, PartialAssistantState]):  # type: ignore[type-var]
+        class NoneStateNode(BaseAssistantNode[AssistantState, PartialAssistantState]):
             @property
             def node_name(self):
                 return AssistantNodeName.ROOT
