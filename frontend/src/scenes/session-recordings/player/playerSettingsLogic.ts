@@ -192,7 +192,9 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         },
         ['**/exporter']: (_, searchParams) => {
             const playerSpeed = Number(searchParams.playerSpeed ?? 1)
-            actions.setSpeed(playerSpeed)
+            if (values.speed !== playerSpeed) {
+                actions.setSpeed(playerSpeed)
+            }
         },
     })),
 
