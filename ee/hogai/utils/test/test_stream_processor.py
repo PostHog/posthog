@@ -1,15 +1,14 @@
 """
-Comprehensive tests for AssistantMessageReducer.
+Comprehensive tests for AssistantStreamProcessor.
 
-Tests the reducer logic that processes dispatcher actions
-and routes messages appropriately.
+Tests the stream processor logic that handles dispatcher actions,
+routes messages based on node paths, and manages streaming state.
 """
 
 from typing import cast
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock
 
 from langchain_core.messages import AIMessageChunk
 
@@ -17,7 +16,6 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
-    AssistantToolCall,
     AssistantToolCallMessage,
     AssistantUpdateEvent,
     FailureMessage,
@@ -33,11 +31,16 @@ from ee.hogai.utils.state import GraphValueUpdateTuple
 from ee.hogai.utils.stream_processor import AssistantStreamProcessor
 from ee.hogai.utils.types.base import (
     AssistantDispatcherEvent,
+    AssistantGraphName,
     AssistantNodeName,
+    AssistantState,
     LangGraphUpdateEvent,
     MessageAction,
     MessageChunkAction,
+    NodeEndAction,
+    NodePath,
     NodeStartAction,
+    UpdateAction,
 )
 
 
@@ -46,424 +49,552 @@ class TestStreamProcessor(BaseTest):
 
     def setUp(self):
         super().setUp()
-        # Create a reducer with test node configuration
         self.stream_processor = AssistantStreamProcessor(
+            verbose_nodes={AssistantNodeName.ROOT, AssistantNodeName.TRENDS_GENERATOR},
             streaming_nodes={AssistantNodeName.TRENDS_GENERATOR},
-            visualization_nodes={AssistantNodeName.TRENDS_GENERATOR: MagicMock()},
+            state_type=AssistantState,
         )
 
     def _create_dispatcher_event(
         self,
-        action: MessageAction | NodeStartAction | MessageChunkAction,
+        action: MessageAction | NodeStartAction | MessageChunkAction | NodeEndAction | UpdateAction,
         node_name: AssistantNodeName = AssistantNodeName.ROOT,
+        node_run_id: str = "test_run_id",
+        node_path: tuple[NodePath, ...] | None = None,
     ) -> AssistantDispatcherEvent:
         """Helper to create a dispatcher event for testing."""
-        return AssistantDispatcherEvent(action=action, node_name=node_name)
+        return AssistantDispatcherEvent(
+            action=action, node_name=node_name, node_run_id=node_run_id, node_path=node_path
+        )
 
-    def test_node_start_action_returns_ack(self):
-        """Test NODE_START action returns ACK status event."""
-        event = self._create_dispatcher_event(NodeStartAction())
+    # Node lifecycle tests
+
+    def test_node_start_initializes_chunk_and_returns_ack(self):
+        """Test NodeStartAction initializes a chunk for the run_id and returns ACK."""
+        run_id = "test_run_123"
+        event = self._create_dispatcher_event(NodeStartAction(), node_run_id=run_id)
         result = self.stream_processor.process(event)
 
         self.assertIsNotNone(result)
-        result = cast(AssistantGenerationStatusEvent, result)
-        self.assertEqual(result.type, AssistantGenerationStatusType.ACK)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], AssistantGenerationStatusEvent)
+        self.assertEqual(result[0].type, AssistantGenerationStatusType.ACK)
+        self.assertIn(run_id, self.stream_processor._chunks)
+        self.assertEqual(self.stream_processor._chunks[run_id].content, "")
 
-    def test_message_with_tool_calls_stores_in_registry(self):
-        """Test AssistantMessage with tool_calls is stored in _tool_call_id_to_message."""
-        tool_call_id = str(uuid4())
-        message = AssistantMessage(
-            content="Test",
-            tool_calls=[AssistantToolCall(id=tool_call_id, name="test_tool", args={})],
-        )
+    def test_node_end_cleans_up_chunk(self):
+        """Test NodeEndAction removes the chunk for the run_id."""
+        run_id = "test_run_456"
+        self.stream_processor._chunks[run_id] = AIMessageChunk(content="test")
 
-        event = self._create_dispatcher_event(MessageAction(message=message))
+        state = AssistantState(messages=[])
+        event = self._create_dispatcher_event(NodeEndAction(state=state), node_run_id=run_id)
         self.stream_processor.process(event)
 
-        # Should be stored in registry
-        self.assertIn(tool_call_id, self.stream_processor._tool_call_id_to_message)
-        self.assertEqual(self.stream_processor._tool_call_id_to_message[tool_call_id], message)
+        self.assertNotIn(run_id, self.stream_processor._chunks)
 
-    def test_assistant_message_with_parent_creates_assistant_update_event(self):
-        """Test AssistantMessage with parent_tool_call_id creates AssistantUpdateEvent."""
-        # First, register a parent message
-        parent_tool_call_id = str(uuid4())
-        parent_message = AssistantMessage(
-            id=str(uuid4()),
-            content="Parent",
-            tool_calls=[AssistantToolCall(id=parent_tool_call_id, name="test", args={})],
-            parent_tool_call_id=None,
+    def test_node_end_processes_messages_from_state(self):
+        """Test NodeEndAction processes all messages from the final state."""
+        run_id = "test_run_789"
+        message1 = AssistantMessage(id=str(uuid4()), content="Message 1")
+        message2 = AssistantMessage(id=str(uuid4()), content="Message 2")
+        state = AssistantState(messages=[message1, message2])
+
+        event = self._create_dispatcher_event(
+            NodeEndAction(state=state), node_name=AssistantNodeName.ROOT, node_run_id=run_id
         )
-        self.stream_processor._tool_call_id_to_message[parent_tool_call_id] = parent_message
+        results = self.stream_processor.process(event)
 
-        # Now send a child message
-        child_message = AssistantMessage(content="Child content", parent_tool_call_id=parent_tool_call_id)
-        event = self._create_dispatcher_event(MessageAction(message=child_message))
+        self.assertIsNotNone(results)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0], message1)
+        self.assertEqual(results[1], message2)
+
+    # Message streaming tests
+
+    def test_message_chunk_streaming_for_streaming_nodes(self):
+        """Test MessageChunkAction streams chunks for nodes in streaming_nodes."""
+        run_id = "stream_run_1"
+        chunk = AIMessageChunk(content="Hello ")
+
+        event = self._create_dispatcher_event(
+            MessageChunkAction(message=chunk), node_name=AssistantNodeName.TRENDS_GENERATOR, node_run_id=run_id
+        )
         result = self.stream_processor.process(event)
 
-        self.assertIsInstance(result, AssistantUpdateEvent)
-        result = cast(AssistantUpdateEvent, result)
-        self.assertEqual(result.id, parent_message.id)
-        self.assertEqual(result.tool_call_id, parent_tool_call_id)
-        self.assertEqual(result.content, "Child content")
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], AssistantMessage)
+        self.assertEqual(result[0].content, "Hello ")
+        self.assertIsNone(result[0].id)
 
-    def test_nested_parent_chain_resolution(self):
-        """Test finding parent IDs through nested chain of parents."""
-        # Create chain: root -> intermediate -> leaf
-        root_tool_call_id = str(uuid4())
-        root_message = AssistantMessage(
-            id=str(uuid4()),
-            content="Root",
-            tool_calls=[AssistantToolCall(id=root_tool_call_id, name="root_tool", args={})],
-            parent_tool_call_id=None,
+    def test_message_chunk_ignored_for_non_streaming_nodes(self):
+        """Test MessageChunkAction returns None for nodes not in streaming_nodes."""
+        run_id = "stream_run_2"
+        chunk = AIMessageChunk(content="Hello ")
+
+        event = self._create_dispatcher_event(
+            MessageChunkAction(message=chunk), node_name=AssistantNodeName.ROOT, node_run_id=run_id
         )
-
-        intermediate_tool_call_id = str(uuid4())
-        intermediate_message = AssistantMessage(
-            id=str(uuid4()),
-            content="Intermediate",
-            tool_calls=[AssistantToolCall(id=intermediate_tool_call_id, name="intermediate_tool", args={})],
-            parent_tool_call_id=root_tool_call_id,
-        )
-
-        # Register both in the registry
-        self.stream_processor._tool_call_id_to_message[root_tool_call_id] = root_message
-        self.stream_processor._tool_call_id_to_message[intermediate_tool_call_id] = intermediate_message
-
-        # Send leaf message that references intermediate
-        leaf_message = AssistantMessage(content="Leaf content", parent_tool_call_id=intermediate_tool_call_id)
-        event = self._create_dispatcher_event(MessageAction(message=leaf_message))
         result = self.stream_processor.process(event)
 
-        # Should resolve to root
+        self.assertIsNone(result)
 
-        self.assertIsInstance(result, AssistantUpdateEvent)
-        result = cast(AssistantUpdateEvent, result)
-        # Note: The unpacking swaps the values, so id is tool_call_id and parent_tool_call_id is message_id
-        self.assertEqual(result.id, root_message.id)
-        self.assertEqual(result.tool_call_id, root_tool_call_id)
+    def test_multiple_chunks_merged_correctly(self):
+        """Test that multiple MessageChunkActions are merged correctly."""
+        run_id = "stream_run_3"
 
-    def test_missing_parent_message_returns_ack(self):
-        """Test that missing parent message returns ACK."""
-        missing_parent_id = str(uuid4())
-        child_message = AssistantMessage(content="Orphan", parent_tool_call_id=missing_parent_id)
-
-        event = self._create_dispatcher_event(MessageAction(message=child_message))
-
-        result = self.stream_processor.process(event)
-        self.assertIsInstance(result, AssistantGenerationStatusEvent)
-        result = cast(AssistantGenerationStatusEvent, result)
-        self.assertEqual(result.type, AssistantGenerationStatusType.ACK)
-
-    def test_parent_without_id_returns_ack(self):
-        """Test that parent message without ID logs warning and returns None."""
-        parent_tool_call_id = str(uuid4())
-        # Parent message WITHOUT an id
-        parent_message = AssistantMessage(
-            id=None,  # No ID
-            content="Parent",
-            tool_calls=[AssistantToolCall(id=parent_tool_call_id, name="test", args={})],
-            parent_tool_call_id=None,
+        chunk1 = AIMessageChunk(content="Hello ")
+        event1 = self._create_dispatcher_event(
+            MessageChunkAction(message=chunk1), node_name=AssistantNodeName.TRENDS_GENERATOR, node_run_id=run_id
         )
-        self.stream_processor._tool_call_id_to_message[parent_tool_call_id] = parent_message
+        result1 = self.stream_processor.process(event1)
 
-        child_message = AssistantMessage(content="Child", parent_tool_call_id=parent_tool_call_id)
-        event = self._create_dispatcher_event(MessageAction(message=child_message))
+        chunk2 = AIMessageChunk(content="world!")
+        event2 = self._create_dispatcher_event(
+            MessageChunkAction(message=chunk2), node_name=AssistantNodeName.TRENDS_GENERATOR, node_run_id=run_id
+        )
+        result2 = self.stream_processor.process(event2)
 
+        self.assertIsNotNone(result1)
+        self.assertEqual(result1[0].content, "Hello ")
+        self.assertIsNotNone(result2)
+        self.assertEqual(result2[0].content, "Hello world!")
+
+    def test_concurrent_chunks_from_different_runs(self):
+        """Test that chunks from different node runs are kept separate."""
+        run_id_1 = "stream_run_4a"
+        run_id_2 = "stream_run_4b"
+
+        chunk1 = AIMessageChunk(content="Run 1")
+        event1 = self._create_dispatcher_event(
+            MessageChunkAction(message=chunk1), node_name=AssistantNodeName.TRENDS_GENERATOR, node_run_id=run_id_1
+        )
+        self.stream_processor.process(event1)
+
+        chunk2 = AIMessageChunk(content="Run 2")
+        event2 = self._create_dispatcher_event(
+            MessageChunkAction(message=chunk2), node_name=AssistantNodeName.TRENDS_GENERATOR, node_run_id=run_id_2
+        )
+        self.stream_processor.process(event2)
+
+        self.assertEqual(self.stream_processor._chunks[run_id_1].content, "Run 1")
+        self.assertEqual(self.stream_processor._chunks[run_id_2].content, "Run 2")
+
+    def test_handles_mixed_content_types_in_chunks(self):
+        """Test that stream processor handles switching between string and list content formats."""
+        run_id = "stream_run_5"
+
+        # Start with string content
+        chunk1 = AIMessageChunk(content="initial string")
+        event1 = self._create_dispatcher_event(
+            MessageChunkAction(message=chunk1), node_name=AssistantNodeName.TRENDS_GENERATOR, node_run_id=run_id
+        )
+        self.stream_processor.process(event1)
+
+        # Switch to list format (OpenAI Responses API)
+        chunk2 = AIMessageChunk(content=[{"type": "text", "text": "list content"}])
+        event2 = self._create_dispatcher_event(
+            MessageChunkAction(message=chunk2), node_name=AssistantNodeName.TRENDS_GENERATOR, node_run_id=run_id
+        )
+        result = self.stream_processor.process(event2)
+
+        # The result should normalize to string content
+        self.assertIsNotNone(result)
+        self.assertEqual(result[0].content, "list content")
+
+    # Root vs nested message handling tests
+
+    def test_root_message_from_verbose_node_returned(self):
+        """Test messages from root level (node_path <= 2) in verbose nodes are returned."""
+        message = AssistantMessage(id=str(uuid4()), content="Root message")
+        node_path = (NodePath(name=AssistantGraphName.ASSISTANT), NodePath(name=AssistantNodeName.ROOT))
+
+        event = self._create_dispatcher_event(
+            MessageAction(message=message), node_name=AssistantNodeName.ROOT, node_path=node_path
+        )
         result = self.stream_processor.process(event)
-        self.assertIsInstance(result, AssistantGenerationStatusEvent)
-        result = cast(AssistantGenerationStatusEvent, result)
-        self.assertEqual(result.type, AssistantGenerationStatusType.ACK)
 
-    def test_visualization_message_in_visualization_nodes(self):
-        """Test VisualizationMessage is returned when node is in VISUALIZATION_NODES."""
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], message)
+
+    def test_root_message_from_non_verbose_node_filtered(self):
+        """Test messages from root level in non-verbose nodes are filtered out."""
+        message = AssistantMessage(id=str(uuid4()), content="Non-verbose message")
+        node_path = (NodePath(name=AssistantGraphName.ASSISTANT), NodePath(name=AssistantNodeName.BILLING))
+
+        event = self._create_dispatcher_event(
+            MessageAction(message=message), node_name=AssistantNodeName.BILLING, node_path=node_path
+        )
+        result = self.stream_processor.process(event)
+
+        self.assertIsNone(result)
+
+    def test_nested_visualization_message_returned(self):
+        """Test VisualizationMessage from nested node/graph is returned."""
         query = TrendsQuery(series=[])
         viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
-        viz_message.parent_tool_call_id = str(uuid4())
 
-        # Register parent
-        parent_message = AssistantMessage(
-            id=str(uuid4()),
-            content="Parent",
-            tool_calls=[AssistantToolCall(id=viz_message.parent_tool_call_id, name="test", args={})],
+        # Create a deep node path indicating this is from a nested graph
+        node_path = (
+            NodePath(name=AssistantGraphName.ASSISTANT),
+            NodePath(name=AssistantNodeName.ROOT, message_id=str(uuid4()), tool_call_id=str(uuid4())),
+            NodePath(name=AssistantGraphName.INSIGHTS),
+            NodePath(name=AssistantNodeName.TRENDS_GENERATOR),
         )
-        self.stream_processor._tool_call_id_to_message[viz_message.parent_tool_call_id] = parent_message
 
-        node_name = AssistantNodeName.TRENDS_GENERATOR
-        event = self._create_dispatcher_event(MessageAction(message=viz_message), node_name=node_name)
+        event = self._create_dispatcher_event(
+            MessageAction(message=viz_message), node_name=AssistantNodeName.TRENDS_GENERATOR, node_path=node_path
+        )
         result = self.stream_processor.process(event)
 
-        self.assertEqual(result, viz_message)
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], viz_message)
 
-    def test_visualization_message_not_in_visualization_nodes(self):
-        """Test VisualizationMessage raises error when from non-visualization node."""
-        query = TrendsQuery(series=[])
-        viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
-        viz_message.parent_tool_call_id = str(uuid4())
-
-        # Register parent
-        parent_message = AssistantMessage(
-            id=str(uuid4()),
-            content="Parent",
-            tool_calls=[AssistantToolCall(id=viz_message.parent_tool_call_id, name="test", args={})],
-        )
-        self.stream_processor._tool_call_id_to_message[viz_message.parent_tool_call_id] = parent_message
-
-        node_name = AssistantNodeName.ROOT  # Not a visualization node
-        event = self._create_dispatcher_event(MessageAction(message=viz_message), node_name=node_name)
-
-        result = self.stream_processor.process(event)
-        self.assertEqual(result, AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK))
-
-    def test_multi_visualization_message_in_visualization_nodes(self):
-        """Test MultiVisualizationMessage is returned when node is in VISUALIZATION_NODES."""
+    def test_nested_multi_visualization_message_returned(self):
+        """Test MultiVisualizationMessage from nested node/graph is returned."""
         query = TrendsQuery(series=[])
         viz_item = VisualizationItem(query="test query", answer=query, plan="test plan")
         multi_viz_message = MultiVisualizationMessage(visualizations=[viz_item])
-        multi_viz_message.parent_tool_call_id = str(uuid4())
 
-        # Register parent
-        parent_message = AssistantMessage(
-            id=str(uuid4()),
-            content="Parent",
-            tool_calls=[AssistantToolCall(id=multi_viz_message.parent_tool_call_id, name="test", args={})],
+        node_path = (
+            NodePath(name=AssistantGraphName.ASSISTANT),
+            NodePath(name=AssistantNodeName.ROOT, message_id=str(uuid4()), tool_call_id=str(uuid4())),
+            NodePath(name=AssistantGraphName.INSIGHTS),
+            NodePath(name=AssistantNodeName.TRENDS_GENERATOR),
         )
-        self.stream_processor._tool_call_id_to_message[multi_viz_message.parent_tool_call_id] = parent_message
 
-        node_name = AssistantNodeName.TRENDS_GENERATOR
-        event = self._create_dispatcher_event(MessageAction(message=multi_viz_message), node_name=node_name)
+        event = self._create_dispatcher_event(
+            MessageAction(message=multi_viz_message), node_name=AssistantNodeName.TRENDS_GENERATOR, node_path=node_path
+        )
         result = self.stream_processor.process(event)
 
-        self.assertEqual(result, multi_viz_message)
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], multi_viz_message)
 
-    def test_notebook_update_message_returns_as_is(self):
-        """Test NotebookUpdateMessage is returned directly."""
+    def test_nested_notebook_message_returned(self):
+        """Test NotebookUpdateMessage from nested node/graph is returned."""
         content = ProsemirrorJSONContent(type="doc", content=[])
         notebook_message = NotebookUpdateMessage(notebook_id="nb123", content=content)
-        notebook_message.parent_tool_call_id = str(uuid4())
 
-        # Register parent
-        parent_message = AssistantMessage(
-            id=str(uuid4()),
-            content="Parent",
-            tool_calls=[AssistantToolCall(id=notebook_message.parent_tool_call_id, name="test", args={})],
+        node_path = (
+            NodePath(name=AssistantGraphName.ASSISTANT),
+            NodePath(name=AssistantNodeName.ROOT, message_id=str(uuid4()), tool_call_id=str(uuid4())),
+            NodePath(name=AssistantGraphName.INSIGHTS),
+            NodePath(name=AssistantNodeName.TRENDS_GENERATOR),
         )
-        self.stream_processor._tool_call_id_to_message[notebook_message.parent_tool_call_id] = parent_message
 
-        event = self._create_dispatcher_event(MessageAction(message=notebook_message))
+        event = self._create_dispatcher_event(
+            MessageAction(message=notebook_message), node_name=AssistantNodeName.TRENDS_GENERATOR, node_path=node_path
+        )
         result = self.stream_processor.process(event)
 
-        self.assertEqual(result, notebook_message)
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], notebook_message)
 
-    def test_failure_message_returns_as_is(self):
-        """Test FailureMessage is returned directly."""
+    def test_nested_failure_message_returned(self):
+        """Test FailureMessage from nested node/graph is returned."""
         failure_message = FailureMessage(content="Something went wrong")
-        failure_message.parent_tool_call_id = str(uuid4())
 
-        # Register parent
-        parent_message = AssistantMessage(
-            id=str(uuid4()),
-            content="Parent",
-            tool_calls=[AssistantToolCall(id=failure_message.parent_tool_call_id, name="test", args={})],
+        node_path = (
+            NodePath(name=AssistantGraphName.ASSISTANT),
+            NodePath(name=AssistantNodeName.ROOT, message_id=str(uuid4()), tool_call_id=str(uuid4())),
+            NodePath(name=AssistantGraphName.INSIGHTS),
+            NodePath(name=AssistantNodeName.TRENDS_GENERATOR),
         )
-        self.stream_processor._tool_call_id_to_message[failure_message.parent_tool_call_id] = parent_message
 
-        event = self._create_dispatcher_event(MessageAction(message=failure_message))
+        event = self._create_dispatcher_event(
+            MessageAction(message=failure_message), node_name=AssistantNodeName.TRENDS_GENERATOR, node_path=node_path
+        )
         result = self.stream_processor.process(event)
 
-        self.assertEqual(result, failure_message)
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], failure_message)
 
-    def test_assistant_tool_call_message_returns_as_is(self):
-        """Test AssistantToolCallMessage with parent is filtered out (returns ACK)."""
+    def test_nested_tool_call_message_filtered(self):
+        """Test AssistantToolCallMessage from nested node/graph is filtered out."""
         tool_call_message = AssistantToolCallMessage(content="Tool result", tool_call_id=str(uuid4()))
-        tool_call_message.parent_tool_call_id = str(uuid4())
 
-        # Register parent
-        parent_message = AssistantMessage(
-            id=str(uuid4()),
-            content="Parent",
-            tool_calls=[AssistantToolCall(id=tool_call_message.parent_tool_call_id, name="test", args={})],
-        )
-        self.stream_processor._tool_call_id_to_message[tool_call_message.parent_tool_call_id] = parent_message
-
-        event = self._create_dispatcher_event(MessageAction(message=tool_call_message))
-        result = self.stream_processor.process(event)
-
-        # New behavior: AssistantToolCallMessages with parents are filtered out
-        self.assertIsInstance(result, AssistantGenerationStatusEvent)
-        result = cast(AssistantGenerationStatusEvent, result)
-        self.assertEqual(result.type, AssistantGenerationStatusType.ACK)
-
-    def test_cycle_detection_in_parent_chain(self):
-        """Test that circular parent chains are detected and returns ACK."""
-        # Create circular chain: A -> B -> A
-        tool_call_a = str(uuid4())
-        tool_call_b = str(uuid4())
-
-        message_a = AssistantMessage(
-            id=str(uuid4()),
-            content="A",
-            tool_calls=[AssistantToolCall(id=tool_call_a, name="tool_a", args={})],
-            parent_tool_call_id=tool_call_b,  # Points to B
+        node_path = (
+            NodePath(name=AssistantGraphName.ASSISTANT),
+            NodePath(name=AssistantNodeName.ROOT, message_id=str(uuid4()), tool_call_id=str(uuid4())),
+            NodePath(name=AssistantGraphName.INSIGHTS),
+            NodePath(name=AssistantNodeName.TRENDS_GENERATOR),
         )
 
-        message_b = AssistantMessage(
-            id=str(uuid4()),
-            content="B",
-            tool_calls=[AssistantToolCall(id=tool_call_b, name="tool_b", args={})],
-            parent_tool_call_id=tool_call_a,  # Points to A
-        )
-
-        self.stream_processor._tool_call_id_to_message[tool_call_a] = message_a
-        self.stream_processor._tool_call_id_to_message[tool_call_b] = message_b
-
-        # Try to process a child of B
-        child_message = AssistantMessage(content="Child", parent_tool_call_id=tool_call_b)
-        event = self._create_dispatcher_event(MessageAction(message=child_message))
-
-        result = self.stream_processor.process(event)
-
-        # Cycle detection returns ACK instead of raising error
-        self.assertIsInstance(result, AssistantGenerationStatusEvent)
-        result = cast(AssistantGenerationStatusEvent, result)
-        self.assertEqual(result.type, AssistantGenerationStatusType.ACK)
-
-    def test_handles_mixed_content_types_in_chunks(self):
-        """Test that stream processor correctly handles switching between string and list content formats."""
-        # Test string to list transition
-        self.stream_processor._chunks = AIMessageChunk(content="initial string content")
-
-        # Simulate a chunk from OpenAI Responses API (list format)
-        list_chunk = AIMessageChunk(content=[{"type": "text", "text": "new content from o3"}])
         event = self._create_dispatcher_event(
-            MessageChunkAction(message=list_chunk), node_name=AssistantNodeName.TRENDS_GENERATOR
-        )
-        self.stream_processor.process(event)
-
-        # Verify the chunks were reset to list format
-        self.assertIsInstance(self.stream_processor._chunks.content, list)
-        self.assertEqual(len(self.stream_processor._chunks.content), 1)
-        self.assertEqual(cast(dict, self.stream_processor._chunks.content[0])["text"], "new content from o3")
-
-        # Test list to string transition
-        string_chunk = AIMessageChunk(content="back to string format")
-        event = self._create_dispatcher_event(
-            MessageChunkAction(message=string_chunk), node_name=AssistantNodeName.TRENDS_GENERATOR
-        )
-        self.stream_processor.process(event)
-
-        # Verify the chunks were reset to string format
-        self.assertIsInstance(self.stream_processor._chunks.content, str)
-        self.assertEqual(self.stream_processor._chunks.content, "back to string format")
-
-    def test_handles_multiple_list_chunks(self):
-        """Test that multiple list-format chunks are properly concatenated."""
-        # Start with empty chunks
-        self.stream_processor._chunks = AIMessageChunk(content="")
-
-        # Add first list chunk
-        chunk1 = AIMessageChunk(content=[{"type": "text", "text": "First part"}])
-        event = self._create_dispatcher_event(
-            MessageChunkAction(message=chunk1), node_name=AssistantNodeName.TRENDS_GENERATOR
-        )
-        self.stream_processor.process(event)
-
-        # Add second list chunk
-        chunk2 = AIMessageChunk(content=[{"type": "text", "text": " second part"}])
-        event = self._create_dispatcher_event(
-            MessageChunkAction(message=chunk2), node_name=AssistantNodeName.TRENDS_GENERATOR
+            MessageAction(message=tool_call_message), node_name=AssistantNodeName.TRENDS_GENERATOR, node_path=node_path
         )
         result = self.stream_processor.process(event)
 
-        # Verify the result is an AssistantMessage with combined content
-        self.assertIsInstance(result, AssistantMessage)
-        result = cast(AssistantMessage, result)
-        self.assertEqual(result.content, "First part second part")
+        self.assertIsNone(result)
 
-    def test_messages_without_id_are_yielded(self):
-        """Test that messages without ID are always yielded."""
-        # Create messages without IDs
+    def test_short_node_path_treated_as_root(self):
+        """Test that node_path with length <= 2 is treated as root level."""
+        message = AssistantMessage(id=str(uuid4()), content="Short path message")
+
+        # Path with just 2 elements (graph + node)
+        node_path = (NodePath(name=AssistantGraphName.ASSISTANT), NodePath(name=AssistantNodeName.ROOT))
+
+        event = self._create_dispatcher_event(
+            MessageAction(message=message), node_name=AssistantNodeName.ROOT, node_path=node_path
+        )
+        result = self.stream_processor.process(event)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], message)
+
+    # UpdateAction tests
+
+    def test_update_action_creates_update_event_with_parent_from_path(self):
+        """Test UpdateAction creates AssistantUpdateEvent using closest tool_call_id from node_path."""
+        message_id = str(uuid4())
+        tool_call_id = str(uuid4())
+
+        node_path = (
+            NodePath(name=AssistantGraphName.ASSISTANT),
+            NodePath(name=AssistantNodeName.ROOT, message_id=message_id, tool_call_id=tool_call_id),
+            NodePath(name=AssistantGraphName.INSIGHTS),
+        )
+
+        event = self._create_dispatcher_event(
+            UpdateAction(content="Update content"), node_name=AssistantNodeName.TRENDS_GENERATOR, node_path=node_path
+        )
+        result = self.stream_processor.process(event)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], AssistantUpdateEvent)
+        update_event = cast(AssistantUpdateEvent, result[0])
+        self.assertEqual(update_event.id, message_id)
+        self.assertEqual(update_event.tool_call_id, tool_call_id)
+        self.assertEqual(update_event.content, "Update content")
+
+    def test_update_action_without_parent_returns_none(self):
+        """Test UpdateAction without parent tool_call_id in node_path returns None."""
+        # No tool_call_id in any path element
+        node_path = (NodePath(name=AssistantGraphName.ASSISTANT), NodePath(name=AssistantNodeName.ROOT))
+
+        event = self._create_dispatcher_event(
+            UpdateAction(content="Update content"), node_name=AssistantNodeName.ROOT, node_path=node_path
+        )
+        result = self.stream_processor.process(event)
+
+        self.assertIsNone(result)
+
+    def test_update_action_without_node_path_returns_none(self):
+        """Test UpdateAction without node_path returns None."""
+        event = self._create_dispatcher_event(UpdateAction(content="Update content"), node_path=None)
+        result = self.stream_processor.process(event)
+
+        self.assertIsNone(result)
+
+    def test_update_action_finds_closest_tool_call_in_reversed_path(self):
+        """Test UpdateAction finds the closest (most recent) tool_call_id by reversing the path."""
+        # Multiple tool calls in the path - should find the closest one (last in reversed iteration)
+        message_id_1 = str(uuid4())
+        tool_call_id_1 = str(uuid4())
+        message_id_2 = str(uuid4())
+        tool_call_id_2 = str(uuid4())
+
+        node_path = (
+            NodePath(name=AssistantGraphName.ASSISTANT),
+            NodePath(name=AssistantNodeName.ROOT, message_id=message_id_1, tool_call_id=tool_call_id_1),
+            NodePath(name=AssistantGraphName.INSIGHTS, message_id=message_id_2, tool_call_id=tool_call_id_2),
+            NodePath(name=AssistantNodeName.TRENDS_GENERATOR),
+        )
+
+        event = self._create_dispatcher_event(
+            UpdateAction(content="Update content"), node_name=AssistantNodeName.TRENDS_GENERATOR, node_path=node_path
+        )
+        result = self.stream_processor.process(event)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        update_event = cast(AssistantUpdateEvent, result[0])
+        # Should use the closest parent (last one in reversed path)
+        self.assertEqual(update_event.id, message_id_2)
+        self.assertEqual(update_event.tool_call_id, tool_call_id_2)
+
+    # Message deduplication tests
+
+    def test_messages_with_id_deduplicated(self):
+        """Test that messages with the same ID are deduplicated."""
+        message_id = str(uuid4())
+        message1 = AssistantMessage(id=message_id, content="First occurrence")
+        message2 = AssistantMessage(id=message_id, content="Second occurrence")
+
+        node_path = (NodePath(name=AssistantGraphName.ASSISTANT), NodePath(name=AssistantNodeName.ROOT))
+
+        # Process first message - should be returned
+        event1 = self._create_dispatcher_event(
+            MessageAction(message=message1), node_name=AssistantNodeName.ROOT, node_path=node_path
+        )
+        result1 = self.stream_processor.process(event1)
+        self.assertIsNotNone(result1)
+        self.assertEqual(result1[0], message1)
+
+        # Process second message with same ID - should be filtered
+        event2 = self._create_dispatcher_event(
+            MessageAction(message=message2), node_name=AssistantNodeName.ROOT, node_path=node_path
+        )
+        result2 = self.stream_processor.process(event2)
+        self.assertIsNone(result2)
+
+    def test_messages_without_id_not_deduplicated(self):
+        """Test that messages without ID are always yielded (not deduplicated)."""
         message1 = AssistantMessage(content="Message without ID")
         message2 = AssistantMessage(content="Another message without ID")
 
-        # Process first message
-        event1 = self._create_dispatcher_event(MessageAction(message=message1))
+        node_path = (NodePath(name=AssistantGraphName.ASSISTANT), NodePath(name=AssistantNodeName.ROOT))
+
+        event1 = self._create_dispatcher_event(
+            MessageAction(message=message1), node_name=AssistantNodeName.ROOT, node_path=node_path
+        )
         result1 = self.stream_processor.process(event1)
-        self.assertEqual(result1, message1)
+        self.assertIsNotNone(result1)
+        self.assertEqual(result1[0], message1)
 
-        # Process second message with same content
-        event2 = self._create_dispatcher_event(MessageAction(message=message2))
+        event2 = self._create_dispatcher_event(
+            MessageAction(message=message2), node_name=AssistantNodeName.ROOT, node_path=node_path
+        )
         result2 = self.stream_processor.process(event2)
-        self.assertEqual(result2, message2)
+        self.assertIsNotNone(result2)
+        self.assertEqual(result2[0], message2)
 
-        # Both should be yielded since they have no IDs
-
-    def test_messages_with_id_are_deduplicated(self):
-        """Test that messages with ID are deduplicated during streaming."""
+    def test_preexisting_message_ids_filtered(self):
+        """Test that stream processor filters messages with IDs already in _streamed_update_ids."""
         message_id = str(uuid4())
 
-        # Create multiple messages with the same ID
-        message1 = AssistantMessage(id=message_id, content="First occurrence")
-        message2 = AssistantMessage(id=message_id, content="Second occurrence")
-        message3 = AssistantMessage(id=message_id, content="Third occurrence")
+        # Pre-populate the streamed IDs
+        self.stream_processor._streamed_update_ids.add(message_id)
 
-        # Process first message - should be yielded
-        event1 = self._create_dispatcher_event(MessageAction(message=message1))
-        result1 = self.stream_processor.process(event1)
-        self.assertEqual(result1, message1)
-        self.assertIn(message_id, self.stream_processor._streamed_update_ids)
+        message = AssistantMessage(id=message_id, content="Already seen")
+        node_path = (NodePath(name=AssistantGraphName.ASSISTANT), NodePath(name=AssistantNodeName.ROOT))
 
-        # Process second message with same ID - should return ACK
-        event2 = self._create_dispatcher_event(MessageAction(message=message2))
-        result2 = self.stream_processor.process(event2)
-        self.assertIsInstance(result2, AssistantGenerationStatusEvent)
-        result2 = cast(AssistantGenerationStatusEvent, result2)
-        self.assertEqual(result2.type, AssistantGenerationStatusType.ACK)
+        event = self._create_dispatcher_event(
+            MessageAction(message=message), node_name=AssistantNodeName.ROOT, node_path=node_path
+        )
+        result = self.stream_processor.process(event)
 
-        # Process third message with same ID - should also return ACK
-        event3 = self._create_dispatcher_event(MessageAction(message=message3))
-        result3 = self.stream_processor.process(event3)
-        self.assertIsInstance(result3, AssistantGenerationStatusEvent)
-        result3 = cast(AssistantGenerationStatusEvent, result3)
-        self.assertEqual(result3.type, AssistantGenerationStatusType.ACK)
+        self.assertIsNone(result)
 
-    def test_stream_processor_with_preexisting_message_ids(self):
-        """Test that stream processor correctly filters messages when initialized with existing IDs."""
-        message_id_1 = str(uuid4())
-        message_id_2 = str(uuid4())
+    # LangGraph update processing tests
 
-        # Simulate existing messages by pre-populating the streamed IDs set
-        self.stream_processor._streamed_update_ids.add(message_id_1)
+    def test_langgraph_message_chunk_processed(self):
+        """Test that LangGraph message chunk updates are converted and processed."""
+        chunk = AIMessageChunk(content="LangGraph chunk")
+        state = {"langgraph_node": AssistantNodeName.TRENDS_GENERATOR, "langgraph_checkpoint_ns": "checkpoint_123"}
 
-        # Try to process message with existing ID - should be filtered out
-        message1 = AssistantMessage(id=message_id_1, content="Already seen")
-        event1 = self._create_dispatcher_event(MessageAction(message=message1))
-        result1 = self.stream_processor.process(event1)
-        self.assertIsInstance(result1, AssistantGenerationStatusEvent)
-        result1 = cast(AssistantGenerationStatusEvent, result1)
-        self.assertEqual(result1.type, AssistantGenerationStatusType.ACK)
+        update = ["messages", (chunk, state)]
+        event = LangGraphUpdateEvent(update=update)
 
-        # Process message with new ID - should be yielded
-        message2 = AssistantMessage(id=message_id_2, content="New message")
-        event2 = self._create_dispatcher_event(MessageAction(message=message2))
-        result2 = self.stream_processor.process(event2)
-        self.assertEqual(result2, message2)
-        self.assertIn(message_id_2, self.stream_processor._streamed_update_ids)
+        result = self.stream_processor.process_langgraph_update(event)
 
-    async def test_process_value_update_returns_none(self):
-        """Test that process_langgraph_update returns None for basic state updates (ACKs are now handled by reducer)."""
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], AssistantMessage)
+        self.assertEqual(result[0].content, "LangGraph chunk")
 
-        # Create a value update tuple that doesn't match special nodes
-        update = cast(
-            GraphValueUpdateTuple,
-            (
-                AssistantNodeName.ROOT,
-                {"root": {"messages": []}},  # Empty update that doesn't match visualization or verbose nodes
-            ),
+    def test_langgraph_state_update_stored(self):
+        """Test that LangGraph state updates are stored in _state."""
+        new_state_dict = {"messages": [], "plan": "Test plan"}
+        update = cast(GraphValueUpdateTuple, ["values", new_state_dict])
+
+        event = LangGraphUpdateEvent(update=update)
+        result = self.stream_processor.process_langgraph_update(event)
+
+        self.assertIsNone(result)
+        self.assertIsNotNone(self.stream_processor._state)
+        self.assertEqual(self.stream_processor._state.plan, "Test plan")
+
+    def test_langgraph_non_message_chunk_ignored(self):
+        """Test that LangGraph updates that are not AIMessageChunk are ignored."""
+        regular_message = AssistantMessage(content="Not a chunk")
+        state = {"langgraph_node": AssistantNodeName.ROOT, "langgraph_checkpoint_ns": "checkpoint_456"}
+
+        update = ["messages", (regular_message, state)]
+        event = LangGraphUpdateEvent(update=update)
+
+        result = self.stream_processor.process_langgraph_update(event)
+
+        self.assertIsNone(result)
+
+    def test_langgraph_invalid_update_format_ignored(self):
+        """Test that invalid LangGraph update formats are ignored."""
+        update = "invalid_format"
+        event = LangGraphUpdateEvent(update=update)
+
+        result = self.stream_processor.process_langgraph_update(event)
+
+        self.assertIsNone(result)
+
+    # Edge cases and error conditions
+
+    def test_empty_node_path_treated_as_root(self):
+        """Test that empty node_path is treated as root level."""
+        message = AssistantMessage(id=str(uuid4()), content="Empty path message")
+
+        event = self._create_dispatcher_event(
+            MessageAction(message=message), node_name=AssistantNodeName.ROOT, node_path=()
+        )
+        result = self.stream_processor.process(event)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], message)
+
+    def test_none_node_path_treated_as_root(self):
+        """Test that None node_path is treated as root level."""
+        message = AssistantMessage(id=str(uuid4()), content="None path message")
+
+        event = self._create_dispatcher_event(
+            MessageAction(message=message), node_name=AssistantNodeName.ROOT, node_path=None
+        )
+        result = self.stream_processor.process(event)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], message)
+
+    def test_node_end_with_none_state_returns_none(self):
+        """Test NodeEndAction with None state returns None."""
+        event = self._create_dispatcher_event(NodeEndAction(state=None))
+        result = self.stream_processor.process(event)
+
+        self.assertIsNone(result)
+
+    def test_update_action_with_empty_content_returns_none(self):
+        """Test UpdateAction with empty content returns None."""
+        node_path = (
+            NodePath(name=AssistantGraphName.ASSISTANT),
+            NodePath(name=AssistantNodeName.ROOT, message_id=str(uuid4()), tool_call_id=str(uuid4())),
         )
 
-        # Process the update
-        result = self.stream_processor.process_langgraph_update(LangGraphUpdateEvent(update=update))
+        event = self._create_dispatcher_event(UpdateAction(content=""), node_path=node_path)
+        result = self.stream_processor.process(event)
 
-        # Should return None (ACK events are now generated by the reducer)
         self.assertIsNone(result)
+
+    def test_special_messages_from_root_level_returned(self):
+        """Test that special message types from root level are handled by root message logic."""
+        # VisualizationMessage from root should be returned if from verbose node
+        query = TrendsQuery(series=[])
+        viz_message = VisualizationMessage(query="test", answer=query, plan="plan")
+
+        node_path = (NodePath(name=AssistantGraphName.ASSISTANT), NodePath(name=AssistantNodeName.TRENDS_GENERATOR))
+
+        event = self._create_dispatcher_event(
+            MessageAction(message=viz_message), node_name=AssistantNodeName.TRENDS_GENERATOR, node_path=node_path
+        )
+        result = self.stream_processor.process(event)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0], viz_message)
