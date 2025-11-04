@@ -143,11 +143,18 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/pinned_scene_tabs/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"tabs": []})
+        self.assertEqual(
+            response.json(),
+            {
+                "tabs": [],
+                "personal_tabs": [],
+                "project_tabs": [],
+            },
+        )
 
     def test_pinned_scene_tabs_update(self):
         payload = {
-            "tabs": [
+            "personal_tabs": [
                 {
                     "id": "tab-1",
                     "pathname": "/a",
@@ -157,7 +164,17 @@ class TestUserAPI(APIBaseTest):
                     "iconType": "blank",
                     "active": True,
                 }
-            ]
+            ],
+            "project_tabs": [
+                {
+                    "id": "tab-2",
+                    "pathname": "/b",
+                    "search": "",
+                    "hash": "",
+                    "title": "Tab B",
+                    "iconType": "notebook",
+                }
+            ],
         }
 
         response = self.client.patch(
@@ -167,16 +184,35 @@ class TestUserAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        expected_tab = {k: v for k, v in payload["tabs"][0].items() if k != "active"}
-        expected_tab["pinned"] = True
-        self.assertEqual(response.json(), {"tabs": [expected_tab]})
+        expected_personal_tab = {k: v for k, v in payload["personal_tabs"][0].items() if k != "active"}
+        expected_personal_tab["pinned"] = True
+        expected_personal_tab["pinnedScope"] = "personal"
+        expected_project_tab = dict(payload["project_tabs"][0].items())
+        expected_project_tab["pinned"] = True
+        expected_project_tab["pinnedScope"] = "project"
+        self.assertEqual(
+            response.json(),
+            {
+                "tabs": [expected_personal_tab],
+                "personal_tabs": [expected_personal_tab],
+                "project_tabs": [expected_project_tab],
+            },
+        )
 
         stored = UserPinnedSceneTabs.objects.get(user=self.user, team=self.team)
         self.assertEqual(len(stored.tabs), 1)
         stored_tab = stored.tabs[0]
         self.assertEqual(stored_tab["id"], "tab-1")
         self.assertEqual(stored_tab["pinned"], True)
+        self.assertEqual(stored_tab["pinnedScope"], "personal")
         self.assertNotIn("active", stored_tab)
+
+        project_stored = UserPinnedSceneTabs.objects.get(user=None, team=self.team)
+        self.assertEqual(len(project_stored.tabs), 1)
+        stored_project_tab = project_stored.tabs[0]
+        self.assertEqual(stored_project_tab["id"], "tab-2")
+        self.assertEqual(stored_project_tab["pinned"], True)
+        self.assertEqual(stored_project_tab["pinnedScope"], "project")
 
     def test_can_only_list_yourself(self):
         """

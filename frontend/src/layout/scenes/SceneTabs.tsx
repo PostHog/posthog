@@ -7,14 +7,15 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconGear, IconPlus, IconX } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { SceneTab } from 'scenes/sceneTypes'
+import { SceneTab, SceneTabPinnedScope } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -25,6 +26,7 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 
 import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
+import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
 
 export interface SceneTabsProps {
     className?: string
@@ -38,6 +40,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
     const pinnedCount = tabs.filter((tab) => tab.pinned).length
     const unpinnedCount = tabs.length - pinnedCount
@@ -59,7 +62,15 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
 
         const activeTab = tabs.find((tab) => tab.id === active.id)
         const overTab = tabs.find((tab) => tab.id === over.id)
-        if (!activeTab || !overTab || !!activeTab.pinned !== !!overTab.pinned) {
+        if (!activeTab || !overTab) {
+            return
+        }
+
+        if (!!activeTab.pinned !== !!overTab.pinned) {
+            return
+        }
+
+        if (activeTab.pinned && overTab.pinned && !isSamePinnedScope(activeTab.pinnedScope, overTab.pinnedScope)) {
             return
         }
 
@@ -90,6 +101,12 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                     <div className="relative -bottom-1 size-2 border-l border-t border-primary rounded-tl bg-[var(--scene-layout-background)]" />
                 </div>
             )}
+
+            <Tooltip title="Configure pinned tabs">
+                <ButtonPrimitive iconOnly onClick={() => setIsConfigurePinnedTabsOpen(true)} className="ml-2">
+                    <IconGear />
+                </ButtonPrimitive>
+            </Tooltip>
 
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
@@ -127,8 +144,17 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                     </div>
                 </SortableContext>
             </DndContext>
+            <ConfigurePinnedTabsModal
+                isOpen={isConfigurePinnedTabsOpen}
+                onClose={() => setIsConfigurePinnedTabsOpen(false)}
+            />
         </div>
     )
+}
+
+const isSamePinnedScope = (a: SceneTabPinnedScope | undefined, b: SceneTabPinnedScope | undefined): boolean => {
+    const resolve = (scope?: SceneTabPinnedScope): SceneTabPinnedScope => (scope === 'project' ? 'project' : 'personal')
+    return resolve(a) === resolve(b)
 }
 
 function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {

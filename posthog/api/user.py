@@ -5,8 +5,9 @@ import secrets
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
@@ -417,7 +418,9 @@ class PinnedSceneTabSerializer(serializers.Serializer):
 
 
 class PinnedSceneTabsSerializer(serializers.Serializer):
-    tabs = PinnedSceneTabSerializer(many=True)
+    tabs = PinnedSceneTabSerializer(many=True, required=False)
+    personal_tabs = PinnedSceneTabSerializer(many=True, required=False)
+    project_tabs = PinnedSceneTabSerializer(many=True, required=False)
 
 
 class UserViewSet(
@@ -563,23 +566,57 @@ class UserViewSet(
             raise serializers.ValidationError("Current team is required to manage pinned scene tabs.")
 
         pinned_tabs, _ = UserPinnedSceneTabs.objects.get_or_create(user=instance, team=team)
+        project_pinned_tabs, _ = UserPinnedSceneTabs.objects.get_or_create(user=None, team=team)
 
         if request.method == "GET":
-            return Response({"tabs": pinned_tabs.tabs or []})
+            personal_tabs = pinned_tabs.tabs or []
+            project_tabs = project_pinned_tabs.tabs or []
+            return Response(
+                {
+                    "tabs": personal_tabs,
+                    "personal_tabs": personal_tabs,
+                    "project_tabs": project_tabs,
+                }
+            )
 
         serializer = PinnedSceneTabsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        tabs = []
-        for tab in serializer.validated_data["tabs"]:
-            sanitized = {**tab}
-            sanitized.pop("active", None)
-            sanitized["pinned"] = True
-            tabs.append(sanitized)
+        personal_tabs_payload = serializer.validated_data.get("personal_tabs")
+        project_tabs_payload = serializer.validated_data.get("project_tabs")
+        tabs_payload = serializer.validated_data.get("tabs")
 
-        pinned_tabs.tabs = tabs
-        pinned_tabs.save()
+        # Backwards compatibility: if only `tabs` is provided, treat it as personal tabs.
+        if personal_tabs_payload is None and project_tabs_payload is None:
+            personal_tabs_payload = tabs_payload or []
 
-        return Response({"tabs": pinned_tabs.tabs})
+        def sanitize_tabs(tabs: Iterable[dict[str, Any]], scope: Literal["personal", "project"]):
+            sanitized_tabs: list[dict[str, Any]] = []
+            for tab in tabs:
+                sanitized = {**tab}
+                sanitized.pop("active", None)
+                sanitized["pinned"] = True
+                sanitized["pinnedScope"] = scope
+                sanitized_tabs.append(sanitized)
+            return sanitized_tabs
+
+        if personal_tabs_payload is not None:
+            pinned_tabs.tabs = sanitize_tabs(personal_tabs_payload, "personal")
+            pinned_tabs.save()
+
+        if project_tabs_payload is not None:
+            project_pinned_tabs.tabs = sanitize_tabs(project_tabs_payload, "project")
+            project_pinned_tabs.save()
+
+        personal_tabs = pinned_tabs.tabs or []
+        project_tabs = project_pinned_tabs.tabs or []
+
+        return Response(
+            {
+                "tabs": personal_tabs,
+                "personal_tabs": personal_tabs,
+                "project_tabs": project_tabs,
+            }
+        )
 
     @action(methods=["POST"], detail=True)
     def scene_personalisation(self, request, **kwargs):
