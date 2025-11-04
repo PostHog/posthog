@@ -89,7 +89,7 @@ class SchemaPropertyGroupProperty(UUIDTModel):
                 name="unique_property_group_property_name",
             ),
             models.CheckConstraint(
-                name="property_type_is_valid_schema",
+                name="property_type_is_valid_schema_v2",
                 check=models.Q(property_type__in=SchemaPropertyType.values),
             ),
         ]
