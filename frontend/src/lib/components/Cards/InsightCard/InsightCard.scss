@@ -90,9 +90,10 @@
 
 .SeriesDisplay {
     display: flex;
-    align-items: start;
     gap: 0.375rem;
+    align-items: start;
     min-height: 1.5rem;
+
     &:not(:last-child) {
         margin-bottom: 0.25rem;
     }
@@ -116,14 +117,14 @@
     &.SeriesDisplay__raw-name--event::before,
     &.SeriesDisplay__raw-name--action::before {
         display: flex;
-        margin-top: -1px;
-        margin-left: calc(-0.25rem - 1px); // Align to overlay the container's border on the left
-        margin-right: 0.25rem;
-        height: calc(100% + 2px);
+        flex-shrink: 0;
         align-items: center;
         justify-content: center;
-        flex-shrink: 0;
         width: 1rem;
+        height: calc(100% + 2px);
+        margin-top: -1px;
+        margin-right: 0.25rem;
+        margin-left: calc(-0.25rem - 1px); // Align to overlay the container's border on the left
         font-size: 0.625rem;
         font-weight: 700;
         line-height: 1rem;
@@ -132,21 +133,23 @@
         background: var(--color-accent);
         border-radius: inherit;
     }
+
     &.SeriesDisplay__raw-name--event::before {
         content: 'E';
     }
+
     &.SeriesDisplay__raw-name--action::before {
         content: 'A';
     }
 }
 
 .SeriesDisplay__value {
-    background: var(--color-bg-surface-secondary);
-    border-width: 1px;
     display: inline-flex;
     align-items: center;
     height: 1.25rem;
     padding: 0 0.125rem;
+    background: var(--color-bg-surface-secondary);
+    border-width: 1px;
     border-radius: var(--radius-sm);
 }
 
