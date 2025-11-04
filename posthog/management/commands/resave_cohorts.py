@@ -163,21 +163,20 @@ class Command(BaseCommand):
                 # Decide if there is any change worth persisting/reporting
                 will_change = clean_filters != cohort.filters or computed_type != cohort.cohort_type
 
+                # ALWAYS update in-memory for dependency checking
+                cohort.filters = clean_filters
+                cohort.cohort_type = computed_type
+
                 # Track summary stats
                 if computed_type == "realtime":
                     prospective_realtime += 1
                 if dry_run:
                     if will_change:
                         changed += 1
-                    # Update in-memory for dependency checking even in dry-run
-                    cohort.filters = clean_filters
-                    cohort.cohort_type = computed_type
                     continue
 
-                # Persist changes without triggering recalculation jobs
+                # Persist changes to database if needed
                 if will_change:
-                    cohort.filters = clean_filters
-                    cohort.cohort_type = computed_type
                     cohort.save(update_fields=["filters", "cohort_type"])
                     changed += 1
             except Exception as err:
@@ -217,6 +216,10 @@ class Command(BaseCommand):
                 # Decide if there is any change worth persisting/reporting
                 will_change = clean_filters != cohort.filters or computed_type != cohort.cohort_type
 
+                # ALWAYS update in-memory for consistency
+                cohort.filters = clean_filters
+                cohort.cohort_type = computed_type
+
                 # Track summary stats
                 if computed_type == "realtime":
                     prospective_realtime += 1
@@ -225,10 +228,8 @@ class Command(BaseCommand):
                         changed += 1
                     continue
 
-                # Persist changes without triggering recalculation jobs
+                # Persist changes to database if needed
                 if will_change:
-                    cohort.filters = clean_filters
-                    cohort.cohort_type = computed_type
                     cohort.save(update_fields=["filters", "cohort_type"])
                     changed += 1
             except Exception as err:
