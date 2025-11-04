@@ -15,8 +15,6 @@ from django.forms.models import model_to_dict
 from django.test import override_settings
 from django.utils import timezone
 
-from parameterized import parameterized
-
 from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureQuery
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
@@ -92,12 +90,9 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
             end_date=datetime(2024, 1, 7).replace(tzinfo=ZoneInfo("UTC")),
         )
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_returns_correct_timeseries(self, name, use_new_query_builder):
-        self.experiment.stats_config = {"use_new_query_builder": use_new_query_builder}
-        self.experiment.save()
+    def test_exposure_query_returns_correct_timeseries(self):
         ff_property = f"$feature/{self.feature_flag.key}"
 
         # Create test data using journeys
@@ -250,12 +245,9 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 5)
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_counts_users_only_on_first_exposure(self, name, use_new_query_builder):
-        self.experiment.stats_config = {"use_new_query_builder": use_new_query_builder}
-        self.experiment.save()
+    def test_exposure_query_counts_users_only_on_first_exposure(self):
         ff_property = f"$feature/{self.feature_flag.key}"
 
         journeys_for(
@@ -368,12 +360,9 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 1)
         self.assertEqual(response.total_exposures["test"], 2)
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_filters_test_accounts(self, name, use_new_query_builder):
-        self.experiment.stats_config = {"use_new_query_builder": use_new_query_builder}
-        self.experiment.save()
+    def test_exposure_query_filters_test_accounts(self):
         ff_property = f"$feature/{self.feature_flag.key}"
 
         _create_person(
@@ -563,19 +552,7 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 6)
 
-    @parameterized.expand(
-        [
-            ("disable_new_query_builder_pageview", "$pageview", False),
-            ("enable_new_query_builder_pageview", "$pageview", True),
-            ("disable_new_query_builder_feature_flag_called", "$feature_flag_called", False),
-            ("enable_new_query_builder_feature_flag_called", "$feature_flag_called", True),
-        ]
-    )
-    @freeze_time("2024-01-07T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_exposure_query_with_custom_exposure(self, name, exposure_event, use_new_query_builder):
-        self.experiment.stats_config = {"use_new_query_builder": use_new_query_builder}
-        self.experiment.save()
+    def _calculate_custom_exposure_response(self, exposure_event: str):
         if exposure_event == "$feature_flag_called":
             ff_property = f"$feature_flag_response"
             add_feature_flag_property = True
@@ -686,19 +663,29 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=query,
         )
-        response = query_runner.calculate()
+        return query_runner.calculate()
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_exposure_query_with_custom_exposure_pageview(self):
+        response = self._calculate_custom_exposure_response("$pageview")
 
         self.assertEqual(len(response.timeseries), 2)
-
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 5)
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_without_feature_flag_property(self, name, use_new_query_builder):
-        self.experiment.stats_config = {"use_new_query_builder": use_new_query_builder}
-        self.experiment.save()
+    def test_exposure_query_with_custom_exposure_feature_flag_called(self):
+        response = self._calculate_custom_exposure_response("$feature_flag_called")
+
+        self.assertEqual(len(response.timeseries), 2)
+        self.assertEqual(response.total_exposures["control"], 4)
+        self.assertEqual(response.total_exposures["test"], 5)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_exposure_query_without_feature_flag_property(self):
         ff_property = f"$feature/{self.feature_flag.key}"
 
         # Create test data using journeys
@@ -830,12 +817,9 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 4)
         self.assertEqual(response.total_exposures["test"], 5)
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_with_multiple_variant_exposures(self, name, use_new_query_builder):
-        self.experiment.stats_config = {"use_new_query_builder": use_new_query_builder}
-        self.experiment.save()
+    def test_exposure_query_with_multiple_variant_exposures(self):
         ff_property = f"$feature/{self.feature_flag.key}"
 
         journeys_for(
@@ -922,13 +906,11 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["test"], 1)
         self.assertEqual(response.total_exposures[MULTIPLE_VARIANT_KEY], 1)
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_using_group_aggregation(self, name, use_new_query_builder):
+    def test_exposure_query_using_group_aggregation(self):
         self.experiment.start_date = datetime(2024, 1, 1).replace(tzinfo=ZoneInfo("UTC"))
         self.experiment.end_date = datetime(2024, 1, 28).replace(tzinfo=ZoneInfo("UTC"))
-        self.experiment.stats_config = {"use_new_query_builder": use_new_query_builder}
         self.experiment.save()
 
         group_type_index = 0
@@ -958,15 +940,13 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.total_exposures["control"], 2)
         self.assertEqual(response.total_exposures["test"], 3)
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_multiple_variant_handling_first_seen(self, name, use_new_query_builder):
+    def test_exposure_query_multiple_variant_handling_first_seen(self):
         ff_property = f"$feature/{self.feature_flag.key}"
 
         # Set the experiment to use first_seen handling for multiple variants
         self.experiment.exposure_criteria = {"multiple_variant_handling": "first_seen"}
-        self.experiment.stats_config = {"use_new_query_builder": use_new_query_builder}
         self.experiment.save()
 
         journeys_for(
@@ -1068,10 +1048,9 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Verify no MULTIPLE_VARIANT_KEY appears in total_exposures for first_seen handling
         self.assertNotIn(MULTIPLE_VARIANT_KEY, response.total_exposures)
 
-    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-07T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_exposure_query_with_action_as_exposure_criteria(self, name, use_new_query_builder):
+    def test_exposure_query_with_action_as_exposure_criteria(self):
         from posthog.schema import ActionsNode
 
         from posthog.models.action.action import Action
@@ -1145,7 +1124,6 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # Set exposure criteria to use the action
         self.experiment.exposure_criteria = {"exposure_config": ActionsNode(id=action.id).model_dump(mode="json")}
-        self.experiment.stats_config = {"use_new_query_builder": use_new_query_builder}
         self.experiment.save()
 
         query = ExperimentExposureQuery(
