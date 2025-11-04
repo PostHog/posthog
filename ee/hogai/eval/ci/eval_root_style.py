@@ -61,7 +61,6 @@ def call_root(demo_org_team_user):
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
         .add_root(lambda state: AssistantNodeName.END)
-        .add_inkeep_docs()
         .compile()
     )
 
