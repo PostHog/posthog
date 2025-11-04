@@ -956,7 +956,7 @@ class PostgreSQLConsumerFromStage(ConsumerFromStage):
         self.table_name = table_name
         self.schema_columns = schema_columns
 
-        self.logger.bind(table=f"{schema}.{table_name}")
+        self.logger = self.logger.bind(schema=schema, table=table_name)
 
         self.current_file_index = 0
         self.current_buffer = io.BytesIO()
