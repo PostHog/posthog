@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from math import ceil
 
+from django.conf import settings
 from django.utils.timezone import now
 
 import structlog
@@ -14,7 +15,6 @@ from google.genai.types import Blob, Content, Part, VideoMetadata
 from pymediainfo import MediaInfo
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
-from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.user import User
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
@@ -165,7 +165,7 @@ class SessionMomentsLLMAnalyzer:
                 VideoExportWorkflow.run,
                 VideoExportInputs(exported_asset_id=exported_asset.id),
                 id=f"session-moment-video-export_{self.session_id}_{moment.moment_id}_{uuid.uuid4()}",
-                task_queue=VIDEO_EXPORT_TASK_QUEUE,
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
             )
