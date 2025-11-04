@@ -31,7 +31,7 @@ class RecordReplayToFileOptions:
     image_path: str
     url_to_render: str
     wait_for_css_selector: str
-    """Recording duration in seconds."""
+    # Recording duration in seconds.
     recording_duration: int
     screenshot_width: Optional[int] = None
     screenshot_height: Optional[int] = None
