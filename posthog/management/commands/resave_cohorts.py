@@ -152,15 +152,24 @@ class Command(BaseCommand):
                 if computed_type == "realtime" and cohort.filters:
                     direct_refs = self._get_direct_cohort_references(cohort.filters)
                     for ref_id in direct_refs:
-                        # If any directly referenced cohort has dependencies, this cannot be realtime
-                        if ref_id in cohort_dependencies and len(cohort_dependencies[ref_id]) > 0:
-                            computed_type = None
-                            break
-                        # Also check if the referenced cohort is not realtime
                         ref_cohort = seen_cohorts_cache.get(ref_id)
-                        if ref_cohort and ref_cohort.cohort_type != "realtime":
-                            computed_type = None
-                            break
+                        if ref_cohort:
+                            # Static cohorts cannot be realtime, so any cohort referencing them can't be realtime
+                            if ref_cohort.is_static:
+                                computed_type = None
+                                break
+                            # Cohorts without filters (empty cohorts) can be considered realtime-compatible
+                            # since they match no one (always false)
+                            if not ref_cohort.filters:
+                                continue
+                            # If any directly referenced cohort has dependencies, this cannot be realtime
+                            if ref_id in cohort_dependencies and len(cohort_dependencies[ref_id]) > 0:
+                                computed_type = None
+                                break
+                            # Also check if the referenced cohort is not realtime
+                            if ref_cohort.cohort_type != "realtime":
+                                computed_type = None
+                                break
 
                 # Decide if there is any change worth persisting/reporting
                 will_change = clean_filters != cohort.filters or computed_type != cohort.cohort_type
@@ -195,21 +204,21 @@ class Command(BaseCommand):
     def _get_direct_cohort_references(self, filters: dict[str, Any]) -> set[int]:
         """Get only the direct cohort references from filters (not transitive)."""
         referenced_ids = set()
-        if not isinstance(filters, dict):
-            return referenced_ids
 
-        properties = filters.get("properties", {})
-        if isinstance(properties, dict):
-            values = properties.get("values", [])
-            if isinstance(values, list):
-                for value in values:
-                    if isinstance(value, dict):
-                        if value.get("type") == "cohort" and value.get("value"):
-                            try:
-                                referenced_ids.add(int(value["value"]))
-                            except (ValueError, TypeError):
-                                pass
-                        # Recursively check nested groups
-                        if "values" in value:
-                            referenced_ids.update(self._get_direct_cohort_references({"properties": value}))
+        if isinstance(filters, dict):
+            properties = filters.get("properties", {})
+            if isinstance(properties, dict):
+                values = properties.get("values", [])
+                if isinstance(values, list):
+                    for value in values:
+                        if isinstance(value, dict):
+                            if value.get("type") == "cohort" and value.get("value"):
+                                try:
+                                    referenced_ids.add(int(value["value"]))
+                                except (ValueError, TypeError):
+                                    pass
+                            # Recursively check nested groups
+                            if "values" in value:
+                                referenced_ids.update(self._get_direct_cohort_references({"properties": value}))
+
         return referenced_ids

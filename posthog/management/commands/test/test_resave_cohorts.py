@@ -467,7 +467,7 @@ class TestResaveCohortsCommandTwoTeams(BaseTest):
         assert cohorts_a[0].cohort_type == "realtime"
         assert cohorts_a[1].cohort_type is None
         assert cohorts_a[2].cohort_type == "realtime"
-        assert cohorts_a[3].cohort_type == "realtime"
+        assert cohorts_a[3].cohort_type is None  # Cannot be realtime because it references a static cohort
         assert cohorts_a[4].cohort_type == "realtime"
 
         # Team B untouched (no inline bytecode yet)
@@ -485,5 +485,5 @@ class TestResaveCohortsCommandTwoTeams(BaseTest):
         assert cohorts_b[0].cohort_type == "realtime"
         assert cohorts_b[1].cohort_type is None
         assert cohorts_b[2].cohort_type == "realtime"
-        assert cohorts_b[3].cohort_type == "realtime"
+        assert cohorts_b[3].cohort_type is None  # Cannot be realtime because it references a static cohort
         assert cohorts_b[4].cohort_type == "realtime"
