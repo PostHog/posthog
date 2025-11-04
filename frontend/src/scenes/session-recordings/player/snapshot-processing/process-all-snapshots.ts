@@ -219,22 +219,29 @@ export function processAllSnapshots(
 
             // Hashing is expensive, so we only do it when events have the same timestamp
             if (currentTimestamp === previousTimestamp) {
-                if (seenHashes.size === 0) {
-                    seenHashes.add(hashSnapshot(sortedSnapshots[snapshotIndex - 1]))
-                }
-                const snapshotHash = hashSnapshot(snapshot)
-                if (!seenHashes.has(snapshotHash)) {
-                    seenHashes.add(snapshotHash)
+                const prevSnapshot = sortedSnapshots[snapshotIndex - 1]
+
+                // Fast path: different types cannot be duplicates
+                if (prevSnapshot.type !== snapshot.type) {
+                    // Not a duplicate, continue processing
                 } else {
-                    throttleCapture(`${sessionRecordingId}-duplicate-snapshot`, () => {
-                        posthog.capture('session recording has duplicate snapshots', {
-                            sessionRecordingId,
-                            sourceKey: sourceKey,
+                    // Same type, need to hash to detect duplicates
+                    if (seenHashes.size === 0) {
+                        seenHashes.add(hashSnapshot(prevSnapshot))
+                    }
+                    const snapshotHash = hashSnapshot(snapshot)
+                    if (seenHashes.has(snapshotHash)) {
+                        throttleCapture(`${sessionRecordingId}-duplicate-snapshot`, () => {
+                            posthog.capture('session recording has duplicate snapshots', {
+                                sessionRecordingId,
+                                sourceKey: sourceKey,
+                            })
                         })
-                    })
-                    // Duplicate snapshot found, skip it
-                    snapshotIndex++
-                    continue
+                        // Duplicate snapshot found, skip it
+                        snapshotIndex++
+                        continue
+                    }
+                    seenHashes.add(snapshotHash)
                 }
             } else {
                 seenHashes = new Set<number>()
@@ -339,8 +346,28 @@ export function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
 }
 
 function hashSnapshot(snapshot: RecordingSnapshot): number {
-    const { delay, ...delayFreeSnapshot } = snapshot
-    return cyrb53(JSON.stringify(delayFreeSnapshot))
+    // Hash essential identity fields to detect duplicates without full JSON stringify
+    // Include enough fields to uniquely identify snapshots while being much faster than stringifying large data objects
+    const data = (snapshot as any).data
+    let dataHash = ''
+    if (data) {
+        // For incremental snapshots, hash mutation array lengths
+        if (data.source !== undefined || data.adds || data.removes || data.texts || data.attributes) {
+            dataHash = `inc-${data.source ?? ''}-${data.adds?.length ?? 0}-${data.removes?.length ?? 0}-${data.texts?.length ?? 0}-${data.attributes?.length ?? 0}`
+        }
+        // For plugin/custom events, include payload content hash
+        else if (data.plugin || data.tag) {
+            // Hash the payload content itself to distinguish different events
+            const payloadHash = data.payload ? cyrb53(JSON.stringify(data.payload)) : 0
+            dataHash = `plugin-${data.plugin ?? ''}-${data.tag ?? ''}-${payloadHash}`
+        }
+        // For other events, use generic data size
+        else {
+            dataHash = `other-${JSON.stringify(data).length}`
+        }
+    }
+    const identityString = `${snapshot.type}-${snapshot.timestamp}-${snapshot.windowId}-${dataHash}`
+    return cyrb53(identityString)
 }
 
 /**
