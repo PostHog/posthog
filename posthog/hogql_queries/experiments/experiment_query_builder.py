@@ -176,25 +176,29 @@ class ExperimentQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
+        include_exposure_condition = self.metric.funnel_order_type == StepOrderValue.UNORDERED
+
         # Inject step columns into the metric_events CTE
         # Find the metric_events CTE in the query
         if query.ctes and "metric_events" in query.ctes:
             metric_events_cte = query.ctes["metric_events"]
             if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
                 # Add step columns to the SELECT
-                step_columns = self._build_funnel_step_columns(deepcopy(exposure_predicate))
+                step_columns = self._build_funnel_step_columns(
+                    deepcopy(exposure_predicate), include_exposure_condition=include_exposure_condition
+                )
                 metric_events_cte.expr.select.extend(step_columns)
 
                 # For unordered funnels, we need to filter out metric events that occur _before_ the exposure
                 # event. For ordered funnel metrics, the UDF does this for us.
                 # Here, we add the field we need, first_exposure_timestamp
-                if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+                if include_exposure_condition:
                     first_exposure_timestamp_expr = parse_expr(
                         "minIf(timestamp, exposure_condition) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
                     )
                     metric_events_cte.expr.select.extend([first_exposure_timestamp_expr])
 
-        if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+        if include_exposure_condition:
             # For unordered funnels, we need to filter out metric events that occur _before_ the exposure
             # event. For ordered funnel metrics, the UDF does this for us.
             # Here, we add the where condition to filter out those events
@@ -860,21 +864,31 @@ class ExperimentQueryBuilder:
                 },
             )
 
-    def _build_funnel_step_columns(self, exposure_condition: ast.Expr) -> list[ast.Alias]:
+    def _build_funnel_step_columns(
+        self, exposure_condition: ast.Expr, include_exposure_condition: bool
+    ) -> list[ast.Alias]:
         """
         Builds list of step column AST expressions: step_0, exposure_condition, step_1, etc.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
-        step_columns: list[ast.Alias] = [
+
+        step_columns: list[ast.Alias] = []
+
+        if include_exposure_condition:
+            step_columns.append(ast.Alias(alias="exposure_condition", expr=exposure_condition))
+            step_0_condition: ast.Expr = ast.Field(chain=["exposure_condition"])
+        else:
+            step_0_condition = deepcopy(exposure_condition)
+
+        step_columns.append(
             ast.Alias(
                 alias="step_0",
                 expr=ast.Call(
                     name="if",
-                    args=[deepcopy(exposure_condition), ast.Constant(value=1), ast.Constant(value=0)],
+                    args=[step_0_condition, ast.Constant(value=1), ast.Constant(value=0)],
                 ),
             ),
-            ast.Alias(alias="exposure_condition", expr=exposure_condition),
-        ]
+        )
 
         for i, funnel_step in enumerate(self.metric.series):
             step_filter = event_or_action_to_filter(self.team, funnel_step)
