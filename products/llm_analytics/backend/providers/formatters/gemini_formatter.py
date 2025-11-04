@@ -35,6 +35,6 @@ def convert_anthropic_messages_to_gemini(messages: list[MessageParam]) -> Conten
                 else:
                     raise ValueError(f"Unsupported content block type: {type(block)}")
 
-        contents.append(Content(role="model" if message["role"] == "assistant" else "user", parts=parts))
+        contents.append(Content(role="model" if message["role"] == "assistant" else "user", parts=parts))  # type: ignore
 
     return contents

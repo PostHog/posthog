@@ -54,13 +54,13 @@ def convert_schema(schema: dict) -> dict:
         result["format"] = schema["format"]
 
     if "properties" in schema:
-        result["properties"] = {key: convert_schema(value) for key, value in schema["properties"].items()}
+        result["properties"] = {key: convert_schema(value) for key, value in schema["properties"].items()}  # type: ignore
 
     if "items" in schema:
-        result["items"] = convert_schema(schema["items"])
+        result["items"] = convert_schema(schema["items"])  # type: ignore
 
     if "anyOf" in schema:
-        result["any_of"] = [convert_schema(s) for s in schema["anyOf"]]
+        result["any_of"] = [convert_schema(s) for s in schema["anyOf"]]  # type: ignore
 
     return result
 
