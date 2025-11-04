@@ -158,15 +158,15 @@ def safe_extract_text(content: Any) -> str:
 
     if isinstance(content, list):
         text_parts = []
-        prev_type = None
         for i, item in enumerate(content):
             if isinstance(item, dict):
                 item_type = item.get("type")
-                text_value = item.get("text")
+                # Try both "text" and "content" keys (tool_result uses "content")
+                text_value = item.get("text") or item.get("content")
 
                 if text_value:
-                    # Add spacing between content blocks only when type changes
-                    if i > 0 and text_parts and item_type != prev_type:
+                    # Add spacing between all content blocks in the array
+                    if i > 0 and text_parts:
                         text_parts.append("")  # Blank line separator
 
                     # If we have a type and it's not just "text", label it
@@ -175,10 +175,11 @@ def safe_extract_text(content: Any) -> str:
                         text_parts.append("")  # Blank line after label
 
                     text_parts.append(str(text_value))
-                    prev_type = item_type
             elif isinstance(item, str):
+                # Add spacing before string items too
+                if i > 0 and text_parts:
+                    text_parts.append("")
                 text_parts.append(item)
-                prev_type = None
         if text_parts:
             return "\n".join(text_parts)
 
@@ -219,6 +220,16 @@ def extract_text_content(content: Any) -> str:
                     if block.get("type") == "tool_use":
                         tool_name = block.get("name", "unknown")
                         tool_input = block.get("input", {})
+
+                        # If input is empty, check for partial_json field
+                        if not tool_input and "partial_json" in block:
+                            import json
+
+                            try:
+                                tool_input = json.loads(block["partial_json"])
+                            except (json.JSONDecodeError, ValueError):
+                                pass
+
                         text_parts.append(format_single_tool_call(tool_name, tool_input))
                         continue
 
@@ -246,7 +257,7 @@ def extract_text_content(content: Any) -> str:
                     text_parts.append(block_text)
 
             if text_parts:
-                return "\n".join(text_parts)
+                return "\n\n".join(text_parts)
 
     # Use safe extraction for non-special content (handles type labels for text/reasoning/etc)
     return safe_extract_text(content)

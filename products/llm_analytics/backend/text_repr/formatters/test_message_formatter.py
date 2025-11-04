@@ -88,13 +88,13 @@ class TestSafeExtractText:
         assert safe_extract_text({"content": {"text": "hello"}}) == "hello"
 
     def test_extract_from_array_of_blocks(self):
-        """Should extract text from content blocks array."""
+        """Should extract text from content blocks array with spacing."""
         content = [
             {"type": "text", "text": "First line"},
             {"type": "text", "text": "Second line"},
         ]
         result = safe_extract_text(content)
-        assert result == "First line\nSecond line"
+        assert result == "First line\n\nSecond line"
 
     def test_extract_from_mixed_array(self):
         """Should handle mixed block types."""
@@ -117,6 +117,18 @@ class TestSafeExtractText:
         """Should return UNABLE_TO_PARSE for complex objects."""
         result = safe_extract_text(object())
         assert "[UNABLE_TO_PARSE:" in result
+
+    def test_extract_from_tool_result_block(self):
+        """Should extract content from tool_result blocks."""
+        content = [
+            {
+                "type": "tool_result",
+                "content": "Checking PostHog documentation...",
+                "tool_use_id": "toolu_123",
+            }
+        ]
+        result = safe_extract_text(content)
+        assert result == "[TOOL_RESULT]\n\nChecking PostHog documentation..."
 
 
 class TestExtractToolCallsFromContent:
