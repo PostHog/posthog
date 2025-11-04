@@ -255,7 +255,15 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             fetch_target_event_activity,
             args=[inputs, evaluation["team_id"]],
             schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
+            # On ingestion, there's a race condition where the workflow can run
+            # before the event is committed to ClickHouse. We should probably
+            # find a more robust solution for this.
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=1),
+                maximum_interval=timedelta(seconds=10),
+                maximum_attempts=10,
+                backoff_coefficient=2.0,
+            ),
         )
 
         # Activity 3: Execute LLM judge

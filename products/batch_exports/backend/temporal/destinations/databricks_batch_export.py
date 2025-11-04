@@ -911,9 +911,7 @@ class DatabricksConsumer(Consumer):
         self.client = client
         self.volume_path = volume_path
 
-        self.logger.bind(
-            volume=self.volume_path,
-        )
+        self.logger = self.logger.bind(volume=self.volume_path)
 
         self.current_file_index = 0
         self.current_buffer = io.BytesIO()

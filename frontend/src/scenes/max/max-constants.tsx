@@ -358,6 +358,18 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             return 'Adding insight to the dashboard...'
         },
     },
+    create_feature_flag: {
+        name: 'Create a feature flag',
+        description: 'Create a feature flag in seconds',
+        product: Scene.FeatureFlags,
+        icon: iconForType('feature_flag'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created feature flag'
+            }
+            return 'Creating feature flag...'
+        },
+    },
 }
 
 export const MAX_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [

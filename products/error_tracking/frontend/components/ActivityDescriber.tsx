@@ -116,6 +116,7 @@ const errorTrackingIssueActionsMapping: Record<
     description: () => null,
     first_seen: () => null,
     external_issues: () => null,
+    cohort: () => null,
 }
 
 export function ActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
