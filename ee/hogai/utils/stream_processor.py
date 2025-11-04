@@ -6,7 +6,6 @@ from langchain_core.messages import AIMessageChunk
 from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
-    AssistantMessage,
     AssistantToolCallMessage,
     AssistantUpdateEvent,
     FailureMessage,
@@ -205,10 +204,12 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
             return None
 
         tool_call_id = parent_path.tool_call_id
-        if tool_call_id and (message_id := self._find_message_id_by_tool_call_id(tool_call_id)):
-            return AssistantUpdateEvent(id=message_id, tool_call_id=tool_call_id, content=action.content)
+        message_id = parent_path.message_id
 
-        return None
+        if not message_id or not tool_call_id:
+            return None
+
+        return AssistantUpdateEvent(id=message_id, tool_call_id=tool_call_id, content=action.content)
 
     def _handle_special_child_message(
         self, message: AssistantMessageUnion, node_name: MaxNodeName
@@ -272,16 +273,3 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
             ):
                 results.extend(new_event)
         return results
-
-    def _find_message_id_by_tool_call_id(self, tool_call_id: str) -> str | None:
-        """
-        Find the message ID by the tool call ID.
-        """
-        if not self._state or not self._state.messages:
-            return None
-        for message in reversed(self._state.messages):
-            if isinstance(message, AssistantMessage):
-                for tool_call in message.tool_calls or []:
-                    if tool_call.id == tool_call_id:
-                        return message.id
-        return None

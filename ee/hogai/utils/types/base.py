@@ -464,6 +464,7 @@ AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | No
 
 class NodePath(BaseModel):
     name: str
+    message_id: str | None = None
     tool_call_id: str | None = None
 
 

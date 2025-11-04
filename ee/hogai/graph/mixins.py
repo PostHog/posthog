@@ -204,7 +204,7 @@ class AssistantDispatcherMixin(ABC):
 
     @property
     def node_path(self) -> tuple[NodePath, ...]:
-        return (*self._node_path, NodePath(name=self.node_name))
+        return self._node_path
 
     @property
     @abstractmethod

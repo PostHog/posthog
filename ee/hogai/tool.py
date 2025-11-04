@@ -111,8 +111,9 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         self._team = team
         self._user = user
         if node_path is None:
-            node_path = get_node_path()
-        self._node_path = node_path or ()
+            self._node_path = (*(get_node_path() or ()), NodePath(name=self.node_name))
+        else:
+            self._node_path = node_path
         self._state = state if state else AssistantState(messages=[])
         self._config = config if config else RunnableConfig(configurable={})
         self._context_manager = context_manager or AssistantContextManager(team, user, self._config)

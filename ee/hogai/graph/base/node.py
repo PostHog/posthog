@@ -37,8 +37,9 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         self._team = team
         self._user = user
         if node_path is None:
-            node_path = get_node_path()
-        self._node_path = node_path or ()
+            self._node_path = (*(get_node_path() or ()), NodePath(name=self.node_name))
+        else:
+            self._node_path = node_path
 
     async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """
@@ -98,6 +99,8 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         config_name: str | None = None
         if self._config:
             config_name = self._config["metadata"].get("langgraph_node")
+            if config_name is not None:
+                config_name = str(config_name)
         return config_name or self.__class__.__name__
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:

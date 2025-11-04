@@ -36,6 +36,7 @@ class BaseAssistantGraph(Generic[StateType, PartialStateType], ABC):
     _team: Team
     _user: User
     _graph: StateGraph
+    _node_path: tuple[NodePath, ...]
 
     def __init__(
         self,
@@ -46,6 +47,7 @@ class BaseAssistantGraph(Generic[StateType, PartialStateType], ABC):
         self._user = user
         self._has_start_node = False
         self._graph = StateGraph(self.state_type)
+        self._node_path = (*(get_node_path() or ()), NodePath(name=self.graph_name.value))
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -64,8 +66,7 @@ class BaseAssistantGraph(Generic[StateType, PartialStateType], ABC):
 
     @property
     def node_path(self) -> tuple[NodePath, ...]:
-        node_path = get_node_path() or ()
-        return (*node_path, NodePath(name=self.graph_name.value))
+        return self._node_path
 
     def add_edge(self, from_node: "MaxNodeName", to_node: "MaxNodeName"):
         if from_node == AssistantNodeName.START:
