@@ -324,10 +324,6 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's query for summarizing sessions. Always pass the user's complete, unmodified query.
     """
-    llm_traces_summarization_query: Optional[str] = Field(default=None)
-    """
-    The user's query for summarizing LLM traces. Always pass the user's complete, unmodified query.
-    """
     should_use_current_filters: Optional[bool] = Field(default=None)
     """
     Whether to use current filters from user's UI to find relevant sessions.
@@ -400,7 +396,6 @@ class AssistantNodeName(StrEnum):
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
-    LLM_TRACES_SUMMARIZATION = "llm_traces_summarization"
     DASHBOARD_CREATION = "dashboard_creation"
     DASHBOARD_CREATION_EXECUTOR = "dashboard_creation_executor"
     HOGQL_GENERATOR = "hogql_generator"

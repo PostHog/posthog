@@ -186,35 +186,6 @@ class session_summarization(BaseModel):
     )
 
 
-class llm_traces_summarization(BaseModel):
-    """
-    Use this tool to summarize LLM traces by analysing the events within those traces to find patterns and issues.
-    It will return a textual summary of the captured traces.
-
-    # Synonyms
-    - "summarize": "search", "find", "watch", "analyze", "review", and similar
-    - "LLM traces": "traces", "trace", "traces analysis", and similar
-
-    # Additional guidelines
-    - CRITICAL: Always pass the user's complete, unmodified query to the `llm_traces_summarization_query` parameter
-    - DO NOT truncate, summarize, or extract keywords from the user's query
-    - The query is used to find relevant traces - context helps find better matches
-    - Use explicit tool definition to make a decision
-    """
-
-    llm_traces_summarization_query: str = Field(
-        description="""
-        - The user's complete query for LLM traces summarization.
-        - This will be used to find relevant LLM traces.
-        - Always pass the user's complete, unmodified query.
-        - Examples:
-          * 'find LLM traces with Google Tag Manager issues'
-          * 'search LLM traces to find cases with MP4 export'
-          * and similar
-        """
-    )
-
-
 class create_dashboard(BaseModel):
     """
     Use this tool when users ask to create, build, or make a new dashboard with insights.
