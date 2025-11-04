@@ -7,9 +7,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 
-import { IconPlus, IconSearch, IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 
-import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
@@ -34,7 +33,6 @@ export interface SceneTabsProps {
 export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { tabs } = useValues(sceneLogic)
     const { newTab, reorderTabs } = useActions(sceneLogic)
-    const { toggleSearchBar } = useActions(commandBarLogic)
     const { isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
@@ -96,31 +94,8 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
-                        <div className="pl-[2px] shrink-0">
-                            <ButtonPrimitive
-                                iconOnly
-                                onClick={toggleSearchBar}
-                                data-attr="tree-navbar-search-button"
-                                className="z-20"
-                                size="sm"
-                                aria-label="Search (Command + K) or Commands (Command + Shift + K)"
-                                aria-describedby="search-tooltip"
-                                tooltip={
-                                    <div className="flex flex-col gap-0.5" id="search-tooltip">
-                                        <span>
-                                            For search, press <KeyboardShortcut command k />
-                                        </span>
-                                        <span>
-                                            For commands, press <KeyboardShortcut command shift k />
-                                        </span>
-                                    </div>
-                                }
-                            >
-                                <IconSearch className="text-secondary size-4" />
-                            </ButtonPrimitive>
-                        </div>
                         <div
-                            className="scene-tab-row grid min-w-0 gap-1 items-center h-[36px]"
+                            className="scene-tab-row grid min-w-0 pl-2 gap-1 items-center h-[36px]"
                             style={{ gridTemplateColumns }}
                         >
                             {tabs.map((tab) => (

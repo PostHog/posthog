@@ -404,12 +404,12 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
 
 class PinnedSceneTabSerializer(serializers.Serializer):
     id = serializers.CharField(required=False, allow_blank=True)
-    pathname = serializers.CharField()
-    search = serializers.CharField()
-    hash = serializers.CharField()
-    title = serializers.CharField()
+    pathname = serializers.CharField(required=False)
+    search = serializers.CharField(required=False, allow_blank=True)
+    hash = serializers.CharField(required=False, allow_blank=True)
+    title = serializers.CharField(required=False, allow_blank=True)
     customTitle = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    iconType = serializers.CharField()
+    iconType = serializers.CharField(required=False, allow_blank=True)
     sceneId = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     sceneKey = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     sceneParams = serializers.JSONField(required=False)
