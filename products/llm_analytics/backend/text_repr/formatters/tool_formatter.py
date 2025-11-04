@@ -9,8 +9,7 @@ import base64
 from typing import Any, TypedDict
 from urllib.parse import quote
 
-# Constants for formatting behavior
-DEFAULT_TOOLS_COLLAPSE_THRESHOLD = 5
+from .constants import DEFAULT_TOOLS_COLLAPSE_THRESHOLD
 
 
 class Tool(TypedDict, total=False):

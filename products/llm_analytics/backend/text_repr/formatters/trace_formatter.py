@@ -10,11 +10,9 @@ import base64
 from typing import Any
 from urllib.parse import quote
 
+from .constants import MAX_TREE_DEPTH
 from .message_formatter import FormatterOptions, truncate_content
 from .text_formatter import format_event_text_repr
-
-# Constants for formatting behavior
-MAX_TREE_DEPTH = 10
 
 
 def _format_latency(latency: float) -> str:

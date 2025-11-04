@@ -9,10 +9,7 @@ import base64
 from typing import Any, TypedDict
 from urllib.parse import quote
 
-# Constants for formatting behavior
-DEFAULT_TRUNCATE_BUFFER = 1000
-MAX_UNPARSED_DISPLAY_LENGTH = 500
-MAX_UNABLE_TO_PARSE_REPR_LENGTH = 500
+from .constants import DEFAULT_TRUNCATE_BUFFER, MAX_UNABLE_TO_PARSE_REPR_LENGTH, MAX_UNPARSED_DISPLAY_LENGTH
 
 
 class FormatterOptions(TypedDict, total=False):
