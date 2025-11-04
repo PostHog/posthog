@@ -84,8 +84,8 @@ FILES=$(while IFS= read -r line; do
     fi
 done < "$DIFF_FILE" | jq -s '.')
 
-# Output JSON using jq
-jq -n \
+# Output JSON using jq with compact output
+jq -nc \
     --argjson a "$ADDED" \
     --argjson m "$MODIFIED" \
     --argjson d "$DELETED" \
