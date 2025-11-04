@@ -150,8 +150,10 @@ def get_variant_result(
             if len(result) > metric_fields_start_idx + 1:
                 base_stats["step_sessions"] = [
                     [
-                        SessionData(person_id=person_id, session_id=session_id, event_uuid=event_uuid)
-                        for person_id, session_id, event_uuid in step_sessions
+                        SessionData(
+                            person_id=person_id, session_id=session_id, event_uuid=event_uuid, timestamp=timestamp
+                        )
+                        for person_id, session_id, event_uuid, timestamp in step_sessions
                     ]
                     for step_sessions in result[metric_fields_start_idx + 1]
                 ]
