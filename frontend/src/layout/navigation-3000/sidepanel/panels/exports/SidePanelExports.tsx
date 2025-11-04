@@ -7,7 +7,7 @@ import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportB
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
-import { IconRefresh, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { ExportedAssetType, ExporterFormat } from '~/types'
 
