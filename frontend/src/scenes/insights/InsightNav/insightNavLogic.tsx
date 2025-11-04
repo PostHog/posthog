@@ -203,7 +203,9 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 }
 
                 if (activeView === InsightType.WEB_ANALYTICS) {
-                    // Temporary tab for Web Analytics insights, similar to JSON tab
+                    // Like the json only, this is a temporary tab for Web Analytics insights.
+                    // We don't display it otherwise and humans shouldn't be able to click to select this tab
+                    // it only opens when you select "Open as new insight" from the Web Analytics dashboard.
                     tabs.push({
                         label: (
                             <>
