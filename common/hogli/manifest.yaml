@@ -288,7 +288,7 @@ docker:
         hidden: true
     docker:server:
         bin_script: docker-server
-        description: Run gunicorn application server with Prometheus metrics support
+        description: Run dual-mode server (Granian/Unit) with Prometheus metrics support
         hidden: true
     docker:server-unit:
         bin_script: docker-server-unit
@@ -417,7 +417,11 @@ tools:
         hidden: true
     create:notebook:node:
         bin_script: create-notebook-node.sh
-        description: 'Create a new NotebookNode file and update types and editor references'
+        description: Create a new NotebookNode file and update types and editor references
+        hidden: true
+    tool:granian-metrics:
+        bin_script: granian_metrics.py
+        description: HTTP server that aggregates Prometheus metrics from Granian workers
         hidden: true
 utilities:
     utilities:posthog-worktree:

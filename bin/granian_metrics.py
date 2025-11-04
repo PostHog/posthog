@@ -28,7 +28,7 @@ def create_granian_metrics(registry: CollectorRegistry) -> None:
     threads = int(os.environ.get("GRANIAN_THREADS", 2))
 
     # Expose static configuration as gauges
-    # These replace gunicorn_max_worker_connections and gunicorn_max_worker_threads
+    # These provide equivalent metrics to what gunicorn/unit previously exposed
     max_worker_threads = Gauge(
         "granian_max_worker_threads",
         "Maximum number of threads per worker",

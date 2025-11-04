@@ -59,7 +59,6 @@ dependencies = [
     "google-genai==1.10.0",
     "granian[uvloop,reload,pname]==2.5.5",
     "gspread==6.2.1",
-    "gunicorn==20.1.0",
     "hogql-parser==1.2.0",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
@@ -357,7 +356,6 @@ python-version = "3.12"
 [tool.ty.src]
 exclude = [
     "bin/**",
-    "gunicorn.config.py",
     "manage.py",
     "posthog/hogql/grammar/**",
 ]
