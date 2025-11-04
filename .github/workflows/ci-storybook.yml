@@ -3,10 +3,10 @@ on:
     pull_request:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # This is so that the workflow run isn't canceled when a snapshot update is pushed within it by posthog-bot
-    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
-    cancel-in-progress: false
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-${{ github.event.pull_request.head.repo.full_name }}-${{ github.actor }}
+    # Cancel CHECK mode runs (bot commits) when new commit comes in
+    # Don't cancel UPDATE mode runs (human commits) - they need to finish and commit snapshots
+    cancel-in-progress: ${{ github.actor == 'github-actions[bot]' || github.actor == 'posthog-bot' }}
 
 jobs:
     # Job to decide if we should run storybook ci
