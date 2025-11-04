@@ -110,13 +110,6 @@ class SessionSummaryVideoValidator:
         updated_run_metadata = self._generate_updates_run_metadata(
             description_results=description_results, events_to_validate=events_to_validate
         )
-        # TODO: Remove after testing
-        with open("initial_summary.json", "w") as f:
-            json.dump(self.summary.data, f, indent=4)
-        with open("updated_summary.json", "w") as f:
-            json.dump(updated_summary.data, f, indent=4)
-        with open("updates_result.json", "w") as f:
-            json.dump(updates_result, f, indent=4)
         # Return the updated summary and the run metadata
         return updated_summary, updated_run_metadata
 

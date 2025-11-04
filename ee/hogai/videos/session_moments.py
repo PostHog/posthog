@@ -196,9 +196,6 @@ class SessionMomentsLLMAnalyzer:
                     f"of team {self.team_id} when validating session summaries"
                 )
                 raise ExportedAsset.DoesNotExist
-            # TODO: Remove after testing
-            with open(f"{asset_id}.webm", "wb") as f:
-                f.write(content)
             return content
         except ExportedAsset.DoesNotExist:
             return None
