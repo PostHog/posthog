@@ -28,7 +28,7 @@ export function Default(): JSX.Element {
     return (
         <div className="flex flex-col gap-4 max-w-lg">
             <ButtonPrimitive variant="outline" size="base">
-                Test Mode Detection Fix
+                Test Commit Links
             </ButtonPrimitive>
 
             <ButtonPrimitive variant="outline" size="base">
