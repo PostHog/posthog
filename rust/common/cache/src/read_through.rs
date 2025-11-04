@@ -338,7 +338,8 @@ impl ReadThroughCache {
     }
 
     /// Invalidate a key from both positive and negative caches
-    ///
+    /// Errors from Redis deletion are logged but not returned, as invalidation
+    /// is best-effort and shouldn't block the calling operation.
     /// # Arguments
     /// * `key` - The key to invalidate
     pub async fn invalidate<K>(&self, key: &K) -> Result<(), CustomRedisError>
