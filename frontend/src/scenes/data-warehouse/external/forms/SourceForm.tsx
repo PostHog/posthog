@@ -276,8 +276,9 @@ export function SourceFormComponent({
                             validationError = 'Prefix cannot consist of only underscores'
                         }
 
-                        const tableName = value
-                            ? `${sourceConfig.name.toLowerCase()}.${value}.table_name`
+                        const displayValue = value ? value.trim().replace(/^_+|_+$/g, '') : ''
+                        const tableName = displayValue
+                            ? `${sourceConfig.name.toLowerCase()}.${displayValue}.table_name`
                             : `${sourceConfig.name.toLowerCase()}.table_name`
                         return (
                             <>

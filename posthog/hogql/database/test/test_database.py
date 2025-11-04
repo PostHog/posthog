@@ -1184,5 +1184,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         valid_table_found = any("valid_prefix" in table_key for table_key in serialized.keys())
         assert valid_table_found, "Valid source tables should be serialized"
 
-        # Invalid source may or may not trigger an error depending on whether get_table() throws
-        # The important thing is that serialization completed and valid sources are present
+        # Note: The invalid source may still appear in serialized output because the @ character
+        # doesn't cause get_table() to throw an exception - it just creates a malformed key.
+        # The important behavior we're testing is that serialization completes without crashing,
+        # allowing valid sources to work. Errors from actually using the invalid key are caught
+        # when queries try to resolve it.
