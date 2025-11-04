@@ -14,7 +14,7 @@ use rdkafka::{
     util::Timeout,
 };
 use time::OffsetDateTime;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
@@ -47,10 +47,27 @@ fn create_batch_kafka_consumer(
 
     let (chan_tx, chan_rx) = unbounded_channel();
 
+    // Create a test processor that sends batches to the channel
+    struct TestProcessor {
+        sender: UnboundedSender<Batch<CapturedEvent>>,
+    }
+
+    impl BatchConsumerProcessor<CapturedEvent> for TestProcessor {
+        fn process_batch(&self, messages: Vec<KafkaMessage<CapturedEvent>>) -> Result<()> {
+            let mut batch = Batch::new();
+            for msg in messages {
+                batch.push_message(msg);
+            }
+            self.sender.send(batch).map_err(|e| anyhow::anyhow!("Failed to send batch: {}", e))
+        }
+    }
+
+    let processor = Arc::new(TestProcessor { sender: chan_tx });
+
     let consumer = BatchConsumer::<CapturedEvent>::new(
         &config,
         Arc::new(TestRebalanceHandler::default()),
-        chan_tx,
+        processor,
         shutdown_rx,
         topic,
         batch_size,
