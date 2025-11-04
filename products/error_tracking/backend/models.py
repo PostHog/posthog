@@ -15,8 +15,6 @@ from posthog.storage import object_storage
 
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
 
-# === From error_tracking/error_tracking.py ===
-
 
 class ErrorTrackingIssueManager(models.Manager):
     def with_first_seen(self):
@@ -90,6 +88,24 @@ class ErrorTrackingExternalReference(UUIDTModel):
         db_table = "posthog_errortrackingexternalreference"
 
 
+class ErrorTrackingIssueCohort(UUIDTModel):
+    issue = models.ForeignKey(
+        ErrorTrackingIssue,
+        on_delete=models.CASCADE,
+        related_name="cohorts",
+    )
+    cohort = models.ForeignKey(
+        "posthog.Cohort",
+        on_delete=models.CASCADE,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        # Create a virtual one-to-one relationship constraint we can release later if needed
+        constraints = [models.UniqueConstraint(fields=["issue"], name="unique_cohort_for_issue")]
+        db_table = "posthog_errortrackingissuecohort"
+
+
 class ErrorTrackingIssueAssignment(UUIDTModel):
     issue = models.OneToOneField(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="assignment")
     user = models.ForeignKey("posthog.User", null=True, on_delete=models.CASCADE)
@@ -120,7 +136,13 @@ class ErrorTrackingRelease(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     # On upload, users can provide a hash of some key identifiers, e.g. "git repo, commit, branch"
     # or similar, which we guarantee to be unique. If a user doesn't provide a hash_id, we use the
-    # id of the model
+    # id of the model - TODO - should this instead by a hash of the project and version?
+    # Note - the "hash" here can be misleading - it's not a hash of the "contents" of the release, but
+    # of some arbitrary set of identifiers. The set of symbol sets associated with a release is
+    # allowed to change over time, without needing to modify this hash_id (this is to support e.g.
+    # retrying uploads that failed in a bad CI job or something). It's purpose is
+    # to provide clients with the ability to fetch a release object based on information they
+    # have locally (like project name and version).
     hash_id = models.TextField(null=False, blank=False)
     created_at = models.DateTimeField(auto_now_add=True)
     version = models.TextField(null=False, blank=False)
@@ -282,6 +304,8 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
 class ErrorTrackingStackFrame(UUIDTModel):
     # Produced by a raw frame
     raw_id = models.TextField(null=False, blank=False)
+    # Raw frames could be resolved into multiple frames after demangling because of compilation process
+    part = models.IntegerField(null=False, default=0)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     symbol_set = models.ForeignKey("ErrorTrackingSymbolSet", on_delete=models.SET_NULL, null=True)
@@ -291,13 +315,12 @@ class ErrorTrackingStackFrame(UUIDTModel):
     context = models.JSONField(null=True, blank=True)
 
     class Meta:
-        indexes = [
-            models.Index(fields=["team_id", "raw_id"]),
-        ]
+        indexes = []
 
         constraints = [
-            models.UniqueConstraint(fields=["team_id", "raw_id"], name="unique_raw_id_per_team"),
+            models.UniqueConstraint(fields=["team_id", "raw_id", "part"], name="unique_team_id_raw_id_part"),
         ]
+
         db_table = "posthog_errortrackingstackframe"
 
 

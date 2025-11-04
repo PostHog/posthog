@@ -41,11 +41,12 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
 )
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
-from posthog.warehouse.data_load.source_templates import create_warehouse_templates_for_source
-from posthog.warehouse.external_data_source.jobs import update_external_job_status
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from posthog.warehouse.models.external_data_schema import update_should_sync
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.data_load.source_templates import create_warehouse_templates_for_source
+from products.data_warehouse.backend.external_data_source.jobs import update_external_job_status
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.data_warehouse.backend.models.external_data_schema import update_should_sync
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -62,6 +63,8 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
         "401 Client Error: Unauthorized for url: https://api.stripe.com",
         "403 Client Error: Forbidden for url: https://api.stripe.com",
         "Expired API Key provided",
+        "Invalid API Key provided",
+        "PermissionError",
     ],
     ExternalDataSourceType.POSTGRES: [
         "NoSuchTableError",
@@ -87,7 +90,11 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
         "OperationalError: connection failed: connection to server at",
         "password authentication failed connection",
     ],
-    ExternalDataSourceType.ZENDESK: ["404 Client Error: Not Found for url", "403 Client Error: Forbidden for url"],
+    ExternalDataSourceType.ZENDESK: [
+        "404 Client Error: Not Found for url",
+        "403 Client Error: Forbidden for url",
+        "401 Client Error",
+    ],
     ExternalDataSourceType.MYSQL: [
         "Can't connect to MySQL server on",
         "No primary key defined for table",
@@ -119,7 +126,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
     ExternalDataSourceType.METAADS: [
         "Failed to refresh token for Meta Ads integration. Please re-authorize the integration."
     ],
-    ExternalDataSourceType.MONGODB: ["The DNS query name does not exist"],
+    ExternalDataSourceType.MONGODB: ["The DNS query name does not exist", "authentication failed"],
     ExternalDataSourceType.MSSQL: ["Adaptive Server connection failed", "Login failed for user"],
     ExternalDataSourceType.GOOGLESHEETS: [
         "the header row in the worksheet contains duplicates",
@@ -127,6 +134,7 @@ Non_Retryable_Schema_Errors: dict[ExternalDataSourceType, list[str]] = {
         "SpreadsheetNotFound",
     ],
     ExternalDataSourceType.LINKEDINADS: ["REVOKED_ACCESS_TOKEN"],
+    ExternalDataSourceType.REDDITADS: ["401 Client Error", "404 Client Error"],
 }
 
 

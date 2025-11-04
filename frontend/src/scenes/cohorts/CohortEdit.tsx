@@ -2,19 +2,29 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } fro
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconMinusSmall, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
+import {
+    IconClock,
+    IconCopy,
+    IconMinusSmall,
+    IconPlusSmall,
+    IconRefresh,
+    IconTrash,
+    IconUpload,
+    IconWarning,
+} from '@posthog/icons'
+import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconErrorOutline, IconRefresh, IconUploadFile } from 'lib/lemon-ui/icons'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -38,10 +48,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { QueryContext } from '~/queries/types'
-import { CohortType, PersonType } from '~/types'
+import { CohortType } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
-import { RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
+import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
@@ -62,7 +72,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
             console.error('Expected record to be an array for person.$delete column')
             return <></>
         }
-        const personRecord = record[0] as PersonType
+        const personRecord = record[0] as PersonDisplayNameType
 
         return <RemovePersonFromCohortButton person={personRecord} />
     }
@@ -97,6 +107,15 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
+
+    const cohortId = typeof cohort.id === 'number' ? cohort.id : null
+
+    useFileSystemLogView({
+        type: 'cohort',
+        ref: cohortId,
+        enabled: Boolean(cohortId && !cohortLoading && !cohortMissing && !cohort.deleted),
+        deps: [cohortId, cohortLoading, cohortMissing, cohort.deleted],
+    })
 
     const createStaticCohortContext: QueryContext = {
         columns: {
@@ -187,7 +206,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             onClick={() => duplicateCohort(true)}
                             disabledReasons={{
                                 'Save the cohort first': isNewCohort,
-                                'Cohort must be dynamic to duplicate': cohort.is_static === true,
                                 'Cohort is still calculating': cohort.is_calculating ?? false,
                             }}
                             menuItem
@@ -213,7 +231,21 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             <ScenePanelActionsSection>
                                 <ButtonPrimitive
                                     onClick={() => {
-                                        deleteCohort()
+                                        LemonDialog.open({
+                                            title: 'Delete cohort?',
+                                            description: `Are you sure you want to delete "${cohort.name}"?`,
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () => deleteCohort(),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
                                     }}
                                     variant="danger"
                                     menuItem
@@ -319,11 +351,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                             </p>
 
                                             {cohort.errors_calculating ? (
-                                                <Tooltip
-                                                    title={
-                                                        "The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation."
-                                                    }
-                                                >
+                                                <Tooltip title="The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation.">
                                                     <div className="text-danger">
                                                         <IconErrorOutline className="text-danger text-xl shrink-0" />
                                                     </div>
@@ -382,7 +410,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                     >
                                                         {cohort.csv ? (
                                                             <>
-                                                                <IconUploadFile
+                                                                <IconUpload
                                                                     style={{
                                                                         fontSize: '3rem',
                                                                         color: 'var(--color-text-primary)',
@@ -392,7 +420,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                             </>
                                                         ) : (
                                                             <>
-                                                                <IconUploadFile
+                                                                <IconUpload
                                                                     style={{
                                                                         fontSize: '3rem',
                                                                         color: 'var(--color-text-primary)',

@@ -11,6 +11,7 @@ KAFKA_APP_METRICS_TABLE = f"kafka_{APP_METRICS_TABLE}"
 
 DROP_APP_METRICS_MV_TABLE_SQL = f"DROP TABLE IF EXISTS {APP_METRICS_MV_TABLE}"
 DROP_KAFKA_APP_METRICS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_APP_METRICS_TABLE}"
+DROP_APP_METRICS_TABLE_SQL = f"DROP TABLE IF EXISTS {APP_METRICS_TABLE}"
 
 
 def SHARDED_APP_METRICS_TABLE_ENGINE():
@@ -51,8 +52,8 @@ ORDER BY (team_id, plugin_config_id, job_id, category, {APP_METRICS_TIMESTAMP_TR
 
 
 DISTRIBUTED_APP_METRICS_TABLE_SQL = (
-    lambda on_cluster=True: f"""
-CREATE TABLE IF NOT EXISTS {APP_METRICS_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
+    lambda: f"""
+CREATE TABLE IF NOT EXISTS {APP_METRICS_TABLE}
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -62,8 +63,8 @@ ENGINE={Distributed(data_table=APP_METRICS_SHARDED_TABLE, sharding_key="rand()")
 )
 
 WRITABLE_APP_METRICS_TABLE_SQL = (
-    lambda on_cluster=True: f"""
-CREATE TABLE IF NOT EXISTS {APP_METRICS_WRITABLE_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
+    lambda: f"""
+CREATE TABLE IF NOT EXISTS {APP_METRICS_WRITABLE_TABLE}
 (
     {BASE_APP_METRICS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
@@ -73,8 +74,8 @@ ENGINE={Distributed(data_table=APP_METRICS_SHARDED_TABLE, sharding_key="rand()")
 )
 
 KAFKA_APP_METRICS_TABLE_SQL = (
-    lambda on_cluster=True: f"""
-CREATE TABLE IF NOT EXISTS {KAFKA_APP_METRICS_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
+    lambda: f"""
+CREATE TABLE IF NOT EXISTS {KAFKA_APP_METRICS_TABLE}
 (
     team_id Int64,
     timestamp DateTime64(6, 'UTC'),
@@ -93,13 +94,13 @@ ENGINE={kafka_engine(topic=KAFKA_APP_METRICS)}
 )
 
 
-def APP_METRICS_MV_TABLE_SQL(on_cluster: bool = True, target_table: str = APP_METRICS_WRITABLE_TABLE) -> str:
+def APP_METRICS_MV_TABLE_SQL(target_table: str = APP_METRICS_WRITABLE_TABLE) -> str:
     """
     Create materialized view SQL for app_metrics.
     This must be a function to ensure CLICKHOUSE_DATABASE is evaluated at runtime.
     """
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {APP_METRICS_MV_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {APP_METRICS_MV_TABLE}
 TO {target_table}
 AS SELECT
 team_id,

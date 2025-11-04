@@ -31,6 +31,7 @@ impl ServerHandle {
         ServerHandle { addr, shutdown }
     }
 
+    #[allow(dead_code)]
     pub async fn for_config_with_mock_redis(
         config: Config,
         limited_tokens: Vec<String>,
@@ -59,7 +60,7 @@ impl ServerHandle {
                 project_id: team_id as i64,
                 name: "Test Team".to_string(),
                 api_token: token.clone(),
-                cookieless_server_hash_mode: 0,
+                cookieless_server_hash_mode: Some(0),
                 timezone: "UTC".to_string(),
                 ..Default::default()
             };
@@ -237,6 +238,7 @@ impl ServerHandle {
         ServerHandle { addr, shutdown }
     }
 
+    #[allow(dead_code)]
     pub async fn send_flags_request<T: Into<reqwest::Body>>(
         &self,
         body: T,
@@ -265,6 +267,7 @@ impl ServerHandle {
             .expect("failed to send request")
     }
 
+    #[allow(dead_code)]
     pub async fn send_invalid_header_for_flags_request<T: Into<reqwest::Body>>(
         &self,
         body: T,
@@ -286,6 +289,7 @@ impl Drop for ServerHandle {
     }
 }
 
+#[allow(dead_code)]
 async fn liveness_loop(handle: health::HealthHandle) {
     loop {
         handle.report_healthy().await;

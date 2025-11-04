@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable
-from typing import Optional, cast
+from typing import Optional
 
 from django.db.models import Prefetch
 
@@ -13,17 +13,12 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-from posthog.warehouse.types import ExternalDataSourceType
 
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.views import KIND_TO_CLASS, RevenueAnalyticsBaseView
-from products.revenue_analytics.backend.views.core import (
-    BuiltQuery,
-    SourceHandle,
-    view_name_for_event,
-    view_name_for_source,
-)
+from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle
 from products.revenue_analytics.backend.views.schemas import SCHEMAS
 from products.revenue_analytics.backend.views.sources.registry import BUILDERS
 
@@ -60,9 +55,9 @@ def _query_to_view(
 
     if handle.source is not None:
         id = query.key  # Stable key (i.e. table.id)
-        name = view_name_for_source(cast(ExternalDataSource, handle.source), schema.source_suffix)
+        name = f"{query.prefix}.{schema.source_suffix}"
     else:
-        id = name = view_name_for_event(query.key, schema.events_suffix)
+        id = name = f"{query.prefix}.{schema.events_suffix}"
 
     return view_cls(
         id=id,
@@ -110,6 +105,8 @@ def build_all_revenue_analytics_views(
         views.extend(class_views)
 
         # Add all the views for this class PLUS an "all" view that UNIONs all of them
+        # This MUST be added after the views this view depends on to guarantee the paths are built properly
+        # when attempting to materialize all revenue analytics views
         selects = [
             ast.SelectQuery(
                 select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=ast.Field(chain=[view.name]))

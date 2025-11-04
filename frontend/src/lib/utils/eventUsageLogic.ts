@@ -433,6 +433,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentReset: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
+        reportExperimentUpdated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
         reportExperimentStartDateChange: (experiment: Experiment, newStartDate: string) => ({
@@ -491,6 +492,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentFeatureFlagSelected: (featureFlagKey: string) => ({ featureFlagKey }),
+        reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
+            experimentId,
+            metric,
+        }),
+        reportExperimentTimeseriesRecalculated: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
+            experimentId,
+            metric,
+        }),
         // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -544,6 +553,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportAutocaptureToggled: (autocapture_opt_out: boolean) => ({ autocapture_opt_out }),
         reportAutocaptureExceptionsToggled: (autocapture_opt_in: boolean) => ({ autocapture_opt_in }),
         reportHeatmapsToggled: (heatmaps_opt_in: boolean) => ({ heatmaps_opt_in }),
+        reportActivityLogSettingToggled: (receive_org_level_activity_logs: boolean | null) => ({
+            receive_org_level_activity_logs,
+        }),
         reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
         reportFeatureFlagCopySuccess: true,
         reportFeatureFlagCopyFailure: (error) => ({ error }),
@@ -1005,6 +1017,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 parameters: experiment.parameters,
             })
         },
+        reportExperimentUpdated: ({ experiment }) => {
+            posthog.capture('experiment updated', {
+                ...getEventPropertiesForExperiment(experiment),
+            })
+        },
         reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -1127,6 +1144,24 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentFeatureFlagSelected: ({ featureFlagKey }: { featureFlagKey: string }) => {
             posthog.capture('experiment feature flag selected', { feature_flag_key: featureFlagKey })
         },
+        reportExperimentTimeseriesViewed: ({
+            experimentId,
+            metric,
+        }: {
+            experimentId: ExperimentIdType
+            metric: ExperimentMetric
+        }) => {
+            posthog.capture('experiment timeseries viewed', { experiment_id: experimentId, metric })
+        },
+        reportExperimentTimeseriesRecalculated: ({
+            experimentId,
+            metric,
+        }: {
+            experimentId: ExperimentIdType
+            metric: ExperimentMetric
+        }) => {
+            posthog.capture('experiment timeseries recalculated', { experiment_id: experimentId, metric })
+        },
         reportPropertyGroupFilterAdded: () => {
             posthog.capture('property group filter added')
         },
@@ -1206,6 +1241,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportHeatmapsToggled: ({ heatmaps_opt_in }) => {
             posthog.capture('heatmaps toggled', {
                 heatmaps_opt_in,
+            })
+        },
+        reportActivityLogSettingToggled: ({ receive_org_level_activity_logs }) => {
+            posthog.capture('activity log org level setting toggled', {
+                receive_org_level_activity_logs,
             })
         },
         reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {

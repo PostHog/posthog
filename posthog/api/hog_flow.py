@@ -18,7 +18,12 @@ from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, InputsSerializer
+from posthog.cdp.validation import (
+    HogFunctionFiltersSerializer,
+    InputsSchemaItemSerializer,
+    InputsSerializer,
+    generate_template_bytecode,
+)
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
@@ -49,6 +54,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     filters = HogFunctionFiltersSerializer(required=False, default=None, allow_null=True)
     type = serializers.CharField(max_length=100)
     config = serializers.JSONField()
+    output_variable = serializers.JSONField(required=False, allow_null=True)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -58,7 +64,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     def validate(self, data):
         trigger_is_function = False
         if data.get("type") == "trigger":
-            if data.get("config", {}).get("type") in ["webhook", "tracking_pixel"]:
+            if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel"]:
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
                 filters = data.get("config", {}).get("filters", {})
@@ -93,6 +99,39 @@ class HogFlowActionSerializer(serializers.Serializer):
         return data
 
 
+class HogFlowVariableSerializer(serializers.ListSerializer):
+    child = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+    )
+
+    def validate(self, attrs):
+        # Make sure the keys are unique
+        keys = [item.get("key") for item in attrs]
+        if len(keys) != len(set(keys)):
+            raise serializers.ValidationError("Variable keys must be unique")
+
+        # Make sure entire variables definition is less than 1KB
+        # This is just a check for massive keys / default values, we also have a check for dynamically
+        # set variables during execution
+        total_size = sum(len(json.dumps(item)) for item in attrs)
+        if total_size > 1024:
+            raise serializers.ValidationError("Total size of variables definition must be less than 1KB")
+
+        return super().validate(attrs)
+
+
+class HogFlowMaskingSerializer(serializers.Serializer):
+    ttl = serializers.IntegerField(required=False, min_value=60, max_value=60 * 60 * 24 * 365, allow_null=True)
+    threshold = serializers.IntegerField(required=False, allow_null=True)
+    hash = serializers.CharField(required=True)
+    bytecode = serializers.JSONField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
+
+        return super().validate(attrs)
+
+
 class HogFlowMinimalSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
 
@@ -108,17 +147,21 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "created_by",
             "updated_at",
             "trigger",
+            "trigger_masking",
             "conversion",
             "exit_condition",
             "edges",
             "actions",
             "abort_action",
+            "variables",
         ]
         read_only_fields = fields
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
     actions = serializers.ListField(child=HogFlowActionSerializer(), required=True)
+    trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
+    variables = HogFlowVariableSerializer(required=False)
 
     class Meta:
         model = HogFlow
@@ -132,11 +175,13 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "created_by",
             "updated_at",
             "trigger",
+            "trigger_masking",
             "conversion",
             "exit_condition",
             "edges",
             "actions",
             "abort_action",
+            "variables",
         ]
         read_only_fields = [
             "id",
@@ -215,7 +260,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         return queryset
 
     def safely_get_object(self, queryset):
-        # TODO(team-messaging): Somehow implement version lookups
+        # TODO(team-workflows): Somehow implement version lookups
         return super().safely_get_object(queryset)
 
     def perform_create(self, serializer):
@@ -257,7 +302,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             logger.warning("Failed to capture hog_flow_started event", error=str(e))
 
     def perform_update(self, serializer):
-        # TODO(team-messaging): Atomically increment version, insert new object instead of default update behavior
+        # TODO(team-workflows): Atomically increment version, insert new object instead of default update behavior
         instance_id = serializer.instance.id
 
         try:

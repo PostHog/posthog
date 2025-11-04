@@ -22,10 +22,17 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
+from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.cohort import Cohort
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult, ExperimentSavedMetric
+from posthog.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentMetricResult,
+    ExperimentSavedMetric,
+    ExperimentTimeseriesRecalculation,
+)
 from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
@@ -125,7 +132,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 saved_metric["query"]["fingerprint"] = compute_metric_fingerprint(
                     saved_metric["query"],
                     instance.start_date,
-                    instance.stats_config,
+                    get_experiment_stats_method(instance),
                     instance.exposure_criteria,
                 )
 
@@ -294,8 +301,9 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         for metric_field in ["metrics", "metrics_secondary"]:
             if metric_field in validated_data:
                 for metric in validated_data[metric_field]:
+                    stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
                     metric["fingerprint"] = compute_metric_fingerprint(
-                        metric, validated_data.get("start_date"), stats_config, validated_data.get("exposure_criteria")
+                        metric, validated_data.get("start_date"), stats_method, validated_data.get("exposure_criteria")
                     )
 
         experiment = Experiment.objects.create(
@@ -471,10 +479,11 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 updated_metrics = []
                 for metric in metrics:
                     metric_copy = deepcopy(metric)
+                    stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
                     metric_copy["fingerprint"] = compute_metric_fingerprint(
                         metric_copy,
                         start_date,
-                        stats_config,
+                        stats_method,
                         exposure_criteria,
                     )
                     updated_metrics.append(metric_copy)
@@ -946,6 +955,16 @@ class EnterpriseExperimentsViewSet(
         # If we have at least some data (completed or failed), it's partial
         else:
             overall_status = "partial"
+
+        active_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
+            experiment=experiment,
+            fingerprint=fingerprint,
+            status__in=[
+                ExperimentTimeseriesRecalculation.Status.PENDING,
+                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+            ],
+        ).first()
+
         first_result = metric_results.first()
         last_result = metric_results.last()
         response_data = {
@@ -957,9 +976,86 @@ class EnterpriseExperimentsViewSet(
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
             "created_at": first_result.created_at.isoformat() if first_result else experiment.created_at.isoformat(),
             "updated_at": last_result.updated_at.isoformat() if last_result else experiment.updated_at.isoformat(),
+            "recalculation_status": active_recalculation.status if active_recalculation else None,
+            "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
 
         return Response(response_data)
+
+    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    def recalculate_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Create a recalculation request for experiment timeseries data.
+
+        Request body:
+        - metric (required): The full metric object to recalculate
+        - fingerprint (required): The fingerprint of the metric configuration
+        """
+        experiment = self.get_object()
+
+        metric = request.data.get("metric")
+        fingerprint = request.data.get("fingerprint")
+
+        if not metric:
+            raise ValidationError("metric is required")
+        if not fingerprint:
+            raise ValidationError("fingerprint is required")
+
+        if not experiment.start_date:
+            raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
+
+        # Check for existing recalculation request to ensure idempotency
+        existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
+            experiment=experiment,
+            fingerprint=fingerprint,
+            status__in=[
+                ExperimentTimeseriesRecalculation.Status.PENDING,
+                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+            ],
+        ).first()
+
+        if existing_recalculation:
+            return Response(
+                {
+                    "id": existing_recalculation.id,
+                    "experiment_id": experiment.id,
+                    "metric_uuid": existing_recalculation.metric.get("uuid"),
+                    "fingerprint": fingerprint,
+                    "status": existing_recalculation.status,
+                    "created_at": existing_recalculation.created_at.isoformat(),
+                },
+                status=200,
+            )
+
+        # Delete all existing metric results for this experiment/metric/fingerprint combination
+        metric_uuid = metric.get("uuid")
+        if metric_uuid:
+            ExperimentMetricResult.objects.filter(
+                experiment_id=experiment.id,
+                metric_uuid=metric_uuid,
+                fingerprint=fingerprint,
+            ).delete()
+
+        # Create new recalculation request
+        recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
+            team=experiment.team,
+            experiment=experiment,
+            metric=metric,
+            fingerprint=fingerprint,
+            status=ExperimentTimeseriesRecalculation.Status.PENDING,
+        )
+
+        return Response(
+            {
+                "id": recalculation_request.id,
+                "experiment_id": experiment.id,
+                "metric_uuid": metric.get("uuid"),
+                "fingerprint": fingerprint,
+                "status": recalculation_request.status,
+                "created_at": recalculation_request.created_at.isoformat(),
+            },
+            status=201,
+        )
 
 
 @receiver(model_activity_signal, sender=Experiment)

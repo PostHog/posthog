@@ -4,20 +4,20 @@ We use AI evaluations (evals) to test our AI outputs against a curated set of in
 
 ![Greg Brockman on evals](https://res.cloudinary.com/dwxrm0iul/image/upload/v1731538464/tweet-1733553161884127435_2_cpectu.png)
 
-We currently use [Braintrust](https://braintrust.dev) as our evaluation platform. Braintrust tracks evaluation results, including LLM traces - which helps both track performance, and dig into any issues on a case-by-case basis. To access Braintrust and/or get an API key for it, ask #team-max-ai.
+We currently use [Braintrust](https://braintrust.dev) as our evaluation platform. Braintrust tracks evaluation results, including LLM traces - which helps both track performance, and dig into any issues on a case-by-case basis. To access Braintrust and/or get an API key for it, ask #team-posthog-ai.
 
 ## CI evals
 
-1. Export environment variable `BRAINTRUST_API_KEY` (ask #team-max-ai).
+1. Export environment variable `BRAINTRUST_API_KEY` (ask #team-posthog-ai).
 2. Run all evals with:
 
-    ```bash
-    pytest ee/hogai/eval/ci
-    ```
+   ```bash
+   pytest ee/hogai/eval/ci
+   ```
 
-    The key bit is specifying the `ee/hogai/eval/ci` directory – that activates our eval-specific config, `ee/hogai/eval/pytest.ini`!
+   The key bit is specifying the `ee/hogai/eval/ci` directory – that activates our eval-specific config, `ee/hogai/eval/pytest.ini`!
 
-    As always with pytest, you can also run a specific file, e.g. `pytest ee/hogai/eval/ci/eval_root.py`. Apply the `--eval sql` argument to only run evals for test cases that contain `sql`.
+   As always with pytest, you can also run a specific file, e.g. `pytest ee/hogai/eval/ci/eval_root.py`. Apply the `--eval sql` argument to only run evals for test cases that contain `sql`.
 
 3. Voila! Max ran, evals executed, and results and traces uploaded to the Braintrust platform + summarized in the terminal.
 
@@ -118,14 +118,14 @@ Log in to [Dagster Cloud](https://posthog.dagster.cloud/locations/dags.locations
 
 ```yaml
 ops:
-    prepare_dataset:
-        config:
-            dataset_id: '01992de8-3773-7946-afad-e028d45eba01' # Dataset ID
-    spawn_evaluation_container:
-        config:
-            evaluation_module: ee/hogai/eval/offline/eval_sql.py # Evaluation module
-            image_name: posthog-ai-evals # Leave as is or provide another image
-            image_tag: master # Use master or commit hash of the branch you want to evaluate
+  prepare_dataset:
+    config:
+      dataset_id: '01992de8-3773-7946-afad-e028d45eba01' # Dataset ID
+  spawn_evaluation_container:
+    config:
+      evaluation_module: ee/hogai/eval/offline/eval_sql.py # Evaluation module
+      image_name: posthog-ai-evals # Leave as is or provide another image
+      image_tag: master # Use master or commit hash of the branch you want to evaluate
 ```
 
 The job will pull the provided dataset, validate dataset items, export team data, run the evaluation, and report results back to you.

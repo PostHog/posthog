@@ -6,8 +6,6 @@ import { toast } from 'react-toastify'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import MaxTool from 'scenes/max/MaxTool'
 import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
@@ -16,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { AccessControlLevel, AccessControlResourceType, ProductKey, SidePanelTab } from '~/types'
+import { ProductKey, SidePanelTab } from '~/types'
 
 import { TemplateCard } from '../../SurveyTemplates'
 import { SURVEY_CREATED_SOURCE, SurveyTemplate, SurveyTemplateType, defaultSurveyTemplates } from '../../constants'
@@ -32,27 +30,8 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
     const {
-        isOnNewEmptyStateExperiment,
         data: { surveysCount },
     } = useValues(surveysLogic)
-
-    if (!isOnNewEmptyStateExperiment) {
-        return (
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Survey}
-                minAccessLevel={AccessControlLevel.Editor}
-            >
-                <ProductIntroduction
-                    productName="Surveys"
-                    thingName="survey"
-                    description="Use surveys to gather qualitative feedback from your users on new or existing features."
-                    action={() => router.actions.push(urls.surveyTemplates())}
-                    isEmpty={numOfSurveys === 0}
-                    productKey={ProductKey.SURVEYS}
-                />
-            </AccessControlAction>
-        )
-    }
 
     // Get the three priority templates - most popular based on the Surveys dashboard
     const priorityTemplates = defaultSurveyTemplates
@@ -156,7 +135,7 @@ export function SurveysEmptyState({ numOfSurveys }: Props): JSX.Element {
                                     icon={<IconSparkles />}
                                     onClick={() => openSidePanel(SidePanelTab.Max, 'Create a survey to collect ')}
                                 >
-                                    Create your own custom survey with Max
+                                    Create your own custom survey with PostHog AI
                                 </LemonButton>
                             </MaxTool>
                         )}

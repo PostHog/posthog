@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from posthog.warehouse.types import IncrementalField
+from products.data_warehouse.backend.types import IncrementalField
 
 
 @dataclass

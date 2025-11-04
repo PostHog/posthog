@@ -1,11 +1,10 @@
 import os
 import re
 import json
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 from tempfile import mkstemp
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import pytz
@@ -28,8 +27,10 @@ from posthog.temporal.delete_recordings.metrics import (
 )
 from posthog.temporal.delete_recordings.types import (
     DeleteRecordingError,
+    GroupRecordingError,
     LoadRecordingError,
     Recording,
+    RecordingBlockGroup,
     RecordingsWithPersonInput,
     RecordingWithBlocks,
 )
@@ -94,20 +95,30 @@ async def load_recording_blocks(input: Recording) -> list[RecordingBlock]:
 
 
 @activity.defn(name="group-recording-blocks")
-async def group_recording_blocks(input: RecordingWithBlocks) -> list[list[RecordingBlock]]:
+async def group_recording_blocks(input: RecordingWithBlocks) -> list[RecordingBlockGroup]:
     block_count = len(input.blocks)
     bind_contextvars(session_id=input.recording.session_id, team_id=input.recording.team_id, block_count=block_count)
     logger = LOGGER.bind()
     logger.info("Grouping recording blocks")
 
-    block_map = defaultdict(list)
+    block_map: dict[str, RecordingBlockGroup] = {}
 
     for block in input.blocks:
-        scheme, netloc, path, _, _, _ = urlparse(block.url)
-        base_key = urlunparse((scheme, netloc, path, None, None, None))
-        block_map[base_key].append(block)
+        _, _, path, _, query, _ = urlparse(block.url)
+        path = path.lstrip("/")
 
-    block_groups: list[list[RecordingBlock]] = list(block_map.values())
+        match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
+
+        if not match:
+            raise GroupRecordingError(f"Got malformed byte range in block URL: {query}")
+
+        start_byte, end_byte = int(match.group(1)), int(match.group(2))
+
+        block_group: RecordingBlockGroup = block_map.get(path, RecordingBlockGroup(input.recording, path, []))
+        block_group.ranges.append((start_byte, end_byte))
+        block_map[path] = block_group
+
+    block_groups: list[RecordingBlockGroup] = list(block_map.values())
 
     logger.info(f"Grouped {block_count} blocks into {len(block_groups)} groups")
     return block_groups
@@ -124,9 +135,9 @@ def overwrite_block(path: str, start_byte: int, block_length: int, buffer_size: 
 
 
 @activity.defn(name="delete-recording-blocks")
-async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
+async def delete_recording_blocks(input: RecordingBlockGroup) -> None:
     bind_contextvars(
-        session_id=input.recording.session_id, team_id=input.recording.team_id, block_count=len(input.blocks)
+        session_id=input.recording.session_id, team_id=input.recording.team_id, block_count=len(input.ranges)
     )
     logger = LOGGER.bind()
     logger.info("Deleting recording blocks")
@@ -135,44 +146,41 @@ async def delete_recording_blocks(input: RecordingWithBlocks) -> None:
         block_deleted_counter = 0
         block_deleted_error_counter = 0
 
-        for block in input.blocks:
-            _, _, path, _, query, _ = urlparse(block.url)
-            match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
+        tmpfile = None
+        try:
+            _, tmpfile = mkstemp()
 
-            if not match:
-                raise DeleteRecordingError(f"Got malformed byte range in block URL: {query}")
+            await storage.download_file(input.path, tmpfile)
 
-            start_byte, end_byte = int(match.group(1)), int(match.group(2))
-            block_length = end_byte - start_byte + 1
-            key = path.lstrip("/")
+            for start_byte, end_byte in input.ranges:
+                try:
+                    block_length = end_byte - start_byte + 1
 
-            tmpfile = None
-            try:
-                _, tmpfile = mkstemp()
+                    size_before = Path(tmpfile).stat().st_size
 
-                await storage.download_file(key, tmpfile)
+                    overwrite_block(tmpfile, start_byte, block_length)
 
-                size_before = Path(tmpfile).stat().st_size
+                    size_after = Path(tmpfile).stat().st_size
 
-                overwrite_block(tmpfile, start_byte, block_length)
+                    assert size_before == size_after
+                    block_deleted_counter += 1
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to delete block at range ({start_byte}, {end_byte}) in file at {input.path}, skipping..."
+                    )
+                    logger.warning(f"Got exception {e}")
+                    block_deleted_error_counter += 1
 
-                size_after = Path(tmpfile).stat().st_size
+            await storage.upload_file(input.path, tmpfile)
 
-                assert size_before == size_after
-
-                await storage.upload_file(key, tmpfile)
-
-                logger.info(f"Deleted block at {block.url}")
-                block_deleted_counter += 1
-            except session_recording_v2_object_storage.FileDownloadError:
-                logger.warning(f"Failed to download block at {block.url}, skipping...")
-                block_deleted_error_counter += 1
-            except session_recording_v2_object_storage.FileUploadError:
-                logger.warning(f"Failed to upload block at {block.url}, skipping...")
-                block_deleted_error_counter += 1
-            finally:
-                if tmpfile is not None:
-                    os.remove(tmpfile)
+            logger.info(f"Deleted {len(input.ranges)} blocks in {input.path}")
+        except session_recording_v2_object_storage.FileDownloadError:
+            logger.warning(f"Failed to download file at {input.path}, skipping...")
+        except session_recording_v2_object_storage.FileUploadError:
+            logger.warning(f"Failed to upload file to {input.path}, skipping...")
+        finally:
+            if tmpfile is not None:
+                os.remove(tmpfile)
 
     get_block_deleted_counter().add(block_deleted_counter)
     get_block_deleted_error_counter().add(block_deleted_error_counter)

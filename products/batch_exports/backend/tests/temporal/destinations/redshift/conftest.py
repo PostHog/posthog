@@ -6,7 +6,9 @@ import pytest
 from django.conf import settings
 
 import psycopg
+import aioboto3
 
+from products.batch_exports.backend.temporal.destinations.redshift_batch_export import AWSCredentials
 from products.batch_exports.backend.tests.temporal.destinations.redshift.utils import MISSING_REQUIRED_ENV_VARS
 
 
@@ -75,3 +77,52 @@ def properties_data_type(request) -> str:
         return request.param
     except AttributeError:
         return "varchar"
+
+
+@pytest.fixture
+def bucket_name() -> str | None:
+    """Name for a test S3 bucket."""
+    test_bucket = os.getenv("S3_TEST_BUCKET")
+
+    if not test_bucket:
+        return None
+
+    return test_bucket
+
+
+@pytest.fixture
+def bucket_region() -> str | None:
+    """Region for a test S3 bucket."""
+    bucket_region = os.getenv("AWS_REGION")
+
+    if not bucket_region:
+        return None
+
+    return bucket_region
+
+
+@pytest.fixture
+def aws_credentials() -> AWSCredentials | None:
+    """AWS credentials to test Redshift copy activity with an S3 bucket."""
+    aws_access_key_id, aws_secret_access_key = os.getenv("AWS_ACCESS_KEY_ID"), os.getenv("AWS_SECRET_ACCESS_KEY")
+
+    if not aws_access_key_id or not aws_secret_access_key:
+        return None
+
+    return AWSCredentials(aws_access_key_id, aws_secret_access_key)
+
+
+@pytest.fixture
+def key_prefix(ateam) -> str:
+    return f"/test-copy-redshift-batch-export_{ateam.pk}"
+
+
+@pytest.fixture
+async def s3_client(aws_credentials, bucket_name):
+    """Manage an S3 client to interact with an S3 bucket."""
+    if not aws_credentials or not bucket_name:
+        yield None
+        return
+
+    async with aioboto3.Session().client("s3") as s3_client:
+        yield s3_client

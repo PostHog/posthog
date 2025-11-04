@@ -7,7 +7,7 @@ from django.utils import timezone
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.utils import RootTeamMixin
+from posthog.models.utils import RootTeamMixin, UUIDModel
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -193,3 +193,37 @@ class ExperimentMetricResult(models.Model):
 
     def __str__(self):
         return f"ExperimentMetricResult({self.experiment_id}, {self.metric_uuid}, {self.query_from}, {self.status})"
+
+
+class ExperimentTimeseriesRecalculation(UUIDModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        IN_PROGRESS = "in_progress", "In Progress"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
+    metric = models.JSONField()
+    fingerprint = models.CharField(max_length=64)  # SHA256 hash
+
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    last_successful_date = models.DateField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["status"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["experiment", "fingerprint"],
+                condition=models.Q(status__in=["pending", "in_progress"]),
+                name="unique_active_recalculation_per_experiment_metric",
+            ),
+        ]
+
+    def __str__(self):
+        metric_uuid = self.metric.get("uuid", "unknown")
+        return f"ExperimentTimeseriesRecalculation(exp={self.experiment_id}, metric={metric_uuid}, fingerprint={self.fingerprint}, status={self.status})"

@@ -24,6 +24,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { groupsModel } from '~/models/groupsModel'
 import {
     AnyPropertyFilter,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagGroupType,
     GroupTypeIndex,
@@ -51,6 +52,7 @@ export interface FeatureFlagReleaseConditionsLogicProps {
     onChange?: (filters: FeatureFlagFilters, errors: any) => void
     nonEmptyFeatureFlagVariants?: MultivariateFlagVariant[]
     isSuper?: boolean
+    evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
 export type FeatureFlagGroupTypeWithSortKey = FeatureFlagGroupType & { sort_key: string }
@@ -484,7 +486,13 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         value: isEmptyProperty(property) ? "Property filters can't be empty" : undefined,
                     })),
                     rollout_percentage:
-                        rollout_percentage === undefined ? 'You need to set a rollout % value' : undefined,
+                        rollout_percentage === undefined || rollout_percentage === null
+                            ? 'You need to set a rollout % value'
+                            : isNaN(Number(rollout_percentage))
+                              ? 'Rollout percentage must be a valid number'
+                              : rollout_percentage < 0 || rollout_percentage > 100
+                                ? 'Rollout percentage must be between 0 and 100'
+                                : undefined,
                     variant: null,
                 }))
             },
@@ -538,6 +546,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                             property.type === PropertyFilterType.Flag && property.key ? [property.key] : []
                         ) || []
                 ) || [],
+        ],
+        properties: [
+            (s) => [s.filterGroups],
+            (filterGroups: FeatureFlagGroupType[]) => {
+                return filterGroups?.flatMap((g) => g.properties ?? []) ?? []
+            },
         ],
     }),
     propsChanged(({ props, values, actions }) => {

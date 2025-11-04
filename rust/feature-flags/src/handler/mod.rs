@@ -96,6 +96,8 @@ async fn process_request_inner(
             context.state.redis_reader.clone(),
             context.state.redis_writer.clone(),
             context.state.database_pools.non_persons_reader.clone(),
+            context.state.config.team_cache_ttl_seconds,
+            context.state.config.flags_cache_ttl_seconds,
         );
 
         let (original_distinct_id, verified_token, request) =

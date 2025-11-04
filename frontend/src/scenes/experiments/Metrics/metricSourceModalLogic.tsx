@@ -1,11 +1,11 @@
 import { kea } from 'kea'
 import { actions, path, reducers } from 'kea'
 
-import { METRIC_CONTEXTS, MetricContext } from './experimentMetricModalLogic'
+import { METRIC_CONTEXTS, type MetricContext } from './experimentMetricModalLogic'
 import type { metricSourceModalLogicType } from './metricSourceModalLogicType'
 
 export const metricSourceModalLogic = kea<metricSourceModalLogicType>([
-    path(['scenes', 'experiments', 'create', 'metricSourceModalLogic']),
+    path(['scenes', 'experiments', 'metrics', 'metricSourceModalLogic']),
 
     actions({
         openMetricSourceModal: (context: MetricContext) => ({ context }),

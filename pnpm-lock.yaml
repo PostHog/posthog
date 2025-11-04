@@ -7,7 +7,7 @@ settings:
 overrides:
   playwright: 1.45.0
   typescript: 5.2.2
-  '@posthog/icons': 0.33.0
+  '@posthog/icons': 0.35.0
 
 patchedDependencies:
   chartjs-plugin-crosshair@2.0.0:
@@ -372,8 +372,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       posthog-js:
-        specifier: 1.275.3
-        version: 1.275.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.285.0
+        version: 1.285.0
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -445,8 +445,8 @@ importers:
         specifier: workspace:*
         version: link:../common/hogvm/typescript
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/plugin-scaffold':
         specifier: ^1.4.4
         version: 1.4.4
@@ -486,6 +486,9 @@ importers:
       '@posthog/products-links':
         specifier: workspace:*
         version: link:../products/links
+      '@posthog/products-live-debugger':
+        specifier: workspace:*
+        version: link:../products/live_debugger
       '@posthog/products-llm-analytics':
         specifier: workspace:*
         version: link:../products/llm_analytics
@@ -495,9 +498,6 @@ importers:
       '@posthog/products-managed-migrations':
         specifier: workspace:*
         version: link:../products/managed_migrations
-      '@posthog/products-messaging':
-        specifier: workspace:*
-        version: link:../products/messaging
       '@posthog/products-notebooks':
         specifier: workspace:*
         version: link:../products/notebooks
@@ -525,6 +525,9 @@ importers:
       '@posthog/products-web-analytics':
         specifier: workspace:*
         version: link:../products/web_analytics
+      '@posthog/products-workflows':
+        specifier: workspace:*
+        version: link:../products/workflows
       '@posthog/rrweb':
         specifier: 0.0.26
         version: 0.0.26
@@ -826,8 +829,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.275.3
-        version: 1.275.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.285.0
+        version: 1.285.0
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -976,7 +979,7 @@ importers:
         version: 5.16.5
       '@testing-library/react':
         specifier: ^13.4.0
-        version: 13.4.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        version: 13.4.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@testing-library/user-event':
         specifier: ^13.5.0
         version: 13.5.0(@testing-library/dom@8.19.0)
@@ -1265,6 +1268,9 @@ importers:
       '@segment/action-destinations':
         specifier: ^3.383.0
         version: 3.387.0(ajv@8.12.0)(encoding@0.1.13)
+      '@temporalio/client':
+        specifier: ^1.12.0
+        version: 1.13.1
       '@types/lru-cache':
         specifier: ^5.1.0
         version: 5.1.1
@@ -1533,9 +1539,6 @@ importers:
       jest:
         specifier: ^30.0.0
         version: 30.0.5(@types/node@22.15.17)(esbuild-register@3.5.0(esbuild@0.25.10))(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
-      node-pg-migrate:
-        specifier: ^8.0.3
-        version: 8.0.3(@types/pg@8.6.6)(pg@8.10.0)
       pino-pretty:
         specifier: ^9.1.0
         version: 9.4.0
@@ -1564,8 +1567,8 @@ importers:
   products/actions:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -1600,8 +1603,8 @@ importers:
   products/cohorts:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1627,8 +1630,8 @@ importers:
   products/customer_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1654,8 +1657,8 @@ importers:
   products/dashboards:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1681,8 +1684,8 @@ importers:
   products/early_access_features:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -1711,8 +1714,8 @@ importers:
   products/endpoints:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1725,6 +1728,9 @@ importers:
       kea:
         specifier: ^3.1.7
         version: 3.1.7(react@18.2.0)
+      kea-forms:
+        specifier: ^3.2.0
+        version: 3.2.0(kea@3.1.7(react@18.2.0))
       kea-loaders:
         specifier: ^3.1.1
         version: 3.1.1(kea@3.1.7(react@18.2.0))
@@ -1750,8 +1756,8 @@ importers:
         specifier: '*'
         version: 3.2.1(react@18.2.0)
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/addon-actions':
         specifier: '*'
         version: 7.6.4
@@ -1798,8 +1804,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.275.3
-        version: 1.275.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.285.0
+        version: 1.285.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -1819,8 +1825,8 @@ importers:
   products/experiments:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1846,8 +1852,8 @@ importers:
   products/feature_flags:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1873,8 +1879,8 @@ importers:
   products/games:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1900,8 +1906,8 @@ importers:
   products/groups:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -1927,8 +1933,8 @@ importers:
   products/links:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -1957,14 +1963,57 @@ importers:
         specifier: '*'
         version: 18.2.0
 
+  products/live_debugger:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      '@types/react-dom':
+        specifier: '*'
+        version: 18.3.7(@types/react@17.0.52)
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      fuse.js:
+        specifier: ^6.6.2
+        version: 6.6.2
+      kea:
+        specifier: '*'
+        version: 3.1.7(react@18.2.0)
+      kea-loaders:
+        specifier: '*'
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
+      react:
+        specifier: '*'
+        version: 18.2.0
+      react-dom:
+        specifier: '*'
+        version: 18.2.0(react@18.2.0)
+    devDependencies:
+      kea-test-utils:
+        specifier: ^0.2.4
+        version: 0.2.4(kea@3.1.7(react@18.2.0))
+
   products/llm_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
+      '@testing-library/react':
+        specifier: '*'
+        version: 13.4.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@testing-library/user-event':
+        specifier: '*'
+        version: 13.5.0(@testing-library/dom@9.3.4)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2015,8 +2064,8 @@ importers:
   products/logs:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/products-error-tracking':
         specifier: workspace:*
         version: link:../error_tracking
@@ -2072,8 +2121,8 @@ importers:
   products/managed_migrations:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.26.0(date-fns@2.29.3)(luxon@3.5.0)(moment@2.29.4)(react-dom@18.2.0(react@18.2.0))(react@18.2.0))(kea-router@3.4.1(kea@3.1.7(react@18.2.0)))(kea@3.1.7(react@18.2.0))(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
@@ -2098,9 +2147,6 @@ importers:
 
   products/mcp:
     devDependencies:
-      husky:
-        specifier: ^9.1.7
-        version: 9.1.7
       oxlint:
         specifier: ^1.8.0
         version: 1.9.0
@@ -2122,6 +2168,9 @@ importers:
       ai:
         specifier: ^5.0.18
         version: 5.0.60(zod@3.25.76)
+      fflate:
+        specifier: ^0.7.4
+        version: 0.7.4
       posthog-node:
         specifier: ^4.18.0
         version: 4.18.0
@@ -2178,59 +2227,11 @@ importers:
         specifier: ^3.24.6
         version: 3.24.6(zod@3.25.76)
 
-  products/messaging:
-    dependencies:
-      '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      '@types/react':
-        specifier: '*'
-        version: 17.0.52
-      '@xyflow/react':
-        specifier: '*'
-        version: 12.6.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      clsx:
-        specifier: '*'
-        version: 1.2.1
-      elkjs:
-        specifier: '*'
-        version: 0.10.0
-      fast-deep-equal:
-        specifier: '*'
-        version: 3.1.3
-      fuse.js:
-        specifier: '*'
-        version: 6.6.2
-      kea:
-        specifier: ^3.1.7
-        version: 3.1.7(react@18.2.0)
-      kea-forms:
-        specifier: ^3.2.0
-        version: 3.2.0(kea@3.1.7(react@18.2.0))
-      kea-loaders:
-        specifier: ^3.1.1
-        version: 3.1.1(kea@3.1.7(react@18.2.0))
-      kea-router:
-        specifier: ^3.4.1
-        version: 3.4.1(kea@3.1.7(react@18.2.0))
-      kea-subscriptions:
-        specifier: ^3.0.1
-        version: 3.0.1(kea@3.1.7(react@18.2.0))
-      posthog-js:
-        specifier: 1.275.3
-        version: 1.275.3(@rrweb/types@2.0.0-alpha.17)
-      react:
-        specifier: '*'
-        version: 18.2.0
-      zod:
-        specifier: '*'
-        version: 3.24.1
-
   products/notebooks:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2256,8 +2257,8 @@ importers:
   products/persons:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2283,8 +2284,8 @@ importers:
   products/product_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2310,8 +2311,8 @@ importers:
   products/replay:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2337,8 +2338,8 @@ importers:
   products/revenue_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -2367,8 +2368,8 @@ importers:
   products/surveys:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2406,8 +2407,8 @@ importers:
         specifier: '*'
         version: 3.2.1(react@18.2.0)
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@storybook/react':
         specifier: '*'
         version: 7.6.4(encoding@0.1.13)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(typescript@5.2.2)
@@ -2446,8 +2447,8 @@ importers:
   products/user_interviews:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2464,8 +2465,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.275.3
-        version: 1.275.3(@rrweb/types@2.0.0-alpha.17)
+        specifier: 1.285.0
+        version: 1.285.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2473,8 +2474,8 @@ importers:
   products/web_analytics:
     dependencies:
       '@posthog/icons':
-        specifier: 0.33.0
-        version: 0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@types/react':
         specifier: '*'
         version: 17.0.52
@@ -2496,6 +2497,54 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
+
+  products/workflows:
+    dependencies:
+      '@posthog/icons':
+        specifier: 0.35.0
+        version: 0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      '@types/react':
+        specifier: '*'
+        version: 17.0.52
+      '@xyflow/react':
+        specifier: '*'
+        version: 12.6.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      clsx:
+        specifier: '*'
+        version: 1.2.1
+      elkjs:
+        specifier: '*'
+        version: 0.10.0
+      fast-deep-equal:
+        specifier: '*'
+        version: 3.1.3
+      fuse.js:
+        specifier: '*'
+        version: 6.6.2
+      kea:
+        specifier: ^3.1.7
+        version: 3.1.7(react@18.2.0)
+      kea-forms:
+        specifier: ^3.2.0
+        version: 3.2.0(kea@3.1.7(react@18.2.0))
+      kea-loaders:
+        specifier: ^3.1.1
+        version: 3.1.1(kea@3.1.7(react@18.2.0))
+      kea-router:
+        specifier: ^3.4.1
+        version: 3.4.1(kea@3.1.7(react@18.2.0))
+      kea-subscriptions:
+        specifier: ^3.0.1
+        version: 3.0.1(kea@3.1.7(react@18.2.0))
+      posthog-js:
+        specifier: 1.285.0
+        version: 1.285.0
+      react:
+        specifier: '*'
+        version: 18.2.0
+      zod:
+        specifier: '*'
+        version: 3.25.76
 
   rust/cyclotron-node:
     devDependencies:
@@ -6397,11 +6446,11 @@ packages:
   '@poppinss/exception@1.2.2':
     resolution: {integrity: sha512-m7bpKCD4QMlFCjA/nKTs23fuvoVFoA83brRKmObCUNmi/9tVu8Ve3w4YQAnJu4q3Tjf5fr685HYIC/IA2zHRSg==}
 
-  '@posthog/core@1.3.0':
-    resolution: {integrity: sha512-hxLL8kZNHH098geedcxCz8y6xojkNYbmJEW+1vFXsmPcExyCXIUUJ/34X6xa9GcprKxd0Wsx3vfJQLQX4iVPhw==}
+  '@posthog/core@1.5.0':
+    resolution: {integrity: sha512-oxfV20QMNwH30jKybUyqi3yGuMghULQz1zkJgQG3rjpHDxhD2vDN6E7UpmaqgphMIvGG3Q+DgfU10zfSPA7w7w==}
 
-  '@posthog/icons@0.33.0':
-    resolution: {integrity: sha512-zH3yRdG7kvJ1UCReOz4o/l2A915Xbcq3+SS+OevJ6I9BdV2i2sRyLStnAm4LFqxfqT8hBMpP9G6I1Or9p2bdvw==}
+  '@posthog/icons@0.35.0':
+    resolution: {integrity: sha512-wa90PWt9dAxF3Y2jFFjmMGCIWyUaG/IfJzJnKxKdzNDGLllGawI5JJxwCJ1ZufCdiYTWAVBn7irCM+mLbTNixw==}
     peerDependencies:
       react: '>=16.14.0'
       react-dom: '>=16.14.0'
@@ -7819,9 +7868,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@rrweb/types@2.0.0-alpha.17':
-    resolution: {integrity: sha512-AfDTVUuCyCaIG0lTSqYtrZqJX39ZEYzs4fYKnexhQ+id+kbZIpIJtaut5cto6dWZbB3SEe4fW0o90Po3LvTmfg==}
-
   '@segment/a1-notation@2.1.4':
     resolution: {integrity: sha512-SId7GOdDFmm/B9ajIQpXELHW4OTbVvmJbOsoJkQOcUEtoZIiX2UWfk1v4BpKql8wJW9oAhzhIIru2Pv2Yxcg+w==}
 
@@ -8781,6 +8827,18 @@ packages:
   '@tailwindcss/oxide@4.0.12':
     resolution: {integrity: sha512-DWb+myvJB9xJwelwT9GHaMc1qJj6MDXRDR0CS+T8IdkejAtu8ctJAgV4r1drQJLPeS7mNwq2UHW2GWrudTf63A==}
     engines: {node: '>= 10'}
+
+  '@temporalio/client@1.13.1':
+    resolution: {integrity: sha512-EW++yWZhMhHOBCJ5hz4EZank9D5NskJO2zq25THXWGWRDNLeZPGT2rblOPz38Yexu7N6JcSLh8OglWRDohMCzg==}
+    engines: {node: '>= 18.0.0'}
+
+  '@temporalio/common@1.13.1':
+    resolution: {integrity: sha512-Z8t+uN33gu0Hw0T6o0J0Lmn2v6KJ2j7rDBjPYJwRTqrzY8On8wCkgkrq0JaqNRoMzkSJCjj+eanuBswiltsZlg==}
+    engines: {node: '>= 18.0.0'}
+
+  '@temporalio/proto@1.13.1':
+    resolution: {integrity: sha512-Lx7ge+XEk9Gk7z5gXX5VreSNLr4GfBxhe4wxmoDI618PilL0hA14nTh48fZxi72gfSFSfZmJCDBEak6lNdbA2A==}
+    engines: {node: '>= 18.0.0'}
 
   '@testing-library/dom@8.19.0':
     resolution: {integrity: sha512-6YWYPPpxG3e/xOo6HIWwB/58HukkwIVTOaZ0VwdMVjhRUX/01E4FtQbck9GazOOj7MXHc5RBzMrU86iBJHbI+A==}
@@ -13185,11 +13243,6 @@ packages:
     engines: {node: '>=12'}
     hasBin: true
 
-  husky@9.1.7:
-    resolution: {integrity: sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA==}
-    engines: {node: '>=18'}
-    hasBin: true
-
   iconv-lite@0.4.24:
     resolution: {integrity: sha512-v3MXnZAcvnywkTUEZomIActle7RXXeedOR31wwl7VlyoXO4Qi9arvSenNQWne1TcRwhCL1HwLI21bEqdpj8/rA==}
     engines: {node: '>=0.10.0'}
@@ -15168,6 +15221,10 @@ packages:
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
 
+  ms@3.0.0-canary.1:
+    resolution: {integrity: sha512-kh8ARjh8rMN7Du2igDRO9QJnqCb2xYTJxyQYK7vJJS4TvLLmsbyhiKpSW+t+y26gyOyMd0riphX0GeWKU3ky5g==}
+    engines: {node: '>=12.13'}
+
   msgpackr-extract@3.0.3:
     resolution: {integrity: sha512-P0efT1C9jIdVRefqjzOQ9Xml57zpOXnIuS+csaB4MdZbTdmGDLo8XhzBG1N7aO11gKDDkJvBLULeFTo46wwreA==}
     hasBin: true
@@ -15257,6 +15314,10 @@ packages:
   neo-async@2.6.2:
     resolution: {integrity: sha512-Yd3UES5mWCSqR+qNT93S3UoYUkqAZ9lLg8a7g9rimsWmYGK8cVToA4/sF3RrshdyV3sAGMXVUmpMYOw+dLpOuw==}
 
+  nexus-rpc@0.0.1:
+    resolution: {integrity: sha512-hAWn8Hh2eewpB5McXR5EW81R3pR/ziuGhKCF3wFyUVCklanPqrIgMNr7jKCbzXeNVad0nUDfWpFRqh2u+zxQtw==}
+    engines: {node: '>= 18.0.0'}
+
   no-case@3.0.4:
     resolution: {integrity: sha512-fgAN3jGAh+RoxUGZHTSOLJIqUc2wmoBwGR4tbpNAKmmovFoWq0OdRkb0VkldReO2a2iBT/OEulG9XSUc10r3zg==}
 
@@ -15323,17 +15384,6 @@ packages:
 
   node-int64@0.4.0:
     resolution: {integrity: sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw==}
-
-  node-pg-migrate@8.0.3:
-    resolution: {integrity: sha512-oKzZyzTULTryO1jehX19VnyPCGf3G/3oWZg3gODphvID56T0WjPOShTVPVnxGdlcueaIW3uAVrr7M8xLZq5TcA==}
-    engines: {node: '>=20.11.0'}
-    hasBin: true
-    peerDependencies:
-      '@types/pg': '>=6.0.0 <9.0.0'
-      pg: '>=4.3.0 <9.0.0'
-    peerDependenciesMeta:
-      '@types/pg':
-        optional: true
 
   node-preload@0.2.1:
     resolution: {integrity: sha512-RM5oyBy45cLEoHqCeh+MNuFAxO0vTFBLskvQbOKnEE7YTTSN4tbN8QWDIPQ6L+WvKsB/qLEGpYe2ZZ9d4W9OIQ==}
@@ -16389,16 +16439,8 @@ packages:
   posthog-js-lite@4.1.0:
     resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
-  posthog-js@1.275.3:
-    resolution: {integrity: sha512-LitwVprl0Q8p0fN4O4ThvlOuO6r+TBzLfkGbSyI5tR/YhlWzX3yFf4KKHPXJgxge99sxKa0fuVKNzcspYsDzcg==}
-    peerDependencies:
-      '@rrweb/types': 2.0.0-alpha.17
-      rrweb-snapshot: 2.0.0-alpha.17
-    peerDependenciesMeta:
-      '@rrweb/types':
-        optional: true
-      rrweb-snapshot:
-        optional: true
+  posthog-js@1.285.0:
+    resolution: {integrity: sha512-rNpxWoqTywb412YcTMeLk4qvWAGkoMO5SLgASyaqulLrPCuDGU0Go53seKiIaEEvHY8jJHL5NGnnVVjErSk6OA==}
 
   posthog-node@4.14.0:
     resolution: {integrity: sha512-PitSiuxGiVFl0ItuhIfi3Sq1tcaMU4vlbPu1wv0qufTJGDjWthOOr4vYfFIs1xkbJFOQcfGczMXkr44kX5TDDg==}
@@ -16824,8 +16866,8 @@ packages:
       react: '>=16.9.0'
       react-dom: '>=16.9.0'
 
-  rc-overflow@1.4.1:
-    resolution: {integrity: sha512-3MoPQQPV1uKyOMVNd6SZfONi+f3st0r8PksexIdBTeIYbMX0Jr+k7pHEDvsXtR4BpCv90/Pv2MovVNhktKrwvw==}
+  rc-overflow@1.5.0:
+    resolution: {integrity: sha512-Lm/v9h0LymeUYJf0x39OveU52InkdRXqnn2aYXfWmo8WdOonIKB2kfau+GF0fWq6jPgtdO9yMqveGcK6aIhJmg==}
     peerDependencies:
       react: '>=16.9.0'
       react-dom: '>=16.9.0'
@@ -17457,9 +17499,6 @@ packages:
   router@2.2.0:
     resolution: {integrity: sha512-nLTrUKm2UyiL7rlhapu/Zl45FwNgkZGaCpZbIHajDYgwlJCOzLSk+cIPAnsEqV955GjILJnKbdQC1nVPz+gAYQ==}
     engines: {node: '>= 18'}
-
-  rrweb-snapshot@2.0.0-alpha.18:
-    resolution: {integrity: sha512-hBHZL/NfgQX6wO1D9mpwqFu1NJPpim+moIcKhFEjVTZVRUfCln+LOugRc4teVTCISYHN8Cw5e2iNTWCSm+SkoA==}
 
   run-async@2.4.1:
     resolution: {integrity: sha512-tvVnVv01b8c1RrA6Ep7JkStj85Guv/YrMcwqYQnwjsAS2cTmmPGBBjAjpCW7RrSodNSoE2/qg9O4bceNvUuDgQ==}
@@ -18909,8 +18948,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.313.0:
-    resolution: {integrity: sha512-4r0Bp3LYcCqCqkq5xodO1d2Z+VSiXwWMj4w29xanwVryRY3OwTrCJXgID+7mGRlY1uPL+A7f2s7BLh6Pg+w9qw==}
+  unlayer-types@1.320.0:
+    resolution: {integrity: sha512-9BP9GfZ1G8Cm0BRyMVW6VyuaK2enlJHIqscHCTj6TbObo+vey2SHGzRH7C3pn0wYy75Zxpz7NfMJPuapPwkSyA==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -25580,9 +25619,9 @@ snapshots:
 
   '@poppinss/exception@1.2.2': {}
 
-  '@posthog/core@1.3.0': {}
+  '@posthog/core@1.5.0': {}
 
-  '@posthog/icons@0.33.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@posthog/icons@0.35.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
@@ -26883,11 +26922,6 @@ snapshots:
     optional: true
 
   '@rollup/rollup-win32-x64-msvc@4.52.4':
-    optional: true
-
-  '@rrweb/types@2.0.0-alpha.17':
-    dependencies:
-      rrweb-snapshot: 2.0.0-alpha.18
     optional: true
 
   '@segment/a1-notation@2.1.4': {}
@@ -28628,6 +28662,28 @@ snapshots:
       '@tailwindcss/oxide-win32-arm64-msvc': 4.0.12
       '@tailwindcss/oxide-win32-x64-msvc': 4.0.12
 
+  '@temporalio/client@1.13.1':
+    dependencies:
+      '@grpc/grpc-js': 1.13.4
+      '@temporalio/common': 1.13.1
+      '@temporalio/proto': 1.13.1
+      abort-controller: 3.0.0
+      long: 5.2.4
+      uuid: 9.0.1
+
+  '@temporalio/common@1.13.1':
+    dependencies:
+      '@temporalio/proto': 1.13.1
+      long: 5.2.4
+      ms: 3.0.0-canary.1
+      nexus-rpc: 0.0.1
+      proto3-json-serializer: 2.0.2
+
+  '@temporalio/proto@1.13.1':
+    dependencies:
+      long: 5.2.4
+      protobufjs: 7.5.3
+
   '@testing-library/dom@8.19.0':
     dependencies:
       '@babel/code-frame': 7.26.2
@@ -28662,18 +28718,25 @@ snapshots:
       lodash: 4.17.21
       redent: 3.0.0
 
-  '@testing-library/react@13.4.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@testing-library/react@13.4.0(@types/react@17.0.52)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
       '@babel/runtime': 7.24.0
       '@testing-library/dom': 8.19.0
-      '@types/react-dom': 18.2.14
+      '@types/react-dom': 18.3.7(@types/react@17.0.52)
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
+    transitivePeerDependencies:
+      - '@types/react'
 
   '@testing-library/user-event@13.5.0(@testing-library/dom@8.19.0)':
     dependencies:
       '@babel/runtime': 7.24.0
       '@testing-library/dom': 8.19.0
+
+  '@testing-library/user-event@13.5.0(@testing-library/dom@9.3.4)':
+    dependencies:
+      '@babel/runtime': 7.24.0
+      '@testing-library/dom': 9.3.4
 
   '@testing-library/user-event@14.6.1(@testing-library/dom@9.3.4)':
     dependencies:
@@ -33958,8 +34021,6 @@ snapshots:
 
   husky@7.0.4: {}
 
-  husky@9.1.7: {}
-
   iconv-lite@0.4.24:
     dependencies:
       safer-buffer: 2.1.2
@@ -36663,6 +36724,8 @@ snapshots:
 
   ms@2.1.3: {}
 
+  ms@3.0.0-canary.1: {}
+
   msgpackr-extract@3.0.3:
     dependencies:
       node-gyp-build-optional-packages: 5.2.2
@@ -36756,6 +36819,8 @@ snapshots:
 
   neo-async@2.6.2: {}
 
+  nexus-rpc@0.0.1: {}
+
   no-case@3.0.4:
     dependencies:
       lower-case: 2.0.2
@@ -36829,14 +36894,6 @@ snapshots:
       - supports-color
 
   node-int64@0.4.0: {}
-
-  node-pg-migrate@8.0.3(@types/pg@8.6.6)(pg@8.10.0):
-    dependencies:
-      glob: 11.0.0
-      pg: 8.10.0
-      yargs: 17.7.2
-    optionalDependencies:
-      '@types/pg': 8.6.6
 
   node-preload@0.2.1:
     dependencies:
@@ -38205,15 +38262,13 @@ snapshots:
 
   posthog-js-lite@4.1.0: {}
 
-  posthog-js@1.275.3(@rrweb/types@2.0.0-alpha.17):
+  posthog-js@1.285.0:
     dependencies:
-      '@posthog/core': 1.3.0
+      '@posthog/core': 1.5.0
       core-js: 3.46.0
       fflate: 0.4.8
       preact: 10.27.2
       web-vitals: 4.2.4
-    optionalDependencies:
-      '@rrweb/types': 2.0.0-alpha.17
 
   posthog-node@4.14.0:
     dependencies:
@@ -38712,7 +38767,7 @@ snapshots:
       '@rc-component/trigger': 2.3.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       classnames: 2.5.1
       rc-motion: 2.9.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      rc-overflow: 1.4.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      rc-overflow: 1.5.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-util: 5.44.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
@@ -38742,7 +38797,7 @@ snapshots:
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
 
-  rc-overflow@1.4.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
+  rc-overflow@1.5.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0):
     dependencies:
       '@babel/runtime': 7.28.4
       classnames: 2.5.1
@@ -38764,7 +38819,7 @@ snapshots:
       '@babel/runtime': 7.28.4
       '@rc-component/trigger': 2.3.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       classnames: 2.5.1
-      rc-overflow: 1.4.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      rc-overflow: 1.5.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-resize-observer: 1.4.3(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-util: 5.44.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       react: 18.2.0
@@ -38815,7 +38870,7 @@ snapshots:
       '@rc-component/trigger': 2.3.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       classnames: 2.5.1
       rc-motion: 2.9.5(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
-      rc-overflow: 1.4.1(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+      rc-overflow: 1.5.0(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-util: 5.44.4(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       rc-virtual-list: 3.19.2(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       react: 18.2.0
@@ -39031,7 +39086,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.2.0):
     dependencies:
       react: 18.2.0
-      unlayer-types: 1.313.0
+      unlayer-types: 1.320.0
 
   react-error-overlay@6.0.9: {}
 
@@ -39587,11 +39642,6 @@ snapshots:
       path-to-regexp: 8.3.0
     transitivePeerDependencies:
       - supports-color
-
-  rrweb-snapshot@2.0.0-alpha.18:
-    dependencies:
-      postcss: 8.5.6
-    optional: true
 
   run-async@2.4.1: {}
 
@@ -40236,7 +40286,7 @@ snapshots:
     dependencies:
       emoji-regex: 10.4.0
       get-east-asian-width: 1.3.0
-      strip-ansi: 7.1.2
+      strip-ansi: 7.1.0
 
   string.prototype.trim@1.2.8:
     dependencies:
@@ -41240,7 +41290,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.313.0: {}
+  unlayer-types@1.320.0: {}
 
   unpipe@1.0.0: {}
 

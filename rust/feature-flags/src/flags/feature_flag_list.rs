@@ -2,6 +2,7 @@ use std::sync::Arc;
 use tracing;
 
 use crate::api::errors::FlagError;
+use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
     FeatureFlag, FeatureFlagList, FeatureFlagRow, TEAM_FLAGS_CACHE_PREFIX,
 };
@@ -53,14 +54,16 @@ impl FeatureFlagList {
         client: PostgresReader,
         project_id: i64,
     ) -> Result<(FeatureFlagList, bool), FlagError> {
-        let mut conn = client.get_connection().await.map_err(|e| {
-            tracing::error!(
-                "Failed to get database connection for project {}: {}",
-                project_id,
-                e
-            );
-            FlagError::DatabaseUnavailable
-        })?;
+        let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_flags")
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to get database connection for project {}: {}",
+                    project_id,
+                    e
+                );
+                FlagError::DatabaseUnavailable
+            })?;
 
         let query = r#"
             SELECT f.id,
@@ -154,6 +157,7 @@ impl FeatureFlagList {
         client: Arc<dyn RedisClient + Send + Sync>,
         project_id: i64,
         flags: &FeatureFlagList,
+        ttl_seconds: Option<u64>,
     ) -> Result<(), FlagError> {
         let payload = serde_json::to_string(&flags.flags).map_err(|e| {
             tracing::error!(
@@ -165,24 +169,41 @@ impl FeatureFlagList {
             FlagError::RedisDataParsingError
         })?;
 
-        tracing::info!(
-            "Writing flags to Redis at key '{}{}': {} flags",
-            TEAM_FLAGS_CACHE_PREFIX,
-            project_id,
-            flags.flags.len()
-        );
+        let cache_key = format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}");
 
-        client
-            .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"), payload)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    "Failed to update Redis cache for project {}: {}",
-                    project_id,
-                    e
+        match ttl_seconds {
+            Some(ttl) => {
+                tracing::info!(
+                    "Writing flags to Redis at key '{}' with TTL {} seconds: {} flags",
+                    cache_key,
+                    ttl,
+                    flags.flags.len()
                 );
-                FlagError::CacheUpdateError
-            })?;
+                client.setex(cache_key, payload, ttl).await.map_err(|e| {
+                    tracing::error!(
+                        "Failed to update Redis cache with TTL for project {}: {}",
+                        project_id,
+                        e
+                    );
+                    FlagError::CacheUpdateError
+                })?;
+            }
+            None => {
+                tracing::info!(
+                    "Writing flags to Redis at key '{}' without TTL: {} flags",
+                    cache_key,
+                    flags.flags.len()
+                );
+                client.set(cache_key, payload).await.map_err(|e| {
+                    tracing::error!(
+                        "Failed to update Redis cache for project {}: {}",
+                        project_id,
+                        e
+                    );
+                    FlagError::CacheUpdateError
+                })?;
+            }
+        }
 
         Ok(())
     }

@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Literal, Union, cast
+from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -21,7 +21,7 @@ from posthog.hogql.ast import Constant, StringType
 from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, FunctionCallTable, SavedQuery, Table
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
@@ -40,6 +40,7 @@ from posthog.hogql.functions import (
     find_hogql_posthog_function,
 )
 from posthog.hogql.functions.core import validate_function_args
+from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
@@ -50,6 +51,7 @@ from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import Visitor, clone_expr
 
@@ -91,7 +93,7 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
 
 def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
     """Prints the HogQL query without mutating the node"""
-    return print_ast(
+    return prepare_and_print_ast(
         clone_expr(query),
         dialect="hogql",
         context=HogQLContext(
@@ -100,20 +102,20 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers
             modifiers=create_default_modifiers_for_team(team, modifiers),
         ),
         pretty=True,
-    )
+    )[0]
 
 
-def print_ast(
+def prepare_and_print_ast(
     node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
-) -> str:
+) -> tuple[str, Optional[_T_AST]]:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
     if prepared_ast is None:
-        return ""
+        return "", None
     return print_prepared_ast(
         node=prepared_ast,
         context=context,
@@ -121,20 +123,20 @@ def print_ast(
         stack=stack,
         settings=settings,
         pretty=pretty,
-    )
+    ), prepared_ast
 
 
 def prepare_ast_for_printing(
-    node: _T_AST,
+    node: _T_AST,  # node is mutated
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: list[ast.SelectQuery] | None = None,
     settings: HogQLGlobalSettings | None = None,
 ) -> _T_AST | None:
     if context.database is None:
-        with context.timings.measure("create_hogql_database"):
+        with context.timings.measure("create_hogql_database"):  # Legacy name to keep backwards compatibility
             # Passing both `team_id` and `team` because `team` is not always available in the context
-            context.database = create_hogql_database(
+            context.database = Database.create_for(
                 context.team_id,
                 modifiers=context.modifiers,
                 team=context.team,
@@ -148,6 +150,10 @@ def prepare_ast_for_printing(
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
+
+    if context.modifiers.optimizeProjections:
+        with context.timings.measure("projection_pushdown"):
+            node = pushdown_projections(node, context)
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
@@ -342,7 +348,7 @@ class _Printer(Visitor[str]):
             part_of_select_union
             and isinstance(self.stack[0], ast.SelectSetQuery)
             and len(self.stack[0].subsequent_select_queries) > 0
-            and self.stack[0].subsequent_select_queries[-1].select_query == node
+            and self.stack[0].subsequent_select_queries[-1].select_query is node
         )
 
         # We will add extra clauses onto this from the joined tables
@@ -875,13 +881,17 @@ class _Printer(Visitor[str]):
         if left in hack_sessions_timestamp or right in hack_sessions_timestamp:
             not_nullable = True
 
-        # :HACK: Prevent ifNull() wrapping for $ai_trace_id to allow bloom filter index usage
-        # The materialized column mat_$ai_trace_id has a bloom filter index for performance
+        # :HACK: Prevent ifNull() wrapping for $ai_trace_id and $ai_session_id to allow bloom filter index usage
+        # The materialized columns mat_$ai_trace_id and mat_$ai_session_id have bloom filter indexes for performance
         if (
             "mat_$ai_trace_id" in left
             or "mat_$ai_trace_id" in right
+            or "mat_$ai_session_id" in left
+            or "mat_$ai_session_id" in right
             or "$ai_trace_id" in left
             or "$ai_trace_id" in right
+            or "$ai_session_id" in left
+            or "$ai_session_id" in right
         ):
             not_nullable = True
 
@@ -1386,19 +1396,21 @@ class _Printer(Visitor[str]):
             args = [self.visit(arg) for arg in node.args]
 
             if self.dialect == "clickhouse":
-                if node.name == "hogql_lookupDomainType":
+                if node.name == "embedText":
+                    return self.visit_constant(resolve_embed_text(self.context.team, node))
+                elif node.name == "lookupDomainType":
                     channel_dict = get_channel_definition_dict()
                     return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "hogql_lookupPaidSourceType":
+                elif node.name == "lookupPaidSourceType":
                     channel_dict = get_channel_definition_dict()
                     return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{channel_dict}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "hogql_lookupPaidMediumType":
+                elif node.name == "lookupPaidMediumType":
                     channel_dict = get_channel_definition_dict()
                     return f"dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
-                elif node.name == "hogql_lookupOrganicSourceType":
+                elif node.name == "lookupOrganicSourceType":
                     channel_dict = get_channel_definition_dict()
                     return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "hogql_lookupOrganicMediumType":
+                elif node.name == "lookupOrganicMediumType":
                     channel_dict = get_channel_definition_dict()
                     return f"dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
                 elif node.name == "convertCurrency":
@@ -1636,10 +1648,10 @@ class _Printer(Visitor[str]):
 
         materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
-            # Special handling for $ai_trace_id to avoid nullIf wrapping for bloom filter index optimization
+            # Special handling for $ai_trace_id and $ai_session_id to avoid nullIf wrapping for bloom filter index optimization
             if (
                 len(type.chain) == 1
-                and type.chain[0] == "$ai_trace_id"
+                and type.chain[0] in ("$ai_trace_id", "$ai_session_id")
                 and isinstance(materialized_property_source, PrintableMaterializedColumn)
             ):
                 materialized_property_sql = str(materialized_property_source)

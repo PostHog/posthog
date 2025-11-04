@@ -27,7 +27,7 @@ def select_from_cohort_people_table(requested_fields: dict[str, list[str | int]]
     from posthog.models import Cohort
 
     cohort_tuples = list(
-        Cohort.objects.filter(is_static=False, team__project_id=project_id)
+        Cohort.objects.filter(is_static=False, team__project_id=project_id, deleted=False)
         .exclude(version__isnull=True)
         .values_list("id", "version")
     )

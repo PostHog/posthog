@@ -97,3 +97,29 @@ pub const CHECKPOINT_CLEANER_DELETE_ATTEMPTS: &str = "checkpoint_cleaner_delete_
 /// finds no associated DeduplicationStore, meaning ownership
 /// has changed across a rebalance or other event asynchronously
 pub const CHECKPOINT_STORE_NOT_FOUND_COUNTER: &str = "checkpoint_store_not_found";
+
+/// Histogram for checkpoint upload duration
+pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_duration_seconds";
+
+/// Counter for checkpoint upload outcome status
+pub const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_status";
+
+/// Counter for checkpoint file downloads outcome status
+pub const CHECKPOINT_FILE_DOWNLOADS_COUNTER: &str = "checkpoint_file_downloads_status";
+
+/// Counter for checkpoint files tracked in each attempt plan tagged by action taken
+pub const CHECKPOINT_PLAN_FILE_TRACKED_COUNTER: &str = "checkpoint_plan_file_tracked";
+
+/// Histogram for checkpoint metadata file fetch duration; only measured on success
+pub const CHECKPOINT_FILE_FETCH_HISTOGRAM: &str = "checkpoint_file_fetch_seconds";
+
+/// Histogram for checkpoint total batch download_files duration; only measured on success.
+/// The individual file ops are parallelized - we're measuring total elapsed time for the fanout
+pub const CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM: &str =
+    "checkpoint_batch_file_fetch_and_store_seconds";
+
+/// Histogram for checkpoint file download and store duration; only measured on success
+pub const CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM: &str = "checkpoint_file_fetch_and_store_seconds";
+
+/// Histogram for checkpoint metadata file list duration; only measured on success
+pub const CHECKPOINT_LIST_METADATA_HISTOGRAM: &str = "checkpoint_list_metadata_seconds";

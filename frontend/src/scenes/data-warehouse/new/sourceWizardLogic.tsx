@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { IconWarning } from '@posthog/icons'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -170,11 +171,16 @@ const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     azure: 'Azure',
 }
 
+const isTimestampType = (field: IncrementalField): boolean => {
+    const type = field.type || field.field_type
+    return type === 'timestamp' || type === 'datetime' || type === 'date'
+}
+
 const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined => {
     // check for timestamp field matching "updated_at" or "updatedAt" case insensitive
     const updatedAt = fields.find((field) => {
         const regex = /^updated/i
-        return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
+        return regex.test(field.label) && isTimestampType(field)
     })
     if (updatedAt) {
         return updatedAt
@@ -182,15 +188,13 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     // fallback to timestamp field matching "created_at" or "createdAt" case insensitive
     const createdAt = fields.find((field) => {
         const regex = /^created/i
-        return regex.test(field.field) && (field.field_type === 'timestamp' || field.type === 'datetime')
+        return regex.test(field.label) && isTimestampType(field)
     })
     if (createdAt) {
         return createdAt
     }
     // fallback to any timestamp or datetime field
-    const timestamp = fields.find((field) => {
-        return field.field_type === 'timestamp' || field.type === 'datetime'
-    })
+    const timestamp = fields.find((field) => isTimestampType(field))
     if (timestamp) {
         return timestamp
     }
@@ -198,7 +202,7 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
     const id = fields.find((field) => {
         const idRegex = /^id/i
         const uuidRegex = /^uuid/i
-        return (idRegex.test(field.field) || uuidRegex.test(field.field)) && field.field_type === 'integer'
+        return (idRegex.test(field.label) || uuidRegex.test(field.label)) && field.type === 'integer'
     })
     if (id) {
         return id
@@ -559,55 +563,132 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep === 3 && values.selectedConnector?.name) {
-                const unconfiguredTables = values.databaseSchema.filter((schema) => schema.sync_type === null)
-                const fullRefreshTables = values.databaseSchema.filter((schema) => schema.sync_type === 'full_refresh')
-                let confirmMessage: JSX.Element
-                if (unconfiguredTables.length > 0 || fullRefreshTables.length > 0) {
-                    confirmMessage = (
-                        <>
-                            {unconfiguredTables.length > 0 && (
-                                <>
-                                    <h4 className="mt-2">Unconfigured tables</h4>
-                                    <div>You have no sync method setup for the following tables:</div>
-                                    <ul className="px-4 space-y-1 my-4">
-                                        {unconfiguredTables.map((table) => (
-                                            <li
+                const maxTablesShownPerSection = 4
+                const ignoredTables = values.databaseSchema.filter(
+                    (schema) => !schema.should_sync || schema.sync_type === null
+                )
+                const appendOnlyTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'append'
+                )
+                const incrementalTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'incremental'
+                )
+                const fullRefreshTables = values.databaseSchema.filter(
+                    (schema) => schema.should_sync && schema.sync_type === 'full_refresh'
+                )
+                const confirmation = (
+                    <>
+                        <h4 className="mt-2">Full refresh tables</h4>
+                        <div className={fullRefreshTables.length > 0 ? 'text-warning' : ''}>
+                            {fullRefreshTables.length > 0 && <IconWarning />}
+                            <span className={fullRefreshTables.length > 0 ? 'pl-2' : ''}>
+                                Full refresh syncs can dramatically increase your spend if you aren't mindful of them.{' '}
+                                {fullRefreshTables.length > 0 ? (
+                                    <>You have the following tables setup for full refresh syncs:</>
+                                ) : (
+                                    <>None of your tables are setup for full refresh syncs. Yay!</>
+                                )}
+                            </span>
+                        </div>
+                        {fullRefreshTables.length > 0 && (
+                            <>
+                                <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
+                                    {fullRefreshTables
+                                        .slice(0, Math.min(fullRefreshTables.length, maxTablesShownPerSection))
+                                        .map((table) => (
+                                            <div
                                                 key={table.table}
                                                 className="font-mono px-2 rounded bg-surface-secondary w-min"
                                             >
                                                 {table.table}
-                                            </li>
+                                            </div>
                                         ))}
-                                    </ul>
-                                </>
+                                </div>
+                                <div>
+                                    {fullRefreshTables.length > maxTablesShownPerSection && (
+                                        <div className="my-4">
+                                            and{' '}
+                                            <span className="text-warning font-bold">
+                                                {fullRefreshTables.length - maxTablesShownPerSection}
+                                            </span>{' '}
+                                            more...
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                        <h4 className="mt-2">Append-only tables</h4>
+                        <div>
+                            Append-only syncs, while preferrable to full refresh syncs, still need to be configured with
+                            care. The field you select for append-only syncing should not change when a row is updated
+                            &ndash; for example, <span className="font-mono">created_at</span>.{' '}
+                            {appendOnlyTables.length > 0 ? (
+                                <>You have the following tables setup for append-only syncs:</>
+                            ) : (
+                                <>None of your tables are setup for append-only syncs. Sick!</>
                             )}
-                            {fullRefreshTables.length > 0 && (
-                                <>
-                                    <h4 className="mt-2">Full refresh tables</h4>
-                                    <div>
-                                        Full refresh syncs can dramatically increase your spend if you aren't mindful of
-                                        them. You have the following tables setup for full refresh syncs:
-                                    </div>
-                                    <ul className="px-4 space-y-1 my-4">
-                                        {fullRefreshTables.map((table) => (
-                                            <li
+                        </div>
+                        {appendOnlyTables.length > 0 && (
+                            <>
+                                <div className="px-4 grid grid-cols-1 gap-2 my-4 lg:grid-cols-2">
+                                    {appendOnlyTables
+                                        .slice(0, Math.min(appendOnlyTables.length, maxTablesShownPerSection))
+                                        .map((table) => (
+                                            <div
                                                 key={table.table}
                                                 className="font-mono px-2 rounded bg-surface-secondary w-min"
                                             >
                                                 {table.table}
-                                            </li>
+                                            </div>
                                         ))}
-                                    </ul>
+                                </div>
+                                <div>
+                                    {appendOnlyTables.length > maxTablesShownPerSection && (
+                                        <div className="my-4">
+                                            and{' '}
+                                            <span className="text-warning font-bold">
+                                                {appendOnlyTables.length - maxTablesShownPerSection}
+                                            </span>{' '}
+                                            more...
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                        <h4 className="mt-2">Ignored tables</h4>
+                        <div>
+                            If you do not enable the checkbox for a table or configure its sync method, it will be
+                            ignored.{' '}
+                            {ignoredTables.length > 0 ? (
+                                <>
+                                    You currently have{' '}
+                                    <span className="text-warning font-bold">{ignoredTables.length}</span> table(s) set
+                                    to be ignored from future syncs.
+                                </>
+                            ) : (
+                                <>You are syncing all of your tables. You'll be bathing in data soon.</>
+                            )}
+                        </div>
+                        <h4 className="mt-2">Incremental tables</h4>
+                        <div>
+                            The remainder of your tables are setup for incremental syncs, which are typically ideal. The
+                            field you select for syncing incrementally should change each time the row is updated - for
+                            example, <span className="font-mono">updated_at</span>.{' '}
+                            {incrementalTables.length > 0 && (
+                                <>
+                                    You currently have{' '}
+                                    <span className="text-warning font-bold">
+                                        {incrementalTables.length} {incrementalTables.length === 69 && ' (nice)'}
+                                    </span>{' '}
+                                    table(s) set to sync incrementally.
                                 </>
                             )}
-                        </>
-                    )
-                } else {
-                    confirmMessage = <>Everything looks good to us if it looks good to you!</>
-                }
+                        </div>
+                    </>
+                )
                 LemonDialog.open({
                     title: 'Confirm your table configurations',
-                    description: confirmMessage,
+                    content: confirmation,
                     primaryButton: {
                         children: 'Confirm',
                         type: 'primary',
@@ -712,18 +793,23 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     values.source.payload ?? {}
                 )
 
+                let showToast = false
+
                 for (const schema of schemas) {
                     if (schema.sync_type === null) {
+                        showToast = true
                         schema.should_sync = true
 
                         // Use incremental if available
                         if (schema.incremental_available || schema.append_available) {
                             const method = schema.incremental_available ? 'incremental' : 'append'
-                            const field = resolveIncrementalField(schema.incremental_fields)
+                            const resolvedField = resolveIncrementalField(schema.incremental_fields)
                             schema.sync_type = method
-                            if (field) {
-                                schema.incremental_field = field.field
-                                schema.incremental_field_type = field.field_type
+                            if (resolvedField) {
+                                schema.incremental_field = resolvedField.field
+                                schema.incremental_field_type = resolvedField.field_type
+                            } else {
+                                schema.sync_type = 'full_refresh'
                             }
                         } else {
                             schema.sync_type = 'full_refresh'
@@ -731,9 +817,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }
                 }
 
-                lemonToast.info(
-                    "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
-                )
+                if (showToast) {
+                    lemonToast.info(
+                        "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
+                    )
+                }
 
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()

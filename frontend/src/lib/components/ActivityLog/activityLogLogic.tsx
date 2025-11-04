@@ -34,6 +34,7 @@ import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
+import { personalAPIKeyActivityDescriber } from 'scenes/settings/user/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 import { urls } from 'scenes/urls'
@@ -124,6 +125,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return dashboardActivityDescriber
         case ActivityScope.PERSON:
             return personActivityDescriber
+        case ActivityScope.PERSONAL_API_KEY:
+            return personalAPIKeyActivityDescriber
         case ActivityScope.GROUP:
             return groupActivityDescriber
         case ActivityScope.EVENT_DEFINITION:
@@ -145,6 +148,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return dataWarehouseSavedQueryActivityDescriber
         case ActivityScope.REPLAY:
             return replayActivityDescriber
+        case ActivityScope.HEATMAP:
+            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
         case ActivityScope.EXPERIMENT:
             return experimentActivityDescriber
         case ActivityScope.TAG:
@@ -153,6 +158,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.EXTERNAL_DATA_SOURCE:
         case ActivityScope.EXTERNAL_DATA_SCHEMA:
             return externalDataSourceActivityDescriber
+        case ActivityScope.ENDPOINT:
+            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }

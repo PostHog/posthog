@@ -19,7 +19,7 @@ type FilterOption = { value: string; label: string }
 /**
  * Options for the 'Trigger' field on the new destination page
  */
-const getFilterOptions = (contextId: HogFunctionConfigurationContextId): FilterOption[] => {
+export const getProductEventFilterOptions = (contextId: HogFunctionConfigurationContextId): FilterOption[] => {
     switch (contextId) {
         case 'error-tracking':
             return [
@@ -53,6 +53,29 @@ const getFilterOptions = (contextId: HogFunctionConfigurationContextId): FilterO
     }
 }
 
+export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfigurationContextId): string[] => {
+    switch (contextId) {
+        case 'activity-log':
+            return [
+                'id',
+                'unread',
+                'organization_id',
+                'was_impersonated',
+                'is_system',
+                'activity',
+                'item_id',
+                'scope',
+                'detail.name',
+                'detail.changes',
+                'created_at',
+            ]
+        case 'error-tracking':
+            return ['$exception_types', '$exception_values', '$exception_sources', '$exception_functions']
+    }
+
+    return []
+}
+
 const getSimpleFilterValue = (value?: CyclotronJobFiltersType): string | undefined => {
     return value?.events?.[0]?.id
 }
@@ -72,7 +95,7 @@ const setSimpleFilterValue = (options: FilterOption[], value: string): Cyclotron
 export function HogFunctionFiltersInternal(): JSX.Element {
     const { contextId } = useValues(hogFunctionConfigurationLogic)
 
-    const options = useMemo(() => getFilterOptions(contextId), [contextId])
+    const options = useMemo(() => getProductEventFilterOptions(contextId), [contextId])
 
     const taxonomicGroupTypes = useMemo(() => {
         if (contextId === 'error-tracking') {
@@ -83,6 +106,8 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             ]
         } else if (contextId === 'insight-alerts') {
             return [TaxonomicFilterGroupType.Events]
+        } else if (contextId === 'activity-log') {
+            return [TaxonomicFilterGroupType.ActivityLogProperties]
         }
         return []
     }, [contextId])

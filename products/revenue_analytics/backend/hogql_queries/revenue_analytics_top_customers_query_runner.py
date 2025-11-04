@@ -6,6 +6,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import UnknownDatabaseField
 from posthog.hogql.query import execute_hogql_query
 
 from products.revenue_analytics.backend.views import (
@@ -24,7 +25,8 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         subqueries = list(self.revenue_subqueries(RevenueAnalyticsRevenueItemView))
         if not subqueries:
-            return ast.SelectQuery.empty(columns=["customer_id", "name", "amount", "month"])
+            columns = ["customer_id", "name", "amount", "month"]
+            return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
 
         queries = [self._to_query_from(subquery) for subquery in subqueries]
         return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")

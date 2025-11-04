@@ -45,11 +45,12 @@ def get_export_finished_metric(status: str) -> MetricCounter:
 BATCH_EXPORT_ACTIVITY_TYPES = {
     "insert_into_internal_stage_activity",
     "insert_into_s3_activity_from_stage",
-    "insert_into_snowflake_activity",
     "insert_into_snowflake_activity_from_stage",
+    "copy_into_snowflake_activity_from_stage",
     "insert_into_bigquery_activity",
     "insert_into_redshift_activity",
     "insert_into_postgres_activity",
+    "insert_into_postgres_activity_from_stage",
     "insert_into_databricks_activity_from_stage",
 }
 BATCH_EXPORT_WORKFLOW_TYPES = {
@@ -84,12 +85,25 @@ class _BatchExportsMetricsActivityInboundInterceptor(ActivityInboundInterceptor)
         if activity_type not in BATCH_EXPORT_ACTIVITY_TYPES:
             return await super().execute_activity(input)
 
-        interval = get_interval_from_bounds(input.args[0].data_interval_start, input.args[0].data_interval_end)
+        try:
+            data_interval_start = input.args[0].data_interval_start
+            data_interval_end = input.args[0].data_interval_end
+            interval = get_interval_from_bounds(data_interval_start, data_interval_end)
+        except AttributeError:
+            try:
+                data_interval_start = input.args[0].batch_export.data_interval_start
+                data_interval_end = input.args[0].batch_export.data_interval_end
+                interval = get_interval_from_bounds(data_interval_start, data_interval_end)
+            except Exception:
+                data_interval_start = None
+                data_interval_end = None
+                interval = None
+
         if not interval:
             LOGGER.error(
                 "Failed to parse interval bounds ('%s', '%s'), will not record latency for '%s'",
-                input.args[0].data_interval_start,
-                input.args[0].data_interval_end,
+                data_interval_start,
+                data_interval_end,
                 activity_type,
             )
             return await super().execute_activity(input)

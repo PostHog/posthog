@@ -1,10 +1,14 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use aws_config::{meta::region::RegionProviderChain, Region};
+use aws_config::{
+    meta::region::RegionProviderChain, retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion,
+    Region,
+};
+
 use aws_sdk_s3::{Client, Config};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::fs;
-use tracing::{error, info};
+use tracing::info;
 
 use super::config::CheckpointConfig;
 use super::uploader::CheckpointUploader;
@@ -20,7 +24,17 @@ impl S3Uploader {
         let region_provider =
             RegionProviderChain::default_provider().or_else(Region::new(config.aws_region.clone()));
 
-        let aws_config = aws_config::from_env().region(region_provider).load().await;
+        let timeout_config = TimeoutConfig::builder()
+            .operation_timeout(config.s3_operation_timeout)
+            .operation_attempt_timeout(config.s3_attempt_timeout)
+            .build();
+
+        let aws_config = aws_config::defaults(BehaviorVersion::latest())
+            .region(region_provider)
+            .timeout_config(timeout_config)
+            .retry_config(RetryConfig::adaptive())
+            .load()
+            .await;
 
         let s3_config = Config::from(&aws_config);
         let client = Client::from_conf(s3_config);
@@ -28,79 +42,19 @@ impl S3Uploader {
         Ok(Self { client, config })
     }
 
-    fn collect_files_to_upload(
-        &self,
-        base_path: &Path,
-        s3_key_prefix: &str,
-    ) -> Result<Vec<(PathBuf, String)>> {
-        let mut files_to_upload = Vec::new();
-        let mut stack = vec![base_path.to_path_buf()];
-
-        while let Some(current_path) = stack.pop() {
-            let entries = std::fs::read_dir(&current_path)
-                .with_context(|| format!("Failed to read directory: {current_path:?}"))?;
-
-            for entry in entries {
-                let entry = entry?;
-                let path = entry.path();
-
-                if path.is_dir() {
-                    stack.push(path);
-                } else {
-                    let relative_path = path
-                        .strip_prefix(base_path)
-                        .with_context(|| format!("Failed to get relative path for: {path:?}"))?;
-
-                    let s3_key = format!(
-                        "{}/{}",
-                        s3_key_prefix,
-                        relative_path.to_string_lossy().replace('\\', "/")
-                    );
-
-                    files_to_upload.push((path, s3_key));
-                }
-            }
-        }
-
-        Ok(files_to_upload)
-    }
-
-    async fn upload_files(&self, files_to_upload: Vec<(PathBuf, String)>) -> Result<Vec<String>> {
-        let mut uploaded_keys = Vec::new();
-
-        for (local_path, s3_key) in files_to_upload {
-            match self.upload_file(&local_path, &s3_key).await {
-                Ok(()) => {
-                    uploaded_keys.push(s3_key);
-                }
-                Err(e) => {
-                    error!("Failed to upload file {local_path:?} to {s3_key}: {e}");
-                    return Err(e);
-                }
-            }
-        }
-
-        Ok(uploaded_keys)
-    }
-
     async fn upload_file(&self, local_path: &Path, s3_key: &str) -> Result<()> {
         let body = fs::read(local_path)
             .await
             .with_context(|| format!("Failed to read file: {local_path:?}"))?;
 
-        let put_object = self
-            .client
+        self.client
             .put_object()
             .bucket(&self.config.s3_bucket)
             .key(s3_key)
-            .body(body.into());
-
-        // Apply timeout if configured
-        let result = tokio::time::timeout(self.config.s3_timeout, put_object.send())
+            .body(body.into())
+            .send()
             .await
-            .with_context(|| format!("S3 upload timeout for key: {s3_key}"))?;
-
-        result.with_context(|| format!("Failed to upload to S3 key: {s3_key}"))?;
+            .with_context(|| format!("Failed to upload to S3 key: {s3_key}"))?;
 
         info!(
             "Uploaded file {local_path:?} to s3://{0}/{s3_key}",
@@ -112,79 +66,55 @@ impl S3Uploader {
 
 #[async_trait]
 impl CheckpointUploader for S3Uploader {
-    async fn upload_checkpoint_dir(
-        &self,
-        local_path: &Path,
-        s3_key_prefix: &str,
-    ) -> Result<Vec<String>> {
-        if !local_path.exists() {
-            return Err(anyhow::anyhow!(
-                "Local checkpoint path does not exist: {local_path:?}"
-            ));
-        }
-
-        info!(
-            "Starting upload of checkpoint directory: {local_path:?} to s3://{}/{s3_key_prefix}",
-            self.config.s3_bucket
-        );
-
-        let files_to_upload = self.collect_files_to_upload(local_path, s3_key_prefix)?;
-        let uploaded_keys = self.upload_files(files_to_upload).await?;
-
-        info!("Successfully uploaded {} files to S3", uploaded_keys.len());
-        Ok(uploaded_keys)
-    }
-
     async fn upload_checkpoint_with_plan(
         &self,
         plan: &super::CheckpointPlan,
-        remote_key_prefix: &str,
     ) -> Result<Vec<String>> {
         info!(
             "Starting upload with plan: {} files to upload, {} files referenced from parents",
             plan.files_to_upload.len(),
-            plan.metadata.files.len() - plan.files_to_upload.len()
+            plan.info.metadata.files.len() - plan.files_to_upload.len()
         );
 
-        // Upload all files concurrently
+        // Upload all files concurrently (upload_files is in serial atm)
         let upload_futures: Vec<_> = plan
             .files_to_upload
             .iter()
-            .map(|(filename, local_path)| {
-                let s3_key = format!("{remote_key_prefix}/{filename}");
-                let local_path = local_path.clone();
+            .map(|local_file| {
+                let bucket: String = self.config.s3_bucket.clone();
+                let src = local_file.local_path.to_path_buf();
+                let dest: String = plan.info.get_file_key(&local_file.filename);
+
                 async move {
-                    self.upload_file(Path::new(&local_path), &s3_key).await?;
-                    Ok::<String, anyhow::Error>(s3_key)
+                    self.upload_file(&src, &dest).await.with_context(|| {
+                        format!("Failed to upload file: {src:?} to s3://{bucket}/{dest}")
+                    })?;
+                    Ok::<String, anyhow::Error>(dest)
                 }
             })
             .collect();
 
-        let uploaded_keys = futures::future::try_join_all(upload_futures).await?;
+        let uploaded_keys = futures::future::try_join_all(upload_futures)
+            .await
+            .with_context(|| format!("Failed to upload files with plan: {plan:?}"))?;
 
-        // Upload metadata.json
-        let metadata_json = serde_json::to_string_pretty(&plan.metadata)
-            .context("Failed to serialize checkpoint metadata")?;
-
-        let metadata_key = format!("{remote_key_prefix}/metadata.json");
-        let put_object = self
-            .client
+        // Upload metadata.json - not using upload_file b/c meta is in memory and must be seriealized
+        let metadata_json = plan.info.metadata.to_json()?;
+        let metadata_key = plan.info.get_metadata_key();
+        self.client
             .put_object()
             .bucket(&self.config.s3_bucket)
             .key(&metadata_key)
-            .body(metadata_json.into_bytes().into());
-
-        let result = tokio::time::timeout(self.config.s3_timeout, put_object.send())
+            .body(metadata_json.into_bytes().into())
+            .send()
             .await
-            .with_context(|| format!("S3 upload timeout for key: {metadata_key}"))?;
-
-        result.with_context(|| format!("Failed to upload metadata to S3 key: {metadata_key}"))?;
+            .with_context(|| format!("Failed to upload metadata to S3 key: {metadata_key}"))?;
 
         info!(
-            "Uploaded {} files and metadata to s3://{}/{}",
+            "Uploaded {} files and metadata file to s3://{}/{}",
             plan.files_to_upload.len(),
             self.config.s3_bucket,
-            remote_key_prefix
+            plan.info.get_remote_attempt_path(),
         );
 
         let mut all_keys = uploaded_keys;

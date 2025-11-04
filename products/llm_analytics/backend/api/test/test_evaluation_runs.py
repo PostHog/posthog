@@ -3,6 +3,8 @@ import uuid
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
+
 from rest_framework import status
 
 from ...models.evaluations import Evaluation
@@ -14,7 +16,10 @@ class TestEvaluationRunViewSet(APIBaseTest):
         self.evaluation = Evaluation.objects.create(
             team=self.team,
             name="Test Evaluation",
-            prompt="Is this response accurate?",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this response accurate?"},
+            output_type="boolean",
+            output_config={},
             enabled=True,
         )
 
@@ -49,7 +54,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
         call_args = mock_client.start_workflow.call_args
 
         assert call_args[0][0] == "run-evaluation"  # workflow name
-        assert call_args[1]["task_queue"] == "general-purpose-task-queue"
+        assert call_args[1]["task_queue"] == settings.GENERAL_PURPOSE_TASK_QUEUE
 
     def test_create_evaluation_run_invalid_evaluation(self):
         """Test creating evaluation run with non-existent evaluation"""
@@ -80,7 +85,10 @@ class TestEvaluationRunViewSet(APIBaseTest):
         other_evaluation = Evaluation.objects.create(
             team=other_team,
             name="Other Evaluation",
-            prompt="Test",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Test"},
+            output_type="boolean",
+            output_config={},
             enabled=True,
         )
 

@@ -5,11 +5,12 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.batch_exports.models import BatchExportRun
 from posthog.batch_exports.service import afetch_batch_export_runs_in_range
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
@@ -27,7 +28,10 @@ from products.batch_exports.backend.temporal.monitoring import (
     reconcile_event_counts,
     update_batch_export_runs,
 )
-from products.batch_exports.backend.tests.temporal.utils import create_clickhouse_tables_and_views, truncate_events
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
+    create_clickhouse_tables_and_views,
+    truncate_events,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -130,7 +134,7 @@ async def _run_workflow(batch_export):
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[BatchExportMonitoringWorkflow],
             activities=[
                 get_batch_export,
@@ -145,7 +149,7 @@ async def _run_workflow(batch_export):
                 BatchExportMonitoringWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(seconds=30),
             )

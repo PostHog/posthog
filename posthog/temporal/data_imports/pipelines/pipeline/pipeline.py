@@ -34,9 +34,10 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
 from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
-from posthog.warehouse.models.external_data_schema import process_incremental_value
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class PipelineNonDLT:
@@ -106,7 +107,7 @@ class PipelineNonDLT:
                 increment_rows(self._job.team_id, self._schema.id, self._resource.rows_to_sync)
 
                 # Check billing limits against incoming rows
-                if will_hit_billing_limit(team_id=self._job.team_id, logger=self._logger):
+                if will_hit_billing_limit(team_id=self._job.team_id, source=self._schema.source, logger=self._logger):
                     raise BillingLimitsWillBeReachedException(
                         f"Your account will hit your Data Warehouse billing limits syncing {self._resource.name} with {self._resource.rows_to_sync} rows"
                     )
@@ -314,12 +315,14 @@ class PipelineNonDLT:
                 return
 
         self._logger.debug(f"Adding {len(new_file_uris)} S3 files to query folder")
-        prepare_s3_files_for_querying(
+        queryable_folder = prepare_s3_files_for_querying(
             folder_path=self._job.folder_path(),
             table_name=self._resource_name,
             file_uris=new_file_uris,
             # delete existing files if it's the first chunk, otherwise we'll just append to the existing files
             delete_existing=chunk_index == 0,
+            use_timestamped_folders=False,
+            logger=self._logger,
         )
         self._logger.debug("Validating schema and updating table")
         validate_schema_and_update_table_sync(
@@ -328,6 +331,7 @@ class PipelineNonDLT:
             schema_id=self._schema.id,
             table_schema_dict=self._internal_schema.to_hogql_types(),
             row_count=row_count,
+            queryable_folder=queryable_folder,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
 
@@ -347,7 +351,14 @@ class PipelineNonDLT:
 
         file_uris = delta_table.file_uris()
         self._logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
-        prepare_s3_files_for_querying(self._job.folder_path(), self._resource_name, file_uris)
+        queryable_folder = prepare_s3_files_for_querying(
+            self._job.folder_path(),
+            self._resource_name,
+            file_uris,
+            delete_existing=True,
+            existing_queryable_folder=self._schema.table.queryable_folder if self._schema.table else None,
+            logger=self._logger,
+        )
 
         self._logger.debug("Updating last synced at timestamp on schema")
         update_last_synced_at_sync(job_id=self._job.id, schema_id=self._schema.id, team_id=self._job.team_id)
@@ -371,6 +382,7 @@ class PipelineNonDLT:
             schema_id=self._schema.id,
             table_schema_dict=self._internal_schema.to_hogql_types(),
             row_count=row_count,
+            queryable_folder=queryable_folder,
             table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
         )
         self._logger.debug("Finished validating schema and updating table")
@@ -397,11 +409,14 @@ def _get_incremental_field_value(
         return
 
     column = table[normalize_column_name(incremental_field_name)]
+    processed_column = pa.array(
+        [process_incremental_value(val, schema.incremental_field_type) for val in column.to_pylist()]
+    )
 
     if aggregate == "max":
-        last_value = pc.max(column)
+        last_value = pc.max(processed_column)
     elif aggregate == "min":
-        last_value = pc.min(column)
+        last_value = pc.min(processed_column)
     else:
         raise Exception(f"Unsupported aggregate function for _get_incremental_field_value: {aggregate}")
 

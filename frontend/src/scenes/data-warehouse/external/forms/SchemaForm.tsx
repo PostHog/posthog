@@ -154,7 +154,11 @@ export default function SchemaForm(): JSX.Element {
                                     'Incremental and append-only refresh methods key on a unique field to determine the most up-to-date data.',
                                 isHidden: !databaseSchema.some((schema) => schema.sync_type),
                                 render: function RenderSyncType(_, schema) {
-                                    if (schema.sync_type !== null && schema.incremental_field) {
+                                    if (
+                                        schema.sync_type !== 'full_refresh' &&
+                                        schema.sync_type !== null &&
+                                        schema.incremental_field
+                                    ) {
                                         const field =
                                             schema.incremental_fields.find(
                                                 (f) => f.field == schema.incremental_field

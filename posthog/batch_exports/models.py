@@ -37,7 +37,7 @@ class BatchExportDestination(UUIDTModel):
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "Snowflake": {"user", "password", "private_key", "private_key_passphrase"},
         "Postgres": {"user", "password"},
-        "Redshift": {"user", "password"},
+        "Redshift": {"user", "password", "aws_access_key_id", "aws_secret_access_key"},
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
         # Databricks does not have any secret fields, as we use integrations to store credentials
         "Databricks": set(),

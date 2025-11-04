@@ -40,7 +40,7 @@ export type TaskUpsertProps = Optional<
         | 'workflow'
         | 'current_stage'
     >,
-    'position' | 'workflow' | 'current_stage'
+    'position' | 'workflow' | 'current_stage' | 'title'
 >
 
 export interface KanbanColumn {

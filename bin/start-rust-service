@@ -82,7 +82,7 @@ case "$RS_SVC" in
     export RUST_LOG=debug,rdkafka=warn
     export RUST_BACKTRACE=1
     export KAFKA_CONSUMER_GROUP=embedding-worker
-    export KAFKA_CONSUMER_TOPIC="error_tracking_new_fingerprints"
+    export KAFKA_CONSUMER_TOPIC="document_embeddings_input"
     export FRAME_CACHE_TTL_SECONDS=1
     export BIND_PORT=3305 # HACK! avoid local-dev clash with property-defs-rs port
     export ALLOW_INTERNAL_IPS="true"

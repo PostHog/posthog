@@ -15,6 +15,7 @@ class AvailableFeature(StrEnum):
     ENVIRONMENTS = "environments"
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
+    SCIM = "scim"
     SSO_ENFORCEMENT = "sso_enforcement"
     ADVANCED_PERMISSIONS = "advanced_permissions"  # TODO: Remove this once access_control is propagated
     ACCESS_CONTROL = "access_control"
@@ -312,19 +313,6 @@ SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
-DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
-MAX_AI_TASK_QUEUE = "max-ai-task-queue"
-BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
-DATA_MODELING_TASK_QUEUE = "data-modeling-task-queue"
-SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
-GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
-TASKS_TASK_QUEUE = "tasks-task-queue"
-TEST_TASK_QUEUE = "test-task-queue"
-BILLING_TASK_QUEUE = "billing-task-queue"
-VIDEO_EXPORT_TASK_QUEUE = "video-export-task-queue"
-MESSAGING_TASK_QUEUE = "messaging-task-queue"
-ANALYTICS_PLATFORM_TASK_QUEUE = "analytics-platform-task-queue"
-SESSION_REPLAY_TASK_QUEUE = "session-replay-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
@@ -359,8 +347,9 @@ DEFAULT_SURVEY_APPEARANCE = {
     "surveyPopupDelaySeconds": None,
 }
 
-# Mapping of social_django backend names
-SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES = {
+# Mapping of auth backend names to login method display names
+AUTH_BACKEND_DISPLAY_NAMES = {
+    "django.contrib.auth.backends.ModelBackend": "Email/password",
     "google-oauth2": "Google OAuth",
     "github": "GitHub",
     "gitlab": "GitLab",
