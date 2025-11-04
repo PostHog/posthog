@@ -253,7 +253,10 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         ifNull(properties.$ai_span_name, properties.$ai_trace_name),
                         timestamp,
                     )
-                ) AS trace_name
+                ) AS trace_name,
+                countIf(
+                    isNotNull(properties.$ai_error) OR properties.$ai_is_error = true
+                ) AS error_count
             FROM events
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
@@ -284,7 +287,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 2,
+            "schema_version": 3,
         }
 
     @cached_property
@@ -344,6 +347,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "total_cost": "totalCost",
             "events": "events",
             "trace_name": "traceName",
+            "error_count": "errorCount",
         }
 
         generations = []
