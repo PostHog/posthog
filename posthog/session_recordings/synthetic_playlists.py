@@ -655,13 +655,17 @@ def get_synthetic_playlist(short_id: str, team: Team | None = None) -> Synthetic
         for source in DYNAMIC_SYNTHETIC_PLAYLIST_SOURCES:
             # Gate new URL collections behind feature flag
             if isinstance(source, NewUrlsSyntheticPlaylistSource):
-                flag_result = posthoganalytics.get_feature_flag(
-                    "replay-new-detected-url-collections",
-                    str(team.uuid),
-                    groups={"organization": str(team.organization_id)},
-                )
-                # Skip if flag is not set to "test" variant
-                if flag_result is None or flag_result.variant != "test":
+                try:
+                    flag_result = posthoganalytics.get_feature_flag(
+                        "replay-new-detected-url-collections",
+                        str(team.uuid),
+                        groups={"organization": str(team.organization_id)},
+                    )
+                    # Skip if flag is not set to "test" variant
+                    if flag_result is None or flag_result != "test":
+                        continue
+                except Exception:
+                    # If feature flag check fails, skip this source
                     continue
 
             dynamic_playlist = source.get_dynamic_playlist_by_id(short_id, team)
@@ -676,17 +680,20 @@ def get_all_synthetic_playlists(team: Team) -> list[SyntheticPlaylistDefinition]
     Get all synthetic playlists for a team, including both static and dynamic ones.
     """
     all_playlists = list(SYNTHETIC_PLAYLISTS)
-
     # Add dynamic playlists from each source
     for source in DYNAMIC_SYNTHETIC_PLAYLIST_SOURCES:
         # Gate new URL collections behind feature flag
         if isinstance(source, NewUrlsSyntheticPlaylistSource):
-            flag_result = posthoganalytics.get_feature_flag(
-                "replay-new-detected-url-collections",
-                str(team.uuid),
-                groups={"organization": str(team.organization_id)},
-            )
-            if flag_result is None or flag_result.variant != "test":
+            try:
+                flag_result = posthoganalytics.get_feature_flag(
+                    "replay-new-detected-url-collections",
+                    str(team.uuid),
+                    groups={"organization": str(team.organization_id)},
+                )
+                if flag_result is None or flag_result != "test":
+                    continue
+            except Exception:
+                # If feature flag check fails, skip this source
                 continue
 
         all_playlists.extend(source.generate_dynamic_playlists(team))
