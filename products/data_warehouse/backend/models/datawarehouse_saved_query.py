@@ -57,6 +57,13 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         FAILED = "Failed"
         RUNNING = "Running"
 
+    class Origin(models.TextChoices):
+        """Possible origin of this SavedQuery."""
+
+        DATA_WAREHOUSE = "data_warehouse"
+        ENDPOINT = "endpoint"
+        REVENUE_ANALYTICS = "revenue_analytics"
+
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     latest_error = models.TextField(default=None, null=True, blank=True)
@@ -91,6 +98,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         null=True,
         blank=True,
         related_name="saved_queries",
+    )
+
+    origin = models.CharField(
+        choices=Origin.choices, help_text="Where this SavedQuery is created.", default=None, null=True, blank=True
     )
 
     class Meta:
