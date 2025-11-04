@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -205,8 +205,15 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
-        useValues(experimentLogic)
+    const {
+        experimentLoading,
+        experimentId,
+        experiment,
+        usesNewQueryRunner,
+        isExperimentDraft,
+        exposureCriteria,
+        featureFlags,
+    } = useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
         useActions(experimentLogic)
 
@@ -228,7 +235,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
      * We show the create form if the experiment is draft + has no primary metrics. Otherwise,
      * we show the experiment view.
      */
-    const isCreateFormEnabled = useFeatureFlag('EXPERIMENTS_CREATE_FORM', 'test')
     const allPrimaryMetrics = [
         ...(experiment.metrics || []),
         ...(experiment.saved_metrics || []).filter((sm) => sm.metadata.type === 'primary'),
@@ -236,9 +242,10 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
 
     if (
         !experimentLoading &&
-        isCreateFormEnabled &&
         getExperimentStatus(experiment) === ProgressStatus.Draft &&
-        allPrimaryMetrics.length === 0
+        experiment.type === 'product' &&
+        allPrimaryMetrics.length === 0 &&
+        featureFlags[FEATURE_FLAGS.EXPERIMENTS_CREATE_FORM] === 'test'
     ) {
         return <CreateExperiment draftExperiment={experiment} tabId={tabId} />
     }
