@@ -23,6 +23,7 @@ class UserLoginContext(ActivityContextBase):
     login_method: str
     ip_address: str
     user_agent: str
+    reauth: bool
 
 
 @dataclasses.dataclass(frozen=True)
@@ -145,6 +146,7 @@ def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # no
             ip_address = ip_address.split(",")[0].strip()
 
         user_agent = request.META.get("HTTP_USER_AGENT", "")
+        reauth_sensitive_ops = request.session.get("reauth") == "true"
 
         organization_id = user.current_organization_id
 
@@ -166,6 +168,7 @@ def log_user_login_activity(sender, user, request: HttpRequest, **kwargs):  # no
                     login_method=_determine_login_method(request, was_impersonated, user),
                     ip_address=ip_address,
                     user_agent=user_agent,
+                    reauth_sensitive_ops=reauth_sensitive_ops,
                 ),
             ),
             was_impersonated=was_impersonated,

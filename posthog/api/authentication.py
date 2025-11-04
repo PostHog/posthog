@@ -264,6 +264,10 @@ class LoginSerializer(serializers.Serializer):
         if not self._check_if_2fa_required(user):
             set_two_factor_verified_in_session(request)
 
+        # This is auto-handled for social auth providers, but we need to handle it manually for user/pass logins
+        request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
+        request.session.save()
+
         # Trigger login notification (password, no-2FA) and skip re-auth
         if not was_authenticated_before_login_attempt:
             short_user_agent = get_short_user_agent(request)

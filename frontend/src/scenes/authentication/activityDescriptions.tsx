@@ -28,11 +28,13 @@ export function userActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
     if (logItem.activity === 'logged_in') {
         const loginMethod = context?.login_method ? formatLoginMethod(context.login_method) : 'an unknown method'
+        const reauthSensitiveOps = context?.reauth
 
         return {
             description: (
                 <>
                     <strong>{userNameForLogItem(logItem)}</strong> logged in using {loginMethod}
+                    {reauthSensitiveOps && <> (re-authenticated for sensitive operations)</>}
                 </>
             ),
         }
