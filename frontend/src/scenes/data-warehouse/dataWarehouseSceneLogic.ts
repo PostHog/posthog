@@ -4,20 +4,15 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { PaginatedResponse } from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { urls } from 'scenes/urls'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 import {
-    BillingPeriod,
     DataWarehouseActivityRecord,
-    DataWarehouseDashboardDataSource,
     DataWarehouseJobStats,
     DataWarehouseJobStatsRequestPayload,
     DataWarehouseSourceRowCount,
-    ExternalDataSource,
 } from '~/types'
 
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
