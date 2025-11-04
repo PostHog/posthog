@@ -17,10 +17,13 @@ export function PropertyTypeTag({ propertyName, schemaPropertyType }: PropertyTy
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
     const propertyDefinition = getPropertyDefinition(propertyName, PropertyDefinitionType.Event)
 
+    // Check for type mismatch
+    // Special case: 'Object' from schema matches 'String' from property definitions (for now)
     const hasTypeMismatch =
         propertyDefinition &&
         propertyDefinition.property_type &&
-        propertyDefinition.property_type !== schemaPropertyType
+        propertyDefinition.property_type !== schemaPropertyType &&
+        !(schemaPropertyType === 'Object' && propertyDefinition.property_type === 'String')
 
     return (
         <div className="flex items-center gap-1">

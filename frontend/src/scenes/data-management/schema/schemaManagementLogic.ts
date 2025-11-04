@@ -8,7 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { schemaManagementLogicType } from './schemaManagementLogicType'
 
-export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Duration'
+export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Duration' | 'Object'
 
 function getErrorMessage(error: any, defaultMessage: string): string {
     // Handle field-specific errors from DRF serializer

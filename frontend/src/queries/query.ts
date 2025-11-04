@@ -1,6 +1,5 @@
-import posthog from 'posthog-js'
-
 import api, { ApiMethodOptions } from 'lib/api'
+import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils'
 
 import {
@@ -179,7 +178,7 @@ export async function performQuery<N extends DataNode>(
         })
         return response
     } catch (e) {
-        posthog.capture('query failed', {
+        posthog.captureRaw('query failed', {
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,

@@ -15,6 +15,7 @@ const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
     { value: 'Boolean', label: 'Boolean' },
     { value: 'DateTime', label: 'DateTime' },
     { value: 'Duration', label: 'Duration' },
+    { value: 'Object', label: 'Object' },
 ]
 
 function isValidPropertyName(name: string): boolean {
