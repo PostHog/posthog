@@ -318,7 +318,14 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
         from posthog.models.event.util import format_clickhouse_timestamp
         from posthog.utils import cast_timestamp_or_now
 
-        timestamp_str = format_clickhouse_timestamp(cast_timestamp_or_now(timestamp))
+        timestamp_dt = cast_timestamp_or_now(timestamp)
+        timestamp_str = format_clickhouse_timestamp(timestamp_dt)
+        # DateTime column needs format without microseconds
+        timestamp_dt_str = (
+            timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
+            if hasattr(timestamp_dt, "strftime")
+            else timestamp_str.split(".")[0]
+        )
 
         # Insert directly into sharded_session_replay_events with all_urls
         # Need to use SELECT syntax for AggregateFunction columns
@@ -349,7 +356,7 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
                 %(distinct_id)s,
                 toDateTime64(%(timestamp)s, 6, 'UTC'),
                 toDateTime64(%(timestamp)s, 6, 'UTC'),
-                argMinState(%(first_url)s, toDateTime64(%(timestamp)s, 6, 'UTC')),
+                argMinState(cast(%(first_url)s, 'Nullable(String)'), toDateTime64(%(timestamp)s, 6, 'UTC')),
                 %(all_urls)s,
                 0,
                 0,
@@ -360,13 +367,14 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
                 0,
                 0,
                 %(retention_days)s,
-                toDateTime(toDateTime64(%(timestamp)s, 6, 'UTC'))
+                %(_timestamp)s
             """,
             {
                 "session_id": session_id,
                 "team_id": self.team.pk,
                 "distinct_id": "user",
                 "timestamp": timestamp_str,
+                "_timestamp": timestamp_dt_str,
                 "first_url": urls[0] if urls else "",
                 "all_urls": urls,
                 "retention_days": 30,
