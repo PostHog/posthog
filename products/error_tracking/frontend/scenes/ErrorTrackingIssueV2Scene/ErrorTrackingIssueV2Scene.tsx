@@ -5,13 +5,13 @@ import posthog from 'posthog-js'
 import { useEffect } from 'react'
 import { useRef } from 'react'
 
-import { IconFilter, IconList, IconSearch, IconShare, IconWarning } from '@posthog/icons'
+import { IconComment, IconFilter, IconList, IconSearch, IconShare, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { IconComment, IconRobot } from 'lib/lemon-ui/icons'
+import { IconRobot } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     TabsPrimitive,

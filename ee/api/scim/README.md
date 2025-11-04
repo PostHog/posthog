@@ -51,8 +51,8 @@ SCIM 2.0 (System for Cross-domain Identity Management) enables automated user pr
 ### API Management
 
 - `posthog/api/organization_domain.py`
-    - serializer/viewset exposing SCIM config via domain PATCH (`scim_enabled`)
-    - action endpoint for bearer rotation (`POST /scim/token`)
+  - serializer/viewset exposing SCIM config via domain PATCH (`scim_enabled`)
+  - action endpoint for bearer rotation (`POST /scim/token`)
 
 ### Configuration
 
@@ -103,7 +103,7 @@ PATCH: `https://app.posthog.com/api/organizations/<org_id>/domains/<domain_id>/`
 
 ```json
 {
-    "scim_enabled": true
+  "scim_enabled": true
 }
 ```
 
@@ -126,7 +126,7 @@ PATCH: `https://app.posthog.com/api/organizations/<org_id>/domains/<domain_id>/`
 
 ```json
 {
-    "scim_enabled": false
+  "scim_enabled": false
 }
 ```
 
@@ -150,11 +150,11 @@ Both Users and Groups support standard SCIM PATCH operations via the `django-sci
 
 ```json
 {
-    "Operations": [
-        { "op": "replace", "path": "name.givenName", "value": "Alice" },
-        { "op": "replace", "path": "name.familyName", "value": "Smith" },
-        { "op": "replace", "path": "active", "value": false }
-    ]
+  "Operations": [
+    { "op": "replace", "path": "name.givenName", "value": "Alice" },
+    { "op": "replace", "path": "name.familyName", "value": "Smith" },
+    { "op": "replace", "path": "active", "value": false }
+  ]
 }
 ```
 
@@ -162,7 +162,7 @@ Both Users and Groups support standard SCIM PATCH operations via the `django-sci
 
 ```json
 {
-    "Operations": [{ "op": "add", "path": "name.givenName", "value": "Bob" }]
+  "Operations": [{ "op": "add", "path": "name.givenName", "value": "Bob" }]
 }
 ```
 
@@ -170,10 +170,10 @@ Both Users and Groups support standard SCIM PATCH operations via the `django-sci
 
 ```json
 {
-    "Operations": [
-        { "op": "remove", "path": "name.givenName" },
-        { "op": "remove", "path": "active" }
-    ]
+  "Operations": [
+    { "op": "remove", "path": "name.givenName" },
+    { "op": "remove", "path": "active" }
+  ]
 }
 ```
 
@@ -183,10 +183,10 @@ Both Users and Groups support standard SCIM PATCH operations via the `django-sci
 
 ```json
 {
-    "Operations": [
-        { "op": "replace", "path": "displayName", "value": "Engineering" },
-        { "op": "replace", "path": "members", "value": [{ "value": "user-uuid-1" }, { "value": "user-uuid-2" }] }
-    ]
+  "Operations": [
+    { "op": "replace", "path": "displayName", "value": "Engineering" },
+    { "op": "replace", "path": "members", "value": [{ "value": "user-uuid-1" }, { "value": "user-uuid-2" }] }
+  ]
 }
 ```
 
@@ -194,7 +194,7 @@ Both Users and Groups support standard SCIM PATCH operations via the `django-sci
 
 ```json
 {
-    "Operations": [{ "op": "add", "path": "members", "value": [{ "value": "user-uuid-3" }] }]
+  "Operations": [{ "op": "add", "path": "members", "value": [{ "value": "user-uuid-3" }] }]
 }
 ```
 
@@ -202,7 +202,7 @@ Both Users and Groups support standard SCIM PATCH operations via the `django-sci
 
 ```json
 {
-    "Operations": [{ "op": "remove", "path": "members[value eq \"user-uuid\"]" }]
+  "Operations": [{ "op": "remove", "path": "members[value eq \"user-uuid\"]" }]
 }
 ```
 
@@ -334,9 +334,9 @@ When both SCIM and JIT (Just-In-Time) provisioning are enabled for a domain:
 
 1. **User joins via SAML**: User can self-join the organization through SAML authentication and automatically gets `MEMBER` access level
 2. **SCIM synchronization**: IdP's SCIM sync will then update:
-    - User's first name and last name
-    - User's role/group memberships (via Group operations)
-    - Any other SCIM-managed attributes
+   - User's first name and last name
+   - User's role/group memberships (via Group operations)
+   - Any other SCIM-managed attributes
 
 This allows for a hybrid approach where users can access the organization immediately via SAML, and SCIM handles ongoing attribute and role synchronization from the IdP.
 
@@ -404,15 +404,15 @@ The SCIM configuration interface is available in the PostHog settings:
 ## Remaining Nice-to-Haves
 
 1. **Pagination**:
-    - Support `startIndex` and `count` params
+   - Support `startIndex` and `count` params
 
 2. **Bulk Operations**:
-    - `POST /Bulk` endpoint
+   - `POST /Bulk` endpoint
 
 3. **Activity Logging**:
-    - Log SCIM user create/update/delete events
-    - Track which IdP made changes
+   - Log SCIM user create/update/delete events
+   - Track which IdP made changes
 
 4. **Rate Limiting**:
-    - Add per-domain rate limits
-    - Protect against aggressive IdP sync
+   - Add per-domain rate limits
+   - Protect against aggressive IdP sync
