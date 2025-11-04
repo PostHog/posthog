@@ -1,11 +1,13 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useLayoutEffect, useMemo, useState } from 'react'
 import { twMerge } from 'tailwind-merge'
 
 import {
+    IconBrain,
     IconCheck,
+    IconChevronRight,
     IconCollapse,
     IconExpand,
     IconEye,
@@ -17,6 +19,7 @@ import {
     IconThumbsUp,
     IconThumbsUpFilled,
     IconWarning,
+    IconWrench,
     IconX,
 } from '@posthog/icons'
 import {
@@ -26,7 +29,6 @@ import {
     LemonDialog,
     LemonInput,
     LemonSkeleton,
-    ProfilePicture,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -52,23 +54,24 @@ import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
+    AssistantToolCall,
     AssistantToolCallMessage,
+    TaskExecutionStatus as ExecutionStatus,
     FailureMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
-    PlanningMessage,
+    PlanningStep,
     PlanningStepStatus,
-    TaskExecutionMessage,
-    TaskExecutionStatus,
     VisualizationItem,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
+import { isFunnelsQuery, isHogQLQuery } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
+import { getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -82,11 +85,9 @@ import {
     isHumanMessage,
     isMultiVisualizationMessage,
     isNotebookUpdateMessage,
-    isPlanningMessage,
-    isReasoningMessage,
-    isTaskExecutionMessage,
     isVisualizationMessage,
 } from './utils'
+import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
@@ -95,7 +96,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     return (
         <div
             className={twMerge(
-                '@container/thread flex flex-col items-stretch w-full max-w-200 self-center gap-1.5 grow mx-auto',
+                '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
                 className
             )}
         >
@@ -110,15 +111,20 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     <MessageGroupSkeleton groupType="human" className="opacity-5" />
                 </>
             ) : threadGrouped.length > 0 ? (
-                threadGrouped.map((group: ThreadMessage[], index: number) => (
-                    <MessageGroup
-                        // Reset the components when the thread changes
-                        key={`${conversationId}-${index}`}
-                        messages={group}
-                        isFinal={index === threadGrouped.length - 1}
-                        streamingActive={streamingActive}
-                    />
-                ))
+                threadGrouped.map((message, index) => {
+                    const nextMessage = threadGrouped[index + 1]
+                    const isLastInGroup = !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
+
+                    return (
+                        <Message
+                            key={`${conversationId}-${index}`}
+                            message={message}
+                            isLastInGroup={isLastInGroup}
+                            isFinal={index === threadGrouped.length - 1}
+                            streamingActive={streamingActive}
+                        />
+                    )
+                })
             ) : (
                 conversationId && (
                     <div className="flex flex-1 items-center justify-center">
@@ -130,7 +136,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     )
 }
 
-function MessageGroupContainer({
+function MessageContainer({
     groupType,
     children,
     className,
@@ -142,7 +148,7 @@ function MessageGroupContainer({
     return (
         <div
             className={twMerge(
-                'relative flex gap-1.5',
+                'relative flex',
                 groupType === 'human' ? 'flex-row-reverse ml-4 @md/thread:ml-10 ' : 'mr-4 @md/thread:mr-10',
                 className
             )}
@@ -152,39 +158,32 @@ function MessageGroupContainer({
     )
 }
 
-interface MessageGroupProps {
-    messages: ThreadMessage[]
+// Enhanced tool call with completion status and planning flag
+export interface EnhancedToolCall extends AssistantToolCall {
+    status: ExecutionStatus
+    isLastPlanningMessage?: boolean
+    updates?: string[]
+}
+
+interface MessageProps {
+    message: ThreadMessage
+    isLastInGroup: boolean
     isFinal: boolean
     streamingActive: boolean
 }
 
-function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: MessageGroupProps): JSX.Element {
-    const { user } = useValues(userLogic)
+function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element {
     const { editInsightToolRegistered } = useValues(maxGlobalLogic)
+    const { activeTabId, activeSceneId } = useValues(sceneLogic)
+    const { threadLoading } = useValues(maxThreadLogic)
 
-    const groupType = messages[0].type === 'human' ? 'human' : 'ai'
+    const groupType = message.type === 'human' ? 'human' : 'ai'
+    const key = message.id || 'no-id'
 
     return (
-        <MessageGroupContainer groupType={groupType}>
-            <Tooltip title={groupType === 'human' ? 'You' : 'Max'}>
-                <ProfilePicture
-                    user={
-                        groupType === 'human'
-                            ? { ...user, hedgehog_config: undefined }
-                            : { hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }
-                    }
-                    size="lg"
-                    className="hidden @md/thread:flex mt-1 border"
-                />
-            </Tooltip>
-            <div
-                className={clsx(
-                    'flex flex-col gap-1.5 min-w-0 w-full',
-                    groupType === 'human' ? 'items-end' : 'items-start'
-                )}
-            >
-                {messages.map((message, messageIndex) => {
-                    const key = message.id || messageIndex
+        <MessageContainer groupType={groupType}>
+            <div className={clsx('flex flex-col min-w-0 w-full', groupType === 'human' ? 'items-end' : 'items-start')}>
+                {(() => {
                     if (isHumanMessage(message)) {
                         const maybeCommand = MAX_SLASH_COMMANDS.find(
                             (cmd) => cmd.name === message.content.split(' ', 1)[0]
@@ -210,7 +209,7 @@ function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: Mess
                                         <Tooltip
                                             title={
                                                 <>
-                                                    This is a Max command:
+                                                    This is a PostHog AI command:
                                                     <br />
                                                     <i>{maybeCommand.description}</i>
                                                 </>
@@ -228,82 +227,120 @@ function MessageGroup({ messages, isFinal: isFinalGroup, streamingActive }: Mess
                                 )}
                             </MessageTemplate>
                         )
-                    } else if (
-                        isAssistantMessage(message) ||
-                        isAssistantToolCallMessage(message) ||
-                        isFailureMessage(message)
-                    ) {
+                    } else if (isAssistantMessage(message)) {
+                        // Render thinking/reasoning if present
+                        const hasContent = !!(
+                            message.content.length > 0 ||
+                            (message.tool_calls && message.tool_calls.length > 0)
+                        )
+
+                        let thinkingElement = null
+                        const thinkingContent = getThinkingMessageFromResponse(message)
+                        if (thinkingContent) {
+                            // Thinking should be collapsed (show "Thought") if:
+                            // 1. The message has content or tool_calls, OR
+                            // 2. The message is not the last in group (there are subsequent messages)
+                            // Otherwise, keep expanded to show active thinking progress
+                            const isThinkingComplete = hasContent || !isLastInGroup || !threadLoading
+                            thinkingElement = (
+                                <ReasoningAnswer
+                                    key={`${key}-thinking`}
+                                    content={thinkingContent}
+                                    id={message.id || key}
+                                    completed={isThinkingComplete}
+                                    showCompletionIcon={false}
+                                />
+                            )
+                        }
+
+                        // Render tool calls if present (tool_calls are enhanced with status by threadGrouped selector)
+                        const toolCallElements =
+                            message.tool_calls && message.tool_calls.length > 0 ? (
+                                <ToolCallsAnswer
+                                    key={`${key}-tools`}
+                                    toolCalls={message.tool_calls as EnhancedToolCall[]}
+                                />
+                            ) : null
+
+                        // Render main text content
+                        const textElement = message.content ? (
+                            <TextAnswer key={`${key}-text`} message={message} withActions={false} />
+                        ) : null
+
+                        // Compute actions separately to render after tool calls
+                        const retriable = !!(isLastInGroup && isFinal)
+                        const actionsElement = (() => {
+                            if (threadLoading) {
+                                return null
+                            }
+                            if (message.status !== 'completed') {
+                                return null
+                            }
+                            if (message.content.length === 0) {
+                                return null
+                            }
+
+                            if (isLastInGroup) {
+                                // Message has been interrupted with a form
+                                if (message.meta?.form?.options && isFinal) {
+                                    return <AssistantMessageForm key={`${key}-form`} form={message.meta.form} />
+                                }
+
+                                // Show answer actions if the assistant's response is complete at this point
+                                return <SuccessActions key={`${key}-actions`} retriable={retriable} />
+                            }
+
+                            return null
+                        })()
+
+                        return (
+                            <div key={key} className="flex flex-col gap-1.5 w-full">
+                                {thinkingElement}
+                                {textElement}
+                                {toolCallElements}
+                                {actionsElement}
+                            </div>
+                        )
+                    } else if (isAssistantToolCallMessage(message) || isFailureMessage(message)) {
                         return (
                             <TextAnswer
                                 key={key}
                                 message={message}
-                                interactable={messageIndex === messages.length - 1}
-                                isFinalGroup={isFinalGroup}
+                                interactable={isLastInGroup}
+                                isFinalGroup={isFinal}
                             />
                         )
                     } else if (isVisualizationMessage(message)) {
                         return (
                             <VisualizationAnswer
-                                key={messageIndex}
+                                key={key}
                                 message={message}
                                 status={message.status}
                                 isEditingInsight={editInsightToolRegistered}
+                                activeTabId={activeTabId}
+                                activeSceneId={activeSceneId}
                             />
                         )
                     } else if (isMultiVisualizationMessage(message)) {
                         return <MultiVisualizationAnswer key={key} message={message} />
-                    } else if (isReasoningMessage(message)) {
-                        return (
-                            <MessageTemplate key={key} type="ai">
-                                <div className="flex items-center gap-2">
-                                    {messageIndex < messages.length - 1 ? (
-                                        <IconCheck className="size-4 m-0.5 animate-[scale-in_0.3s_ease-out]" />
-                                    ) : streamingActive ? (
-                                        <img
-                                            src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                            className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
-                                        />
-                                    ) : (
-                                        <IconX className="size-4 m-0.5" />
-                                    )}
-                                    <span className="font-medium">
-                                        {message.content}…
-                                        {messageIndex < messages.length - 1
-                                            ? ' Done.'
-                                            : !streamingActive
-                                              ? ' Canceled.'
-                                              : ''}
-                                    </span>
-                                </div>
-                                {message.substeps?.map((substep, substepIndex) => (
-                                    <MarkdownMessage
-                                        key={substepIndex}
-                                        id={message.id || messageIndex.toString()}
-                                        className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
-                                        content={substep}
-                                    />
-                                ))}
-                            </MessageTemplate>
-                        )
                     } else if (isNotebookUpdateMessage(message)) {
                         return <NotebookUpdateAnswer key={key} message={message} />
-                    } else if (isPlanningMessage(message)) {
-                        return <PlanningAnswer key={key} message={message} />
-                    } else if (isTaskExecutionMessage(message)) {
-                        return <TaskExecutionAnswer key={key} message={message} />
                     }
                     return null // We currently skip other types of messages
-                })}
-                {messages.at(-1)?.status === 'error' && (
+                })()}
+                {isLastInGroup && message.status === 'error' && (
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
                             <IconWarning className="text-xl text-warning" />
-                            <i>Max is generating this answer one more time because the previous attempt has failed.</i>
+                            <i>
+                                PostHog AI is generating this answer one more time because the previous attempt has
+                                failed.
+                            </i>
                         </div>
                     </MessageTemplate>
                 )}
             </div>
-        </MessageGroupContainer>
+        </MessageContainer>
     )
 }
 
@@ -315,10 +352,10 @@ function MessageGroupSkeleton({
     className?: string
 }): JSX.Element {
     return (
-        <MessageGroupContainer className={clsx('items-center', className)} groupType={groupType}>
+        <MessageContainer className={clsx('items-center', className)} groupType={groupType}>
             <LemonSkeleton className="w-8 h-8 rounded-full hidden border @md/thread:flex" />
             <LemonSkeleton className="h-10 w-3/5 rounded-lg border" />
-        </MessageGroupContainer>
+        </MessageContainer>
     )
 }
 
@@ -327,12 +364,13 @@ interface MessageTemplateProps {
     action?: React.ReactNode
     className?: string
     boxClassName?: string
+    wrapperClassName?: string
     children?: React.ReactNode
     header?: React.ReactNode
 }
 
 const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, action, header },
+    { type, children, className, boxClassName, wrapperClassName, action, header },
     ref
 ) {
     return (
@@ -344,18 +382,20 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
             )}
             ref={ref}
         >
-            {header}
-            {children && (
-                <div
-                    className={twMerge(
-                        'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
-                        type === 'human' && 'font-medium',
-                        boxClassName
-                    )}
-                >
-                    {children}
-                </div>
-            )}
+            <div className={twMerge('max-w-full', wrapperClassName)}>
+                {header}
+                {children && (
+                    <div
+                        className={twMerge(
+                            'border py-2 px-3 rounded-lg bg-surface-primary',
+                            type === 'human' && 'font-medium',
+                            boxClassName
+                        )}
+                    >
+                        {children}
+                    </div>
+                )}
+            </div>
             {action}
         </div>
     )
@@ -365,40 +405,43 @@ interface TextAnswerProps {
     message: (AssistantMessage | FailureMessage | AssistantToolCallMessage) & ThreadMessage
     interactable?: boolean
     isFinalGroup?: boolean
+    withActions?: boolean
 }
 
 const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function TextAnswer(
-    { message, interactable, isFinalGroup },
+    { message, interactable, isFinalGroup, withActions = true },
     ref
 ) {
     const retriable = !!(interactable && isFinalGroup)
 
-    const action = (() => {
-        if (message.status !== 'completed' && !isFailureMessage(message)) {
-            return null
-        }
+    const action = withActions
+        ? (() => {
+              if (message.status !== 'completed' && !isFailureMessage(message)) {
+                  return null
+              }
 
-        // Don't show retry button when rate-limited
-        if (
-            isFailureMessage(message) &&
-            !message.content?.includes('usage limit') && // Don't show retry button when rate-limited
-            retriable
-        ) {
-            return <RetriableFailureActions />
-        }
+              // Don't show retry button when rate-limited
+              if (
+                  isFailureMessage(message) &&
+                  !message.content?.includes('usage limit') && // Don't show retry button when rate-limited
+                  retriable
+              ) {
+                  return <RetriableFailureActions />
+              }
 
-        if (isAssistantMessage(message) && interactable) {
-            // Message has been interrupted with a form
-            if (message.meta?.form?.options && isFinalGroup) {
-                return <AssistantMessageForm form={message.meta.form} />
-            }
+              if (isAssistantMessage(message) && interactable) {
+                  // Message has been interrupted with a form
+                  if (message.meta?.form?.options && isFinalGroup) {
+                      return <AssistantMessageForm form={message.meta.form} />
+                  }
 
-            // Show answer actions if the assistant's response is complete at this point
-            return <SuccessActions retriable={retriable} />
-        }
+                  // Show answer actions if the assistant's response is complete at this point
+                  return <SuccessActions retriable={retriable} />
+              }
 
-        return null
-    })()
+              return null
+          })()
+        : null
 
     return (
         <MessageTemplate
@@ -411,7 +454,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
                 <MarkdownMessage content={message.content} id={message.id || 'in-progress'} />
             ) : (
                 <MarkdownMessage
-                    content={message.content || '*Max has failed to generate an answer. Please try again.*'}
+                    content={message.content || '*PostHog AI has failed to generate an answer. Please try again.*'}
                     id={message.id || 'error'}
                 />
             )}
@@ -537,132 +580,314 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
 }
 
 interface PlanningAnswerProps {
-    message: PlanningMessage
+    toolCall: EnhancedToolCall
+    isLastPlanningMessage?: boolean
 }
 
-function PlanningAnswer({ message }: PlanningAnswerProps): JSX.Element {
+function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnswerProps): JSX.Element {
+    const [isExpanded, setIsExpanded] = useState(isLastPlanningMessage)
+
+    useLayoutEffect(() => {
+        setIsExpanded(isLastPlanningMessage)
+    }, [isLastPlanningMessage])
+
+    // Extract planning steps from tool call args
+    // Assuming args has a 'todos' field with array of {content: string, status: string, activeForm: string}
+    const steps: PlanningStep[] = Array.isArray(toolCall.args.todos)
+        ? (toolCall.args.todos as Array<{ content: string; status: string; activeForm: string }>).map((todo) => ({
+              description: todo.content,
+              status: todo.status as PlanningStepStatus,
+          }))
+        : []
+
+    const completedCount = steps.filter((step) => step.status === 'completed').length
+    const totalCount = steps.length
+    const hasMultipleSteps = steps.length > 1
+
     return (
-        <MessageTemplate type="ai">
-            <div className="space-y-2">
-                <h4 className="m-0 text-xs font-semibold">TO-DOs</h4>
-                <div className="space-y-1.5 mt-1">
-                    {message.steps.map((step, index) => (
-                        <LemonCheckbox
-                            key={index}
-                            size="xsmall"
-                            defaultChecked={step.status === PlanningStepStatus.Completed}
-                            disabled={true}
-                            label={
-                                step.description +
-                                (step.status === PlanningStepStatus.InProgress ? ' (in progress)' : '')
-                            }
-                            labelClassName={clsx(
-                                'cursor-default! text-xs',
-                                step.status === PlanningStepStatus.Completed && 'text-muted line-through',
-                                step.status === PlanningStepStatus.InProgress && 'font-semibold'
-                            )}
-                        />
-                    ))}
+        <div className="flex flex-col">
+            <div
+                className={clsx('flex items-center', !hasMultipleSteps ? 'cursor-default' : 'cursor-pointer')}
+                onClick={!hasMultipleSteps ? undefined : () => setIsExpanded(!isExpanded)}
+                aria-label={!hasMultipleSteps ? undefined : isExpanded ? 'Collapse plan' : 'Expand plan'}
+            >
+                <div className="relative flex-shrink-0 flex items-start justify-center size-6 h-full">
+                    <div className="p-1 flex items-center justify-center">
+                        <IconNotebook />
+                    </div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <span>Planning</span>
+                    <span className="text-muted">
+                        ({completedCount}/{totalCount})
+                    </span>
+                    {hasMultipleSteps && (
+                        <button className="cursor-pointer inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0">
+                            <span className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+                                <IconChevronRight />
+                            </span>
+                        </button>
+                    )}
                 </div>
             </div>
-        </MessageTemplate>
+            {isExpanded && (
+                <div className="mt-1.5 space-y-1.5 border-l-2 border-border-secondary pl-3.5 ml-[calc(0.775rem)]">
+                    {steps.map((step, index) => {
+                        const isCompleted = step.status === 'completed'
+                        const isInProgress = step.status === 'in_progress'
+
+                        return (
+                            <div key={index} className="flex items-start gap-2 animate-fade-in">
+                                <span className="flex-shrink-0">
+                                    <LemonCheckbox checked={isCompleted} disabled size="xsmall" />
+                                </span>
+                                <span
+                                    className={clsx(
+                                        'leading-relaxed',
+                                        isCompleted && 'text-muted line-through',
+                                        isInProgress && 'font-medium'
+                                    )}
+                                >
+                                    {step.description}
+                                    {isInProgress && <span className="text-muted ml-1">(in progress)</span>}
+                                </span>
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
+        </div>
     )
 }
 
-interface TaskExecutionAnswerProps {
-    message: TaskExecutionMessage
-}
+function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Element {
+    const isTextContent = typeof children === 'string'
 
-function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element {
-    const completedCount = message.tasks.filter((t) => t.status === TaskExecutionStatus.Completed).length
-    const totalCount = message.tasks.length
+    if (isTextContent) {
+        return (
+            <span
+                className="bg-clip-text text-transparent"
+                style={{
+                    backgroundImage:
+                        'linear-gradient(in oklch 90deg, var(--text-3000), var(--muted-3000), var(--trace-3000), var(--muted-3000), var(--text-3000))',
+                    backgroundSize: '200% 100%',
+                    animation: 'shimmer 3s linear infinite',
+                }}
+            >
+                {children}
+            </span>
+        )
+    }
 
     return (
-        <MessageTemplate type="ai">
-            <div className="flex flex-col gap-2 pb-2">
-                <div className="flex items-center justify-between">
-                    <h4 className="m-0 text-xs font-semibold">Tasks</h4>
-                    <span className="text-xs text-muted">
-                        {completedCount}/{totalCount}
-                    </span>
-                </div>
+        <span
+            className="inline-flex"
+            style={{
+                animation: 'shimmer-opacity 3s linear infinite',
+            }}
+        >
+            {children}
+        </span>
+    )
+}
 
-                <div className="flex flex-col gap-2">
-                    {message.tasks.map((task, index) => (
-                        <div
-                            key={index}
-                            className={clsx(
-                                'flex items-center gap-2 rounded transition-all duration-300 py-1',
-                                task.status === TaskExecutionStatus.InProgress && 'bg-accent-highlight-primary/20',
-                                task.status === TaskExecutionStatus.Completed && 'opacity-60'
-                            )}
-                        >
-                            <div className="flex-shrink-0 flex items-center justify-center size-7">
-                                {task.status === TaskExecutionStatus.Completed && (
-                                    <IconCheck className="text-success size-3.5" />
-                                )}
-                                {task.status === TaskExecutionStatus.InProgress && (
-                                    <div className="size-3 rounded-full bg-border animate-pulse" />
-                                )}
-                                {task.status === TaskExecutionStatus.Pending && (
-                                    <div className="size-3 rounded-full bg-border" />
-                                )}
-                                {task.status === TaskExecutionStatus.Failed && (
-                                    <IconX className="text-danger size-3.5" />
-                                )}
-                            </div>
+function handleThreeDots(content: string, isInProgress: boolean): string {
+    if (!content.endsWith('...') && !content.endsWith('…') && !content.endsWith('.') && isInProgress) {
+        return content + '...'
+    } else if ((content.endsWith('...') || content.endsWith('…')) && !isInProgress) {
+        return content.replace(/[…]/g, '').replace(/[.]/g, '')
+    }
+    return content
+}
 
-                            <div className="flex-1 min-w-0">
-                                <div
-                                    className={clsx(
-                                        'text-xs transition-all duration-300',
-                                        task.status === TaskExecutionStatus.Pending && 'text-muted',
-                                        task.status === TaskExecutionStatus.InProgress &&
-                                            'font-semibold text-primary animate-pulse',
-                                        task.status === TaskExecutionStatus.Completed && 'text-muted-alt line-through',
-                                        task.status === TaskExecutionStatus.Failed && 'text-danger'
-                                    )}
-                                >
-                                    {task.description}
-                                </div>
+function AssistantActionComponent({
+    id,
+    content,
+    substeps,
+    state,
+    icon,
+    animate = true,
+    showCompletionIcon = true,
+}: {
+    id: string
+    content: string
+    substeps: string[]
+    state: ExecutionStatus
+    icon?: React.ReactNode
+    animate?: boolean
+    showCompletionIcon?: boolean
+}): JSX.Element {
+    const isPending = state === 'pending'
+    const isCompleted = state === 'completed'
+    const isInProgress = state === 'in_progress'
+    const isFailed = state === 'failed'
+    const showChevron = substeps.length > 0 ? (showCompletionIcon ? isPending || isInProgress : true) : false
+    // Initialize with the same logic as the effect to prevent flickering
+    const [isExpanded, setIsExpanded] = useState(showChevron && !(isCompleted || isFailed))
 
-                                {task.prompt && (
-                                    <div
-                                        className={clsx(
-                                            'text-xs mt-0.5 transition-all duration-300',
-                                            task.status === TaskExecutionStatus.InProgress
-                                                ? 'text-muted-alt animate-pulse'
-                                                : 'text-muted',
-                                            task.status === TaskExecutionStatus.Completed && 'line-through opacity-50'
-                                        )}
-                                    >
-                                        {task.prompt}
-                                    </div>
-                                )}
+    useLayoutEffect(() => {
+        setIsExpanded(showChevron && !(isCompleted || isFailed))
+    }, [showChevron, isCompleted, isFailed])
 
-                                {task.progress_text && task.status !== TaskExecutionStatus.Pending && (
-                                    <div
-                                        className={`text-xs mt-0.5 font-medium ${
-                                            task.status === TaskExecutionStatus.InProgress
-                                                ? 'text-primary-alt animate-pulse'
-                                                : task.status === TaskExecutionStatus.Completed
-                                                  ? 'text-success'
-                                                  : 'text-danger'
-                                        }`}
-                                    >
-                                        <MarkdownMessage
-                                            id={index.toString()}
-                                            className="mt-1.5 leading-6 px-1 text-[0.6875rem] font-semibold bg-surface-secondary rounded w-fit"
-                                            content={task.progress_text}
-                                        />
-                                    </div>
-                                )}
-                            </div>
+    let markdownContent = <MarkdownMessage id={id} content={content} />
+
+    return (
+        <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1">
+            <div
+                className={clsx(
+                    'transition-all duration-500 flex',
+                    (isPending || isFailed) && 'text-muted',
+                    !isInProgress && !isPending && !isFailed && 'text-default',
+                    !showChevron ? 'cursor-default' : 'cursor-pointer'
+                )}
+                onClick={!showChevron ? undefined : () => setIsExpanded(!isExpanded)}
+                aria-label={!showChevron ? undefined : isExpanded ? 'Collapse history' : 'Expand history'}
+            >
+                {icon && (
+                    <div className="flex items-center justify-center size-6">
+                        {isInProgress && animate ? (
+                            <ShimmeringContent>{icon}</ShimmeringContent>
+                        ) : (
+                            <span className="inline-flex">{icon}</span>
+                        )}
+                    </div>
+                )}
+                <div className="flex items-center gap-1 flex-1 min-w-0 h-full">
+                    <div>
+                        {isInProgress && animate ? (
+                            <ShimmeringContent>{markdownContent}</ShimmeringContent>
+                        ) : (
+                            markdownContent
+                        )}
+                    </div>
+                    {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
+                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
+                    {showChevron && (
+                        <div className="relative flex-shrink-0 flex items-start justify-center h-full pt-px">
+                            <button className="inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0 cursor-pointer">
+                                <span className={clsx('transform transition-transform', isExpanded && 'rotate-90')}>
+                                    <IconChevronRight />
+                                </span>
+                            </button>
                         </div>
-                    ))}
+                    )}
                 </div>
             </div>
-        </MessageTemplate>
+            {isExpanded && substeps && substeps.length > 0 && (
+                <div
+                    className={clsx(
+                        'space-y-1 border-l-2 border-border-secondary',
+                        icon && 'pl-3.5 ml-[calc(0.775rem)]'
+                    )}
+                >
+                    {substeps.map((substep, substepIndex) => {
+                        const isCurrentSubstep = substepIndex === substeps.length - 1
+                        const isCompletedSubstep = substepIndex < substeps.length - 1 || isCompleted
+
+                        return (
+                            <div
+                                key={substepIndex}
+                                className="animate-fade-in"
+                                style={{
+                                    animationDelay: `${substepIndex * 50}ms`,
+                                }}
+                            >
+                                <MarkdownMessage
+                                    id={id}
+                                    className={clsx(
+                                        'leading-relaxed',
+                                        isFailed && 'text-danger',
+                                        !isFailed && isCompletedSubstep && 'text-muted',
+                                        !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
+                                    )}
+                                    content={handleThreeDots(substep ?? '', true)}
+                                />
+                            </div>
+                        )
+                    })}
+                </div>
+            )}
+        </div>
+    )
+}
+
+interface ReasoningAnswerProps {
+    content: string
+    completed: boolean
+    id: string
+    showCompletionIcon?: boolean
+}
+
+function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: ReasoningAnswerProps): JSX.Element {
+    return (
+        <AssistantActionComponent
+            id={id}
+            content={completed ? 'Thought' : content}
+            substeps={completed ? [content] : []}
+            state={completed ? ExecutionStatus.Completed : ExecutionStatus.InProgress}
+            icon={<IconBrain className="pt-[0.03rem]" />} // The brain icon is slightly too high, so we need to offset it
+            animate={true}
+            showCompletionIcon={showCompletionIcon}
+        />
+    )
+}
+
+interface ToolCallsAnswerProps {
+    toolCalls: EnhancedToolCall[]
+}
+
+function ToolCallsAnswer({ toolCalls }: ToolCallsAnswerProps): JSX.Element {
+    // Separate todo_write tool calls from regular tool calls
+    const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
+    const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
+
+    return (
+        <>
+            {/* Render planning messages for todo_write tool calls */}
+            {todoWriteToolCalls.map((toolCall) => {
+                if (!toolCall.args.todos || (toolCall.args.todos as any[]).length === 0) {
+                    return null
+                }
+                return (
+                    <PlanningAnswer
+                        key={toolCall.id}
+                        toolCall={toolCall}
+                        isLastPlanningMessage={toolCall.isLastPlanningMessage}
+                    />
+                )
+            })}
+
+            {/* Render tool execution for regular tool calls */}
+            {regularToolCalls.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                    {regularToolCalls.map((toolCall) => {
+                        const commentary = toolCall.args.commentary as string
+                        const updates = toolCall.updates ?? []
+                        const definition = getToolDefinition(toolCall.name)
+                        let description = `Executing ${toolCall.name}`
+                        if (definition) {
+                            if (definition.displayFormatter) {
+                                description = definition.displayFormatter(toolCall)
+                            }
+                            if (commentary) {
+                                description = commentary
+                            }
+                        }
+                        return (
+                            <AssistantActionComponent
+                                key={toolCall.id}
+                                id={toolCall.id}
+                                content={description}
+                                substeps={updates}
+                                state={toolCall.status}
+                                icon={definition?.icon || <IconWrench />}
+                                showCompletionIcon={true}
+                            />
+                        )
+                    })}
+                </div>
+            )}
+        </>
     )
 }
 
@@ -752,7 +977,7 @@ function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
                     }}
                     sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
                     size="xsmall"
-                    tooltip={previousQuery ? "Reject Max's changes" : "Reapply Max's changes"}
+                    tooltip={previousQuery ? 'Reject changes' : 'Reapply changes'}
                 />
             )}
         </>
@@ -763,16 +988,19 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     message,
     status,
     isEditingInsight,
+    activeTabId,
+    activeSceneId,
 }: {
     message: VisualizationMessage
     status?: MessageStatus
     isEditingInsight: boolean
+    activeTabId?: string | null
+    activeSceneId?: string | null
 }): JSX.Element | null {
     const [isSummaryShown, setIsSummaryShown] = useState(false)
     const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-    const { activeTabId, activeSceneId } = useValues(sceneLogic)
 
-    useEffect(() => {
+    useLayoutEffect(() => {
         setIsCollapsed(isEditingInsight)
     }, [isEditingInsight])
 
@@ -785,7 +1013,8 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                   <MessageTemplate
                       type="ai"
                       className="w-full"
-                      boxClassName={clsx('flex flex-col w-full', !isCollapsed && 'min-h-60')}
+                      wrapperClassName="w-full"
+                      boxClassName={clsx('flex flex-col w-full', isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96')}
                   >
                       {!isCollapsed && <Query query={query} readOnly embedded />}
                       <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
@@ -1072,7 +1301,6 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         type="tertiary"
                         size="xsmall"
                         tooltip="View trace in LLM analytics"
-                        targetBlank
                     />
                 )}
             </div>
@@ -1096,7 +1324,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                     {feedbackInputStatus === 'pending' && (
                         <div className="flex w-full gap-1.5 items-center mt-1.5">
                             <LemonInput
-                                placeholder="Help us improve Max…"
+                                placeholder="Help us improve PostHog AI…"
                                 fullWidth
                                 value={feedback}
                                 onChange={(newValue) => setFeedback(newValue)}

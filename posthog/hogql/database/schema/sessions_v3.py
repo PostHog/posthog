@@ -27,7 +27,7 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.models.property_definition import PropertyType
-from posthog.models.raw_sessions.sql_v3 import (
+from posthog.models.raw_sessions.sessions_v3 import (
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_V3,
     RAW_SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER_V3,
     SESSION_V3_LOWER_TIER_AD_IDS,
@@ -45,7 +45,6 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
         name="session_timestamp", nullable=False
     ),  # not a DateTimeDatabaseField to avoid wrapping with toTimeZone
     "distinct_id": DatabaseField(name="distinct_id", nullable=False),
-    "person_id": DatabaseField(name="person_id", nullable=False),
     "min_timestamp": DateTimeDatabaseField(name="min_timestamp", nullable=False),
     "max_timestamp": DateTimeDatabaseField(name="max_timestamp", nullable=False),
     "max_inserted_at": DateTimeDatabaseField(name="max_inserted_at", nullable=False),
@@ -83,6 +82,7 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "autocapture_uniq": DatabaseField(name="autocapture_uniq", nullable=False),
     "screen_uniq": DatabaseField(name="screen_uniq", nullable=False),
     "page_screen_autocapture_uniq_up_to": DatabaseField(name="page_screen_autocapture_uniq_up_to", nullable=False),
+    "has_replay_events": BooleanDatabaseField(name="has_replay_events", nullable=False),
 }
 
 LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
@@ -94,7 +94,6 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "session_id": StringDatabaseField(name="session_id"),
     "session_timestamp": DateTimeDatabaseField(name="session_timestamp", nullable=False),
     "distinct_id": StringDatabaseField(name="distinct_id"),
-    "person_id": UUIDDatabaseField(name="person_id"),
     # timestamp
     "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp"),
     "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp"),
@@ -138,6 +137,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
     "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
+    "$has_replay_events": BooleanDatabaseField(name="$has_replay_events", nullable=False),
 }
 
 
@@ -210,7 +210,6 @@ def select_from_sessions_table_v3(
             ],
         ),  # try not to use this, prefer to use session_id_v7
         "distinct_id": arg_max_merge_field("distinct_id"),
-        "person_id": arg_max_merge_field("person_id"),
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
         "max_inserted_at": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_inserted_at"])]),
@@ -249,6 +248,7 @@ def select_from_sessions_table_v3(
         "$entry_ad_ids_map": arg_min_merge_field("entry_ad_ids_map"),
         "$entry_ad_ids_set": arg_min_merge_field("entry_ad_ids_set"),
         "$entry_channel_type_properties": arg_min_merge_field("entry_channel_type_properties"),
+        "$has_replay_events": ast.Call(name="max", args=[ast.Field(chain=[table_name, "has_replay_events"])]),
     }
 
     # Alias
@@ -449,7 +449,6 @@ def get_lazy_session_table_properties_v3(search: Optional[str]):
         "max_inserted_at",
         "team_id",
         "distinct_id",
-        "person_id",
         "session_id",
         "id",
         "session_id_v7",

@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
 
+import { IconInfo, IconPencil } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { urls } from 'scenes/urls'
@@ -16,6 +21,7 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { performQuery } from '~/queries/query'
 import {
+    ExperimentExposureCriteria,
     ExperimentFunnelMetricStep,
     ExperimentMetric,
     ExperimentMetricSource,
@@ -33,7 +39,22 @@ import { ExperimentMetricOutlierHandling } from './ExperimentMetricOutlierHandli
 import { commonActionFilterProps } from './Metrics/Selectors'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
-import { getAllowedMathTypes, getDefaultExperimentMetric, getEventCountQuery, getMathAvailability } from './utils'
+import {
+    getAllowedMathTypes,
+    getDefaultExperimentMetric,
+    getEventCountQuery,
+    getExposureConfigDisplayName,
+    getMathAvailability,
+} from './utils'
+
+export function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
+    const exposureConfig = exposureCriteria?.exposure_config
+    if (!exposureConfig) {
+        return '$feature_flag_called'
+    }
+
+    return getExposureConfigDisplayName(exposureConfig)
+}
 
 const loadEventCount = async (
     metric: ExperimentMetric,
@@ -92,10 +113,14 @@ export function ExperimentMetricForm({
     metric,
     handleSetMetric,
     filterTestAccounts,
+    exposureCriteria,
+    openExposureCriteriaModal,
 }: {
     metric: ExperimentMetric
     handleSetMetric: (newMetric: ExperimentMetric) => void
     filterTestAccounts: boolean
+    exposureCriteria?: ExperimentExposureCriteria | undefined
+    openExposureCriteriaModal?: (() => void) | null
 }): JSX.Element {
     const mathAvailability = getMathAvailability(metric.metric_type)
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
@@ -214,6 +239,53 @@ export function ExperimentMetricForm({
             </SceneSection>
             <SceneDivider />
             <SceneSection title="Metric" className="max-w-prose">
+                <LemonBanner
+                    type="info"
+                    action={
+                        exposureCriteria && openExposureCriteriaModal
+                            ? {
+                                  size: 'xsmall',
+                                  onClick: () => openExposureCriteriaModal(),
+                                  icon: <IconPencil />,
+                                  tooltip: 'Edit exposure criteria',
+                              }
+                            : undefined
+                    }
+                >
+                    <span className="inline-flex items-center gap-2 flex-wrap">
+                        {exposureCriteria ? (
+                            <>
+                                Counts only after exposure event{' '}
+                                <LemonTag>{getExposureCriteriaLabel(exposureCriteria)}</LemonTag>
+                            </>
+                        ) : (
+                            <>
+                                Counts only after exposure event (<LemonTag>$feature_flag_called</LemonTag> by default)
+                            </>
+                        )}
+                        <Tooltip
+                            title={
+                                <div className="space-y-2">
+                                    <p>
+                                        Metrics are only counted for users who have been exposed to the experiment. This
+                                        ensures fair comparison between control and test groups.
+                                    </p>
+                                    <p>
+                                        {exposureCriteria
+                                            ? 'The exposure event is shared across all metrics in this experiment.'
+                                            : 'The exposure event will be configured at the experiment level and shared across all metrics.'}
+                                    </p>
+                                    <Link to="https://posthog.com/docs/experiments/exposures">
+                                        Learn more in the docs
+                                    </Link>
+                                </div>
+                            }
+                        >
+                            <IconInfo className="text-muted-alt text-base" />
+                        </Tooltip>
+                    </span>
+                </LemonBanner>
+
                 {isExperimentMeanMetric(metric) && (
                     <>
                         <ActionFilter

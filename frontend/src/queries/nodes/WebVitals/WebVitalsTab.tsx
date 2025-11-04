@@ -13,13 +13,16 @@ type WebVitalsTabProps = {
     metric: WebVitalsMetric
     isActive: boolean
     setTab?: () => void
+    isLoading: boolean
 }
 
-export function WebVitalsTab({ value, metric, isActive, setTab }: WebVitalsTabProps): JSX.Element {
+export function WebVitalsTab({ value, metric, isActive, setTab, isLoading }: WebVitalsTabProps): JSX.Element {
     const label = LONG_METRIC_NAME[metric]
 
     const { value: parsedValue, unit } = getValueWithUnit(value, metric)
     const color = getThresholdColor(value, metric)
+
+    const showNoData = !isLoading && value === undefined
 
     return (
         <div
@@ -43,14 +46,22 @@ export function WebVitalsTab({ value, metric, isActive, setTab }: WebVitalsTabPr
             </div>
 
             <div className="flex flex-row items-end">
-                <span
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ color }}
-                    className="text-2xl"
-                >
-                    {parsedValue || <LemonSkeleton fade className="w-20 h-8" />}
-                </span>
-                <span className="text-xs ml-1 mb-1">{unit}</span>
+                {isLoading ? (
+                    <LemonSkeleton fade className="w-20 h-8" />
+                ) : showNoData ? (
+                    <span className="text-xs text-text-tertiary">No data for this range</span>
+                ) : (
+                    <>
+                        <span
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ color }}
+                            className="text-2xl"
+                        >
+                            {parsedValue}
+                        </span>
+                        <span className="text-xs ml-1 mb-1">{unit}</span>
+                    </>
+                )}
             </div>
 
             <div className="w-full mt-2 hidden sm:block">

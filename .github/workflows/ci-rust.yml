@@ -161,7 +161,7 @@ jobs:
             - name: Install uv
               id: setup-uv
               if: needs.changes.outputs.rust == 'true'
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
                   version: 0.8.19
@@ -176,6 +176,10 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
+
+            - name: Cache Rust dependencies
+              if: needs.changes.outputs.rust == 'true'
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.rust == 'true'

@@ -145,6 +145,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return dataWarehouseSavedQueryActivityDescriber
         case ActivityScope.REPLAY:
             return replayActivityDescriber
+        case ActivityScope.HEATMAP:
+            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
         case ActivityScope.EXPERIMENT:
             return experimentActivityDescriber
         case ActivityScope.TAG:
@@ -153,6 +155,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.EXTERNAL_DATA_SOURCE:
         case ActivityScope.EXTERNAL_DATA_SCHEMA:
             return externalDataSourceActivityDescriber
+        case ActivityScope.ENDPOINT:
+            return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }

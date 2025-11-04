@@ -40,6 +40,7 @@ jobs:
                         - 'posthog/hogql/**/*'
                         - 'bin/hog'
                         - 'bin/hoge'
+                        - 'package.json'
                         - requirements.txt
                         - requirements-dev.txt
                         - .github/workflows/ci-hog.yml
@@ -70,7 +71,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
                   version: 0.8.19
@@ -175,7 +176,7 @@ jobs:
                   python-version-file: 'pyproject.toml'
             - name: Install uv
               id: setup-uv-hogql-python
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
                   version: 0.8.19

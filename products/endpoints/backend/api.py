@@ -5,6 +5,7 @@ from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 
 from django_filters.rest_framework import DjangoFilterBackend
+from loginas.utils import is_impersonated_session
 from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.exceptions import Throttled, ValidationError
@@ -40,6 +41,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models import User
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.types import InsightQueryNode
@@ -47,6 +49,9 @@ from posthog.types import InsightQueryNode
 from common.hogvm.python.utils import HogVMException
 
 from .models import Endpoint
+
+MIN_CACHE_AGE_SECONDS = 300
+MAX_CACHE_AGE_SECONDS = 86400
 
 
 @extend_schema(tags=["endpoints"])
@@ -92,6 +97,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "query": endpoint.query,
                     "parameters": endpoint.parameters,
                     "is_active": endpoint.is_active,
+                    "cache_age_seconds": endpoint.cache_age_seconds,
                     "endpoint_path": endpoint.endpoint_path,
                     "created_at": endpoint.created_at,
                     "updated_at": endpoint.updated_at,
@@ -100,6 +106,26 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             )
 
         return Response({"results": results})
+
+    def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
+        """Retrieve an endpoint."""
+        endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        return Response(
+            {
+                "id": str(endpoint.id),
+                "name": endpoint.name,
+                "description": endpoint.description,
+                "query": endpoint.query,
+                "parameters": endpoint.parameters,
+                "is_active": endpoint.is_active,
+                "cache_age_seconds": endpoint.cache_age_seconds,
+                "endpoint_path": endpoint.endpoint_path,
+                "created_at": endpoint.created_at,
+                "updated_at": endpoint.updated_at,
+                "created_by": UserBasicSerializer(endpoint.created_by).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     def validate_request(self, data: EndpointRequest, strict: bool = True) -> None:
         query = data.query
@@ -116,6 +142,14 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "Endpoint name must be alphanumeric characters, hyphens, underscores, or spaces, "
                 "and be between 1 and 128 characters long."
             )
+
+        if data.cache_age_seconds is not None:
+            if data.cache_age_seconds < MIN_CACHE_AGE_SECONDS or data.cache_age_seconds > MAX_CACHE_AGE_SECONDS:
+                raise ValidationError(
+                    {
+                        "cache_age_seconds": f"Cache age must be between {MIN_CACHE_AGE_SECONDS} and {MAX_CACHE_AGE_SECONDS} seconds."
+                    }
+                )
 
     @extend_schema(
         request=EndpointRequest,
@@ -135,6 +169,19 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query=cast(Union[HogQLQuery, InsightQueryNode], data.query).model_dump(),
                 description=data.description or "",
                 is_active=data.is_active if data.is_active is not None else True,
+                cache_age_seconds=data.cache_age_seconds,
+            )
+
+            # Activity log: created
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(endpoint.id),
+                scope="Endpoint",
+                activity="created",
+                detail=Detail(name=endpoint.name),
             )
 
             return Response(
@@ -145,6 +192,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "query": endpoint.query,
                     "parameters": endpoint.parameters,
                     "is_active": endpoint.is_active,
+                    "cache_age_seconds": endpoint.cache_age_seconds,
                     "endpoint_path": endpoint.endpoint_path,
                     "created_at": endpoint.created_at,
                     "updated_at": endpoint.updated_at,
@@ -164,6 +212,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     def update(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Update an existing endpoint."""
         endpoint = get_object_or_404(Endpoint, team=self.team, name=name)
+        # Capture a snapshot for diffing
+        try:
+            before_update = Endpoint.objects.get(pk=endpoint.id)
+        except Endpoint.DoesNotExist:
+            before_update = None
 
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, EndpointRequest)
@@ -178,8 +231,24 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 endpoint.description = data.description
             if data.is_active is not None:
                 endpoint.is_active = data.is_active
+            # Allow explicitly setting cache_age_seconds to None
+            if "cache_age_seconds" in request.data:
+                endpoint.cache_age_seconds = data.cache_age_seconds
 
             endpoint.save()
+
+            # Activity log: updated with field diffs
+            changes = changes_between("Endpoint", previous=before_update, current=endpoint)
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated_session(request),
+                item_id=str(endpoint.id),
+                scope="Endpoint",
+                activity="updated",
+                detail=Detail(name=endpoint.name, changes=changes),
+            )
 
             return Response(
                 {
@@ -192,6 +261,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                     "endpoint_path": endpoint.endpoint_path,
                     "created_at": endpoint.created_at,
                     "updated_at": endpoint.updated_at,
+                    "cache_age_seconds": endpoint.cache_age_seconds,
                 }
             )
 
@@ -255,6 +325,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 query_id=client_query_id,
                 user=cast(User, request.user),
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                cache_age_seconds=endpoint.cache_age_seconds,
             )
 
             if isinstance(result, BaseModel):

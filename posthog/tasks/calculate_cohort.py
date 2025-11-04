@@ -362,7 +362,7 @@ def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int)
     get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id, batchsize=10_000)
 
 
-@shared_task(ignore_result=True, max_retries=2, queue=CeleryQueue.DEFAULT.value)
+@shared_task(ignore_result=True, max_retries=2)
 def collect_cohort_query_stats(
     tag_matcher: str, cohort_id: int, start_time_iso: str, history_id: str, query: str
 ) -> None:
@@ -391,6 +391,15 @@ def collect_cohort_query_stats(
         query_stats = get_clickhouse_query_stats(tag_matcher, cohort_id, start_time, history.team.id)
 
         if query_stats:
+            update_fields = []
+
+            # Only update history if it's still in progress (no finished_at)
+            if "exception" in query_stats and not history.finished_at:
+                history.finished_at = timezone.now()
+                history.error = query_stats.get("exception")
+                update_fields.append("finished_at")
+                update_fields.append("error")
+
             history.add_query_info(
                 query=query,
                 query_id=query_stats.get("query_id"),
@@ -399,7 +408,8 @@ def collect_cohort_query_stats(
                 read_rows=query_stats.get("read_rows"),
                 written_rows=query_stats.get("written_rows"),
             )
-            history.save(update_fields=["queries"])
+            update_fields.append("queries")
+            history.save(update_fields=update_fields)
         else:
             logger.warning(
                 "No query stats found for cohort calculation",

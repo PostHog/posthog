@@ -27,14 +27,17 @@ export function loadPostHogJS(): void {
                     loadedInstance.opt_in_capturing()
 
                     if (loadedInstance.getFeatureFlag(FEATURE_FLAGS.TRACK_MEMORY_USAGE)) {
-                        // no point in tracking memory if it's not available
                         const hasMemory = 'memory' in window.performance
                         if (!hasMemory) {
                             return
                         }
 
-                        const tenMinuteInMs = 60000 * 10
-                        setInterval(() => {
+                        const thirtyMinutesInMs = 60000 * 30
+                        let intervalId: number | null = null
+
+                        const captureMemory = (
+                            visibilityTrigger: 'is_visible' | 'went_invisible' | 'went_visible'
+                        ): void => {
                             // this is deprecated and not available in all browsers,
                             // but the supposed standard at https://developer.mozilla.org/en-US/docs/Web/API/Performance/measureUserAgentSpecificMemory
                             // isn't available in Chrome even so 🤷
@@ -43,11 +46,47 @@ export function loadPostHogJS(): void {
                                 loadedInstance.capture('memory_usage', {
                                     totalJSHeapSize: memory.totalJSHeapSize,
                                     usedJSHeapSize: memory.usedJSHeapSize,
+                                    visibility_trigger: visibilityTrigger,
                                     pageIsVisible: document.visibilityState === 'visible',
                                     pageIsFocused: document.hasFocus(),
                                 })
                             }
-                        }, tenMinuteInMs)
+                        }
+
+                        const startInterval = (): void => {
+                            if (intervalId !== null) {
+                                return
+                            }
+                            intervalId = window.setInterval(() => captureMemory('is_visible'), thirtyMinutesInMs)
+                        }
+
+                        const stopInterval = (): void => {
+                            if (intervalId !== null) {
+                                clearInterval(intervalId)
+                                intervalId = null
+                            }
+                        }
+
+                        const onVisibilityChange = (): void => {
+                            if (document.hidden) {
+                                captureMemory('went_invisible')
+                                stopInterval()
+                            } else {
+                                captureMemory('went_visible')
+                                startInterval()
+                            }
+                        }
+
+                        document.addEventListener('visibilitychange', onVisibilityChange)
+
+                        if (!document.hidden) {
+                            startInterval()
+                        }
+
+                        window.addEventListener('beforeunload', () => {
+                            stopInterval()
+                            document.removeEventListener('visibilitychange', onVisibilityChange)
+                        })
                     }
                 }
 

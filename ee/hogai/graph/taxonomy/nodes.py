@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from functools import cached_property
 from typing import Generic, TypeVar
 
@@ -17,12 +18,13 @@ from posthog.schema import MaxEventContext
 from posthog.models import Team, User
 from posthog.models.group_type_mapping import GroupTypeMapping
 
+from ee.hogai.graph.taxonomy.tools import TaxonomyTool
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import format_events_yaml
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..base import BaseAssistantNode
-from ..mixins import StateClassMixin, TaxonomyReasoningNodeMixin
+from ..mixins import StateClassMixin, TaxonomyUpdateDispatcherNodeMixin
 from .prompts import (
     HUMAN_IN_THE_LOOP_PROMPT,
     ITERATION_LIMIT_PROMPT,
@@ -31,7 +33,6 @@ from .prompts import (
     TAXONOMY_TOOL_USAGE_PROMPT,
 )
 from .toolkit import TaxonomyAgentToolkit
-from .tools import TaxonomyTool
 from .types import EntityType, TaxonomyAgentState, TaxonomyNodeName
 
 TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
@@ -39,18 +40,33 @@ TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAge
 TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]
 
 
+class ParentToolCallIdMixin(BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]):
+    _parent_tool_call_id: str | None = None
+    _toolkit: TaxonomyAgentToolkit
+
+    async def __call__(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType | None:
+        """
+        Run the assistant node and handle cancelled conversation before the node is run.
+        """
+        if self._parent_tool_call_id:
+            self._toolkit._parent_tool_call_id = self._parent_tool_call_id
+
+        return await super().__call__(state, config)
+
+
 class TaxonomyAgentNode(
     Generic[TaxonomyStateType, TaxonomyPartialStateType],
-    TaxonomyReasoningNodeMixin,
-    TaxonomyNodeBound,
     StateClassMixin,
+    TaxonomyUpdateDispatcherNodeMixin,
+    ParentToolCallIdMixin,
+    TaxonomyNodeBound,
     ABC,
 ):
     """Base node for taxonomy agents."""
 
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
-        self._toolkit = toolkit_class(team=team)
+        self._toolkit = toolkit_class(team=team, user=user)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentNode)
 
     @property
@@ -73,11 +89,11 @@ class TaxonomyAgentNode(
 
     def _get_model(self, state: TaxonomyStateType):
         return MaxChatOpenAI(
-            model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team
+            model="gpt-4.1", streaming=False, temperature=0.3, user=self._user, team=self._team, disable_streaming=True
         ).bind_tools(
             self._toolkit.get_tools(),
             tool_choice="required",
-            parallel_tool_calls=False,
+            parallel_tool_calls=True,
         )
 
     def _get_default_system_prompts(self) -> list[str]:
@@ -111,6 +127,7 @@ class TaxonomyAgentNode(
 
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         """Process the state and return filtering options."""
+        self.dispatch_update_message(state)
         progress_messages = state.tool_progress_messages or []
         full_conversation = self._construct_messages(state)
 
@@ -131,9 +148,13 @@ class TaxonomyAgentNode(
         if not output_message.tool_calls:
             raise ValueError("No tool calls found in the output message.")
 
-        tool_call = output_message.tool_calls[0]
-        result = AgentAction(tool_call["name"], tool_call["args"], tool_call["id"])
-        intermediate_steps = state.intermediate_steps or []
+        tool_calls = output_message.tool_calls
+        # Preserve previous intermediate steps (and their results)
+        previous_steps = state.intermediate_steps or []
+        intermediate_steps = [*previous_steps]
+        for tool_call in tool_calls:
+            result = AgentAction(tool_call["name"], tool_call["args"], tool_call["id"])
+            intermediate_steps.append((result, None))
 
         # Add the new AI message to the progress log
         ai_message = LangchainAIMessage(
@@ -142,13 +163,18 @@ class TaxonomyAgentNode(
 
         return self._partial_state_class(
             tool_progress_messages=[*progress_messages, ai_message],
-            intermediate_steps=[*intermediate_steps, (result, None)],
+            intermediate_steps=intermediate_steps,
             output=state.output,
+            iteration_count=state.iteration_count + 1 if state.iteration_count is not None else 1,
         )
 
 
 class TaxonomyAgentToolsNode(
-    Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyReasoningNodeMixin, TaxonomyNodeBound, StateClassMixin
+    Generic[TaxonomyStateType, TaxonomyPartialStateType],
+    StateClassMixin,
+    TaxonomyUpdateDispatcherNodeMixin,
+    ParentToolCallIdMixin,
+    TaxonomyNodeBound,
 ):
     """Base tools node for taxonomy agents."""
 
@@ -156,7 +182,7 @@ class TaxonomyAgentToolsNode(
 
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
-        self._toolkit = toolkit_class(team=team)
+        self._toolkit = toolkit_class(team=team, user=user)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentToolsNode)
 
     @property
@@ -165,57 +191,77 @@ class TaxonomyAgentToolsNode(
 
     async def arun(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []
-        action, _output = intermediate_steps[-1]
-        tool_input: TaxonomyTool | None = None
-        output = ""
-        tool_result_msg: list[LangchainToolMessage] = []
-
-        try:
-            tool_input = self._toolkit.get_tool_input_model(action)
-        except ValidationError as e:
-            output = str(
-                ChatPromptTemplate.from_template(REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache")
-                .format_messages(exception=e.errors(include_url=False))[0]
-                .content
-            )
-        else:
-            if tool_input.name == "final_answer":
-                return self._partial_state_class(
-                    output=tool_input.arguments.answer,  # type: ignore
-                    intermediate_steps=None,
+        tools_metadata: dict[str, list[tuple[TaxonomyTool, str]]] = defaultdict(list)
+        invalid_tools = []
+        steps = []
+        tool_msgs = []
+        for action, observation in intermediate_steps:
+            if observation is not None:
+                steps.append((action, observation))
+                continue
+            try:
+                tool_input = self._toolkit.get_tool_input_model(action)
+            except ValidationError as e:
+                output = str(
+                    ChatPromptTemplate.from_template(
+                        REACT_PYDANTIC_VALIDATION_EXCEPTION_PROMPT, template_format="mustache"
+                    )
+                    .format_messages(exception=e.errors(include_url=False))[0]
+                    .content
                 )
-
-            # The agent has requested help, so we return a message to the root node
-            if tool_input.name == "ask_user_for_help":
-                return self._get_reset_state(
-                    tool_input.arguments.request,  # type: ignore
-                    tool_input.name,
-                    state,
+                steps.append((action, output))
+                tool_msgs.append(
+                    LangchainToolMessage(
+                        content=output,
+                        tool_call_id=action.log,
+                    )
                 )
+                invalid_tools.append(action.log)
+                continue
+            else:
+                if tool_input.name == "final_answer":
+                    return self._partial_state_class(
+                        output=tool_input.arguments.answer,  # type: ignore
+                        intermediate_steps=None,
+                    )
+
+                if tool_input.name == "ask_user_for_help":
+                    return self._get_reset_state(
+                        tool_input.arguments.request,  # type: ignore
+                        tool_input.name,
+                        state,
+                    )
+
+                # For any other tool, collect metadata and prepare for result processing
+                tools_metadata[tool_input.name].append((tool_input, action.log))
 
         # If we're still here, check if we've hit the iteration limit within this cycle
-        if len(intermediate_steps) >= self.MAX_ITERATIONS:
+        if state.iteration_count is not None and state.iteration_count >= self.MAX_ITERATIONS:
             return self._get_reset_state(ITERATION_LIMIT_PROMPT, "max_iterations", state)
 
-        if tool_input and not output:
-            # Taxonomy is a separate graph, so it dispatches its own messages
-            reasoning_message = await self.get_reasoning_message(state)
-            if reasoning_message:
-                await self._write_message(reasoning_message)
-            # Use the toolkit to handle tool execution
-            _, output = await self._toolkit.handle_tools(tool_input.name, tool_input)
+        self.dispatch_update_message(state)
 
-        if output:
+        tool_results = await self._toolkit.handle_tools(tools_metadata)
+
+        for action, observation in intermediate_steps:
+            if observation is not None:
+                continue
+            if action.log in invalid_tools:
+                continue
+            tool_result = tool_results[action.log]
             tool_msg = LangchainToolMessage(
-                content=output,
+                content=tool_result,
                 tool_call_id=action.log,
             )
-            tool_result_msg.append(tool_msg)
+            tool_msgs.append(tool_msg)
+            steps.append((action, tool_result))
 
         old_msg = state.tool_progress_messages or []
+
         return self._partial_state_class(
-            tool_progress_messages=[*old_msg, *tool_result_msg],
-            intermediate_steps=[*intermediate_steps[:-1], (action, output)],
+            tool_progress_messages=[*old_msg, *tool_msgs],
+            intermediate_steps=steps,
+            iteration_count=state.iteration_count,
         )
 
     def router(self, state: TaxonomyStateType) -> str:

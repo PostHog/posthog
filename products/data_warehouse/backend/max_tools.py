@@ -41,8 +41,8 @@ class final_answer(base_final_answer[FinalAnswerArgs]):
 
 
 class HogQLGeneratorToolkit(TaxonomyAgentToolkit):
-    def __init__(self, team: Team):
-        super().__init__(team)
+    def __init__(self, team: Team, user: User):
+        super().__init__(team, user)
 
     def _get_custom_tools(self) -> list:
         """Get custom tools for the HogQLGenerator."""
@@ -113,10 +113,11 @@ class HogQLGeneratorToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, Taxonom
 
 
 class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[FinalAnswerArgs]]):
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, tool_call_id: str):
         super().__init__(
             team,
             user,
+            tool_call_id,
             loop_node_class=HogQLGeneratorNode,
             tools_node_class=HogQLGeneratorToolsNode,
             toolkit_class=HogQLGeneratorToolkit,
@@ -126,16 +127,16 @@ class HogQLGeneratorGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[F
 class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
     name: str = "generate_hogql_query"
     description: str = "Write or edit an SQL query to answer the user's question, and apply it to the current SQL editor only include the current change the user requested"
-    thinking_message: str = "Coming up with an SQL query"
     args_schema: type[BaseModel] = HogQLGeneratorArgs
     context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
-    show_tool_call_message: bool = False
 
     async def _arun_impl(self, instructions: str) -> tuple[str, str]:
         current_query: str | None = self.context.get("current_query", "")
         user_prompt = HOGQL_GENERATOR_USER_PROMPT.format(instructions=instructions, current_query=current_query)
 
-        graph = HogQLGeneratorGraph(team=self._team, user=self._user).compile_full_graph()
+        graph = HogQLGeneratorGraph(
+            team=self._team, user=self._user, tool_call_id=self._tool_call_id
+        ).compile_full_graph()
 
         graph_context = {
             "change": user_prompt,

@@ -688,7 +688,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 )
                 LemonDialog.open({
                     title: 'Confirm your table configurations',
-                    description: confirmation,
+                    content: confirmation,
                     primaryButton: {
                         children: 'Confirm',
                         type: 'primary',
@@ -793,8 +793,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     values.source.payload ?? {}
                 )
 
+                let showToast = false
+
                 for (const schema of schemas) {
                     if (schema.sync_type === null) {
+                        showToast = true
                         schema.should_sync = true
 
                         // Use incremental if available
@@ -814,9 +817,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }
                 }
 
-                lemonToast.info(
-                    "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
-                )
+                if (showToast) {
+                    lemonToast.info(
+                        "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
+                    )
+                }
 
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()

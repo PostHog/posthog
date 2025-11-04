@@ -8,7 +8,8 @@ from posthog.schema import DatabaseSchemaManagedViewTableKind, RevenueAnalyticsE
 from posthog.hogql import ast
 
 from posthog.models.team.team import Team
-from posthog.warehouse.models.external_data_source import ExternalDataSource
+
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
 
 @dataclass
@@ -27,6 +28,8 @@ class BuiltQuery:
     prefix: str
     # HogQL AST for the view
     query: ast.Expr
+    # Useful for debugging purposes, only asserted by in tests
+    test_comments: str | None = None
 
 
 # A builder is a function that takes a SourceHandle and returns a single BuiltQuery object
@@ -44,11 +47,3 @@ def view_prefix_for_source(source: ExternalDataSource) -> str:
         return source.source_type.lower()
     prefix = source.prefix.strip("_")
     return f"{source.source_type.lower()}.{prefix}"
-
-
-def view_name_for_event(event: str, suffix: str) -> str:
-    return f"{view_prefix_for_event(event)}.{suffix}"
-
-
-def view_name_for_source(source: ExternalDataSource, suffix: str) -> str:
-    return f"{view_prefix_for_source(source)}.{suffix}"

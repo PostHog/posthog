@@ -105,7 +105,7 @@ jobs:
     check-migrations:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
-        timeout-minutes: 10
+        timeout-minutes: 20
 
         name: Validate Django and CH migrations
         runs-on: ubuntu-latest
@@ -126,7 +126,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
                   version: 0.8.19
@@ -141,6 +141,9 @@ jobs:
               with:
                   toolchain: 1.88.0
                   components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
 
             - name: Install sqlx-cli
               run: |
@@ -573,7 +576,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv-tests
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
                   version: 0.8.19
@@ -801,7 +804,7 @@ jobs:
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     django_tests:
-        needs: [django, check-migrations]
+        needs: [django, check-migrations, async-migrations]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -818,6 +821,12 @@ jobs:
                   # Check migration validation - must pass for Django Tests to be green
                   if [[ "${{ needs.check-migrations.result }}" != "success" && "${{ needs.check-migrations.result }}" != "skipped" ]]; then
                     echo "Migration checks failed."
+                    exit 1
+                  fi
+
+                  # Check async migrations - must pass for Django Tests to be green
+                  if [[ "${{ needs.async-migrations.result }}" != "success" && "${{ needs.async-migrations.result }}" != "skipped" ]]; then
+                    echo "Async migrations tests failed."
                     exit 1
                   fi
 
@@ -851,7 +860,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv-async
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
                   version: 0.8.19

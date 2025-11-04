@@ -1,20 +1,17 @@
-import backupCosts from './backup-llm-provider-costs.json'
-import { embeddingCosts } from './embeddings'
-import primaryCosts from './llm-provider-costs.json'
+import openRouterCostsRaw from './llm-costs.json'
 import { manualCosts } from './manual-providers'
-import type { ModelRow } from './types'
+import type { ModelCostRow } from './types'
 
-// Primary costs from llm-provider-costs.json plus manual costs
-export const primaryCostsByModel: Record<string, ModelRow> = {}
-export const primaryCostsList: ModelRow[] = [...primaryCosts, ...manualCosts]
+const openRouterCosts = openRouterCostsRaw as ModelCostRow[]
 
-for (const cost of primaryCostsList) {
-    primaryCostsByModel[cost.model.toLowerCase()] = cost
+export const openRouterCostsByModel: Record<string, ModelCostRow> = {}
+
+for (const cost of openRouterCosts) {
+    openRouterCostsByModel[cost.model.toLowerCase()] = cost
 }
 
-// Backup costs from backup-llm-provider-costs.json plus manual and embedding costs
-export const backupCostsByModel: Record<string, ModelRow> = {}
+export const manualCostsByModel: Record<string, ModelCostRow | undefined> = {}
 
-for (const cost of [...backupCosts, ...manualCosts, ...embeddingCosts]) {
-    backupCostsByModel[cost.model.toLowerCase()] = cost
+for (const cost of manualCosts) {
+    manualCostsByModel[cost.model.toLowerCase()] = cost
 }

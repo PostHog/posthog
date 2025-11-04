@@ -8,8 +8,8 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
-from posthog.warehouse.models.table import DataWarehouseTable
 
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 from products.revenue_analytics.backend.views.schemas.revenue_item import SCHEMA
 from products.revenue_analytics.backend.views.sources.helpers import (
@@ -113,7 +113,10 @@ def build(handle: SourceHandle) -> BuiltQuery:
 
     if invoice_schema is None and charge_schema is None:
         return BuiltQuery(
-            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+            key=str(source.id),  # Using source rather than table because table hasn't been found yet
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_schema",
         )
 
     invoice_table: DataWarehouseTable | None = None
@@ -131,7 +134,10 @@ def build(handle: SourceHandle) -> BuiltQuery:
         team = charge_table.team
     else:
         return BuiltQuery(
-            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+            key=str(source.id),  # Using source rather than table because table hasn't been found
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_table",
         )
 
     # Build the query for invoice items with revenue recognition splitting
@@ -480,9 +486,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
         query for query in [invoice_item_query, invoiceless_charges_query] if query is not None
     ]
     if len(queries) == 0:
-        return BuiltQuery(
-            key=f"{prefix}.no_query", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
-        )
+        return BuiltQuery(key=f"{prefix}.no_query", prefix=prefix, query=ast.SelectQuery.empty(columns=SCHEMA.fields))
 
     # Very cumbersome, but mypy won't be happy otherwise
     if invoice_table is not None:

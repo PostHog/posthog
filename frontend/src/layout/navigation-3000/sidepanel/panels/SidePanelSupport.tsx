@@ -36,7 +36,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 //Support offsite messaging
 const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
 const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    "Many of our support engineers are attending an offsite (from 12th to 16th May) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be back to full speed from the 19th!"
+    "Many of our support engineers are attending an offsite (from 3rd to 7th November) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries without priority support may experience a slight delay. We'll be back to full speed from the 10th!"
 
 //Support Christmas messaging
 //const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
@@ -297,11 +297,11 @@ export function SidePanelSupport(): JSX.Element {
                     ) : (
                         <>
                             {showMaxAI && isBillingLoaded && (
-                                <Section title="Ask Max AI">
+                                <Section title="Ask PostHog AI">
                                     <div>
-                                        <p>Max AI can now answer 80%+ of the support questions we receive! Nice.</p>
+                                        <p>PostHog AI can now answer 80%+ of the support questions we receive! Nice.</p>
                                         <p>
-                                            Let Max read 100s of pages of docs for you, write SQL queries and
+                                            Let PostHog AI read 100s of pages of docs for you, write SQL queries and
                                             expressions, regex patterns, etc.
                                         </p>
                                         <LemonButton
@@ -314,7 +314,7 @@ export function SidePanelSupport(): JSX.Element {
                                             targetBlank={false}
                                             className="mt-2"
                                         >
-                                            Chat with Max AI
+                                            Chat with PostHog AI
                                         </LemonButton>
                                     </div>
                                 </Section>
@@ -322,7 +322,7 @@ export function SidePanelSupport(): JSX.Element {
 
                             {showEmailSupport && isBillingLoaded && (
                                 <Section title="Contact us">
-                                    <p>Can't find what you need and Max unable to help?</p>
+                                    <p>Can't find what you need and PostHog AI unable to help?</p>
                                     <LemonButton
                                         type="secondary"
                                         fullWidth

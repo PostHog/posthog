@@ -3,7 +3,7 @@ import bigDecimal from 'js-big-decimal'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { logger } from '../../utils/logger'
-import { ModelRow } from './providers/types'
+import { ResolvedModelCost } from './providers/types'
 
 const matchProvider = (event: PluginEvent, provider: string): boolean => {
     if (!event.properties) {
@@ -16,7 +16,7 @@ const matchProvider = (event: PluginEvent, provider: string): boolean => {
     return eventProvider?.toLowerCase() === normalizedProvider || eventModel?.toLowerCase().includes(normalizedProvider)
 }
 
-export const calculateInputCost = (event: PluginEvent, cost: ModelRow): string => {
+export const calculateInputCost = (event: PluginEvent, cost: ResolvedModelCost): string => {
     if (!event.properties) {
         return '0'
     }

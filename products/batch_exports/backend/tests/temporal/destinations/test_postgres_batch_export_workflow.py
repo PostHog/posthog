@@ -22,15 +22,10 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
-from posthog.temporal.tests.utils.persons import (
-    generate_test_person_distinct_id2_in_clickhouse,
-    generate_test_persons_in_clickhouse,
-)
 
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.postgres_batch_export import (
@@ -47,12 +42,16 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
 )
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue, RecordBatchTaskError
-from products.batch_exports.backend.tests.temporal.utils import (
-    FlakyClickHouseClient,
+from products.batch_exports.backend.tests.temporal.utils.clickhouse import FlakyClickHouseClient
+from products.batch_exports.backend.tests.temporal.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
+)
+from products.batch_exports.backend.tests.temporal.utils.records import (
     get_record_batch_from_queue,
-    mocked_start_batch_export_run,
     remove_duplicates_from_records,
 )
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -796,7 +795,7 @@ async def test_postgres_export_workflow(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -810,7 +809,7 @@ async def test_postgres_export_workflow(
                     PostgresBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=10),
                 )
@@ -892,7 +891,7 @@ async def test_postgres_export_workflow_without_events(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -906,7 +905,7 @@ async def test_postgres_export_workflow_without_events(
                     PostgresBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=10),
                 )
@@ -973,7 +972,7 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -986,7 +985,7 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
                 PostgresBatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=dt.timedelta(minutes=10),
             )
@@ -1037,7 +1036,7 @@ async def test_postgres_export_workflow_handles_unexpected_insert_activity_error
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -1055,7 +1054,7 @@ async def test_postgres_export_workflow_handles_unexpected_insert_activity_error
                         PostgresBatchExportWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
@@ -1095,7 +1094,7 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -1112,7 +1111,7 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
                     PostgresBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -1147,7 +1146,7 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -1160,7 +1159,7 @@ async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_bat
                 PostgresBatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
             await asyncio.sleep(5)
@@ -1310,7 +1309,7 @@ async def test_postgres_export_workflow_with_many_files(
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[PostgresBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -1326,7 +1325,7 @@ async def test_postgres_export_workflow_with_many_files(
                     PostgresBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(minutes=2),
                 )

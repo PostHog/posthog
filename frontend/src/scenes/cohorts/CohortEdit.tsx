@@ -3,13 +3,14 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
 import { IconClock, IconCopy, IconMinusSmall, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -97,6 +98,15 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query, dataNodeLogicKey })
     const { shouldShowCountWarning } = useValues(warningLogic)
+
+    const cohortId = typeof cohort.id === 'number' ? cohort.id : null
+
+    useFileSystemLogView({
+        type: 'cohort',
+        ref: cohortId,
+        enabled: Boolean(cohortId && !cohortLoading && !cohortMissing && !cohort.deleted),
+        deps: [cohortId, cohortLoading, cohortMissing, cohort.deleted],
+    })
 
     const createStaticCohortContext: QueryContext = {
         columns: {
@@ -187,7 +197,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             onClick={() => duplicateCohort(true)}
                             disabledReasons={{
                                 'Save the cohort first': isNewCohort,
-                                'Cohort must be dynamic to duplicate': cohort.is_static === true,
                                 'Cohort is still calculating': cohort.is_calculating ?? false,
                             }}
                             menuItem
@@ -213,7 +222,21 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             <ScenePanelActionsSection>
                                 <ButtonPrimitive
                                     onClick={() => {
-                                        deleteCohort()
+                                        LemonDialog.open({
+                                            title: 'Delete cohort?',
+                                            description: `Are you sure you want to delete "${cohort.name}"?`,
+                                            primaryButton: {
+                                                children: 'Delete',
+                                                status: 'danger',
+                                                onClick: () => deleteCohort(),
+                                                size: 'small',
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                                type: 'tertiary',
+                                                size: 'small',
+                                            },
+                                        })
                                     }}
                                     variant="danger"
                                     menuItem

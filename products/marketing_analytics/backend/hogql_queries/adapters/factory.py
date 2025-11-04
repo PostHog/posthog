@@ -6,13 +6,13 @@ import structlog
 
 from posthog.schema import SourceMap
 
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataSource
-
+from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
+from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
 
 from ..constants import (
     FALLBACK_EMPTY_QUERY,
@@ -29,6 +29,7 @@ from .base import (
     MetaAdsConfig,
     QueryContext,
     RedditAdsConfig,
+    TikTokAdsConfig,
 )
 from .bigquery import BigQueryAdapter
 from .google_ads import GoogleAdsAdapter
@@ -47,6 +48,7 @@ class MarketingSourceFactory:
         "LinkedinAds": LinkedinAdsAdapter,
         "RedditAds": RedditAdsAdapter,
         "MetaAds": MetaAdsAdapter,
+        "TikTokAds": TikTokAdsAdapter,
         # Non-native adapters
         "BigQuery": BigQueryAdapter,
         # Self-managed adapters
@@ -62,6 +64,7 @@ class MarketingSourceFactory:
         "LinkedinAds": "_create_linkedinads_config",
         "RedditAds": "_create_redditads_config",
         "MetaAds": "_create_metaads_config",
+        "TikTokAds": "_create_tiktokads_config",
     }
 
     @classmethod
@@ -82,9 +85,9 @@ class MarketingSourceFactory:
         self.logger = logger.bind(team_id=self.context.team.pk if self.context.team else None)
 
         # Cache warehouse data to avoid repeated queries
-        database = create_hogql_database(team=self.context.team)
+        database = Database.create_for(team=self.context.team)
         self._warehouse_tables = DataWarehouseTable.objects.filter(
-            team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_tables()
+            team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_table_names()
         ).prefetch_related("externaldataschema_set")
         self._sources_map = self.context.team.marketing_analytics_config.sources_map_typed
 
@@ -255,6 +258,38 @@ class MarketingSourceFactory:
             return None
 
         config = MetaAdsConfig(
+            source_type=source.source_type,
+            campaign_table=campaign_table,
+            stats_table=campaign_stats_table,
+            source_id=str(source.id),
+        )
+
+        return config
+
+    def _create_tiktokads_config(
+        self, source: ExternalDataSource, tables: list[DataWarehouseTable]
+    ) -> Optional[TikTokAdsConfig]:
+        """Create TikTok Ads adapter config with campaign and stats tables"""
+        patterns = TABLE_PATTERNS["TikTokAds"]
+        campaign_table = None
+        campaign_stats_table = None
+
+        for table in tables:
+            table_suffix = table.name.split(".")[-1].lower()
+
+            # Check for campaign table
+            if any(kw in table_suffix for kw in patterns["campaign_table_keywords"]) and not any(
+                ex in table_suffix for ex in patterns["campaign_table_exclusions"]
+            ):
+                campaign_table = table
+            # Check for stats table
+            elif any(kw in table_suffix for kw in patterns["stats_table_keywords"]):
+                campaign_stats_table = table
+
+        if not (campaign_table and campaign_stats_table):
+            return None
+
+        config = TikTokAdsConfig(
             source_type=source.source_type,
             campaign_table=campaign_table,
             stats_table=campaign_stats_table,

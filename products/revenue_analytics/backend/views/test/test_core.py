@@ -1,37 +1,36 @@
 import pytest
 
-from posthog.warehouse.models.external_data_source import ExternalDataSource
-
-from products.revenue_analytics.backend.views.core import view_name_for_event, view_name_for_source
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.revenue_analytics.backend.views.core import view_prefix_for_event, view_prefix_for_source
 
 
 @pytest.mark.parametrize(
-    "source_type,prefix,view_name,expected",
+    "source_type,prefix,expected",
     [
-        ("stripe", None, "charges", "stripe.charges"),
-        ("stripe", "prod", "charges", "stripe.prod.charges"),
-        ("stripe", "prod_", "charges", "stripe.prod.charges"),
-        ("stripe", "_prod", "charges", "stripe.prod.charges"),
-        ("stripe", "_prod_", "charges", "stripe.prod.charges"),
+        ("stripe", None, "stripe"),
+        ("stripe", "prod", "stripe.prod"),
+        ("stripe", "prod_", "stripe.prod"),
+        ("stripe", "_prod", "stripe.prod"),
+        ("stripe", "_prod_", "stripe.prod"),
     ],
 )
-def test_get_view_name_for_source(source_type, prefix, view_name, expected):
+def test_get_view_name_for_source(source_type, prefix, expected):
     source = ExternalDataSource(source_type=source_type, prefix=prefix)
-    result = view_name_for_source(source, view_name)
+    result = view_prefix_for_source(source)
     assert result == expected
 
 
 @pytest.mark.parametrize(
-    "event,view_name,expected",
+    "event,expected",
     [
-        ("charge_succeeded", "charges", "revenue_analytics.events.charge_succeeded.charges"),
-        ("charge.succeeded", "charges", "revenue_analytics.events.charge_succeeded.charges"),
-        ("charge-succeeded", "charges", "revenue_analytics.events.charge_succeeded.charges"),
-        ("charge$succeeded", "charges", "revenue_analytics.events.charge_succeeded.charges"),
-        ("charge123succeeded", "charges", "revenue_analytics.events.charge123succeeded.charges"),
-        ("charge*!@#%^#$succeeded", "charges", "revenue_analytics.events.charge________succeeded.charges"),
+        ("charge_succeeded", "revenue_analytics.events.charge_succeeded"),
+        ("charge.succeeded", "revenue_analytics.events.charge_succeeded"),
+        ("charge-succeeded", "revenue_analytics.events.charge_succeeded"),
+        ("charge$succeeded", "revenue_analytics.events.charge_succeeded"),
+        ("charge123succeeded", "revenue_analytics.events.charge123succeeded"),
+        ("charge*!@#%^#$succeeded", "revenue_analytics.events.charge________succeeded"),
     ],
 )
-def test_get_view_name_for_event(event, view_name, expected):
-    result = view_name_for_event(event, view_name)
+def test_get_view_prefix_for_event(event, expected):
+    result = view_prefix_for_event(event)
     assert result == expected
