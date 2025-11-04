@@ -132,6 +132,6 @@ def experiment_error_handler(method: F) -> F:
 
             # Raise user-friendly error
             user_message = get_user_friendly_message(e)
-            raise ValidationError(user_message) from e
+            raise ValidationError(user_message)
 
     return cast(F, wrapper)
