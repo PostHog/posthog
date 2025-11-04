@@ -8,6 +8,10 @@ concurrency:
     # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
     cancel-in-progress: false
 
+permissions:
+    contents: write
+    pull-requests: write
+
 jobs:
     # Job to decide if we should run storybook ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
@@ -99,7 +103,7 @@ jobs:
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
-                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]]; then
+                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
                       echo "mode=check" >> $GITHUB_OUTPUT
                       echo "⚠️  Running in CHECK mode - snapshots must match exactly"
                     else
@@ -521,7 +525,37 @@ jobs:
                   pr-number: ${{ github.event.pull_request.number }}
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.sha }}
-                  github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+
+    check-mode-failure:
+        name: Handle CHECK mode failures
+        runs-on: ubuntu-latest
+        needs: [visual-regression, detect-snapshot-mode, changes]
+        if: failure() && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'check'
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  fetch-depth: 0
+
+            - name: Count snapshot changes
+              id: count
+              run: |
+                  CHANGES_JSON=$(.github/scripts/count-snapshot-changes.sh frontend/__snapshots__/)
+                  echo "changes=$CHANGES_JSON" >> $GITHUB_OUTPUT
+                  echo "Snapshot changes: $CHANGES_JSON"
+
+            - name: Post check-failed comment
+              env:
+                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+              run: |
+                  .github/scripts/post-snapshot-comment.js \
+                    "storybook" \
+                    "check-failed" \
+                    '${{ steps.count.outputs.changes }}' \
+                    "${{ github.event.pull_request.number }}" \
+                    "${{ github.repository }}" \
+                    "${{ github.sha }}"
 
     calculate-running-time:
         name: Calculate running time

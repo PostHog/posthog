@@ -39,6 +39,8 @@ runs:
     using: composite
     steps:
         - name: Download all snapshot artifacts
+          id: download
+          continue-on-error: true
           uses: actions/download-artifact@v4
           with:
               pattern: ${{ inputs.artifact-pattern }}
@@ -50,7 +52,14 @@ runs:
           run: |
               # Extract all tar files from downloaded artifacts
               mkdir -p ${{ inputs.snapshot-path }}
-              if [ -d /tmp/snapshot-artifacts/ ]; then
+
+              # Check if download succeeded and artifacts exist
+              if [ "${{ steps.download.outcome }}" == "failure" ]; then
+                echo "No artifacts found - all tests passed with no snapshot changes"
+                exit 0
+              fi
+
+              if [ -d /tmp/snapshot-artifacts/ ] && [ "$(ls -A /tmp/snapshot-artifacts/*.tar.gz 2>/dev/null)" ]; then
                 for tar in /tmp/snapshot-artifacts/*.tar.gz; do
                   if [ -f "$tar" ]; then
                     echo "Extracting $tar..."
@@ -81,6 +90,8 @@ runs:
               if [ "$TOTAL" -gt 0 ]; then
                 git add ${{ inputs.snapshot-path }} -A
                 git commit -m "${{ inputs.commit-message }}"
+                # Pull before push to avoid race condition when multiple workflows commit simultaneously
+                git pull --rebase --autostash
                 git push
                 SNAPSHOT_SHA=$(git rev-parse HEAD)
                 echo "committed=true" >> $GITHUB_OUTPUT

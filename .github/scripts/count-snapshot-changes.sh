@@ -61,10 +61,8 @@ fi
 
 TOTAL=$((ADDED + MODIFIED + DELETED))
 
-# Build JSON array of changed files
-FILES="["
-FIRST=true
-while IFS= read -r line; do
+# Build JSON array of changed files using jq for safe JSON construction
+FILES=$(while IFS= read -r line; do
     if [ -z "$line" ]; then
         continue
     fi
@@ -78,19 +76,19 @@ while IFS= read -r line; do
         shard="${BASH_REMATCH[1]}"
     fi
 
-    if [ "$FIRST" = true ]; then
-        FIRST=false
-    else
-        FILES+=","
-    fi
-
-    FILES+="{\"path\":\"$path\",\"status\":\"$status\""
+    # Use jq to safely construct JSON object
     if [ -n "$shard" ]; then
-        FILES+=",\"shard\":$shard"
+        jq -n --arg p "$path" --arg s "$status" --arg sh "$shard" '{path: $p, status: $s, shard: ($sh | tonumber)}'
+    else
+        jq -n --arg p "$path" --arg s "$status" '{path: $p, status: $s}'
     fi
-    FILES+="}"
-done < "$DIFF_FILE"
-FILES+="]"
+done < "$DIFF_FILE" | jq -s '.')
 
-# Output JSON
-echo "{\"added\":$ADDED,\"modified\":$MODIFIED,\"deleted\":$DELETED,\"total\":$TOTAL,\"files\":$FILES}"
+# Output JSON using jq
+jq -n \
+    --argjson a "$ADDED" \
+    --argjson m "$MODIFIED" \
+    --argjson d "$DELETED" \
+    --argjson t "$TOTAL" \
+    --argjson f "$FILES" \
+    '{added: $a, modified: $m, deleted: $d, total: $t, files: $f}'
