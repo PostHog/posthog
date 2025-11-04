@@ -118,7 +118,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
     def update(self, event_definition: EventDefinition, validated_data):
         request = self.context.get("request")
         if not (request and request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)):
-            raise EnterpriseFeatureException()
+            raise EnterpriseFeatureException(AvailableFeature.INGESTION_TAXONOMY)
         return super().update(event_definition, validated_data)
 
     def get_is_action(self, obj):

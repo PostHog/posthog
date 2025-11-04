@@ -169,7 +169,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
 
         # Change pa.structs to JSON string
         if pa.types.is_struct(column.type) or pa.types.is_list(column.type):
-            json_column = pa.array([json.dumps(row.as_py()) if row.as_py() is not None else None for row in column])
+            json_column = pa.array([_json_dumps(row.as_py()) if row.as_py() is not None else None for row in column])
             table = table.set_column(table.schema.get_field_index(column_name), column_name, json_column)
             column = table.column(column_name)
         # Change pa.duration to int with total seconds

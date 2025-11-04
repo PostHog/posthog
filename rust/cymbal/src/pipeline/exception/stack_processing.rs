@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use common_types::error_tracking::FrameId;
+use common_types::error_tracking::RawFrameId;
 use uuid::Uuid;
 
 use crate::{
@@ -44,7 +44,7 @@ pub async fn do_stack_processing(
             };
 
             for frame in frames.iter() {
-                let id = frame.frame_id(team_id);
+                let id = frame.raw_id(team_id);
                 if frame_resolve_handles.contains_key(&id) {
                     // We've already spawned a task to resolve this frame, so we don't need to do it again.
                     continue;
@@ -131,12 +131,12 @@ pub async fn do_stack_processing(
     Ok(indexed_fingerprinted)
 }
 
-fn find_index_with_matching_frame_id(id: &FrameId, list: &[(usize, RawErrProps)]) -> usize {
+fn find_index_with_matching_frame_id(id: &RawFrameId, list: &[(usize, RawErrProps)]) -> usize {
     for (index, props) in list.iter() {
         for exception in props.exception_list.iter() {
             if let Some(Stacktrace::Raw { frames }) = &exception.stack {
                 for frame in frames {
-                    if frame.frame_id(id.team_id) == *id {
+                    if frame.raw_id(id.team_id) == *id {
                         return *index;
                     }
                 }

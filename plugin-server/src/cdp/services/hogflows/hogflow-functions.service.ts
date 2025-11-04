@@ -57,6 +57,8 @@ export class HogFlowFunctionsService {
 
         const globalsWithSource: HogFunctionInvocationGlobals = {
             ...globals,
+            // Include workflow-level variables
+            variables: invocation.state.variables,
             source: {
                 name: hogFunction.name ?? `Hog flow: ${invocation.hogFlow.id}`,
                 url: `${projectUrl}/workflows/${invocation.hogFlow.id}/workflow?node=${hogFunction.id}`,
