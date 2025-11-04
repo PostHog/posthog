@@ -13,7 +13,7 @@ from urllib.parse import quote
 
 from .constants import MAX_TREE_DEPTH, SEPARATOR
 from .event_formatter import format_event_text_repr
-from .message_formatter import FormatterOptions, truncate_content
+from .message_formatter import FormatterOptions, format_input_messages, format_output_messages, truncate_content
 
 
 def _format_latency(latency: float) -> str:
@@ -103,9 +103,21 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
     if not state:
         return []
 
-    lines = ["", f"{label}:", ""]
-
     try:
+        # Check if state looks like messages (list of dicts with role/content)
+        if isinstance(state, list) and len(state) > 0 and isinstance(state[0], dict):
+            first_item = state[0]
+            if "role" in first_item or "content" in first_item:
+                # Format as messages using appropriate formatter (they add their own headers)
+                if "INPUT" in label:
+                    return format_input_messages(state, options)
+                else:
+                    # For output, pass state as choices (second param)
+                    return format_output_messages(None, state, options)
+
+        # For non-message state, add the label header
+        lines = ["", f"{label}:", ""]
+
         if isinstance(state, str):
             content_lines, _ = truncate_content(state, options)
             lines.extend(content_lines)
@@ -121,8 +133,7 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
         return lines
     except Exception:
         # Safe fallback if JSON.stringify fails (circular refs, etc.)
-        lines.append(f"[UNABLE_TO_PARSE: {type(state).__name__}]")
-        return lines
+        return ["", f"{label}:", "", f"[UNABLE_TO_PARSE: {type(state).__name__}]"]
 
 
 def _render_tree(
@@ -266,8 +277,8 @@ def format_trace_text_repr(
     lines: list[str] = []
     props = trace.get("properties", {})
 
-    # Trace header
-    trace_name = props.get("$ai_span_name", "TRACE")
+    # Trace header - support both camelCase (API) and snake_case (properties)
+    trace_name = props.get("$ai_span_name") or trace.get("traceName") or trace.get("trace_name") or "TRACE"
     lines.append(trace_name.upper())
     lines.append("=" * 80)
 
@@ -284,22 +295,26 @@ def format_trace_text_repr(
         else:
             lines.append(json.dumps(error, indent=2))
 
-    # Trace-level input state
-    input_lines = _format_state(props.get("$ai_input_state"), "TRACE INPUT", options)
-    if input_lines:
-        lines.append("")
-        lines.append(SEPARATOR)
-        lines.extend(input_lines)
+    # Only show trace-level input/output if there are NO events in hierarchy
+    # When events exist, the hierarchy tells the full story
+    if not hierarchy:
+        # Trace-level input state - check both locations
+        input_state = props.get("$ai_input_state") or trace.get("inputState") or trace.get("input_state")
+        input_lines = _format_state(input_state, "TRACE INPUT", options)
+        if input_lines:
+            lines.append("")
+            lines.append(SEPARATOR)
+            lines.extend(input_lines)
 
-    # Trace-level output state
-    output_lines = _format_state(props.get("$ai_output_state"), "TRACE OUTPUT", options)
-    if output_lines:
-        lines.append("")
-        lines.append(SEPARATOR)
-        lines.extend(output_lines)
-
-    # Tree structure
-    if hierarchy:
+        # Trace-level output state - check both locations
+        output_state = props.get("$ai_output_state") or trace.get("outputState") or trace.get("output_state")
+        output_lines = _format_state(output_state, "TRACE OUTPUT", options)
+        if output_lines:
+            lines.append("")
+            lines.append(SEPARATOR)
+            lines.extend(output_lines)
+    else:
+        # Tree structure exists - show it instead of trace input/output
         lines.append("")
         lines.append(SEPARATOR)
         lines.append("")
