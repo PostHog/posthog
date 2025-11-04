@@ -241,6 +241,7 @@ export const sceneLogic = kea<sceneLogicType>([
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
         cache.lastTrackedSceneByTab = {} as Record<string, { sceneId?: string; sceneKey?: string }>
+        cache.initialNavigationTabCreated = false
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -303,7 +304,10 @@ export const sceneLogic = kea<sceneLogicType>([
         }),
         reloadBrowserDueToImportError: true,
 
-        newTab: (href?: string | null) => ({ href }),
+        newTab: (href?: string | null, options?: { activate?: boolean; skipNavigate?: boolean; id?: string }) => ({
+            href,
+            options,
+        }),
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
         loadPinnedTabsFromBackend: true,
         setPinnedTabsFromBackend: (tabs: SceneTab[]) => ({ tabs }),
@@ -335,22 +339,24 @@ export const sceneLogic = kea<sceneLogicType>([
                     }))
                     return composeTabsFromStorage(normalizedPinned, state)
                 },
-                newTab: (state, { href }) => {
+                newTab: (state, { href, options }) => {
+                    const activate = options?.activate ?? true
+                    const tabId = options?.id ?? generateTabId()
                     const { pathname, search, hash } = combineUrl(href || '/new')
-                    const updated = [
-                        ...state.map((tab) => (tab.active ? { ...tab, active: false } : tab)),
-                        {
-                            id: generateTabId(),
-                            active: true,
-                            pathname: addProjectIdIfMissing(pathname),
-                            search,
-                            hash,
-                            title: 'New tab',
-                            iconType: 'blank',
-                            pinned: false,
-                        } satisfies SceneTab,
-                    ]
-                    return sortTabsPinnedFirst(updated)
+                    const baseTabs = activate
+                        ? state.map((tab) => (tab.active ? { ...tab, active: false } : tab))
+                        : state
+                    const newTab: SceneTab = {
+                        id: tabId,
+                        active: activate,
+                        pathname: addProjectIdIfMissing(pathname),
+                        search,
+                        hash,
+                        title: 'New tab',
+                        iconType: 'blank',
+                        pinned: false,
+                    }
+                    return sortTabsPinnedFirst([...baseTabs, newTab])
                 },
                 removeTab: (state, { tab }) => {
                     let index = state.findIndex((t) => t === tab)
@@ -733,9 +739,11 @@ export const sceneLogic = kea<sceneLogicType>([
         [NEW_INTERNAL_TAB]: (payload) => {
             actions.newTab(payload.path)
         },
-        newTab: ({ href }) => {
+        newTab: ({ href, options }) => {
             persistTabs(values.tabs)
-            router.actions.push(href || urls.newTab())
+            if (!(options?.skipNavigate ?? false)) {
+                router.actions.push(href || urls.newTab())
+            }
         },
         setTabs: () => persistTabs(values.tabs),
         activateTab: () => persistTabs(values.tabs),
@@ -1156,6 +1164,8 @@ export const sceneLogic = kea<sceneLogicType>([
             if (sessionWithIds.length > 0 || (pinnedWithIds?.length ?? 0) > 0) {
                 initialTabs = composeTabsFromStorage(pinnedWithIds ?? null, sessionWithIds)
                 actions.setTabs(initialTabs)
+
+                cache.initialNavigationTabCreated = initialTabs.some((tab) => !tab.pinned)
             }
             cache.tabsLoaded = true
         }
@@ -1173,11 +1183,40 @@ export const sceneLogic = kea<sceneLogicType>([
                     pinned: false,
                 },
             ])
+            cache.initialNavigationTabCreated = true
         }
         actions.loadPinnedTabsFromBackend()
     }),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, cache }) => {
+        const ensureNavigationTabId = (): string => {
+            const activeTab = values.activeTab
+            const location = router.values.currentLocation
+            const hrefString = location ? `${location.pathname}${location.search ?? ''}${location.hash ?? ''}` : ''
+            const href = hrefString || undefined
+
+            const createNavigationTab = (): string => {
+                const tabId = generateTabId()
+                actions.newTab(href, { id: tabId, skipNavigate: true, activate: true })
+                cache.initialNavigationTabCreated = true
+                return tabId
+            }
+
+            if (values.tabs.length === 0) {
+                return createNavigationTab()
+            }
+
+            if (activeTab?.pinned && !cache.initialNavigationTabCreated) {
+                return createNavigationTab()
+            }
+
+            if (!activeTab?.id) {
+                return createNavigationTab()
+            }
+
+            return activeTab.id
+        }
+
         const mapping: Record<
             string,
             (
@@ -1203,13 +1242,11 @@ export const sceneLogic = kea<sceneLogicType>([
         }
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
             mapping[path] = (params, searchParams, hashParams, { method }) => {
-                if (!values.activeTabId) {
-                    actions.newTab()
-                }
+                const tabId = ensureNavigationTabId()
                 actions.openScene(
                     scene,
                     sceneKey,
-                    values.activeTabId ?? '',
+                    tabId,
                     {
                         params,
                         searchParams,
@@ -1221,10 +1258,8 @@ export const sceneLogic = kea<sceneLogicType>([
         }
 
         mapping['/*'] = (_, __, { method }) => {
-            if (!values.activeTabId) {
-                actions.newTab()
-            }
-            return actions.loadScene(Scene.Error404, undefined, values.activeTabId ?? '', emptySceneParams, method)
+            const tabId = ensureNavigationTabId()
+            return actions.loadScene(Scene.Error404, undefined, tabId, emptySceneParams, method)
         }
 
         return mapping
@@ -1262,6 +1297,8 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         tabs: () => {
+            cache.initialNavigationTabCreated =
+                cache.initialNavigationTabCreated || values.tabs.some((tab) => !tab.pinned)
             const { tabIds } = values
             for (const id of Object.keys(cache.mountedTabLogic)) {
                 if (!tabIds[id]) {
