@@ -27,7 +27,7 @@ from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
 from posthog.settings import TEST
-from posthog.clickhouse.client import Workload
+from posthog.clickhouse.client.connection import Workload
 
 if TEST:
     # :KLUDGE: Hooks are kept around for tests. All other code goes through plugin-server or the other methods explicitly
@@ -55,6 +55,8 @@ if TEST:
 
     @receiver(post_delete, sender=Person)
     def person_deleted(sender, instance: Person, **kwargs):
+        distinct_ids_to_version = _get_distinct_ids_with_version(instance)
+
         _delete_person(
             instance.team.id,
             instance.uuid,
@@ -62,6 +64,17 @@ if TEST:
             instance.created_at,
             sync=True,
         )
+
+        _delete_ch_cohortpeople(instance.team_id, instance.uuid, sync=True)
+
+        for distinct_id, version in distinct_ids_to_version.items():
+            _delete_ch_distinct_id(
+                instance.team.pk,
+                instance.uuid,
+                distinct_id,
+                version,
+                sync=True,
+            )
 
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
