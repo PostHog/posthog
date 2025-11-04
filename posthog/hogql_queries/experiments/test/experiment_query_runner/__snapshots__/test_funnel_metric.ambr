@@ -1687,7 +1687,7 @@
                events.uuid AS uuid,
                events.properties AS properties,
                nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
-               if(if(and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_1'), 0)), 1, 0), 1, 0) AS step_0,
+               if(and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_1'), 0)), 1, 0) AS step_0,
                if(and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_2'), 0)), 1, 0) AS step_1
         FROM events
         LEFT OUTER JOIN
