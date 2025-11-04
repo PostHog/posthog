@@ -170,7 +170,7 @@ def funnel_breakdown_test_factory(
             results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
             self._assert_funnel_breakdown_result_is_correct(
-                results[1],
+                results[2],
                 [
                     FunnelStepResult(name="sign up", breakdown=["Safari", "14"], count=1),
                     FunnelStepResult(name="play movie", breakdown=["Safari", "14"], count=0),
@@ -185,7 +185,7 @@ def funnel_breakdown_test_factory(
             self.assertCountEqual(self._get_actor_ids_at_step(filters, 2, ["Safari", "14"]), [])
 
             self._assert_funnel_breakdown_result_is_correct(
-                results[2],
+                results[1],
                 [
                     FunnelStepResult(name="sign up", breakdown=["Safari", "15"], count=1),
                     FunnelStepResult(
