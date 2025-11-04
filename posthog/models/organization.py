@@ -98,6 +98,11 @@ class OrganizationManager(models.Manager):
         return organization, organization_membership, team
 
 
+def default_anonymize_ips():
+    """Default to True for EU cloud deployments to comply with stricter privacy requirements"""
+    return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
+
+
 class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
         constraints = [
@@ -175,8 +180,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
         blank=True,
     )
     default_anonymize_ips = models.BooleanField(
-        # Default to True for EU cloud deployments to comply with stricter privacy requirements
-        default=lambda: getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU",
+        default=default_anonymize_ips,
         help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
     )
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
