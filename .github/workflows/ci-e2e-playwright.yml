@@ -90,8 +90,6 @@ jobs:
             mode: ${{ steps.detect.outputs.mode }}
         steps:
             - uses: actions/checkout@v4
-              with:
-                  fetch-depth: 50
 
             - name: Detect mode
               id: detect
