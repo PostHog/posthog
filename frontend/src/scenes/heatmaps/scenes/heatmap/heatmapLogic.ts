@@ -3,7 +3,9 @@ import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
+import { dayjs } from 'lib/dayjs'
 import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { heatmapsSceneLogic } from 'scenes/heatmaps/scenes/heatmaps/heatmapsSceneLogic'
 
@@ -16,7 +18,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
     props({ id: 'new' as string | number }),
     key((props) => props.id),
     connect(() => ({
-        values: [heatmapsBrowserLogic, ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized', 'widthOverride']],
+        values: [
+            heatmapsBrowserLogic,
+            ['dataUrl', 'displayUrl', 'isBrowserUrlAuthorized', 'widthOverride'],
+            heatmapDataLogic({ context: 'in-app' }),
+            ['heatmapFilters', 'heatmapColorPalette', 'heatmapFixedPositionMode', 'commonFilters'],
+        ],
         actions: [
             heatmapsBrowserLogic,
             ['setDataUrl', 'setDisplayUrl', 'onIframeLoad', 'setIframeWidth'],
@@ -24,6 +31,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
             ['loadSavedHeatmaps'],
             heatmapDataLogic({ context: 'in-app' }),
             ['loadHeatmap', 'setWindowWidthOverride'],
+            exportsLogic,
+            ['startHeatmapExport'],
         ],
     })),
     actions({
@@ -40,6 +49,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         pollScreenshotStatus: (id: number, width?: number) => ({ id, width }),
         setHeatmapId: (id: number | null) => ({ id }),
         setScreenshotLoaded: (screenshotLoaded: boolean) => ({ screenshotLoaded }),
+        exportHeatmap: true,
     }),
     reducers({
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
@@ -175,6 +185,22 @@ export const heatmapLogic = kea<heatmapLogicType>([
             } finally {
                 actions.setLoading(false)
             }
+        },
+        exportHeatmap: () => {
+            if ((values.type === 'screenshot' && !values.screenshotUrl) || (!values.displayUrl && !values.dataUrl)) {
+                return
+            }
+            actions.startHeatmapExport({
+                heatmap_url: values.type === 'screenshot' ? values.screenshotUrl : values.displayUrl,
+                heatmap_data_url: values.dataUrl,
+                heatmap_type: values.type,
+                width: values.widthOverride ?? 1024,
+                heatmap_color_palette: values.heatmapColorPalette,
+                heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
+                common_filters: values.commonFilters,
+                heatmap_filters: values.heatmapFilters,
+                filename: `heatmap-${values.name}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
+            })
         },
     })),
     selectors({

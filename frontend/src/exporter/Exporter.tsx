@@ -25,6 +25,55 @@ import { DashboardPlacement } from '~/types'
 
 import { exporterViewLogic } from './exporterViewLogic'
 
+function ExportHeatmap({ exportedData }: { exportedData: ExportedData }): JSX.Element {
+    const { type, exportToken } = exportedData
+
+    const { setHref, setHeatmapFilters, setHeatmapFixedPositionMode, setHeatmapColorPalette, setCommonFilters } =
+        useActions(heatmapDataLogic({ context: 'in-app', exportToken }))
+
+    useEffect(() => {
+        if (type === ExportType.Heatmap && exportedData.heatmap_url) {
+            setHref(exportedData.heatmap_url)
+            if (exportedData.heatmap_context?.heatmap_filters) {
+                setHeatmapFilters(exportedData.heatmap_context.heatmap_filters)
+            }
+            if (exportedData.heatmap_context?.heatmap_fixed_position_mode) {
+                setHeatmapFixedPositionMode(exportedData.heatmap_context.heatmap_fixed_position_mode)
+            }
+            if (exportedData.heatmap_context?.heatmap_color_palette) {
+                setHeatmapColorPalette(exportedData.heatmap_context.heatmap_color_palette)
+            }
+            if (exportedData.heatmap_context?.common_filters) {
+                setCommonFilters(exportedData.heatmap_context.common_filters)
+            }
+        }
+    }, [type]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    return (
+        <div className="flex justify-center h-screen w-screen overflow-scroll heatmap-exporter relative">
+            <HeatmapCanvas positioning="absolute" widthOverride={null} context="in-app" exportToken={exportToken} />
+            {exportedData.heatmap_context?.heatmap_type === 'screenshot' ? (
+                <img src={exportedData.heatmap_url} alt="Heatmap" />
+            ) : (
+                <iframe
+                    id="heatmap-iframe"
+                    ref={null}
+                    className="h-screen bg-white w-screen"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    src={exportedData.heatmap_url ?? ''}
+                    onLoad={() => {}}
+                    // these two sandbox values are necessary so that the site and toolbar can run
+                    // this is a very loose sandbox,
+                    // but we specify it so that at least other capabilities are denied
+                    sandbox="allow-scripts allow-same-origin"
+                    // we don't allow things such as camera access though
+                    allow=""
+                />
+            )}
+        </div>
+    )
+}
+
 export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
     const { exportedData } = useValues(exporterViewLogic(props))
@@ -124,28 +173,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     accessToken={exportToken}
                 />
             ) : type === ExportType.Heatmap ? (
-                <div className="flex justify-center h-screen w-screen overflow-scroll heatmap-exporter relative">
-                    <HeatmapCanvas
-                        positioning="absolute"
-                        widthOverride={null}
-                        context="in-app"
-                        exportToken={exportToken}
-                    />
-                    <iframe
-                        id="heatmap-iframe"
-                        ref={null}
-                        className="h-screen bg-white w-screen"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        src={exportedData.heatmap_url ?? ''}
-                        onLoad={() => {}}
-                        // these two sandbox values are necessary so that the site and toolbar can run
-                        // this is a very loose sandbox,
-                        // but we specify it so that at least other capabilities are denied
-                        sandbox="allow-scripts allow-same-origin"
-                        // we don't allow things such as camera access though
-                        allow=""
-                    />
-                </div>
+                <ExportHeatmap exportedData={exportedData} />
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>
             )}

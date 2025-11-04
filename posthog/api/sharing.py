@@ -787,6 +787,14 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             if not heatmap_url:
                 raise NotFound("Invalid replay export - missing heatmap_url")
 
+            heatmap_data_url = resource.export_context.get("heatmap_data_url")
+            if not heatmap_data_url:
+                raise NotFound("Invalid replay export - missing heatmap_data_url")
+
+            heatmap_type = resource.export_context.get("heatmap_type")
+            if not heatmap_type:
+                raise NotFound("Invalid replay export - missing heatmap_type")
+
             try:
                 # Create a JWT to access the heatmap data
                 export_access_token = ""
@@ -804,6 +812,8 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     {
                         "type": "heatmap",
                         "heatmap_url": heatmap_url,
+                        "heatmap_data_url": heatmap_data_url,
+                        "heatmap_type": heatmap_type,
                         "exportToken": export_access_token,
                         "noBorder": True,
                         "heatmap_context": resource.export_context,
