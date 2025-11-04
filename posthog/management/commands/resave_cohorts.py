@@ -6,36 +6,29 @@ from django.core.management.base import BaseCommand, CommandParser
 
 from posthog.api.cohort import validate_filters_and_compute_realtime_support
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.cohort.util import get_all_cohort_dependencies
+from posthog.models.cohort.util import get_all_cohort_dependencies, sort_cohorts_topologically
 from posthog.models.team.team import Team
 
 
 class Command(BaseCommand):
-    help = (
-        "Regenerate inline bytecode (in filters) and cohort_type for cohorts. "
-        "If --team-id is provided, only that team's cohorts are processed; otherwise all cohorts are processed. "
-        "Always processes in paginated batches to avoid large memory usage. "
-    )
+    help = "Regenerate inline bytecode (in filters) and cohort_type for cohorts."
 
     def add_arguments(self, parser: CommandParser) -> None:
-        # Scope selection: either target a single team or all cohorts
         parser.add_argument(
             "--team-id",
             type=int,
-            default=None,
-            help="Optional team id to process. If omitted, all teams are processed.",
+            help="Team ID to process; if omitted, processes all teams.",
         )
-        # Performance guardrail: process in small batches to avoid memory pressure
         parser.add_argument(
             "--batch-size",
-            type=int,
             default=500,
-            help="Number of cohorts to process per batch (default: 500)",
+            type=int,
+            help="Number of cohorts to fetch at once (for pagination).",
         )
         parser.add_argument(
             "--dry-run",
             action="store_true",
-            help="If set, do not persist any changes; only report what would change.",
+            help="Simulates the changes without persisting them to the database.",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -126,7 +119,6 @@ class Command(BaseCommand):
         # Build dependency information for all cohorts
         seen_cohorts_cache = {c.id: c for c in all_cohorts}
         cohort_dependencies = {}  # cohort_id -> set of all cohort ids it depends on
-        referenced_cohort_ids = set()
 
         for cohort in all_cohorts:
             if not cohort.filters:
@@ -135,58 +127,15 @@ class Command(BaseCommand):
             dependencies = get_all_cohort_dependencies(cohort, seen_cohorts_cache=seen_cohorts_cache)
             dependency_ids = {dep.id for dep in dependencies}
             cohort_dependencies[cohort.id] = dependency_ids
-            referenced_cohort_ids.update(dependency_ids)
 
-        # Filter to only include references within this team
-        team_cohort_ids = {c.id for c in all_cohorts}
-        referenced_cohort_ids = referenced_cohort_ids.intersection(team_cohort_ids)
+        # Sort cohorts topologically - dependencies first, then dependents
+        sorted_cohort_ids = sort_cohorts_topologically({c.id for c in all_cohorts}, seen_cohorts_cache)
 
-        # Create a map for quick cohort lookups
-        cohort_map = {c.id: c for c in all_cohorts}
-
-        # Step 1: Process all referenced cohorts first
-        for cohort in all_cohorts:
-            if cohort.id not in referenced_cohort_ids:
+        # Process cohorts in dependency order
+        for cohort_id in sorted_cohort_ids:
+            cohort = seen_cohorts_cache.get(cohort_id)
+            if not cohort:
                 continue
-
-            total += 1
-            try:
-                # Skip cohorts without filters (nothing to recompute)
-                if not cohort.filters:
-                    continue
-
-                # Compute the new filters with inline bytecode and cohort_type
-                clean_filters, computed_type, _ = validate_filters_and_compute_realtime_support(
-                    cohort.filters, cohort.team, current_cohort_type=cohort.cohort_type
-                )
-
-                # Decide if there is any change worth persisting/reporting
-                will_change = clean_filters != cohort.filters or computed_type != cohort.cohort_type
-
-                # ALWAYS update in-memory for dependency checking
-                cohort.filters = clean_filters
-                cohort.cohort_type = computed_type
-
-                # Track summary stats
-                if computed_type == "realtime":
-                    prospective_realtime += 1
-                if dry_run:
-                    if will_change:
-                        changed += 1
-                    continue
-
-                # Persist changes to database if needed
-                if will_change:
-                    cohort.save(update_fields=["filters", "cohort_type"])
-                    changed += 1
-            except Exception as err:
-                errors += 1
-                self.stderr.write(self.style.ERROR(f"Cohort {cohort.id} (team {team.id}): {err}"))
-
-        # Step 2: Process all other cohorts (those that depend on others)
-        for cohort in all_cohorts:
-            if cohort.id in referenced_cohort_ids:
-                continue  # Already processed
 
             total += 1
             try:
@@ -208,7 +157,7 @@ class Command(BaseCommand):
                             computed_type = None
                             break
                         # Also check if the referenced cohort is not realtime
-                        ref_cohort = cohort_map.get(ref_id)
+                        ref_cohort = seen_cohorts_cache.get(ref_id)
                         if ref_cohort and ref_cohort.cohort_type != "realtime":
                             computed_type = None
                             break
@@ -216,7 +165,7 @@ class Command(BaseCommand):
                 # Decide if there is any change worth persisting/reporting
                 will_change = clean_filters != cohort.filters or computed_type != cohort.cohort_type
 
-                # ALWAYS update in-memory for consistency
+                # ALWAYS update in-memory for dependency checking
                 cohort.filters = clean_filters
                 cohort.cohort_type = computed_type
 
