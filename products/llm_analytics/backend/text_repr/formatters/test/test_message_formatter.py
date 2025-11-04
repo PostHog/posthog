@@ -4,7 +4,7 @@ Tests for message_formatter.py - message input/output formatting logic.
 Tests cover multiple LLM provider formats, tool calls, truncation, and edge cases.
 """
 
-from .message_formatter import (
+from ..message_formatter import (
     extract_text_content,
     extract_tool_calls_from_content,
     format_input_messages,
@@ -452,11 +452,13 @@ class TestEdgeCases:
     """Test edge cases and error handling."""
 
     def test_handle_circular_references(self):
-        """Should handle non-serializable objects gracefully."""
+        """Should handle non-serializable objects gracefully with data preservation."""
         # Test with non-JSON-serializable object
         result = safe_extract_text(123)  # Simple non-dict/non-list type
         assert isinstance(result, str)
-        assert result == "[UNABLE_TO_PARSE: int]"
+        assert result.startswith("[UNABLE_TO_PARSE: int]")
+        # Should include the actual data for debugging
+        assert "123" in result
 
     def test_handle_non_dict_message(self):
         """Should skip non-dict messages in array."""

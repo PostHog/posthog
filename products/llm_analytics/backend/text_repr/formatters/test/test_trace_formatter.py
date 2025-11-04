@@ -4,13 +4,13 @@ Tests for trace_formatter.py - trace hierarchy tree rendering logic.
 Tests cover tree structure rendering, expandable nodes, ASCII art, and options handling.
 """
 
-from .trace_formatter import (
+from ..message_formatter import truncate_content
+from ..trace_formatter import (
     _format_cost,
     _format_latency,
     _format_state,
     _get_event_summary,
     _render_tree,
-    _truncate_content,
     format_trace_text_repr,
 )
 
@@ -117,14 +117,14 @@ class TestTruncateContent:
 
     def test_no_truncation_when_short(self):
         """Should not truncate short content."""
-        lines, truncated = _truncate_content("Short text", max_length=1000)
+        lines, truncated = truncate_content("Short text", {"truncate_buffer": 1000})
         assert truncated is False
         assert lines == ["Short text"]
 
     def test_truncation_with_marker(self):
         """Should truncate long content with marker."""
         content = "a" * 3000
-        lines, truncated = _truncate_content(content, max_length=1000)
+        lines, truncated = truncate_content(content, {"truncate_buffer": 1000})
         assert truncated is True
         assert len(lines) == 5  # [first, "", marker, "", last]
         assert lines[0] == "a" * 500
@@ -134,7 +134,7 @@ class TestTruncateContent:
     def test_truncation_marker_encoding(self):
         """Should properly encode middle content in marker."""
         content = "START" + ("x" * 1000) + "END"
-        lines, truncated = _truncate_content(content, max_length=100)
+        lines, truncated = truncate_content(content, {"truncate_buffer": 100})
         assert truncated is True
         # Marker should contain encoded middle part
         assert "<<<TRUNCATED|" in lines[2]

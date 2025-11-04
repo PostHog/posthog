@@ -9,6 +9,9 @@ import base64
 from typing import Any, TypedDict
 from urllib.parse import quote
 
+# Constants for formatting behavior
+DEFAULT_TOOLS_COLLAPSE_THRESHOLD = 5
+
 
 class Tool(TypedDict, total=False):
     """Tool structure supporting multiple LLM provider formats."""
@@ -133,7 +136,7 @@ def format_tools(ai_tools: Any, options: dict[str, Any] | None = None) -> list[s
 
     options = options or {}
     include_markers = options.get("include_markers", True)
-    collapse_threshold = options.get("tools_collapse_threshold", 5)
+    collapse_threshold = options.get("tools_collapse_threshold", DEFAULT_TOOLS_COLLAPSE_THRESHOLD)
 
     lines.append("")
 

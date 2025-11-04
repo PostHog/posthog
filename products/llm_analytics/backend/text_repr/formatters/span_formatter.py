@@ -11,7 +11,7 @@ from typing import Any
 from .message_formatter import FormatterOptions, truncate_content
 
 
-def format_state(state: Any, label: str, options: FormatterOptions | None = None) -> list[str]:
+def _format_state(state: Any, label: str, options: FormatterOptions | None = None) -> list[str]:
     """Format a state object (input or output) for display."""
     if not state:
         return []
@@ -70,13 +70,13 @@ def format_span_text_repr(event: dict[str, Any], options: FormatterOptions | Non
             lines.append(str(error_value))
 
     # Input state
-    input_lines = format_state(props.get("$ai_input_state"), "INPUT STATE", options)
+    input_lines = _format_state(props.get("$ai_input_state"), "INPUT STATE", options)
     if input_lines:
         lines.append("-" * 80)
         lines.extend(input_lines)
 
     # Output state
-    output_lines = format_state(props.get("$ai_output_state"), "OUTPUT STATE", options)
+    output_lines = _format_state(props.get("$ai_output_state"), "OUTPUT STATE", options)
     if output_lines:
         lines.append("-" * 80)
         lines.extend(output_lines)

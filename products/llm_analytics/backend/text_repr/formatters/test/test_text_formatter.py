@@ -7,7 +7,7 @@ dicts, nested structures, and plain text.
 
 import json
 
-from .text_formatter import _dict_to_yaml_lines, format_embedding_text_repr, format_generation_text_repr
+from ..text_formatter import _dict_to_yaml_lines, format_embedding_text_repr, format_generation_text_repr
 
 
 class TestDictToYamlLines:

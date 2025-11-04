@@ -10,8 +10,11 @@ import base64
 from typing import Any
 from urllib.parse import quote
 
-from .message_formatter import FormatterOptions
+from .message_formatter import FormatterOptions, truncate_content
 from .text_formatter import format_event_text_repr
+
+# Constants for formatting behavior
+MAX_TREE_DEPTH = 10
 
 
 def _format_latency(latency: float) -> str:
@@ -96,30 +99,7 @@ def _get_event_summary(event: dict[str, Any]) -> str:
     return event_type
 
 
-def _truncate_content(content: str, max_length: int = 1000) -> tuple[list[str], bool]:
-    """
-    Truncate content with middle ellipsis for long text.
-
-    Returns:
-        Tuple of (lines, was_truncated)
-    """
-    if len(content) <= max_length:
-        return ([content], False)
-
-    half = max_length // 2
-    first_part = content[:half]
-    last_part = content[-half:]
-    middle_part = content[half:-half]
-    truncated_chars = len(content) - max_length
-
-    # Encode middle part for inclusion in marker
-    encoded_middle = base64.b64encode(quote(middle_part).encode()).decode()
-    marker = f"<<<TRUNCATED|{encoded_middle}|{truncated_chars}>>>"
-
-    return ([first_part, "", marker, "", last_part], True)
-
-
-def _format_state(state: Any, label: str) -> list[str]:
+def _format_state(state: Any, label: str, options: FormatterOptions | None = None) -> list[str]:
     """Format a state object for display."""
     if not state:
         return []
@@ -128,13 +108,13 @@ def _format_state(state: Any, label: str) -> list[str]:
 
     try:
         if isinstance(state, str):
-            content_lines, _ = _truncate_content(state)
+            content_lines, _ = truncate_content(state, options)
             lines.extend(content_lines)
             return lines
 
         if isinstance(state, dict) or isinstance(state, list):
             json_str = json.dumps(state, indent=2)
-            content_lines, _ = _truncate_content(json_str)
+            content_lines, _ = truncate_content(json_str, options)
             lines.extend(content_lines)
             return lines
 
@@ -161,9 +141,8 @@ def _render_tree(
     - Plain text [+] indicators for include_markers=False
     """
     lines: list[str] = []
-    max_depth = 10
 
-    if depth > max_depth:
+    if depth > MAX_TREE_DEPTH:
         lines.append(f"{prefix}  [... max depth reached]")
         return lines
 
@@ -307,14 +286,14 @@ def format_trace_text_repr(
             lines.append(json.dumps(error, indent=2))
 
     # Trace-level input state
-    input_lines = _format_state(props.get("$ai_input_state"), "TRACE INPUT")
+    input_lines = _format_state(props.get("$ai_input_state"), "TRACE INPUT", options)
     if input_lines:
         lines.append("")
         lines.append("-" * 80)
         lines.extend(input_lines)
 
     # Trace-level output state
-    output_lines = _format_state(props.get("$ai_output_state"), "TRACE OUTPUT")
+    output_lines = _format_state(props.get("$ai_output_state"), "TRACE OUTPUT", options)
     if output_lines:
         lines.append("")
         lines.append("-" * 80)

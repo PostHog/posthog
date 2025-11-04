@@ -7,6 +7,7 @@ Supports both $ai_generation and $ai_span events.
 Ports TypeScript textFormatter.ts to Python for pure Python text repr implementation.
 """
 
+import json
 from typing import Any
 
 from .message_formatter import FormatterOptions, format_input_messages, format_output_messages
@@ -45,6 +46,50 @@ def _dict_to_yaml_lines(obj: Any, indent: int = 0) -> list[str]:
     return lines
 
 
+def _format_error_section(props: dict[str, Any]) -> list[str]:
+    """
+    Format error section with YAML-like rendering for dicts.
+
+    Handles both $ai_error and $ai_is_error properties.
+    Parses JSON strings and formats structured errors nicely.
+    """
+    lines: list[str] = []
+    if not (props.get("$ai_error") or props.get("$ai_is_error")):
+        return lines
+
+    lines.append("")
+    lines.append(SEPARATOR)
+    lines.append("")
+    lines.append("ERROR:")
+    lines.append("")
+
+    error_value = props.get("$ai_error")
+    if error_value:
+        # Try to parse string as JSON first
+        parsed_dict = None
+        if isinstance(error_value, str):
+            try:
+                parsed = json.loads(error_value)
+                if isinstance(parsed, dict):
+                    parsed_dict = parsed
+            except (json.JSONDecodeError, ValueError):
+                pass
+        elif isinstance(error_value, dict):
+            parsed_dict = error_value
+
+        # If we have a dict, render as YAML-like format
+        if parsed_dict:
+            lines.extend(_dict_to_yaml_lines(parsed_dict, indent=0))
+        else:
+            # Fallback: just use the string as-is
+            lines.append(str(error_value))
+    else:
+        lines.append("An error occurred (no details available)")
+
+    lines.append("")
+    return lines
+
+
 def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
     """
     Generate complete text representation of a generation event.
@@ -78,40 +123,11 @@ def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions
         lines.extend(output_lines)
 
     # Error information (show at the end after natural flow)
-    if props.get("$ai_error") or props.get("$ai_is_error"):
+    error_lines = _format_error_section(props)
+    if error_lines:
         if lines:
             lines.append("")
-        lines.append(SEPARATOR)
-        lines.append("")
-        lines.append("ERROR:")
-        lines.append("")
-
-        error_value = props.get("$ai_error")
-        if error_value:
-            import json
-
-            # Try to parse string as JSON first
-            parsed_dict = None
-            if isinstance(error_value, str):
-                try:
-                    parsed = json.loads(error_value)
-                    if isinstance(parsed, dict):
-                        parsed_dict = parsed
-                except (json.JSONDecodeError, ValueError):
-                    pass
-            elif isinstance(error_value, dict):
-                parsed_dict = error_value
-
-            # If we have a dict, render as YAML-like format
-            if parsed_dict:
-                lines.extend(_dict_to_yaml_lines(parsed_dict, indent=0))
-            else:
-                # Fallback: just use the string as-is
-                lines.append(str(error_value))
-        else:
-            lines.append("An error occurred (no details available)")
-
-        lines.append("")
+        lines.extend(error_lines)
 
     return "\n".join(lines)
 
@@ -141,39 +157,10 @@ def format_embedding_text_repr(event: dict[str, Any], options: FormatterOptions 
     lines.append("")
 
     # Error information if present
-    if props.get("$ai_error") or props.get("$ai_is_error"):
+    error_lines = _format_error_section(props)
+    if error_lines:
         lines.append("")
-        lines.append(SEPARATOR)
-        lines.append("")
-        lines.append("ERROR:")
-        lines.append("")
-
-        error_value = props.get("$ai_error")
-        if error_value:
-            import json
-
-            # Try to parse string as JSON first
-            parsed_dict = None
-            if isinstance(error_value, str):
-                try:
-                    parsed = json.loads(error_value)
-                    if isinstance(parsed, dict):
-                        parsed_dict = parsed
-                except (json.JSONDecodeError, ValueError):
-                    pass
-            elif isinstance(error_value, dict):
-                parsed_dict = error_value
-
-            # If we have a dict, render as YAML-like format
-            if parsed_dict:
-                lines.extend(_dict_to_yaml_lines(parsed_dict, indent=0))
-            else:
-                # Fallback: just use the string as-is
-                lines.append(str(error_value))
-        else:
-            lines.append("An error occurred (no details available)")
-
-        lines.append("")
+        lines.extend(error_lines)
 
     return "\n".join(lines)
 

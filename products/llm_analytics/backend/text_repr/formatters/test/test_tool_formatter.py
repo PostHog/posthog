@@ -4,7 +4,7 @@ Tests for tool_formatter.py - available tools section formatting.
 Tests cover array and dictionary formats, multiple provider formats, and edge cases.
 """
 
-from .tool_formatter import format_tools
+from ..tool_formatter import format_tools
 
 
 class TestFormatTools:
