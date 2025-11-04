@@ -60,8 +60,10 @@ export function MaxTool({
                             <>
                                 PostHog AI can use this tool
                                 <br />
-                                {definition.icon || <IconWrench />}
-                                <i className="ml-1.5">{definition.name}</i>
+                                <div className="flex items-center">
+                                    {definition.icon || <IconWrench />}
+                                    <i className="ml-1.5">{definition.name}</i>
+                                </div>
                             </>
                         )
                     }
