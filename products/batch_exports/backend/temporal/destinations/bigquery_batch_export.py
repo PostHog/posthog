@@ -888,7 +888,7 @@ class BigQueryConsumerFromStage(ConsumerFromStage):
         self.table_schema = table_schema
         self.file_format = file_format
 
-        self.logger.bind(table=self.table)
+        self.logger = self.logger.bind(table=self.table)
 
         self.current_file_index = 0
         self.current_buffer = io.BytesIO()

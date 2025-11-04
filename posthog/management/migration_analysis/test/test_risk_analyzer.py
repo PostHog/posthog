@@ -306,6 +306,62 @@ class TestRunSQLOperations:
         assert "locking" in risk.reason.lower() or "review" in risk.reason.lower()
         assert risk.level == RiskLevel.BLOCKED
 
+    def test_run_sql_with_update_override_for_small_table(self):
+        """Test UPDATE with migration-analyzer override comment reduces severity."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="""
+            -- migration-analyzer: safe reason=Data warehouse table with limited customer usage
+            UPDATE posthog_externaldataschema SET sync_time_of_day = null WHERE sync_time_of_day = '00:00:00';
+            """,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert "override" in risk.reason.lower()
+        assert "Data warehouse table" in risk.details.get("override_reason", "")
+        assert "Developer override applied" in (risk.guidance or "")
+
+    def test_run_sql_with_delete_override_for_small_table(self):
+        """Test DELETE with migration-analyzer override comment reduces severity."""
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="""
+            # migration-analyzer: safe reason=Cleanup table with minimal rows
+            DELETE FROM temp_table WHERE created_at < NOW() - INTERVAL '30 days';
+            """,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert "override" in risk.reason.lower()
+        assert "Cleanup table with minimal rows" in risk.details.get("override_reason", "")
+
+    def test_run_sql_override_doesnt_apply_to_wrong_operation(self):
+        """Test that override comment doesn't apply if SQL doesn't contain UPDATE/DELETE.
+
+        Security: Ensure override comment mentioning "update" doesn't trigger override
+        for non-UPDATE operations like DROP.
+        """
+        op = create_mock_operation(
+            migrations.RunSQL,
+            sql="""
+            -- migration-analyzer: safe reason=Need to update this column later
+            DROP TABLE IF EXISTS posthog_old_table;
+            """,
+        )
+
+        risk = self.analyzer.analyze_operation(op)
+
+        # Should still be scored as DROP (5 - BLOCKED), not override (2 - NEEDS_REVIEW)
+        assert risk.score == 5
+        assert risk.level == RiskLevel.BLOCKED
+        assert "drop" in risk.reason.lower()
+
     def test_run_sql_with_alter(self):
         op = create_mock_operation(
             migrations.RunSQL,
@@ -409,7 +465,7 @@ class TestRunSQLOperations:
         assert "validate" in risk.reason.lower()
 
     def test_run_sql_drop_constraint(self):
-        """Test DROP CONSTRAINT - fast metadata operation (score 1)."""
+        """Test DROP CONSTRAINT - fast but needs deployment safety review (score 2)."""
         op = create_mock_operation(
             migrations.RunSQL,
             sql="ALTER TABLE users DROP CONSTRAINT check_age;",
@@ -417,9 +473,10 @@ class TestRunSQLOperations:
 
         risk = self.analyzer.analyze_operation(op)
 
-        assert risk.score == 1
-        assert risk.level == RiskLevel.SAFE
-        assert "fast" in risk.reason.lower() or "metadata" in risk.reason.lower()
+        assert risk.score == 2
+        assert risk.level == RiskLevel.NEEDS_REVIEW
+        assert "fast" in risk.reason.lower()
+        assert "deployment safety" in risk.reason.lower() or (risk.guidance and "deployment" in risk.guidance.lower())
 
     def test_run_sql_drop_constraint_cascade(self):
         """Test DROP CONSTRAINT CASCADE - may be slow (score 3)."""

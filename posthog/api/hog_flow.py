@@ -54,6 +54,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     filters = HogFunctionFiltersSerializer(required=False, default=None, allow_null=True)
     type = serializers.CharField(max_length=100)
     config = serializers.JSONField()
+    output_variable = serializers.JSONField(required=False, allow_null=True)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -98,6 +99,27 @@ class HogFlowActionSerializer(serializers.Serializer):
         return data
 
 
+class HogFlowVariableSerializer(serializers.ListSerializer):
+    child = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+    )
+
+    def validate(self, attrs):
+        # Make sure the keys are unique
+        keys = [item.get("key") for item in attrs]
+        if len(keys) != len(set(keys)):
+            raise serializers.ValidationError("Variable keys must be unique")
+
+        # Make sure entire variables definition is less than 1KB
+        # This is just a check for massive keys / default values, we also have a check for dynamically
+        # set variables during execution
+        total_size = sum(len(json.dumps(item)) for item in attrs)
+        if total_size > 1024:
+            raise serializers.ValidationError("Total size of variables definition must be less than 1KB")
+
+        return super().validate(attrs)
+
+
 class HogFlowMaskingSerializer(serializers.Serializer):
     ttl = serializers.IntegerField(required=False, min_value=60, max_value=60 * 60 * 24 * 365, allow_null=True)
     threshold = serializers.IntegerField(required=False, allow_null=True)
@@ -131,6 +153,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "edges",
             "actions",
             "abort_action",
+            "variables",
         ]
         read_only_fields = fields
 
@@ -138,6 +161,7 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
 class HogFlowSerializer(HogFlowMinimalSerializer):
     actions = serializers.ListField(child=HogFlowActionSerializer(), required=True)
     trigger_masking = HogFlowMaskingSerializer(required=False, allow_null=True)
+    variables = HogFlowVariableSerializer(required=False)
 
     class Meta:
         model = HogFlow
@@ -157,6 +181,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "edges",
             "actions",
             "abort_action",
+            "variables",
         ]
         read_only_fields = [
             "id",

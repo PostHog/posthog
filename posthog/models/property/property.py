@@ -119,7 +119,6 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
     ],
 }
 
-
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
     BehavioralPropertyType.PERFORMED_EVENT: [
         "key",
