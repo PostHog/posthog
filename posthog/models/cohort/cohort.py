@@ -33,6 +33,7 @@ class CohortType(StrEnum):
     STATIC = "static"
     PERSON_PROPERTY = "person_property"
     BEHAVIORAL = "behavioral"
+    REALTIME = "realtime"
     ANALYTICAL = "analytical"
 
 

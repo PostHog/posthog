@@ -230,7 +230,7 @@ class TestExports(APIBaseTest):
 
             # Should warm up the cache
             export_image(exported_asset)
-            mock_export_to_png.assert_called_once_with(exported_asset)
+            mock_export_to_png.assert_called_once_with(exported_asset, max_height_pixels=None)
 
             mock_process_query_dict.assert_called_once()
 
