@@ -736,7 +736,8 @@ const EventContent = React.memo(
                                     label: 'Conversation',
                                     content: (
                                         <>
-                                            {displayOption === DisplayOption.TextView ? (
+                                            {displayOption === DisplayOption.TextView &&
+                                            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ? (
                                                 isLLMEvent(event) &&
                                                 (event.event === '$ai_generation' ||
                                                     event.event === '$ai_span' ||
@@ -908,6 +909,7 @@ function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrace
 function DisplayOptionsSelect(): JSX.Element {
     const { displayOption } = useValues(llmAnalyticsTraceLogic)
     const { setDisplayOption } = useActions(llmAnalyticsTraceLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const displayOptions = [
         {
@@ -918,10 +920,14 @@ function DisplayOptionsSelect(): JSX.Element {
             value: DisplayOption.CollapseExceptOutputAndLastInput,
             label: 'Collapse except output and last input',
         },
-        {
-            value: DisplayOption.TextView,
-            label: 'Text view',
-        },
+        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW]
+            ? [
+                  {
+                      value: DisplayOption.TextView,
+                      label: 'Text view',
+                  },
+              ]
+            : []),
     ]
 
     return (
