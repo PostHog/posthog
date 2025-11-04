@@ -146,7 +146,7 @@ const LeftHandColumn = (): JSX.Element => {
         <ButtonPrimitive
             onClick={() => {
                 if (issue) {
-                    void copyToClipboard(window.location.origin + urls.errorTrackingIssue(issue.id), 'issue link')
+                    void copyToClipboard(window.location.origin + urls.errorTrackingIssueV2(issue.id), 'issue link')
                 }
             }}
             iconOnly={!isSidebarOpen}

@@ -5,6 +5,7 @@ import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
@@ -46,6 +47,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
     const { selectedIssueIds, shiftKeyHeld, previouslyCheckedRecordIndex } = useValues(bulkSelectLogic)
     const { setSelectedIssueIds, setPreviouslyCheckedRecordIndex } = useActions(bulkSelectLogic)
     const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
+    const hasNewIssueLayout = useFeatureFlag('ERROR_TRACKING_ISSUE_LAYOUT_V2')
 
     const record = props.record as ErrorTrackingIssue
     const checked = selectedIssueIds.includes(record.id)
@@ -71,6 +73,8 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
         )
     }
 
+    const issueUrl = hasNewIssueLayout ? urls.errorTrackingIssueV2 : urls.errorTrackingIssue
+
     return (
         <div className="flex items-start gap-x-2 group my-1">
             <LemonCheckbox className="h-[1rem]" checked={checked} onChange={onChange} />
@@ -78,7 +82,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
             <div className="flex flex-col gap-[3px]">
                 <Link
                     className="flex-1 pr-12"
-                    to={urls.errorTrackingIssue(record.id, { timestamp: record.last_seen })}
+                    to={issueUrl(record.id, { timestamp: record.last_seen })}
                     onClick={() => {
                         const issueLogic = errorTrackingIssueSceneLogic({ id: record.id, timestamp: record.last_seen })
                         issueLogic.mount()
