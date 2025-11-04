@@ -1,8 +1,9 @@
 """
 Format full traces with hierarchy for text view.
 
-Ports TypeScript traceFormatter.ts to Python for pure Python text repr implementation.
-Creates ASCII tree structure with clickable expandable nodes.
+Creates ASCII tree structure with clickable expandable nodes for trace visualization.
+Handles hierarchical event relationships, trace-level input/output state, and
+supports both interactive frontend markers and plain text for backend/LLM consumption.
 """
 
 import json
@@ -10,7 +11,7 @@ import base64
 from typing import Any
 from urllib.parse import quote
 
-from .constants import MAX_TREE_DEPTH
+from .constants import MAX_TREE_DEPTH, SEPARATOR
 from .message_formatter import FormatterOptions, truncate_content
 from .text_formatter import format_event_text_repr
 
@@ -273,7 +274,7 @@ def format_trace_text_repr(
     # Error information (if at trace level)
     if props.get("$ai_error"):
         lines.append("")
-        lines.append("-" * 80)
+        lines.append(SEPARATOR)
         lines.append("")
         lines.append("TRACE ERROR:")
         lines.append("")
@@ -287,20 +288,20 @@ def format_trace_text_repr(
     input_lines = _format_state(props.get("$ai_input_state"), "TRACE INPUT", options)
     if input_lines:
         lines.append("")
-        lines.append("-" * 80)
+        lines.append(SEPARATOR)
         lines.extend(input_lines)
 
     # Trace-level output state
     output_lines = _format_state(props.get("$ai_output_state"), "TRACE OUTPUT", options)
     if output_lines:
         lines.append("")
-        lines.append("-" * 80)
+        lines.append(SEPARATOR)
         lines.extend(output_lines)
 
     # Tree structure
     if hierarchy:
         lines.append("")
-        lines.append("-" * 80)
+        lines.append(SEPARATOR)
         lines.append("")
         lines.append("TRACE HIERARCHY:")
         lines.append("")

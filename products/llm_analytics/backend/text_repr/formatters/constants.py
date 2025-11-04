@@ -15,3 +15,6 @@ DEFAULT_TOOLS_COLLAPSE_THRESHOLD = 5  # Collapse tool lists longer than this
 
 # Tree rendering
 MAX_TREE_DEPTH = 10  # Maximum depth for hierarchical trace tree rendering
+
+# Visual formatting
+SEPARATOR = "-" * 80  # Horizontal separator line for sections

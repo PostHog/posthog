@@ -1,8 +1,8 @@
 """
 Format span events for text view.
 
-Spans represent units of work within an LLM trace.
-Ports TypeScript spanFormatter.ts to Python for pure Python text repr implementation.
+Handles formatting of $ai_span events, which represent units of work within an LLM trace.
+Displays span metadata, input/output state, and timing information with truncation support.
 """
 
 import json

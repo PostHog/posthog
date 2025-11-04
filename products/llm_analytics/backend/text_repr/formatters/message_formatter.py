@@ -1,7 +1,9 @@
 """
 Format input and output messages for text view.
 
-Ports TypeScript messageFormatter.ts to Python for pure Python text repr implementation.
+Handles formatting of LLM messages including role-based conversations, tool calls,
+and content blocks. Supports multiple provider formats (OpenAI, Anthropic, etc.)
+with truncation and interactive markers for frontend display.
 """
 
 import json

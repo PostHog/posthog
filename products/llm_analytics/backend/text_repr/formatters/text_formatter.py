@@ -2,18 +2,16 @@
 Main text formatter for LLM trace events.
 
 Combines metadata, tools, input, and output into a readable text representation.
-Supports both $ai_generation and $ai_span events.
-
-Ports TypeScript textFormatter.ts to Python for pure Python text repr implementation.
+Handles $ai_generation and $ai_embedding events with structured error formatting,
+model/timing information, and YAML-like rendering for complex data structures.
 """
 
 import json
 from typing import Any
 
+from .constants import SEPARATOR
 from .message_formatter import FormatterOptions, format_input_messages, format_output_messages
 from .tool_formatter import format_tools
-
-SEPARATOR = "-" * 80
 
 
 def _dict_to_yaml_lines(obj: Any, indent: int = 0) -> list[str]:

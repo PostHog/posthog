@@ -1,7 +1,9 @@
 """
 Format available tools section for text view.
 
-Ports TypeScript toolFormatter.ts to Python for pure Python text repr implementation.
+Handles formatting of LLM tool/function definitions into human-readable signatures.
+Supports multiple provider formats (OpenAI, Anthropic, Google/Gemini) with
+automatic collapsing for long tool lists.
 """
 
 import json
