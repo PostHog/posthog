@@ -73,8 +73,8 @@ export const STATIC_TOOLS: ToolRegistration[] = [
     },
     {
         identifier: 'create_and_query_insight' as const,
-        name: TOOL_DEFINITIONS['create_and_query_insight'].name,
-        description: TOOL_DEFINITIONS['create_and_query_insight'].description,
+        name: 'Query data',
+        description: 'Query data by creating insights and SQL queries',
     },
 ]
 

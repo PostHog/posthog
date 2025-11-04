@@ -163,8 +163,8 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         },
     },
     create_and_query_insight: {
-        name: 'Query data',
-        description: 'Query data by creating insights and SQL queries',
+        name: 'Edit the insight',
+        description: "Edit the insight you're viewing",
         icon: iconForType('product_analytics'),
         product: Scene.Insight,
         displayFormatter: (toolCall, { registeredToolMap }) => {
