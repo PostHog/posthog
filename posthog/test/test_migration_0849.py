@@ -4,7 +4,7 @@ from typing import Any
 from freezegun import freeze_time
 from posthog.test.base import NonAtomicTestMigrations
 
-from posthog.warehouse.models import (
+from products.data_warehouse.backend.models import (
     DataWarehouseTable as DataWarehouseTableModel,
     ExternalDataSchema as ExternalDataSchemaModel,
     ExternalDataSource as ExternalDataSourceModel,

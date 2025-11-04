@@ -7,12 +7,12 @@ from typing import cast
 import pytest
 from unittest.mock import patch
 
+from django.conf import settings
+
 from asgiref.sync import sync_to_async
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-
-from posthog import constants
 
 from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox_environment import SandboxEnvironment, SandboxEnvironmentStatus
@@ -69,7 +69,7 @@ class TestProcessTaskWorkflow:
                 await WorkflowEnvironment.start_time_skipping() as env,
                 Worker(
                     env.client,
-                    task_queue=constants.TASKS_TASK_QUEUE,
+                    task_queue=settings.TASKS_TASK_QUEUE,
                     workflows=[ProcessTaskWorkflow],
                     activities=[
                         get_task_details,
@@ -94,7 +94,7 @@ class TestProcessTaskWorkflow:
                     ProcessTaskWorkflow.run,
                     task_id,
                     id=workflow_id,
-                    task_queue=constants.TASKS_TASK_QUEUE,
+                    task_queue=settings.TASKS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=timedelta(minutes=60),
                 )

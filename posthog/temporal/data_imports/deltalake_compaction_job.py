@@ -4,6 +4,7 @@ import asyncio
 import datetime as dt
 import dataclasses
 
+from django.conf import settings
 from django.db import close_old_connections
 
 from structlog.contextvars import bind_contextvars
@@ -12,7 +13,6 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.constants import DATA_WAREHOUSE_COMPACTION_TASK_QUEUE
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import DEBUG, TEST
 from posthog.temporal.common.base import PostHogWorkflow
@@ -20,7 +20,8 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
-from posthog.warehouse.models import ExternalDataJob, ExternalDataSchema
+
+from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 
 LOGGER = get_logger(__name__)
 
@@ -37,7 +38,7 @@ def trigger_compaction_job(job: ExternalDataJob, schema: ExternalDataSchema, log
                     DeltalakeCompactionJobWorkflowInputs(team_id=job.team_id, external_data_job_id=job.id)
                 ),
                 id=workflow_id,
-                task_queue=str(DATA_WAREHOUSE_COMPACTION_TASK_QUEUE),
+                task_queue=str(settings.DATA_WAREHOUSE_COMPACTION_TASK_QUEUE),
                 retry_policy=RetryPolicy(
                     maximum_attempts=1,
                     non_retryable_error_types=["NondeterminismError"],

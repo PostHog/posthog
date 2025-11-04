@@ -100,7 +100,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
         if (
             hogFlow &&
             hogFlow.status === 'active' &&
-            (hogFlow.trigger?.type === 'webhook' || hogFlow.trigger?.type === 'tracking_pixel')
+            (hogFlow.trigger?.type === 'webhook' ||
+                hogFlow.trigger?.type === 'tracking_pixel' ||
+                hogFlow.trigger?.type === 'manual')
         ) {
             const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, hogFlow.trigger)
 

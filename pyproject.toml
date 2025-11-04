@@ -115,6 +115,7 @@ dependencies = [
     "snowflake-sqlalchemy==1.7.3",
     "social-auth-app-django~=5.4.0",
     "social-auth-core~=4.7.0",
+    "django-scim2==0.19.0",
     "sqlalchemy==2.0.38",
     "sqlalchemy-bigquery[bqstorage]==1.12.1",
     "sqlparse==0.4.4",
@@ -172,6 +173,9 @@ dependencies = [
     "litellm>=1.77.7",
     "free-email-domains>=1.0.1",
     "disposable-email-domains>=0.0.140",
+    "cachetools>=5.5.2",
+    "textcase>=0.4.5",
+    "gitpython>=3.1.44",
 ]
 
 [dependency-groups]
