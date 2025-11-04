@@ -401,25 +401,30 @@ jobs:
             # Detect whether to run in CHECK or UPDATE mode
             # Human commit → UPDATE (can update snapshots)
             # Bot commit → CHECK (must match exactly, prevents infinite loops)
+            # Forks always run in verify mode (no snapshot commits)
             - name: Detect snapshot mode
               id: snapshot-mode
-              if: github.event.pull_request.head.repo.full_name == github.repository
               run: |
-                  MODE=$(.github/scripts/detect-snapshot-mode.sh)
-                  echo "mode=$MODE" >> $GITHUB_OUTPUT
-                  echo "Snapshot mode: $MODE"
-                  if [ "$MODE" = "check" ]; then
-                    echo "⚠️  Running in CHECK mode - snapshots must match exactly"
-                    echo "Any snapshot differences will fail the workflow"
+                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+                    echo "mode=verify" >> $GITHUB_OUTPUT
+                    echo "Fork detected - running in VERIFY mode only"
                   else
-                    echo "✓ Running in UPDATE mode - snapshots can be updated"
+                    MODE=$(.github/scripts/detect-snapshot-mode.sh)
+                    echo "mode=$MODE" >> $GITHUB_OUTPUT
+                    echo "Snapshot mode: $MODE"
+                    if [ "$MODE" = "check" ]; then
+                      echo "⚠️  Running in CHECK mode - snapshots must match exactly"
+                      echo "Any snapshot differences will fail the workflow"
+                    else
+                      echo "✓ Running in UPDATE mode - snapshots can be updated"
+                    fi
                   fi
 
             - name: Run @storybook/test-runner (up to 3 attempts)
               id: test-runner
               env:
                   HOME: /root
-                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && steps.snapshot-mode.outputs.mode == 'update' && 'update' || 'verify' }}
+                  VARIANT: ${{ steps.snapshot-mode.outputs.mode == 'update' && 'update' || 'verify' }}
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
                   for i in 1 2 3; do

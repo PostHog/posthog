@@ -309,18 +309,24 @@ jobs:
             # Detect whether to run in CHECK or UPDATE mode
             # Human commit → UPDATE (can update snapshots)
             # Bot commit → CHECK (must match exactly, prevents infinite loops)
+            # Forks always run in verify mode (no snapshot commits)
             - name: Detect snapshot mode
               id: snapshot-mode
-              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.changes.outputs.shouldRun == 'true'
               run: |
-                  MODE=$(.github/scripts/detect-snapshot-mode.sh)
-                  echo "mode=$MODE" >> $GITHUB_OUTPUT
-                  echo "Snapshot mode: $MODE"
-                  if [ "$MODE" = "check" ]; then
-                    echo "⚠️  Running in CHECK mode - snapshots must match exactly"
-                    echo "Any snapshot differences will fail the workflow"
+                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+                    echo "mode=verify" >> $GITHUB_OUTPUT
+                    echo "Fork detected - running in VERIFY mode only"
                   else
-                    echo "✓ Running in UPDATE mode - snapshots can be updated"
+                    MODE=$(.github/scripts/detect-snapshot-mode.sh)
+                    echo "mode=$MODE" >> $GITHUB_OUTPUT
+                    echo "Snapshot mode: $MODE"
+                    if [ "$MODE" = "check" ]; then
+                      echo "⚠️  Running in CHECK mode - snapshots must match exactly"
+                      echo "Any snapshot differences will fail the workflow"
+                    else
+                      echo "✓ Running in UPDATE mode - snapshots can be updated"
+                    fi
                   fi
 
             - name: Run Playwright tests
@@ -331,10 +337,11 @@ jobs:
               run: |
                   # In CHECK mode, fail on snapshot mismatches
                   # In UPDATE mode, allow snapshot updates
-                  if [ "${{ steps.snapshot-mode.outputs.mode }}" = "check" ]; then
-                    pnpm --filter=@posthog/playwright exec playwright test --workers=10
-                  else
+                  # In VERIFY mode (forks), fail on mismatches
+                  if [ "${{ steps.snapshot-mode.outputs.mode }}" = "update" ]; then
                     pnpm --filter=@posthog/playwright exec playwright test --workers=10 --update-snapshots
+                  else
+                    pnpm --filter=@posthog/playwright exec playwright test --workers=10
                   fi
 
             - name: Configure global git diff log
