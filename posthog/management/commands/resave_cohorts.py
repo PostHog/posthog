@@ -4,7 +4,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
-from posthog.api.cohort import compute_realtime_support_and_inline_bytecode
+from posthog.api.cohort import validate_filters_and_compute_realtime_support
 from posthog.models.cohort.cohort import Cohort
 
 
@@ -74,7 +74,7 @@ class Command(BaseCommand):
                         continue
 
                     # Compute the new filters with inline bytecode and cohort_type
-                    clean_filters, computed_type, _ = compute_realtime_support_and_inline_bytecode(
+                    clean_filters, computed_type, _ = validate_filters_and_compute_realtime_support(
                         cohort.filters, cohort.team, current_cohort_type=cohort.cohort_type
                     )
 
