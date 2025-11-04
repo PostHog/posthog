@@ -176,7 +176,7 @@ export function SceneTitleSection({
             <div
                 className={cn(
                     '@2xl/main-content:h-[var(--scene-title-section-height)] bg-primary @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 border-b border-transparent transition-border duration-300',
-                    isScrolled && '@2xl/main-content:border-primary'
+                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent'
                 )}
             >
                 <div
