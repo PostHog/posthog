@@ -300,6 +300,55 @@ class TestResaveCohortsCommandWithDependencies(BaseTest):
         # 2. Dependent cohort should also be realtime (dependency is realtime)
         assert dependent_cohort.cohort_type == "realtime"
 
+    def test_cohort_with_unchanged_non_realtime_dependency_blocks_realtime(self):
+        """Test that a cohort referencing an already-correct non-realtime cohort cannot be realtime.
+        This catches a bug where in-memory cohort_type wasn't updated for unchanged cohorts,
+        causing dependent cohorts to see stale values.
+        """
+        team: Team = self.team
+
+        # Create a cohort with unsupported filters and ALREADY set as non-realtime
+        non_realtime_dep = Cohort.objects.create(
+            team=team,
+            name="already_non_realtime",
+            filters=_make_unsupported_filters(),
+            cohort_type=None,  # Already correctly set to None (non-realtime)
+        )
+
+        # Create a cohort that references the non-realtime cohort
+        # This cohort would be realtime on its own, but should be blocked
+        dependent_cohort = Cohort.objects.create(
+            team=team,
+            name="dependent_on_non_realtime",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "person", "key": "email", "operator": "exact", "value": "test@example.com"},
+                        {"type": "cohort", "key": "id", "value": non_realtime_dep.id},
+                    ],
+                }
+            },
+        )
+
+        # Run command
+        call_command("resave_cohorts", team_id=team.id)
+
+        # Reload cohorts
+        non_realtime_dep.refresh_from_db()
+        dependent_cohort.refresh_from_db()
+
+        # The non-realtime cohort should remain unchanged (no will_change)
+        assert non_realtime_dep.cohort_type is None
+
+        # CRITICAL: The dependent cohort should NOT be realtime
+        # This would fail with the bug where in-memory cohort_type wasn't updated
+        assert dependent_cohort.cohort_type is None, (
+            "Bug detected: Dependent cohort became realtime even though it references "
+            "a non-realtime cohort. The in-memory cohort_type likely wasn't updated "
+            "for unchanged cohorts."
+        )
+
     def test_cohort_referencing_non_leaf_cannot_be_realtime(self):
         """Test that a cohort referencing a non-leaf cohort (B->C) cannot be realtime."""
         team: Team = self.team
