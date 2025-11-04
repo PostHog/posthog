@@ -484,6 +484,16 @@ class BillingManager:
         handle_billing_service_error(res)
         return res.json()
 
+    def claim_coupon(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+        res = requests.post(
+            f"{BILLING_SERVICE_URL}/api/coupons/claim",
+            json=data,
+            headers=self.get_auth_headers(organization),
+        )
+
+        handle_billing_service_error(res)
+        return res.json()
+
     def get_usage_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:
         """
         Get usage data from the billing service.

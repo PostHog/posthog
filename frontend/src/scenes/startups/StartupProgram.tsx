@@ -56,7 +56,7 @@ export function StartupProgram(): JSX.Element {
         formSubmitted,
         isCurrentlyOnStartupPlan,
         wasPreviouslyOnStartupPlan,
-        isUserOrganizationOwnerOrAdmin,
+        isAdminOrOwner,
         isYC,
         isReferralProgram,
         referrerDisplayName,
@@ -119,7 +119,7 @@ export function StartupProgram(): JSX.Element {
         )
     }
 
-    if (!isUserOrganizationOwnerOrAdmin) {
+    if (!isAdminOrOwner) {
         return (
             <div className="mx-auto max-w-200 mt-6 px-4">
                 <LemonBanner type="warning">
