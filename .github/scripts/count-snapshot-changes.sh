@@ -26,7 +26,7 @@ fi
 
 # Count changes before OptiPNG
 echo "Checking for changes in $SNAPSHOT_DIR..." >&2
-git diff --name-status "$SNAPSHOT_DIR" > /tmp/snapshot-diff.txt || true
+git diff --cached --name-status "$SNAPSHOT_DIR" > /tmp/snapshot-diff.txt || true
 
 ADDED=$(grep '^A' /tmp/snapshot-diff.txt | wc -l | xargs)
 MODIFIED=$(grep '^M' /tmp/snapshot-diff.txt | wc -l | xargs)
@@ -52,7 +52,7 @@ if [ "$ADDED" -gt 0 ] || [ "$MODIFIED" -gt 0 ]; then
     done < /tmp/snapshot-diff.txt
 
     # Re-count after OptiPNG (may have eliminated some diffs)
-    git diff --name-status "$SNAPSHOT_DIR" > /tmp/snapshot-diff-after.txt || true
+    git diff --cached --name-status "$SNAPSHOT_DIR" > /tmp/snapshot-diff-after.txt || true
     DIFF_FILE="/tmp/snapshot-diff-after.txt"
     ADDED=$(grep '^A' /tmp/snapshot-diff-after.txt | wc -l | xargs)
     MODIFIED=$(grep '^M' /tmp/snapshot-diff-after.txt | wc -l | xargs)

@@ -521,6 +521,7 @@ jobs:
                   pr-number: ${{ github.event.pull_request.number }}
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
     check-mode-failure:
         name: Handle CHECK mode failures
