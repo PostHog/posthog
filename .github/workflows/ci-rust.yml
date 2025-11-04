@@ -129,28 +129,13 @@ jobs:
                   docker compose -f ../docker-compose.dev.yml down
                   docker compose -f ../docker-compose.dev.yml up -d
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
-                  # Wait for ClickHouse to be ready
-                  for i in {1..30}; do
-                    if curl -s http://localhost:8123/ping > /dev/null; then
-                      echo "ClickHouse is ready"
-                      break
-                    fi
-                    echo "Waiting for ClickHouse to start... (attempt $i/30)"
-                    sleep 2
-                  done
 
-            - name: Dump logs on failure
+            - name: Dump Kafka logs on failure
               if: failure()
               run: |
                   docker ps -a || true
-                  echo "=== ClickHouse logs ===" 
-                  docker logs --tail=500 rust-clickhouse-1 || true
-                  echo "=== Kafka logs ===" 
                   docker logs --tail=500 rust-kafka-1 || true
-                  echo "=== ClickHouse connection test ===" 
-                  curl -v http://localhost:8123/ping || true
-                  echo "=== ClickHouse system info ===" 
-                  curl -s 'http://localhost:8123/?query=SELECT+version()' || true
+                  docker inspect rust-kafka-1 || true
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
@@ -208,24 +193,7 @@ jobs:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: |
-                  cd ../
-                  # Retry setup_test_environment in case of connection issues
-                  for i in {1..3}; do
-                    if python manage.py setup_test_environment; then
-                      echo "Database setup successful"
-                      break
-                    else
-                      echo "Database setup failed (attempt $i/3)"
-                      if [ $i -lt 3 ]; then
-                        echo "Waiting 5 seconds before retry..."
-                        sleep 5
-                      else
-                        echo "Database setup failed after 3 attempts"
-                        exit 1
-                      fi
-                    fi
-                  done
+              run: cd ../ && python manage.py setup_test_environment
 
             - name: Run sqlx migrations
               if: needs.changes.outputs.rust == 'true'
