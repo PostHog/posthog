@@ -211,6 +211,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'A catalog of all user interactions with your app or website.',
         iconType: 'event',
     },
+    [Scene.ExploreSessions]: {
+        projectBased: true,
+        name: 'Explore sessions',
+        defaultDocsPath: '/docs/data/sessions',
+        description: 'A catalog of all user sessions with your app or website.',
+        iconType: 'session_recording',
+    },
     [Scene.FeatureFlag]: {
         projectBased: true,
         activityScope: ActivityScope.FEATURE_FLAG,
@@ -615,6 +622,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dataManagementHistory()]: [Scene.DataManagement, 'dataManagementHistory'],
     [urls.database()]: [Scene.DataManagement, 'database'],
     [urls.activity(ActivityTab.ExploreEvents)]: [Scene.ExploreEvents, 'exploreEvents'],
+    [urls.activity(ActivityTab.ExploreSessions)]: [Scene.ExploreSessions, 'exploreSessions'],
     [urls.activity(ActivityTab.LiveEvents)]: [Scene.LiveEvents, 'liveEvents'],
     [urls.replay()]: [Scene.Replay, 'replay'],
     // One entry for every available tab

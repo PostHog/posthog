@@ -11,28 +11,28 @@ import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { ActivityTab } from '~/types'
 
-import { eventsSceneLogic } from './eventsSceneLogic'
+import { sessionsSceneLogic } from './sessionsSceneLogic'
 import { useActivityTabs } from './utils'
 
-export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    const { query } = useValues(eventsSceneLogic)
-    const { setQuery } = useActions(eventsSceneLogic)
+export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
+    const { query } = useValues(sessionsSceneLogic)
+    const { setQuery } = useActions(sessionsSceneLogic)
     const tabs = useActivityTabs()
 
     return (
         <SceneContent>
-            <LemonTabs activeKey={ActivityTab.ExploreEvents} tabs={tabs} sceneInset />
+            <LemonTabs activeKey={ActivityTab.ExploreSessions} tabs={tabs} sceneInset />
             <SceneTitleSection
-                name={sceneConfigurations[Scene.ExploreEvents].name}
-                description={sceneConfigurations[Scene.ExploreEvents].description}
+                name={sceneConfigurations[Scene.ExploreSessions].name}
+                description={sceneConfigurations[Scene.ExploreSessions].description}
                 resourceType={{
-                    type: sceneConfigurations[Scene.ExploreEvents].iconType || 'default_icon_type',
+                    type: sceneConfigurations[Scene.ExploreSessions].iconType || 'default_icon_type',
                 }}
             />
             <SceneDivider />
             <Query
-                attachTo={eventsSceneLogic({ tabId })}
-                uniqueKey={`events-scene-${tabId}`}
+                attachTo={sessionsSceneLogic({ tabId })}
+                uniqueKey={`sessions-scene-${tabId}`}
                 query={query}
                 setQuery={setQuery}
                 context={{
@@ -46,7 +46,6 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 }
 
 export const scene: SceneExport = {
-    component: EventsScene,
-    logic: eventsSceneLogic,
-    settingSectionId: 'environment-autocapture',
+    component: SessionsScene,
+    logic: sessionsSceneLogic,
 }
