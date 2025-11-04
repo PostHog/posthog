@@ -24,12 +24,21 @@ def _noop_cast(arr: pa.Array) -> pa.Array:
 def _make_ensure_array(
     func: collections.abc.Callable[[pa.Array], pa.Array | pa.Scalar],
 ) -> collections.abc.Callable[[pa.Array], pa.Array]:
-    """Wrap func with an assertion that returned value is an array.
+    """Wrap `func` with an assertion that returned value is an `pyarrow.Array`.
 
-    Pyarrow compute functions usually return either array values or scalar values.
-    However, we work exclusively with arrays, and can almost always expect that if we
-    pass an array we'll get one back. So, to help mypy understand this, we decorate func
-    with an assertion.
+    `pyarrow.compute` functions usually return either array values or scalar values.
+    However, we work exclusively with arrays and thus can expect that if we pass an
+    array we'll get one back. But `pyarrow.compute` functions are not properly
+    type-hinted to represent this.
+
+    So, to help mypy understand this, we decorate `func` with an assertion to confirm we
+    got an `pyarrow.Array` back.
+
+    Naturally, this comes with the implicit, hereby made explicit, request that you
+    review the pyarrow documentation to confirm that the used `pyarrow.compute` function
+    actually returns an `pyarrow.Array` when passed one as input. Most of the time, this
+    is the case, but I have not reviewed all of them, and new ones may be added over
+    time.
     """
 
     @functools.wraps(func)

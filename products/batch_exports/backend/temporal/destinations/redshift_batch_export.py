@@ -75,7 +75,6 @@ from products.batch_exports.backend.temporal.spmc import (
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
-    cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
     set_status_to_running_task,
 )
@@ -1133,14 +1132,13 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                     table_columns=[field[0] for field in table_fields],
                     known_json_columns=table_schemas.super_columns,
                     redshift_client=redshift_client,
+                    max_query_size_bytes=settings.BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES,
                 )
                 result = await run_consumer_from_stage(
                     queue=queue,
                     consumer=consumer,
                     producer_task=producer_task,
                     transformer=transformer,
-                    schema=record_batch_schema,
-                    max_file_size_bytes=settings.BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES,
                 )
 
                 if merge_settings.requires_merge is True:
@@ -1401,9 +1399,9 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
         )
 
         transformer = ParquetStreamTransformer(
-            schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=table_schemas.super_columns),
             compression="zstd",
             include_inserted_at=False,
+            max_file_size_bytes=max_file_size_mb * 1024**2,
         )
 
         merge_settings = _get_merge_settings(model=model, use_super=table_schemas.use_super)
@@ -1423,9 +1421,6 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             consumer=consumer,
             producer_task=producer_task,
             transformer=transformer,
-            schema=record_batch_schema,
-            max_file_size_bytes=max_file_size_mb * 1024**2,
-            json_columns=table_schemas.super_columns,
         )
 
         if result.error is not None:

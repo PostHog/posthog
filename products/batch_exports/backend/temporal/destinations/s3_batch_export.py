@@ -48,10 +48,7 @@ from products.batch_exports.backend.temporal.pipeline.transformer import (
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
-from products.batch_exports.backend.temporal.utils import (
-    cast_record_batch_schema_json_columns,
-    handle_non_retryable_errors,
-)
+from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
 NON_RETRYABLE_ERROR_TYPES = (
     # S3 parameter validation failed.
@@ -448,14 +445,17 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
 
-        json_columns = ("properties", "person_properties", "set", "set_once")
         if inputs.file_format.lower() == "jsonlines":
-            transformer = get_json_stream_transformer(compression=inputs.compression, include_inserted_at=True)
-        else:
-            transformer = ParquetStreamTransformer(
-                schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=json_columns),
+            transformer = get_json_stream_transformer(
                 compression=inputs.compression,
                 include_inserted_at=True,
+                max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
+            )
+        else:
+            transformer = ParquetStreamTransformer(
+                compression=inputs.compression,
+                include_inserted_at=True,
+                max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
             )
 
         return await run_consumer_from_stage(
@@ -463,9 +463,6 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
             consumer=consumer,
             producer_task=producer_task,
             transformer=transformer,
-            schema=record_batch_schema,
-            max_file_size_bytes=inputs.max_file_size_mb * 1024 * 1024 if inputs.max_file_size_mb else 0,
-            json_columns=json_columns,
         )
 
 

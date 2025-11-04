@@ -50,9 +50,9 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
 from products.batch_exports.backend.temporal.pipeline.transformer import (
+    ChunkTransformerProtocol,
     JSONLStreamTransformer,
     ParquetStreamTransformer,
-    TransformerProtocol,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
@@ -66,7 +66,6 @@ from products.batch_exports.backend.temporal.spmc import (
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
-    cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
     set_status_to_running_task,
 )
@@ -1115,9 +1114,9 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                     )
 
                     if can_perform_merge:
-                        transformer: TransformerProtocol = ParquetStreamTransformer(
-                            schema=cast_record_batch_schema_json_columns(record_batch_schema, json_columns=()),
+                        transformer: ChunkTransformerProtocol = ParquetStreamTransformer(
                             compression="zstd",
+                            max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
                         )
                     else:
                         transformer = JSONLStreamTransformer()
@@ -1127,9 +1126,6 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         consumer=consumer,
                         producer_task=producer_task,
                         transformer=transformer,
-                        schema=record_batch_schema,
-                        max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                        json_columns=() if can_perform_merge else table_schemas.json_columns,
                     )
 
                     if can_perform_merge:
