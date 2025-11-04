@@ -351,12 +351,23 @@ jobs:
                   fi
 
             # Upload screenshots as artifact for aggregation
-            - name: Upload screenshot changes
+            # Only upload changed files to reduce artifact size
+            - name: Create tar of changed screenshots
+              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
+              run: |
+                  cd playwright
+                  # Create tar of only git-modified files (added or modified)
+                  git diff --name-only --diff-filter=AM . | tar -czf /tmp/playwright-snapshots.tar.gz -T - 2>/dev/null || echo "No changes to upload"
+                  if [ -f /tmp/playwright-snapshots.tar.gz ]; then
+                    echo "Created tar with changed screenshots"
+                  fi
+
+            - name: Upload screenshot artifact
               if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
               uses: actions/upload-artifact@v4
               with:
                   name: playwright-snapshots
-                  path: playwright/
+                  path: /tmp/playwright-snapshots.tar.gz
                   retention-days: 1
                   if-no-files-found: ignore
 

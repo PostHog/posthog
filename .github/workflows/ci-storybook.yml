@@ -454,13 +454,23 @@ jobs:
               run: git config --global --add safe.directory '*'
 
             # Upload snapshots as artifact for aggregation
-            # Only in UPDATE mode - CHECK mode doesn't update snapshots
-            - name: Upload snapshot changes
+            # Only upload changed files to reduce artifact size
+            - name: Create tar of changed snapshots
+              if: github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
+              run: |
+                  cd frontend/__snapshots__
+                  # Create tar of only git-modified files (added or modified)
+                  git diff --name-only --diff-filter=AM . | tar -czf /tmp/snapshots-${{ matrix.browser }}-${{ matrix.shard }}.tar.gz -T - 2>/dev/null || echo "No changes to upload"
+                  if [ -f /tmp/snapshots-${{ matrix.browser }}-${{ matrix.shard }}.tar.gz ]; then
+                    echo "Created tar with changed snapshots"
+                  fi
+
+            - name: Upload snapshot artifact
               if: github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
               uses: actions/upload-artifact@v4
               with:
                   name: snapshots-${{ matrix.browser }}-${{ matrix.shard }}
-                  path: frontend/__snapshots__/
+                  path: /tmp/snapshots-${{ matrix.browser }}-${{ matrix.shard }}.tar.gz
                   retention-days: 1
                   if-no-files-found: ignore
 

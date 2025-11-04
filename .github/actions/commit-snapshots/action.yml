@@ -42,8 +42,25 @@ runs:
           uses: actions/download-artifact@v4
           with:
               pattern: ${{ inputs.artifact-pattern }}
-              path: ${{ inputs.snapshot-path }}
+              path: /tmp/snapshot-artifacts/
               merge-multiple: true
+
+        - name: Extract tar archives
+          shell: bash
+          run: |
+              # Extract all tar files from downloaded artifacts
+              mkdir -p ${{ inputs.snapshot-path }}
+              if [ -d /tmp/snapshot-artifacts/ ]; then
+                for tar in /tmp/snapshot-artifacts/*.tar.gz; do
+                  if [ -f "$tar" ]; then
+                    echo "Extracting $tar..."
+                    tar -xzf "$tar" -C ${{ inputs.snapshot-path }}
+                  fi
+                done
+                echo "Extracted all snapshot archives"
+              else
+                echo "No artifacts to extract"
+              fi
 
         - name: Configure git
           shell: bash
