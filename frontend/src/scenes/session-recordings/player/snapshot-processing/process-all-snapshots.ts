@@ -361,7 +361,7 @@ function hashSnapshot(snapshot: RecordingSnapshot): number {
             const payloadHash = data.payload ? cyrb53(JSON.stringify(data.payload)) : 0
             dataHash = `plugin-${data.plugin ?? ''}-${data.tag ?? ''}-${payloadHash}`
         }
-        // For other events, use generic data size
+        // For other events, use generic data - the expensive step we'd like to avoid
         else {
             dataHash = `other-${cyrb53(JSON.stringify(data))}`
         }
