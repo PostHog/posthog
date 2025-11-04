@@ -441,6 +441,7 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
+
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
