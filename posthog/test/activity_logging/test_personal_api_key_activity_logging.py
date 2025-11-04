@@ -11,6 +11,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
     def test_personal_api_key_creation_activity_logging(self):
         api_key = self.create_personal_api_key(label="Test API Key")
         api_key_id = api_key["id"]
+        mask_value = api_key["mask_value"]
 
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
         self.assertTrue(len(logs) >= 1)
@@ -30,7 +31,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log.detail)
         detail = log.detail
         assert detail is not None
-        self.assertEqual(detail["name"], "Test API Key")
+        self.assertEqual(detail["name"], mask_value)
         self.assertIsNotNone(detail.get("context"))
 
         context = detail["context"]
@@ -89,6 +90,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
     def test_personal_api_key_deletion_activity_logging(self):
         api_key = self.create_personal_api_key(label="To Delete API Key")
         api_key_id = api_key["id"]
+        mask_value = api_key["mask_value"]
 
         response = self.client.delete(f"/api/personal_api_keys/{api_key_id}/")
         self.assertEqual(response.status_code, 204)
@@ -106,7 +108,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(delete_log.detail)
         detail = delete_log.detail
         assert detail is not None
-        self.assertEqual(detail["name"], "To Delete API Key")
+        self.assertEqual(detail["name"], mask_value)
         self.assertIsNotNone(detail.get("context"))
 
         context = detail["context"]
@@ -136,6 +138,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
     def test_personal_api_key_activity_log_properties(self):
         api_key = self.create_personal_api_key(label="Properties Test Key")
         api_key_id = api_key["id"]
+        mask_value = api_key["mask_value"]
 
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
         self.assertTrue(len(logs) >= 1)
@@ -154,7 +157,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log.detail)
         detail = log.detail
         assert detail is not None
-        self.assertEqual(detail["name"], "Properties Test Key")
+        self.assertEqual(detail["name"], mask_value)
         self.assertIsNotNone(detail.get("context"))
         self.assertIsNotNone(detail.get("changes"))
 
@@ -211,6 +214,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
     def test_activity_log_api_returns_personal_api_key_logs(self):
         api_key = self.create_personal_api_key(label="API Test Key")
         api_key_id = api_key["id"]
+        mask_value = api_key["mask_value"]
 
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
         self.assertTrue(len(logs) >= 1)
@@ -232,12 +236,13 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(found_log)
         assert found_log is not None
         self.assertEqual(found_log["activity"], "created")
-        self.assertEqual(found_log["detail"]["name"], "API Test Key")
+        self.assertEqual(found_log["detail"]["name"], mask_value)
 
     def test_team_scoped_api_key_creation_activity_logging(self):
         """Test that team-scoped API keys create logs with correct team_id."""
         api_key = self.create_personal_api_key(label="Team Scoped Key", scoped_teams=[self.team.id])
         api_key_id = api_key["id"]
+        mask_value = api_key["mask_value"]
 
         logs = ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(api_key_id), activity="created")
         self.assertEqual(len(logs), 1)
@@ -255,7 +260,7 @@ class TestPersonalAPIKeyActivityLogging(ActivityLogTestHelper):
         self.assertIsNotNone(log.detail)
         detail = log.detail
         assert detail is not None
-        self.assertEqual(detail["name"], "Team Scoped Key")
+        self.assertEqual(detail["name"], mask_value)
         self.assertIsNotNone(detail.get("context"))
 
         context = detail["context"]

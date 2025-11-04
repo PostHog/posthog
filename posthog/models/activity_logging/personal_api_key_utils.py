@@ -182,7 +182,7 @@ def log_personal_api_key_scope_change(
 
         detail_data = Detail(
             changes=changes,
-            name=after_api_key.label,
+            name=after_api_key.mask_value,
             context=PersonalAPIKeyContext(
                 user_id=after_api_key.user_id,
                 user_email=after_api_key.user.email,
@@ -251,7 +251,7 @@ def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, 
                 "activity": activity,
                 "detail": Detail(
                     changes=changes,
-                    name=api_key.label,
+                    name=api_key.mask_value,
                     context=PersonalAPIKeyContext(
                         user_id=api_key.user_id,
                         user_email=api_key.user.email,

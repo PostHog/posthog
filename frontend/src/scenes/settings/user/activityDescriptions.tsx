@@ -23,12 +23,16 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return 'Unknown scope'
     }
 
+    const getKeyTitle = (): string => {
+        return logItem.detail.name || 'Unknown key'
+    }
+
     if (logItem.activity === 'created') {
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created a <strong>personal API key</strong> for{' '}
-                    <strong>{getScopeDescription()}</strong>
+                    <strong>{userNameForLogItem(logItem)}</strong> created personal API key{' '}
+                    <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -38,8 +42,8 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> revoked access for <strong>personal API key</strong>{' '}
-                    to <strong>{getScopeDescription()}</strong>
+                    <strong>{userNameForLogItem(logItem)}</strong> revoked access for personal API key{' '}
+                    <strong>{getKeyTitle()}</strong> to <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -52,8 +56,8 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
             return {
                 description: (
                     <>
-                        <strong>{userNameForLogItem(logItem)}</strong> rolled <strong>personal API key</strong> for{' '}
-                        <strong>{getScopeDescription()}</strong>
+                        <strong>{userNameForLogItem(logItem)}</strong> rolled personal API key{' '}
+                        <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
                     </>
                 ),
             }
@@ -62,8 +66,8 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> updated <strong>personal API key</strong> for{' '}
-                    <strong>{getScopeDescription()}</strong>
+                    <strong>{userNameForLogItem(logItem)}</strong> updated personal API key{' '}
+                    <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -73,8 +77,8 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted <strong>personal API key</strong> for access
-                    to <strong>{getScopeDescription()}</strong>
+                    <strong>{userNameForLogItem(logItem)}</strong> deleted personal API key{' '}
+                    <strong>{getKeyTitle()}</strong> for access to <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
