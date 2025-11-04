@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, TypeAlias
 from uuid import UUID
@@ -6,49 +5,49 @@ from uuid import UUID
 from pydantic import BaseModel, RootModel
 
 
-@dataclass
-class CommonInput:
+class CommonInput(BaseModel):
     redis_ttl: int = 3600 * 24 * 3  # 3 days
     redis_host: str | None = None
     redis_port: int | None = None
-    batch_size: int = 100
+    batch_size: int = 2500
+    django_redis_url: str | None = None
 
 
-@dataclass
-class Digest:
+class Digest(BaseModel):
     key: str
     period_start: datetime
     period_end: datetime
 
 
-@dataclass
-class WeeklyDigestInput:
+class WeeklyDigestInput(BaseModel):
     dry_run: bool
-    common: CommonInput = field(default_factory=CommonInput)
+    common: CommonInput = CommonInput()
 
 
-@dataclass
-class GenerateDigestDataInput:
+class GenerateDigestDataInput(BaseModel):
     digest: Digest
     common: CommonInput
 
 
-@dataclass
-class GenerateOrganizationDigestInput:
+class GenerateDigestDataBatchInput(BaseModel):
     batch: tuple[int, int]
     digest: Digest
     common: CommonInput
 
 
-@dataclass
-class SendWeeklyDigestInput:
+class GenerateOrganizationDigestInput(BaseModel):
+    batch: tuple[int, int]
+    digest: Digest
+    common: CommonInput
+
+
+class SendWeeklyDigestInput(BaseModel):
     dry_run: bool
     digest: Digest
     common: CommonInput
 
 
-@dataclass
-class SendWeeklyDigestBatchInput:
+class SendWeeklyDigestBatchInput(BaseModel):
     batch: tuple[int, int]
     dry_run: bool
     digest: Digest
@@ -83,6 +82,19 @@ class DigestFeatureFlag(BaseModel):
     key: str
 
 
+class DigestFilter(BaseModel):
+    name: str
+    short_id: str
+    view_count: int
+    recording_count: int = 0
+    more_available: bool = False
+
+
+class DigestRecording(BaseModel):
+    session_id: str
+    recording_ttl: int
+
+
 class DigestSurvey(BaseModel):
     name: str
     id: UUID
@@ -110,6 +122,17 @@ class FeatureFlagList(RootModel):
     root: list[DigestFeatureFlag]
 
 
+class FilterList(RootModel):
+    root: list[DigestFilter]
+
+    def order_by_recording_count(self) -> "FilterList":
+        return FilterList(root=sorted(self.root, key=lambda f: f.recording_count, reverse=True))
+
+
+class RecordingList(RootModel):
+    root: list[DigestRecording]
+
+
 class SurveyList(RootModel):
     root: list[DigestSurvey]
 
@@ -123,6 +146,8 @@ DigestResourceType: TypeAlias = (
     | type[ExperimentList]
     | type[ExternalDataSourceList]
     | type[FeatureFlagList]
+    | type[FilterList]
+    | type[RecordingList]
     | type[SurveyList]
 )
 
@@ -135,8 +160,10 @@ class TeamDigest(BaseModel):
     experiments_launched: ExperimentList
     experiments_completed: ExperimentList
     external_data_sources: ExternalDataSourceList
-    surveys_launched: SurveyList
     feature_flags: FeatureFlagList
+    filters: FilterList
+    recordings: RecordingList
+    surveys_launched: SurveyList
 
     def is_empty(self) -> bool:
         return (
@@ -147,8 +174,10 @@ class TeamDigest(BaseModel):
                     len(self.experiments_launched.root),
                     len(self.experiments_completed.root),
                     len(self.external_data_sources.root),
-                    len(self.surveys_launched.root),
                     len(self.feature_flags.root),
+                    len(self.filters.root),
+                    len(self.recordings.root),
+                    len(self.surveys_launched.root),
                 ]
             )
             == 0
@@ -174,3 +203,19 @@ class OrganizationDigest(BaseModel):
 
     def is_empty(self) -> bool:
         return all(digest.is_empty() for digest in self.team_digests)
+
+
+class PlaylistCount(BaseModel):
+    session_ids: list[str] = []
+    has_more: bool
+    previous_ids: Optional[list[str]]
+    refreshed_at: datetime
+    error_count: int
+    errored_at: Optional[datetime]
+
+
+class ClickHouseResponse(BaseModel):
+    meta: list
+    data: list
+    statistics: dict
+    rows: int

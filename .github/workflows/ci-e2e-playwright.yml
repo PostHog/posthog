@@ -268,18 +268,18 @@ jobs:
                   python manage.py migrate --noinput
 
                   # Build and run Rust migrations using dedicated container
-                  docker build -f rust/Dockerfile.persons-migrate -t posthog-migrations:latest ./rust
+                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
                   docker run --rm --network host \
                     -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest
+                    posthog-migrations:latest all
 
                   # Build and run Rust migrations using dedicated container
-                  docker build -f rust/Dockerfile.persons-migrate -t posthog-migrations:latest ./rust
+                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
                   docker run --rm --network host \
                     -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_e2e_test" \
                     -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest
+                    posthog-migrations:latest all
 
                   python manage.py setup_dev
                   wait
@@ -464,7 +464,7 @@ jobs:
                   docker logs posthog-proxy-1
 
             - name: Archive Playwright report on failure
-              if: failure()
+              if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
               uses: actions/upload-artifact@v4
               with:
                   name: playwright-report

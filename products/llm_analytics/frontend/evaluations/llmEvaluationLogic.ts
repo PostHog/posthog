@@ -71,7 +71,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 setEvaluationName: (state, { name }) => (state ? { ...state, name } : null),
                 setEvaluationDescription: (state, { description }) => (state ? { ...state, description } : null),
-                setEvaluationPrompt: (state, { prompt }) => (state ? { ...state, prompt } : null),
+                setEvaluationPrompt: (state, { prompt }) =>
+                    state ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } } : null,
                 setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
                 setTriggerConditions: (state, { conditions }) => (state ? { ...state, conditions } : null),
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
@@ -137,7 +138,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     name: '',
                     description: '',
                     enabled: false,
-                    prompt: '',
+                    evaluation_type: 'llm_judge',
+                    evaluation_config: {
+                        prompt: '',
+                    },
+                    output_type: 'boolean',
+                    output_config: {},
                     conditions: [
                         {
                             id: `cond-${Date.now()}`,
@@ -164,7 +170,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     name: '',
                     description: '',
                     enabled: false,
-                    prompt: '',
+                    evaluation_type: 'llm_judge',
+                    evaluation_config: {
+                        prompt: '',
+                    },
+                    output_type: 'boolean',
+                    output_config: {},
                     conditions: [
                         {
                             id: `cond-${Date.now()}`,
@@ -217,7 +228,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
                 return (
                     evaluation.name.length > 0 &&
-                    evaluation.prompt.length > 0 &&
+                    evaluation.evaluation_config.prompt.length > 0 &&
                     evaluation.conditions.length > 0 &&
                     evaluation.conditions.every((c) => c.rollout_percentage > 0 && c.rollout_percentage <= 100)
                 )

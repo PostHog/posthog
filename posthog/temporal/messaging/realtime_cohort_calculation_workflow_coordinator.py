@@ -3,11 +3,12 @@ import datetime as dt
 import dataclasses
 from typing import Any, TypedDict
 
+from django.conf import settings
+
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 
-from posthog.constants import MESSAGING_TASK_QUEUE
 from posthog.models.action import Action
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -64,10 +65,12 @@ async def get_realtime_cohort_calculation_count_activity(
 ) -> RealtimeCohortCalculationCountResult:
     """Get the total count of actions with bytecode."""
 
-    # Only get actions that are not deleted and have bytecode
-    queryset = Action.objects.filter(deleted=False, bytecode__isnull=False)
+    @database_sync_to_async
+    def get_action_count():
+        # Only get actions that are not deleted and have bytecode
+        return Action.objects.filter(deleted=False, bytecode__isnull=False).count()
 
-    count = await database_sync_to_async(queryset.count)()
+    count = await get_action_count()
     return RealtimeCohortCalculationCountResult(count=count)
 
 
@@ -152,7 +155,7 @@ class RealtimeCohortCalculationCoordinatorWorkflow(PostHogWorkflow):
                     RealtimeCohortCalculationWorkflow.run,
                     config["inputs"],
                     id=config["id"],
-                    task_queue=MESSAGING_TASK_QUEUE,
+                    task_queue=settings.MESSAGING_TASK_QUEUE,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                 )
                 workflows_scheduled += 1
