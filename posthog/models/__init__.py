@@ -82,6 +82,7 @@ from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
+from .user_pinned_scene_tabs import UserPinnedSceneTabs
 from .web_experiment import WebExperiment
 
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
@@ -195,6 +196,7 @@ __all__ = [
     "UploadedMedia",
     "User",
     "UserScenePersonalisation",
+    "UserPinnedSceneTabs",
     "UserManager",
     "UserGroup",
     "UserGroupMembership",

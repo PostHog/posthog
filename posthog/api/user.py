@@ -62,7 +62,7 @@ from posthog.event_usage import (
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
-from posthog.models import Dashboard, Team, User, UserScenePersonalisation
+from posthog.models import Dashboard, Team, User, UserPinnedSceneTabs, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
@@ -402,6 +402,24 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
+class PinnedSceneTabSerializer(serializers.Serializer):
+    id = serializers.CharField(required=False, allow_blank=True)
+    pathname = serializers.CharField()
+    search = serializers.CharField()
+    hash = serializers.CharField()
+    title = serializers.CharField()
+    customTitle = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    iconType = serializers.CharField()
+    sceneId = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    sceneKey = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    sceneParams = serializers.JSONField(required=False)
+    pinned = serializers.BooleanField(required=False)
+
+
+class PinnedSceneTabsSerializer(serializers.Serializer):
+    tabs = PinnedSceneTabSerializer(many=True)
+
+
 class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -536,6 +554,32 @@ class UserViewSet(
         instance.save()
 
         return Response(self.get_serializer(instance=instance).data)
+
+    @action(methods=["GET", "PATCH"], detail=True)
+    def pinned_scene_tabs(self, request, **kwargs):
+        instance = self.get_object()
+        team = instance.current_team
+        if not team:
+            raise serializers.ValidationError("Current team is required to manage pinned scene tabs.")
+
+        pinned_tabs, _ = UserPinnedSceneTabs.objects.get_or_create(user=instance, team=team)
+
+        if request.method == "GET":
+            return Response({"tabs": pinned_tabs.tabs or []})
+
+        serializer = PinnedSceneTabsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        tabs = []
+        for tab in serializer.validated_data["tabs"]:
+            sanitized = {**tab}
+            sanitized.pop("active", None)
+            sanitized["pinned"] = True
+            tabs.append(sanitized)
+
+        pinned_tabs.tabs = tabs
+        pinned_tabs.save()
+
+        return Response({"tabs": pinned_tabs.tabs})
 
     @action(methods=["POST"], detail=True)
     def scene_personalisation(self, request, **kwargs):

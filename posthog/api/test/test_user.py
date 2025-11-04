@@ -23,7 +23,7 @@ from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.api.test.test_oauth import generate_rsa_key
-from posthog.models import Dashboard, Team, User
+from posthog.models import Dashboard, Team, User, UserPinnedSceneTabs
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
@@ -138,6 +138,45 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get(f"/api/users/@me/hedgehog_config/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"a bag": "of data"}
+
+    def test_pinned_scene_tabs_get_empty(self):
+        response = self.client.get("/api/users/@me/pinned_scene_tabs/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"tabs": []})
+
+    def test_pinned_scene_tabs_update(self):
+        payload = {
+            "tabs": [
+                {
+                    "id": "tab-1",
+                    "pathname": "/a",
+                    "search": "?q=1",
+                    "hash": "#section",
+                    "title": "Tab A",
+                    "iconType": "blank",
+                    "active": True,
+                }
+            ]
+        }
+
+        response = self.client.patch(
+            "/api/users/@me/pinned_scene_tabs/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        expected_tab = {k: v for k, v in payload["tabs"][0].items() if k != "active"}
+        expected_tab["pinned"] = True
+        self.assertEqual(response.json(), {"tabs": [expected_tab]})
+
+        stored = UserPinnedSceneTabs.objects.get(user=self.user, team=self.team)
+        self.assertEqual(len(stored.tabs), 1)
+        stored_tab = stored.tabs[0]
+        self.assertEqual(stored_tab["id"], "tab-1")
+        self.assertEqual(stored_tab["pinned"], True)
+        self.assertNotIn("active", stored_tab)
 
     def test_can_only_list_yourself(self):
         """

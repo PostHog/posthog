@@ -6,6 +6,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
+import api from 'lib/api'
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -75,7 +76,7 @@ const getPersistedSessionTabs = (): SceneTab[] | null => {
 }
 
 const persistPinnedTabs = (tabs: SceneTab[]): void => {
-    const pinnedTabs = tabs.filter((tab) => tab.pinned).map((tab) => ({ ...tab, pinned: true, active: false }))
+    const pinnedTabs = getPinnedTabsForPersistence(tabs)
 
     const key = getStorageKey(PINNED_TAB_STATE_KEY)
 
@@ -108,6 +109,14 @@ const persistTabs = (tabs: SceneTab[]): void => {
     persistSessionTabs(tabs)
     persistPinnedTabs(tabs)
 }
+
+const getPinnedTabsForPersistence = (tabs: SceneTab[]): SceneTab[] =>
+    tabs
+        .filter((tab) => tab.pinned)
+        .map((tab) => {
+            const { active, ...rest } = tab
+            return { ...rest, pinned: true, active: false }
+        })
 
 const partitionTabs = (tabs: SceneTab[]): { pinned: SceneTab[]; unpinned: SceneTab[] } => {
     const pinned: SceneTab[] = []
@@ -296,6 +305,8 @@ export const sceneLogic = kea<sceneLogicType>([
 
         newTab: (href?: string | null) => ({ href }),
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
+        loadPinnedTabsFromBackend: true,
+        setPinnedTabsFromBackend: (tabs: SceneTab[]) => ({ tabs }),
         closeTabId: (tabId: string) => ({ tabId }),
         removeTab: (tab: SceneTab) => ({ tab }),
         activateTab: (tab: SceneTab) => ({ tab }),
@@ -315,6 +326,15 @@ export const sceneLogic = kea<sceneLogicType>([
             [] as SceneTab[],
             {
                 setTabs: (_, { tabs }) => ensureActiveTab(sortTabsPinnedFirst(tabs)),
+                setPinnedTabsFromBackend: (state, { tabs }) => {
+                    const normalizedPinned = tabs.map((tab) => ({
+                        ...tab,
+                        id: tab.id || generateTabId(),
+                        pinned: true,
+                        active: false,
+                    }))
+                    return composeTabsFromStorage(normalizedPinned, state)
+                },
                 newTab: (state, { href }) => {
                     const { pathname, search, hash } = combineUrl(href || '/new')
                     const updated = [
@@ -725,6 +745,19 @@ export const sceneLogic = kea<sceneLogicType>([
         },
         pinTab: () => persistTabs(values.tabs),
         unpinTab: () => persistTabs(values.tabs),
+        loadPinnedTabsFromBackend: async () => {
+            try {
+                const response = await api.get<{ tabs?: SceneTab[] }>('api/users/@me/pinned_scene_tabs/')
+                const pinnedTabs = response?.tabs ?? []
+                cache.skipNextPinnedSync = true
+                actions.setPinnedTabsFromBackend(pinnedTabs as SceneTab[])
+            } catch (error) {
+                console.error('Failed to load pinned scene tabs', error)
+            }
+        },
+        setPinnedTabsFromBackend: () => {
+            persistTabs(values.tabs)
+        },
         closeTabId: ({ tabId }) => {
             const tab = values.tabs.find(({ id }) => id === tabId)
             if (tab) {
@@ -1141,6 +1174,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 },
             ])
         }
+        actions.loadPinnedTabsFromBackend()
     }),
 
     urlToAction(({ actions, values }) => {
@@ -1245,8 +1279,36 @@ export const sceneLogic = kea<sceneLogicType>([
                     }
                 }
             }
+            const pinnedTabsForPersistence = getPinnedTabsForPersistence(values.tabs)
+            const serializedPinnedTabs = JSON.stringify(pinnedTabsForPersistence)
+            if (cache.skipNextPinnedSync) {
+                cache.skipNextPinnedSync = false
+                cache.lastPersistedPinnedSerialized = serializedPinnedTabs
+            } else if (cache.lastPersistedPinnedSerialized !== serializedPinnedTabs) {
+                cache.lastPersistedPinnedSerialized = serializedPinnedTabs
+                if (cache.persistPinnedTabsTimeout) {
+                    window.clearTimeout(cache.persistPinnedTabsTimeout)
+                }
+                cache.persistPinnedTabsTimeout = window.setTimeout(async () => {
+                    try {
+                        await api.update('api/users/@me/pinned_scene_tabs/', { tabs: pinnedTabsForPersistence })
+                    } catch (error) {
+                        console.error('Failed to persist pinned scene tabs to backend', error)
+                    }
+                }, 500)
+            }
         },
     })),
+    afterMount(({ cache }) => {
+        cache.disposables.add(() => {
+            return () => {
+                if (cache.persistPinnedTabsTimeout) {
+                    window.clearTimeout(cache.persistPinnedTabsTimeout)
+                }
+            }
+        }, 'pinnedTabsBackendPersist')
+    }),
+
     afterMount(({ actions, cache, values }) => {
         cache.disposables.add(() => {
             const onStorage = (event: StorageEvent): void => {
