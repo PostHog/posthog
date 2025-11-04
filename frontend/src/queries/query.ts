@@ -178,7 +178,7 @@ export async function performQuery<N extends DataNode>(
         })
         return response
     } catch (e) {
-        posthog.captureRaw('query failed', {
+        posthog.capture('query failed', {
             query: queryNode,
             queryId,
             duration: performance.now() - startTime,

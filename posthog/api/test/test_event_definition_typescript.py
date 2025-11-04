@@ -78,6 +78,24 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
             team=self.team, project=self.project, name="untyped_event"
         )
 
+        # Create event with special characters to test escaping
+        self.special_chars_event = EventDefinition.objects.create(
+            team=self.team, project=self.project, name="a'a\\'b\"c>?>%}}%%>c<[[?${{%}}cake'"
+        )
+
+        special_property_group = SchemaPropertyGroup.objects.create(
+            team=self.team, project=self.project, name="Special Properties"
+        )
+
+        SchemaPropertyGroupProperty.objects.create(
+            property_group=special_property_group,
+            name="prop'with\\'quotes\"\\slash",
+            property_type="String",
+            is_required=True,
+        )
+
+        EventSchema.objects.create(event_definition=self.special_chars_event, property_group=special_property_group)
+
     def _generate_typescript(self) -> str:
         """Generate TypeScript definitions by calling the actual API endpoint"""
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/typescript/")
@@ -234,6 +252,15 @@ posthog.captureRaw('test_event', {
 
 // ✅ Should compile: string variables work
 posthog.captureRaw(stringVar, { any: 'data' })
+
+// ========================================
+// TEST 8: Special characters are escaped
+// ========================================
+
+// ✅ Should compile: event and property names with special chars
+posthog.capture("a'a\\\\'b\\"c>?>%}}%%>c<[[?${{%}}cake'", {
+    "prop'with\\\\'quotes\\"\\\\slash": 'value'
+})
 """
             )
 
@@ -269,122 +296,6 @@ posthog.captureRaw(stringVar, { any: 'data' })
                 result.returncode,
                 0,
                 f"TypeScript compilation failed. This indicates the type system is broken.\n\n"
-                f"STDOUT:\n{result.stdout}\n\n"
-                f"STDERR:\n{result.stderr}\n\n"
-                f"Generated TypeScript file location: {types_file}",
-            )
-
-    def test_typescript_escapes_special_characters(self):
-        """
-        Test that event names and property names with special characters
-        (backslashes, quotes, etc.) are properly escaped in the generated TypeScript.
-        """
-        # Create event definitions with special characters in names
-        special_chars_event = EventDefinition.objects.create(
-            team=self.team, project=self.project, name="a'a\\'b\"c>?>%}}%%>c<[[?${{%}}cake'"
-        )
-
-        # Create property group with special characters in property names
-        special_property_group = SchemaPropertyGroup.objects.create(
-            team=self.team, project=self.project, name="Special Properties"
-        )
-
-        SchemaPropertyGroupProperty.objects.create(
-            property_group=special_property_group,
-            name="prop'with\\'quotes\"",
-            property_type="String",
-            is_required=True,
-        )
-
-        SchemaPropertyGroupProperty.objects.create(
-            property_group=special_property_group,
-            name="back\\slash",
-            property_type="Numeric",
-            is_required=False,
-        )
-
-        EventSchema.objects.create(event_definition=special_chars_event, property_group=special_property_group)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmpdir_path = Path(tmpdir)
-
-            # Generate TypeScript
-            ts_content = self._generate_typescript()
-
-            # Create minimal package.json
-            package_json = tmpdir_path / "package.json"
-            package_json.write_text('{"dependencies": {"typescript": "^5.0.0", "posthog-js": "^1.0.0"}}')
-            install_result = subprocess.run(
-                ["pnpm", "install", "--no-frozen-lockfile"],
-                cwd=str(tmpdir_path),
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-
-            if install_result.returncode != 0:
-                self.fail(
-                    f"Failed to install dependencies:\n"
-                    f"STDOUT: {install_result.stdout}\n"
-                    f"STDERR: {install_result.stderr}"
-                )
-
-            # Write generated types
-            types_file = tmpdir_path / "posthog-typed.ts"
-            types_file.write_text(ts_content)
-
-            # Create test file
-            # Note: orjson.dumps() produces double-quoted strings, so we use double quotes to match
-            test_file = tmpdir_path / "test.ts"
-            test_file.write_text(
-                r"""
-import posthog from './posthog-typed'
-
-// Test that event with special characters can be used
-posthog.capture("a'a\\'b\"c>?>%}}%%>c<[[?${{%}}cake'", {
-    "prop'with\\'quotes\"": 'value',
-    "back\\slash": 123
-})
-
-// Test with only required field
-posthog.capture("a'a\\'b\"c>?>%}}%%>c<[[?${{%}}cake'", {
-    "prop'with\\'quotes\"": 'value'
-})
-"""
-            )
-
-            # Create tsconfig.json
-            tsconfig_file = tmpdir_path / "tsconfig.json"
-            tsconfig_file.write_text(
-                """
-{
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "ESNext",
-    "lib": ["ES2020", "DOM"],
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "moduleResolution": "node"
-  }
-}
-"""
-            )
-
-            # Run TypeScript compiler
-            result = subprocess.run(
-                ["pnpm", "exec", "tsc", "--noEmit", "--project", str(tsconfig_file)],
-                cwd=str(tmpdir_path),
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-
-            # Assert compilation succeeded
-            self.assertEqual(
-                result.returncode,
-                0,
-                f"TypeScript compilation failed with special characters.\n\n"
                 f"STDOUT:\n{result.stdout}\n\n"
                 f"STDERR:\n{result.stderr}\n\n"
                 f"Generated TypeScript file location: {types_file}",
