@@ -1016,7 +1016,10 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                       type="ai"
                       className="w-full"
                       wrapperClassName="w-full"
-                      boxClassName={clsx('flex flex-col w-full', isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96')}
+                      boxClassName={clsx(
+                          'flex flex-col w-full',
+                          isCollapsed ? '' : isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96'
+                      )}
                   >
                       {!isCollapsed && <Query query={query} readOnly embedded />}
                       <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
