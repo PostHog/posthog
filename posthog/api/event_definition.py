@@ -489,7 +489,6 @@ const createTypedPostHog = (original: OriginalPostHog): TypedPostHog => {
 const posthog = createTypedPostHog(originalPostHog as OriginalPostHog)
 
 export default posthog
-export { posthog }
 export type { EventSchemas, TypedPostHog }
 
 // Re-export everything else from posthog-js
