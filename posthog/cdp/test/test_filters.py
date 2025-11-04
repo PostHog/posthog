@@ -305,6 +305,7 @@ class TestCohortExprHelpers(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             "event_filters": [{"type": "event", "key": "$browser", "operator": "is_set", "value": "is_set"}],
         }
         expr = build_behavioral_event_expr(behavioral, self.team)
+        assert expr is not None
         bytecode = create_bytecode(expr).bytecode
         assert bytecode == snapshot(
             [
