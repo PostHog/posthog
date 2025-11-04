@@ -38,10 +38,10 @@ env:
     PGPORT: 5432
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}-${{ github.event.pull_request.head.repo.full_name }}-${{ github.actor }}
-    # Cancel CHECK mode runs (bot commits) when new commit comes in
-    # Don't cancel UPDATE mode runs (human commits) - they need to finish and commit snapshots
-    cancel-in-progress: ${{ github.actor == 'github-actions[bot]' || github.actor == 'posthog-bot' }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    # This is so that the workflow run isn't canceled when a screenshot update is pushed within it by posthog-bot
+    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
+    cancel-in-progress: false
 
 jobs:
     changes:
@@ -89,8 +89,6 @@ jobs:
         outputs:
             mode: ${{ steps.detect.outputs.mode }}
         steps:
-            - uses: actions/checkout@v4
-
             - name: Detect mode
               id: detect
               run: |
@@ -98,12 +96,13 @@ jobs:
                     echo "mode=verify" >> $GITHUB_OUTPUT
                     echo "Fork detected - running in VERIFY mode only"
                   else
-                    MODE=$(.github/scripts/detect-snapshot-mode.sh)
-                    echo "mode=$MODE" >> $GITHUB_OUTPUT
-                    echo "Snapshot mode: $MODE"
-                    if [ "$MODE" = "check" ]; then
+                    AUTHOR="${{ github.event.head_commit.author.name }}"
+                    echo "Commit author: $AUTHOR"
+                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]]; then
+                      echo "mode=check" >> $GITHUB_OUTPUT
                       echo "⚠️  Running in CHECK mode - snapshots must match exactly"
                     else
+                      echo "mode=update" >> $GITHUB_OUTPUT
                       echo "✓ Running in UPDATE mode - snapshots can be updated"
                     fi
                   fi

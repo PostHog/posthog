@@ -53,7 +53,7 @@ if (mode === 'update') {
 - Approve if changes match your expectations
 - If unexpected, investigate component rendering
 
-[Review snapshot changes →](https://github.com/${repo}/pull/${prNumber}/files#:~:text=${config.filesFilter})`;
+[Review snapshot changes →](https://github.com/${repo}/pull/${prNumber}/files)`;
 
 } else if (mode === 'check') {
     // CHECK mode: snapshots verified successfully
