@@ -180,12 +180,12 @@ describe('LogsIngestionConsumer', () => {
             const logData = createLogMessage()
             const messages = createKafkaMessages([logData], {
                 myHeader: 'hello',
+                token: team.api_token,
             })
 
             await consumer.processKafkaBatch(messages)
 
             const producedMessages = mockProducerObserver.getProducedKafkaMessages()
-            expect(producedMessages).toHaveLength(1)
             expect(forSnapshot(producedMessages)).toMatchSnapshot()
         })
 
@@ -197,7 +197,6 @@ describe('LogsIngestionConsumer', () => {
             })
 
             await consumer.processKafkaBatch(messages)
-
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
         })
 

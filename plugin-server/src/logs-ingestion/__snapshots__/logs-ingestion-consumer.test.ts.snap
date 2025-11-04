@@ -66,11 +66,10 @@ exports[`LogsIngestionConsumer general should process multiple log messages 1`] 
 ]
 `;
 
-exports[`LogsIngestionConsumer message parsing and validation should preserve kafka message headers 1`] = `
+exports[`LogsIngestionConsumer message parsing and validation should overwrite existing headers 1`] = `
 [
   {
     "headers": {
-      "myHeader": "hello",
       "team_id": "2",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
@@ -86,10 +85,11 @@ exports[`LogsIngestionConsumer message parsing and validation should preserve ka
 ]
 `;
 
-exports[`LogsIngestionConsumer message parsing and validation should overwrite existing headers 1`] = `
+exports[`LogsIngestionConsumer message parsing and validation should preserve kafka message headers 1`] = `
 [
   {
     "headers": {
+      "myHeader": "hello",
       "team_id": "2",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
     },
