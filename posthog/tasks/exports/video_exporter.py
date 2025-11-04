@@ -311,11 +311,7 @@ def record_replay_to_file(
 
             # Speed up playback for long MP4 recordings to reduce recording time
             ext = os.path.splitext(image_path)[1].lower()
-            playback_speed = (
-                PLAYBACK_SPEED_MULTIPLIER
-                if (ext == ".mp4" and recording_duration > DURATION_THRESHOLD_FOR_SPEED_UP)
-                else 1
-            )
+            playback_speed = PLAYBACK_SPEED_MULTIPLIER if (ext == ".mp4" and recording_duration > 15) else 1
             # Record for actual_duration (shorter if sped up)
             actual_duration = recording_duration / playback_speed
             page.wait_for_timeout(int(actual_duration * 1000))
