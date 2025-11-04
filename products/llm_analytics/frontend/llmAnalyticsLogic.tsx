@@ -110,6 +110,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         setTracesQuery: (query: DataTableNode) => ({ query }),
         setSessionsSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         setUsersSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
+        setErrorsSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         setGenerationsSort: (column: string, direction: 'ASC' | 'DESC') => ({ column, direction }),
         refreshAllDashboardItems: true,
         setRefreshStatus: (tileId: string, loading?: boolean) => ({ tileId, loading }),
@@ -201,6 +202,13 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             { column: 'last_seen', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
             {
                 setUsersSort: (_, { column, direction }) => ({ column, direction }),
+            },
+        ],
+
+        errorsSort: [
+            { column: 'generations', direction: 'DESC' } as { column: string; direction: 'ASC' | 'DESC' },
+            {
+                setErrorsSort: (_, { column, direction }) => ({ column, direction }),
             },
         ],
 
@@ -494,6 +502,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'datasets'
                 } else if (sceneKey === 'llmAnalyticsEvaluations') {
                     return 'evaluations'
+                } else if (sceneKey === 'llmAnalyticsErrors') {
+                    return 'errors'
                 }
                 return 'dashboard'
             },
@@ -1081,6 +1091,67 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 allowSorting: true,
             }),
         ],
+        errorsQuery: [
+            (s) => [
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.propertyFilters,
+                s.errorsSort,
+                groupsModel.selectors.groupsTaxonomicTypes,
+            ],
+            (
+                dateFilter,
+                shouldFilterTestAccounts,
+                propertyFilters,
+                errorsSort,
+                groupsTaxonomicTypes
+            ): DataTableNode => ({
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.HogQLQuery,
+                    query: `
+                SELECT
+                    if(notEmpty(properties.$ai_error), toString(properties.$ai_error), 'No error message') as error_message,
+                    countDistinctIf(properties.$ai_trace_id, isNotNull(properties.$ai_trace_id)) as traces,
+                    count() as generations,
+                    countDistinct(distinct_id) as users,
+                    round(sum(toFloat(properties.$ai_total_cost_usd)), 4) as total_cost,
+                    min(timestamp) as first_seen,
+                    max(timestamp) as last_seen
+                FROM events
+                WHERE event = '$ai_generation'
+                    AND (isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true')
+                    AND {filters}
+                GROUP BY error_message
+                ORDER BY ${errorsSort.column} ${errorsSort.direction}
+                LIMIT 50
+                    `,
+                    filters: {
+                        dateRange: {
+                            date_from: dateFilter.dateFrom || null,
+                            date_to: dateFilter.dateTo || null,
+                        },
+                        filterTestAccounts: shouldFilterTestAccounts,
+                        properties: propertyFilters,
+                    },
+                },
+                columns: ['error_message', 'traces', 'generations', 'users', 'total_cost', 'first_seen', 'last_seen'],
+                showDateRange: true,
+                showReload: true,
+                showSearch: true,
+                showPropertyFilter: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    ...groupsTaxonomicTypes,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
+                showTestAccountFilters: true,
+                showExport: true,
+                showColumnConfigurator: true,
+                allowSorting: true,
+            }),
+        ],
         sessionsQuery: [
             (s) => [
                 s.dateFilter,
@@ -1206,6 +1277,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
         }

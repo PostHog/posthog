@@ -39,6 +39,13 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             defaultDocsPath: '/docs/llm-analytics/installation',
         },
+        LLMAnalyticsErrors: {
+            import: () => import('./frontend/LLMAnalyticsErrors'),
+            projectBased: true,
+            name: 'LLM analytics errors',
+            layout: 'app-container',
+            defaultDocsPath: '/docs/llm-analytics/installation',
+        },
         LLMAnalyticsPlayground: {
             import: () => import('./frontend/LLMAnalyticsPlaygroundScene'),
             projectBased: true,
@@ -84,6 +91,7 @@ export const manifest: ProductManifest = {
         '/llm-analytics/traces': ['LLMAnalytics', 'llmAnalyticsTraces'],
         '/llm-analytics/traces/:id': ['LLMAnalyticsTrace', 'llmAnalytics'],
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
+        '/llm-analytics/errors': ['LLMAnalytics', 'llmAnalyticsErrors'],
         '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
         '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
         '/llm-analytics/playground': ['LLMAnalytics', 'llmAnalyticsPlayground'],
@@ -126,6 +134,7 @@ export const manifest: ProductManifest = {
             return `/llm-analytics/traces/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
+        llmAnalyticsErrors: (): string => '/llm-analytics/errors',
         llmAnalyticsSessions: (): string => '/llm-analytics/sessions',
         llmAnalyticsSession: (
             id: string,
