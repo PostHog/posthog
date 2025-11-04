@@ -44,10 +44,7 @@ uuid = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 chrono = { workspace = true }
-jiff = "0.1"
-dateparser = "0.2"
 lz-str = { workspace = true }
-regex = { workspace = true }
 multer = "3.0"
 futures = { workspace = true }
 

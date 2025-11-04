@@ -3,14 +3,17 @@ from datetime import UTC, datetime
 from typing import Optional
 from uuid import uuid4
 
+from django.conf import settings
 from django.db.models import QuerySet
 from django.utils import timezone
 
 import redis.asyncio as redis
+from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.models.messaging import MessagingRecord, get_email_hash
+from posthog.ph_client import ph_scoped_capture
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.sync import database_sync_to_async
@@ -58,9 +61,25 @@ def _redis_url(common: CommonInput) -> str:
     return f"redis://{common.redis_host}:{common.redis_port}?decode_responses=true"
 
 
-async def _load_filter_counts_from_django_cache(r: redis.Redis, filters: FilterList) -> list[PlaylistCount | None]:
-    resp = await r.mget([f"{PLAYLIST_COUNT_REDIS_PREFIX}{_filter.short_id}" for _filter in filters.root])
-    return [None if r is None else PlaylistCount.model_validate_json(r) for r in resp]
+async def _load_playlist_counts_from_django_cache(r: redis.Redis, filters: FilterList) -> list[PlaylistCount | None]:
+    resp: list[str | None] = await r.mget(
+        [f"{PLAYLIST_COUNT_REDIS_PREFIX}{_filter.short_id}" for _filter in filters.root]
+    )
+
+    playlist_counts: list[PlaylistCount | None] = []
+
+    for count in resp:
+        if count is None:
+            playlist_counts.append(None)
+        else:
+            try:
+                playlist_counts.append(PlaylistCount.model_validate_json(count))
+            except ValidationError:
+                # Failure to parse means the counting job likely had an error
+                # Treat it the same as a missing count
+                playlist_counts.append(None)
+
+    return playlist_counts
 
 
 LOGGER = get_write_only_logger()
@@ -100,7 +119,7 @@ async def generate_digest_data_lookup(
                     team_count += 1
                     resource_count += len(digest_data.root)
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate digest data for team {team.id}, skipping...", error=str(e), team_id=team.id
                     )
                     continue
@@ -213,7 +232,7 @@ async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
             async for team in query_teams_for_digest()[batch_start:batch_end]:
                 try:
                     filters = FilterList(await queryset_to_list(query_filters.filter(team_id=team.id)))
-                    playlist_counts = await _load_filter_counts_from_django_cache(django_cache, filters)
+                    playlist_counts = await _load_playlist_counts_from_django_cache(django_cache, filters)
 
                     for filter, playlist_count in zip(filters.root, playlist_counts):
                         if playlist_count is not None:
@@ -228,7 +247,7 @@ async def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
                     team_count += 1
                     filter_count += len(ordered_filters.root)
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate Replay filters for team {team.id}, skipping...",
                         error=str(e),
                         team_id=team.id,
@@ -292,7 +311,7 @@ async def generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None
                     team_count += 1
                     recording_count += len(recordings.root)
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate Replay recordings for team {team.id}, skipping...",
                         error=str(e),
                         team_id=team.id,
@@ -328,7 +347,7 @@ async def generate_user_notification_lookup(input: GenerateDigestDataBatchInput)
                         user_count += 1
                     team_count += 1
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate access and notification settings for team {team.id}, skipping...",
                         error=str(e),
                         team_id=team.id,
@@ -416,7 +435,7 @@ async def generate_organization_digest_batch(input: GenerateOrganizationDigestIn
 
                     organization_count += 1
                 except Exception as e:
-                    logger.exception(
+                    logger.warning(
                         f"Failed to generate organization-level digest for organization {organization.id}, skipping...",
                         error=str(e),
                         org_id=organization.id,
@@ -441,64 +460,71 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
         empty_org_digest_count = 0
         empty_user_digest_count = 0
 
-        async with redis.from_url(_redis_url(input.common)) as r:
-            batch_start, batch_end = input.batch
-            async for organization in query_orgs_for_digest()[batch_start:batch_end]:
-                partial = False
-                try:
-                    raw_digest: Optional[str] = await r.get(f"{input.digest.key}-{organization.id}")
+        with ph_scoped_capture() as capture_event:
+            async with redis.from_url(_redis_url(input.common)) as r:
+                batch_start, batch_end = input.batch
+                async for organization in query_orgs_for_digest()[batch_start:batch_end]:
+                    partial = False
+                    try:
+                        raw_digest: Optional[str] = await r.get(f"{input.digest.key}-{organization.id}")
 
-                    if not raw_digest:
-                        logger.warning(
-                            f"Missing digest data for organization, skipping...", organization_id=organization.id
-                        )
-                        continue
-
-                    org_digest = OrganizationDigest.model_validate_json(raw_digest)
-
-                    if org_digest.is_empty():
-                        empty_org_digest_count += 1
-                        continue
-
-                    messaging_record, created = await MessagingRecord.objects.aget_or_create(
-                        email_hash=get_email_hash(f"org_{organization.id}"), campaign_key=input.digest.key
-                    )
-
-                    if not created and messaging_record.sent_at:
-                        logger.info(
-                            f"Digest already sent for organization, skipping...", organization_id=organization.id
-                        )
-                        continue
-
-                    async for member in query_org_members(organization):
-                        user = member.user
-                        user_notify_teams: set[int] = set(
-                            map(int, await r.smembers(f"{input.digest.key}-user-notify-{user.id}"))
-                        )
-                        user_specific_digest: OrganizationDigest = org_digest.filter_for_user(user_notify_teams)
-
-                        if user_specific_digest.is_empty():
-                            empty_user_digest_count += 1
+                        if not raw_digest:
+                            logger.warning(
+                                f"Missing digest data for organization, skipping...", organization_id=organization.id
+                            )
                             continue
 
-                        if input.dry_run:
-                            logger.info("DRY RUN - would send digest", digest=user_specific_digest.model_dump())
-                        else:
-                            partial = True
-                            raise NotImplementedError()
+                        org_digest = OrganizationDigest.model_validate_json(raw_digest)
 
-                        sent_digest_count += 1
-                except Exception as e:
-                    logger.exception(
-                        f"Failed to send weekly digest for organization {organization.id}, skipping...",
-                        error=str(e),
-                        organization_id=organization.id,
-                    )
-                    continue
-                finally:
-                    if not input.dry_run and partial:
-                        messaging_record.sent_at = timezone.now()
-                        await messaging_record.asave()
+                        if org_digest.is_empty():
+                            empty_org_digest_count += 1
+                            continue
+
+                        messaging_record, created = await MessagingRecord.objects.aget_or_create(
+                            email_hash=get_email_hash(f"org_{organization.id}"), campaign_key=input.digest.key
+                        )
+
+                        if not created and messaging_record.sent_at:
+                            logger.info(
+                                f"Digest already sent for organization, skipping...", organization_id=organization.id
+                            )
+                            continue
+
+                        async for member in query_org_members(organization):
+                            user = member.user
+                            user_notify_teams: set[int] = set(
+                                map(int, await r.smembers(f"{input.digest.key}-user-notify-{user.id}"))
+                            )
+                            user_specific_digest: OrganizationDigest = org_digest.filter_for_user(user_notify_teams)
+
+                            if user_specific_digest.is_empty():
+                                empty_user_digest_count += 1
+                                continue
+
+                            if input.dry_run:
+                                logger.info("DRY RUN - would send digest", digest=user_specific_digest.render_payload())
+                            else:
+                                if user.email == "tue@posthog.com":
+                                    partial = True
+                                    capture_event(
+                                        distinct_id=user.distinct_id,
+                                        event="transactional email",
+                                        properties=user_specific_digest.render_payload(),
+                                        groups={"organization": str(organization.id), "instance": settings.SITE_URL},
+                                    )
+
+                            sent_digest_count += 1
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to send weekly digest for organization {organization.id}, skipping...",
+                            error=str(e),
+                            organization_id=organization.id,
+                        )
+                        continue
+                    finally:
+                        if not input.dry_run and partial:
+                            messaging_record.sent_at = timezone.now()
+                            await messaging_record.asave()
 
         logger.info(
             "Finished sending weekly digest batch",
