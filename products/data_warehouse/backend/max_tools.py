@@ -23,12 +23,12 @@ from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsN
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool, MaxToolArgs
+from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
 
 
-class HogQLGeneratorArgs(MaxToolArgs):
+class HogQLGeneratorArgs(BaseModel):
     instructions: str = Field(description="The instructions for what query to generate.")
 
 
@@ -129,7 +129,7 @@ class HogQLGeneratorTool(HogQLGeneratorMixin, MaxTool):
     args_schema: type[BaseModel] = HogQLGeneratorArgs
     context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
-    async def _arun_impl(self, instructions: str, tool_call_id: str) -> tuple[str, str]:
+    async def _arun_impl(self, instructions: str) -> tuple[str, str]:
         current_query: str | None = self.context.get("current_query", "")
         user_prompt = HOGQL_GENERATOR_USER_PROMPT.format(instructions=instructions, current_query=current_query)
 

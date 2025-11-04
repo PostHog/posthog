@@ -18,7 +18,7 @@ from ee.hogai.graph.taxonomy.prompts import HUMAN_IN_THE_LOOP_PROMPT
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool, MaxToolArgs
+from ee.hogai.tool import MaxTool
 
 from .prompts import (
     ERROR_TRACKING_FILTER_INITIAL_PROMPT,
@@ -165,7 +165,7 @@ class ErrorTrackingIssueImpactGraph(
         )
 
 
-class IssueImpactQueryArgs(MaxToolArgs):
+class IssueImpactQueryArgs(BaseModel):
     instructions: str = Field(description="The specific user query to find issues impacting occurrences of events.")
 
 

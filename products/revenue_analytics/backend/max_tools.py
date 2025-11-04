@@ -20,7 +20,7 @@ from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsN
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyErrorMessages
 from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool, MaxToolArgs
+from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
 
@@ -163,7 +163,7 @@ class RevenueAnalyticsFilterOptionsGraph(
         )
 
 
-class FilterRevenueAnalyticsArgs(MaxToolArgs):
+class FilterRevenueAnalyticsArgs(BaseModel):
     change: str = Field(
         description=(
             "The specific change to be made to the revenue analytics filters, briefly described. "
@@ -186,7 +186,7 @@ class FilterRevenueAnalyticsTool(MaxTool):
     context_prompt_template: str = "Current revenue analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterRevenueAnalyticsArgs
 
-    async def _invoke_graph(self, change: str, tool_call_id: str) -> dict[str, Any] | Any:
+    async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """
         Reusable method to call graph to avoid code/prompt duplication and enable
         different processing of the results, based on the place the tool is used.
@@ -203,8 +203,8 @@ class FilterRevenueAnalyticsTool(MaxTool):
         result = await graph.compile_full_graph().ainvoke(graph_context)
         return result
 
-    async def _arun_impl(self, change: str, tool_call_id: str) -> tuple[str, RevenueAnalyticsAssistantFilters]:
-        result = await self._invoke_graph(change, tool_call_id)
+    async def _arun_impl(self, change: str) -> tuple[str, RevenueAnalyticsAssistantFilters]:
+        result = await self._invoke_graph(change)
         if type(result["output"]) is not RevenueAnalyticsAssistantFilters:
             content = result["intermediate_steps"][-1][0].tool_input
             filters = RevenueAnalyticsAssistantFilters.model_validate(self.context.get("current_filters", {}))

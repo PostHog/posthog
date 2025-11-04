@@ -14,7 +14,7 @@ from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsN
 from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
 from ee.hogai.graph.taxonomy.tools import base_final_answer
 from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
-from ee.hogai.tool import MaxTool, MaxToolArgs
+from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
 
@@ -100,7 +100,7 @@ class SessionReplayFilterOptionsGraph(
         )
 
 
-class SearchSessionRecordingsArgs(MaxToolArgs):
+class SearchSessionRecordingsArgs(BaseModel):
     change: str = Field(
         description=(
             "The specific change to be made to recordings filters, briefly described. "
