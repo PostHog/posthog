@@ -9,6 +9,8 @@ import { Scene } from 'scenes/sceneTypes'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { HotKeyOrModifier } from '~/types'
 
+import { sceneShortcutLogic } from './sceneShortcutLogic'
+
 interface BaseShortcut {
     /** Array of keys that make up the shortcut (e.g., ['command', 'e']) */
     keys: HotKeyOrModifier[]
@@ -62,8 +64,9 @@ export function SceneShortcut({
     order,
 }: SceneShortcutProps): JSX.Element {
     const elementRef = useRef<HTMLElement>(null)
-    const { registerSceneShortcut, unregisterSceneShortcut } = useActions(sceneLogic)
-    const { activeTabId, optionKeyHeld } = useValues(sceneLogic)
+    const { registerSceneShortcut, unregisterSceneShortcut } = useActions(sceneShortcutLogic)
+    const { activeTabId } = useValues(sceneLogic)
+    const { optionKeyHeld } = useValues(sceneShortcutLogic)
     const [showTooltip, setShowTooltip] = useState(false)
 
     // Stable ID that doesn't change on re-renders

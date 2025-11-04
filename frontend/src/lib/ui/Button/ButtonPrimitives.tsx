@@ -3,7 +3,7 @@ import './ButtonPrimitives.scss'
 import { type VariantProps, cva } from 'cva'
 import React, { ReactNode, createContext, forwardRef, useContext } from 'react'
 
-import { SceneShortcut, SceneShortcutProps } from 'lib/components/Scenes/SceneShortcut/SceneShortcut'
+import { SceneShortcut, SceneShortcutProps } from 'lib/components/SceneShortcuts/SceneShortcut'
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 

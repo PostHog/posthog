@@ -5,7 +5,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { IconEllipsis, IconPencil, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { SceneShortcut } from 'lib/components/Scenes/SceneShortcut/SceneShortcut'
+import { SceneShortcut } from 'lib/components/SceneShortcuts/SceneShortcut'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { ButtonPrimitive, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
