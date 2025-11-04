@@ -398,10 +398,27 @@ jobs:
                       exit 1
                   fi
 
+            # Detect whether to run in CHECK or UPDATE mode
+            # Human commit → UPDATE (can update snapshots)
+            # Bot commit → CHECK (must match exactly, prevents infinite loops)
+            - name: Detect snapshot mode
+              id: snapshot-mode
+              if: github.event.pull_request.head.repo.full_name == github.repository
+              run: |
+                  MODE=$(.github/scripts/detect-snapshot-mode.sh)
+                  echo "mode=$MODE" >> $GITHUB_OUTPUT
+                  echo "Snapshot mode: $MODE"
+                  if [ "$MODE" = "check" ]; then
+                    echo "⚠️  Running in CHECK mode - snapshots must match exactly"
+                    echo "Any snapshot differences will fail the workflow"
+                  else
+                    echo "✓ Running in UPDATE mode - snapshots can be updated"
+                  fi
+
             - name: Run @storybook/test-runner (up to 3 attempts)
               env:
                   HOME: /root
-                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
+                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && steps.snapshot-mode.outputs.mode == 'update' && 'update' || 'verify' }}
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
                   for i in 1 2 3; do
@@ -469,31 +486,15 @@ jobs:
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-total=$TOTAL" >> $GITHUB_OUTPUT
 
-            - name: Catch and flag flapping snapshots
-              id: flappy-bird
-              if: github.event.pull_request.head.repo.full_name == github.repository
-              shell: bash
-              run: |
-                  PATHS_FLAPPING=()
-                  last_human_commit=$(git log --pretty=format:"%H" --perl-regexp --author='^(?!github-actions)' -1)
-                  echo "Last human commit identified: $last_human_commit"
-                  for snapshot_path in $(git diff --name-only HEAD frontend/__snapshots__); do
-                      echo "Checking snapshot path: $snapshot_path"
-                      number_of_times_snapshot_has_changed_since_last_human_commit=$(git log --oneline ${last_human_commit}..HEAD -- $snapshot_path | wc -l | xargs)
-                      echo "Number of times $snapshot_path has changed since last human commit: $number_of_times_snapshot_has_changed_since_last_human_commit"
-                      if [ "$number_of_times_snapshot_has_changed_since_last_human_commit" -gt 0 ]; then
-                          PATHS_FLAPPING+=($snapshot_path)
-                      fi
-                  done
-                  echo "Paths flapping: ${PATHS_FLAPPING[*]:-none}"
-                  echo "${{ matrix.browser }}-${{ matrix.shard }}-pathsFlapping=${PATHS_FLAPPING[*]}" >> $GITHUB_OUTPUT
-
+            # Only commit snapshots in UPDATE mode
+            # In CHECK mode, test runner already failed if snapshots differ
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
-              if: github.event.pull_request.head.repo.full_name == github.repository
+              if: github.event.pull_request.head.repo.full_name == github.repository && steps.snapshot-mode.outputs.mode == 'update'
               id: commit
               with:
-                  add: '["frontend/__snapshots__/", "playwright/"]'
+                  # Use -A flag to also stage deletions (when stories are removed)
+                  add: '["frontend/__snapshots__/ -A", "playwright/ -A"]'
                   message: 'Update UI snapshots for `${{ matrix.browser }}` (${{ matrix.shard }})'
                   pull: --rebase --autostash # Make sure we're up to date with other browsers' updates
                   default_author: github_actions
