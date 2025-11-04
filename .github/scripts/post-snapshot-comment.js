@@ -3,10 +3,10 @@
 const { execSync } = require('child_process');
 
 // Parse command-line arguments
-const [workflowType, mode, changesJson, prNumber, repo, commitSha] = process.argv.slice(2);
+const [workflowType, mode, changesJson, prNumber, repo, commitSha, snapshotSha] = process.argv.slice(2);
 
-if (process.argv.length !== 8) {
-    console.error('Usage: post-snapshot-comment.js <workflow_type> <mode> <changes_json> <pr_number> <repo> <commit_sha>');
+if (process.argv.length !== 8 && process.argv.length !== 9) {
+    console.error('Usage: post-snapshot-comment.js <workflow_type> <mode> <changes_json> <pr_number> <repo> <commit_sha> [snapshot_sha]');
     process.exit(1);
 }
 
@@ -39,7 +39,7 @@ if (mode === 'update') {
 
     comment = `### Visual regression: ${config.label} ${config.type} updated
 
-**Mode:** UPDATE (triggered by human commit)
+**Mode:** UPDATE (triggered by human commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
 
 **Changes:** ${total} snapshots (${modified} modified, ${added} added, ${deleted} deleted)
 
@@ -53,13 +53,13 @@ if (mode === 'update') {
 - Approve if changes match your expectations
 - If unexpected, investigate component rendering
 
-[Review snapshot changes →](https://github.com/${repo}/pull/${prNumber}/files)`;
+[Review snapshot changes →](https://github.com/${repo}/commit/${snapshotSha || commitSha})`;
 
 } else if (mode === 'check') {
     // CHECK mode: snapshots verified successfully
     comment = `### Visual regression: ${config.label} ${config.type} verified ✓
 
-**Mode:** CHECK (triggered by bot commit)
+**Mode:** CHECK (triggered by bot commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
 
 All snapshots match exactly - no rendering instability detected
 
@@ -83,7 +83,7 @@ Ready to merge!`;
 
     comment = `### Visual regression: ${config.label} ${config.type} failed verification ✗
 
-**Mode:** CHECK (triggered by bot commit)
+**Mode:** CHECK (triggered by bot commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
 
 **Problem:** Snapshots differ from previous run - indicates flapping/instability
 

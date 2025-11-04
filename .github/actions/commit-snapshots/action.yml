@@ -82,7 +82,9 @@ runs:
                 git add ${{ inputs.snapshot-path }} -A
                 git commit -m "${{ inputs.commit-message }}"
                 git push
+                SNAPSHOT_SHA=$(git rev-parse HEAD)
                 echo "committed=true" >> $GITHUB_OUTPUT
+                echo "snapshot-sha=$SNAPSHOT_SHA" >> $GITHUB_OUTPUT
               else
                 echo "No snapshot changes to commit"
                 echo "committed=false" >> $GITHUB_OUTPUT
@@ -109,7 +111,8 @@ runs:
                 '${{ steps.commit.outputs.changes }}' \
                 "${{ inputs.pr-number }}" \
                 "${{ inputs.repository }}" \
-                "${{ inputs.commit-sha }}"
+                "${{ inputs.commit-sha }}" \
+                "${{ steps.commit.outputs.snapshot-sha }}"
 
         - name: Fail workflow to trigger CHECK mode
           if: steps.commit.outputs.committed == 'true'
