@@ -468,6 +468,7 @@ export interface OrganizationType extends OrganizationBasicType {
     metadata?: OrganizationMetadata
     member_count: number
     default_experiment_stats_method: ExperimentStatsMethod
+    default_anonymize_ips?: boolean
     default_role_id?: string | null
 }
 

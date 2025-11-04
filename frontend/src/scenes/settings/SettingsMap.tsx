@@ -86,6 +86,7 @@ import { OrganizationAI } from './organization/OrgAI'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
 import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
+import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationLogo } from './organization/OrgLogo'
 import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
@@ -706,6 +707,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
                 component: <OrganizationExperimentStatsMethod />,
+            },
+            {
+                id: 'organization-ip-anonymization-default',
+                title: 'IP data capture default',
+                description:
+                    'When enabled, new environments will automatically have "Discard client IP data" turned on. This is recommended for GDPR compliance. Existing environments are not affected.',
+                component: <OrgIPAnonymizationDefault />,
             },
         ],
     },

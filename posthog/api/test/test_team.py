@@ -2033,6 +2033,69 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Team.objects.count(), 3)
 
+    def test_new_team_inherits_org_ip_anonymization_default_when_true(self):
+        """New teams should inherit organization's default_anonymize_ips setting when enabled"""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
+        ]
+        self.organization.save()
+
+        # Set org default to True
+        self.organization.default_anonymize_ips = True
+        self.organization.save()
+
+        # Create new team
+        response = self.client.post("/api/projects/@current/environments/", {"name": "Test IP Anonymization"})
+        self.assertEqual(response.status_code, 201)
+
+        # Verify new team has anonymize_ips enabled
+        new_team = Team.objects.get(name="Test IP Anonymization")
+        self.assertTrue(new_team.anonymize_ips)
+
+    def test_new_team_inherits_org_ip_anonymization_default_when_false(self):
+        """New teams should inherit organization's default_anonymize_ips setting when disabled"""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
+        ]
+        self.organization.save()
+
+        # Set org default to False explicitly
+        self.organization.default_anonymize_ips = False
+        self.organization.save()
+
+        # Create new team
+        response = self.client.post("/api/projects/@current/environments/", {"name": "Test No IP Anonymization"})
+        self.assertEqual(response.status_code, 201)
+
+        # Verify new team has anonymize_ips disabled
+        new_team = Team.objects.get(name="Test No IP Anonymization")
+        self.assertFalse(new_team.anonymize_ips)
+
+    def test_new_team_defaults_to_false_when_org_default_is_none(self):
+        """When org default is None, new teams should have anonymize_ips=False"""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ENVIRONMENTS, "name": "Environments", "limit": None}
+        ]
+        self.organization.save()
+
+        # Org default is None (not set)
+        self.organization.default_anonymize_ips = None
+        self.organization.save()
+
+        # Create new team
+        response = self.client.post("/api/projects/@current/environments/", {"name": "Test Default Behavior"})
+        self.assertEqual(response.status_code, 201)
+
+        # Verify new team has anonymize_ips disabled (default)
+        new_team = Team.objects.get(name="Test Default Behavior")
+        self.assertFalse(new_team.anonymize_ips)
+
     def test_team_member_can_write_to_team_config_with_member_access_control(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()

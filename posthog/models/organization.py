@@ -174,6 +174,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
         null=True,
         blank=True,
     )
+    default_anonymize_ips = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="Default setting for 'Discard client IP data' on new environments in this organization.",
+    )
     is_hipaa = models.BooleanField(default=False, null=True, blank=True)
 
     ## Managed by Billing
