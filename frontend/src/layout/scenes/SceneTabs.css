@@ -44,3 +44,17 @@
 .scene-tab--pinned .scene-tab-title {
     display: none;
 }
+
+.scene-tab-container--personal-divider {
+    margin-left: 0.25rem;
+}
+
+.scene-tab-container--personal-divider::before {
+    content: '';
+    position: absolute;
+    left: -0.125rem;
+    top: 6px;
+    bottom: 6px;
+    width: 1px;
+    background-color: var(--color-border-primary);
+}

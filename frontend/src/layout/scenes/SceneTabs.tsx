@@ -7,11 +7,10 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef, useState } from 'react'
 
-import { IconGear, IconPlus, IconX } from '@posthog/icons'
+import { IconPlus, IconX } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
@@ -42,7 +41,9 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
-    const pinnedCount = tabs.filter((tab) => tab.pinned).length
+    const projectPinnedCount = tabs.filter((tab) => tab.pinned && tab.pinnedScope === 'project').length
+    const personalPinnedCount = tabs.filter((tab) => tab.pinned && tab.pinnedScope !== 'project').length
+    const pinnedCount = projectPinnedCount + personalPinnedCount
     const unpinnedCount = tabs.length - pinnedCount
     const pinnedColumns = pinnedCount > 0 ? `repeat(${pinnedCount}, 40px)` : ''
     let unpinnedColumns = ''
@@ -60,8 +61,15 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             return
         }
 
-        const activeTab = tabs.find((tab) => tab.id === active.id)
-        const overTab = tabs.find((tab) => tab.id === over.id)
+        const activeIndex = active.data.current?.index
+        const overIndex = over.data.current?.index
+
+        if (typeof activeIndex !== 'number' || typeof overIndex !== 'number') {
+            return
+        }
+
+        const activeTab = tabs[activeIndex]
+        const overTab = tabs[overIndex]
         if (!activeTab || !overTab) {
             return
         }
@@ -74,7 +82,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             return
         }
 
-        reorderTabs(active.id as string, over.id as string)
+        reorderTabs(activeTab.id, overTab.id)
     }
 
     return (
@@ -102,22 +110,38 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 </div>
             )}
 
-            <Tooltip title="Configure pinned tabs">
-                <ButtonPrimitive iconOnly onClick={() => setIsConfigurePinnedTabsOpen(true)} className="ml-2">
-                    <IconGear />
-                </ButtonPrimitive>
-            </Tooltip>
-
             <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-                <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
+                <SortableContext
+                    items={[...tabs.map((tab, index) => getSortableId(tab, index)), 'new']}
+                    strategy={horizontalListSortingStrategy}
+                >
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div
                             className="scene-tab-row grid min-w-0 pl-2 gap-1 items-center h-[36px]"
                             style={{ gridTemplateColumns }}
                         >
-                            {tabs.map((tab) => (
-                                <SortableSceneTab key={tab.id} tab={tab} />
-                            ))}
+                            {tabs.map((tab, index) => {
+                                const sortableId = getSortableId(tab, index)
+                                const containerClassName =
+                                    projectPinnedCount > 0 &&
+                                    personalPinnedCount > 0 &&
+                                    tab.pinned &&
+                                    tab.pinnedScope !== 'project' &&
+                                    index === projectPinnedCount
+                                        ? 'scene-tab-container--personal-divider'
+                                        : undefined
+
+                                return (
+                                    <SortableSceneTab
+                                        key={sortableId}
+                                        tab={tab}
+                                        index={index}
+                                        sortableId={sortableId}
+                                        containerClassName={containerClassName}
+                                        onConfigurePinnedTabs={() => setIsConfigurePinnedTabsOpen(true)}
+                                    />
+                                )
+                            })}
                         </div>
                         <Link
                             to={urls.newTab()}
@@ -157,8 +181,27 @@ const isSamePinnedScope = (a: SceneTabPinnedScope | undefined, b: SceneTabPinned
     return resolve(a) === resolve(b)
 }
 
-function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
-    const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: tab.id })
+const getSortableId = (tab: SceneTab, index: number): string => `${tab.id}-${index}`
+
+interface SortableSceneTabProps {
+    tab: SceneTab
+    index: number
+    sortableId: string
+    containerClassName?: string
+    onConfigurePinnedTabs: () => void
+}
+
+function SortableSceneTab({
+    tab,
+    index,
+    sortableId,
+    containerClassName,
+    onConfigurePinnedTabs,
+}: SortableSceneTabProps): JSX.Element {
+    const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({
+        id: sortableId,
+        data: { index },
+    })
     const style: React.CSSProperties = {
         transform: CSS.Translate.toString(transform),
         transition,
@@ -167,8 +210,8 @@ function SortableSceneTab({ tab }: { tab: SceneTab }): JSX.Element {
 
     return (
         <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-            <SceneTabContextMenu tab={tab}>
-                <SceneTabComponent tab={tab} isDragging={isDragging} />
+            <SceneTabContextMenu tab={tab} onConfigurePinnedTabs={onConfigurePinnedTabs}>
+                <SceneTabComponent tab={tab} isDragging={isDragging} containerClassName={containerClassName} />
             </SceneTabContextMenu>
         </div>
     )
@@ -178,9 +221,10 @@ interface SceneTabProps {
     tab: SceneTab
     className?: string
     isDragging?: boolean
+    containerClassName?: string
 }
 
-function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
+function SceneTabComponent({ tab, className, isDragging, containerClassName }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const isPinned = !!tab.pinned
     const canRemoveTab = !isPinned
@@ -206,7 +250,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
     }, [isEditing])
 
     return (
-        <div className="relative">
+        <div className={cn('relative', containerClassName)}>
             <div
                 className={cn({
                     'scene-tab-active-indicator': tab.active,

@@ -6,6 +6,7 @@ import {
     IconChevronRight,
     IconCopy,
     IconExternal,
+    IconGear,
     IconPencil,
     IconPin,
     IconPinFilled,
@@ -27,7 +28,13 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 
 import { KeyboardShortcut } from '../navigation-3000/components/KeyboardShortcut'
 
-export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children: React.ReactElement }): JSX.Element {
+interface SceneTabContextMenuProps {
+    tab: SceneTab
+    children: React.ReactElement
+    onConfigurePinnedTabs?: () => void
+}
+
+export function SceneTabContextMenu({ tab, children, onConfigurePinnedTabs }: SceneTabContextMenuProps): JSX.Element {
     const { tabs } = useValues(sceneLogic)
     const { setTabs, removeTab, duplicateTab, startTabEdit, pinTab, unpinTab } = useActions(sceneLogic)
 
@@ -61,6 +68,13 @@ export function SceneTabContextMenu({ tab, children }: { tab: SceneTab; children
                         {tab.pinned ? <IconPinFilled /> : <IconPin />} {tab.pinned ? 'Unpin tab' : 'Pin tab'}
                     </ButtonPrimitive>
                 </ContextMenuItem>
+                {tab.pinned && onConfigurePinnedTabs && (
+                    <ContextMenuItem asChild>
+                        <ButtonPrimitive menuItem onClick={onConfigurePinnedTabs}>
+                            <IconGear /> Configure pinned tabs
+                        </ButtonPrimitive>
+                    </ContextMenuItem>
+                )}
                 <ContextMenuItem asChild>
                     <ButtonPrimitive menuItem onClick={() => duplicateTab(tab)}>
                         <IconCopy /> Duplicate tab
