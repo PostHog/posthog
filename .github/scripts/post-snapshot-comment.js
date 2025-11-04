@@ -39,7 +39,7 @@ if (mode === 'update') {
 
     comment = `### Visual regression: ${config.label} ${config.type} updated
 
-**Mode:** UPDATE (triggered by human commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
+**Mode:** \`UPDATE\` (triggered by human commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
 
 **Changes:** ${total} snapshots (${modified} modified, ${added} added, ${deleted} deleted)
 
@@ -59,7 +59,7 @@ if (mode === 'update') {
     // CHECK mode: snapshots verified successfully
     comment = `### Visual regression: ${config.label} ${config.type} verified ✓
 
-**Mode:** CHECK (triggered by bot commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
+**Mode:** \`CHECK\` (triggered by bot commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
 
 All snapshots match exactly - no rendering instability detected
 
@@ -83,7 +83,7 @@ Ready to merge!`;
 
     comment = `### Visual regression: ${config.label} ${config.type} failed verification ✗
 
-**Mode:** CHECK (triggered by bot commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
+**Mode:** \`CHECK\` (triggered by bot commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
 
 **Problem:** Snapshots differ from previous run - indicates flapping/instability
 
@@ -101,11 +101,10 @@ ${filesList}${moreFiles}
 3. Fix underlying issues:
    - Add proper waits for async operations
    - Stabilize animations (disable or wait for completion)
-   - Use CSS container queries instead of ResizeObserver where possible
    - Check for race conditions in rendering
 4. Push your fix (resets to UPDATE mode)
 
-**Do NOT just re-run CI** - fix the root cause first
+**Do NOT just re-run CI** - fix the root cause first if you can
 
 Workflow blocked until fixed.`;
 
