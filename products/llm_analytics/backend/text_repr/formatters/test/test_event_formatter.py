@@ -1,5 +1,5 @@
 """
-Tests for text_formatter.py - main text representation formatting logic.
+Tests for event_formatter.py - main event formatting logic.
 
 Tests cover error formatting with various input types including JSON strings,
 dicts, nested structures, and plain text.
@@ -7,7 +7,7 @@ dicts, nested structures, and plain text.
 
 import json
 
-from ..text_formatter import _dict_to_yaml_lines, format_embedding_text_repr, format_generation_text_repr
+from ..event_formatter import _dict_to_yaml_lines, format_embedding_text_repr, format_generation_text_repr
 
 
 class TestDictToYamlLines:

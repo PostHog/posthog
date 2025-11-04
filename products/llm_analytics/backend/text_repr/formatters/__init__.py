@@ -9,7 +9,7 @@ Main entry points:
 - format_trace_text_repr: Format full traces with hierarchy
 """
 
-from .text_formatter import format_event_text_repr
+from .event_formatter import format_event_text_repr
 from .trace_formatter import format_trace_text_repr
 
 __all__ = [

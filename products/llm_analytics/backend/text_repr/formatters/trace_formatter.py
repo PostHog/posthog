@@ -12,8 +12,8 @@ from typing import Any
 from urllib.parse import quote
 
 from .constants import MAX_TREE_DEPTH, SEPARATOR
+from .event_formatter import format_event_text_repr
 from .message_formatter import FormatterOptions, truncate_content
-from .text_formatter import format_event_text_repr
 
 
 def _format_latency(latency: float) -> str:

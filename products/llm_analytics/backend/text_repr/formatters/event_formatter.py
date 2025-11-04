@@ -1,9 +1,10 @@
 """
-Main text formatter for LLM trace events.
+Main event formatter for LLM analytics events.
 
 Combines metadata, tools, input, and output into a readable text representation.
 Handles $ai_generation and $ai_embedding events with structured error formatting,
 model/timing information, and YAML-like rendering for complex data structures.
+Dispatches to span_formatter for $ai_span events.
 """
 
 import json
