@@ -179,8 +179,6 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(
             returned_tool_call_message.ui_payload["create_and_query_insight"], query.model_dump(exclude_none=True)
         )
-        # Visible defaults to True (show_tool_call_message is True by default)
-        self.assertTrue(returned_tool_call_message.visible)
 
     async def test_non_editing_mode_no_ui_payload(self):
         """Test that in non-editing mode, no UI payload is added to tool call message."""

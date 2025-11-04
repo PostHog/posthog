@@ -6,6 +6,7 @@ from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.base.graph import BaseAssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantGraphName
+from ee.models import Conversation
 
 
 class TestAssistantGraph(BaseTest):
@@ -37,9 +38,10 @@ class TestAssistantGraph(BaseTest):
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile(checkpointer=InMemorySaver())
         )
+        conversation = await Conversation.objects.acreate(team=self.team, user=self.user)
         state = await compiled_graph.ainvoke(
             AssistantState(messages=[], graph_status="resumed", start_id=None),
-            {"configurable": {"thread_id": "test"}},
+            {"configurable": {"thread_id": conversation.id}},
         )
         self.assertEqual(state["start_id"], None)
         self.assertEqual(state["graph_status"], "resumed")

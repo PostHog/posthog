@@ -93,8 +93,9 @@ def create_dispatcher_from_config(config: RunnableConfig, node_path: tuple[NodeP
 
         writer = noop
 
-    node_name: str = config["metadata"].get("langgraph_node") or ""
-    # `llanggraph_checkpoint_ns` contains the nested path to the node, so it's more accurate for streaming.
-    node_run_id: str = config["metadata"].get("langgraph_checkpoint_ns") or ""
+    metadata = config.get("metadata") or {}
+    node_name: str = metadata.get("langgraph_node") or ""
+    # `langgraph_checkpoint_ns` contains the nested path to the node, so it's more accurate for streaming.
+    node_run_id: str = metadata.get("langgraph_checkpoint_ns") or ""
 
     return AssistantDispatcher(writer, node_path=node_path, node_run_id=node_run_id, node_name=node_name)
