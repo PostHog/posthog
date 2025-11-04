@@ -41,10 +41,31 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
+    const pinnedCount = tabs.filter((tab) => tab.pinned).length
+    const unpinnedCount = tabs.length - pinnedCount
+    const pinnedColumns = pinnedCount > 0 ? `repeat(${pinnedCount}, 40px)` : ''
+    let unpinnedColumns = ''
+    if (unpinnedCount === 1) {
+        unpinnedColumns = '250px'
+    } else if (unpinnedCount === 2) {
+        unpinnedColumns = 'repeat(2, 250px)'
+    } else if (unpinnedCount > 2) {
+        unpinnedColumns = `repeat(${unpinnedCount}, minmax(40px, 250px))`
+    }
+    const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
+
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
-        if (over && active.id !== over.id) {
-            reorderTabs(active.id as string, over.id as string)
+        if (!over || over.id === 'new' || active.id === over.id) {
+            return
         }
+
+        const activeTab = tabs.find((tab) => tab.id === active.id)
+        const overTab = tabs.find((tab) => tab.id === over.id)
+        if (!activeTab || !overTab || !!activeTab.pinned !== !!overTab.pinned) {
+            return
+        }
+
+        reorderTabs(active.id as string, over.id as string)
     }
 
     return (
@@ -100,14 +121,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                         </div>
                         <div
                             className="scene-tab-row grid min-w-0 gap-1 items-center h-[36px]"
-                            style={{
-                                gridTemplateColumns:
-                                    tabs.length === 1
-                                        ? '250px'
-                                        : tabs.length === 2
-                                          ? 'repeat(2, 250px)'
-                                          : `repeat(${tabs.length}, minmax(40px, 250px))`,
-                            }}
+                            style={{ gridTemplateColumns }}
                         >
                             {tabs.map((tab) => (
                                 <SortableSceneTab key={tab.id} tab={tab} />
@@ -167,7 +181,8 @@ interface SceneTabProps {
 
 function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
-    const canRemoveTab = true
+    const isPinned = !!tab.pinned
+    const canRemoveTab = !isPinned
     const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
     const { editingTabId } = useValues(sceneLogic)
     const [editValue, setEditValue] = useState('')
@@ -238,7 +253,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     onAuxClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
-                        if (e.button === 1 && !isDragging) {
+                        if (e.button === 1 && !isDragging && canRemoveTab) {
                             removeTab(tab)
                         }
                     }}
@@ -258,6 +273,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                             ? 'tab-active rounded-bl-none rounded-br-none cursor-default text-primary bg-primary border-primary'
                             : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-primary-hover z-20',
                         'focus:outline-none',
+                        isPinned && 'scene-tab--pinned justify-center pl-1 pr-1 gap-0',
                         className
                     )}
                     tooltip={
@@ -266,6 +282,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                             : tab.title
                     }
                     tooltipPlacement="bottom"
+                    aria-label={isPinned ? tab.customTitle || tab.title : undefined}
                 >
                     {tab.iconType === 'blank' ? (
                         <></>
@@ -274,7 +291,9 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                     ) : (
                         iconForType(tab.iconType as FileSystemIconType)
                     )}
-                    {isEditing ? (
+                    {isPinned ? (
+                        <span className="sr-only">{tab.customTitle || tab.title}</span>
+                    ) : isEditing ? (
                         <input
                             ref={inputRef}
                             className="scene-tab-title grow text-left bg-primary border-none outline-1 text-primary z-30 max-w-full"

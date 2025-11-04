@@ -188,6 +188,7 @@ export interface SceneTab {
     active: boolean
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
+    pinned?: boolean
 
     sceneId?: string
     sceneKey?: string

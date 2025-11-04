@@ -26,6 +26,8 @@ describe('sceneLogic', () => {
 
     beforeEach(async () => {
         initKeaTests()
+        localStorage.clear()
+        sessionStorage.clear()
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
         router.actions.push(urls.eventDefinitions())
@@ -76,5 +78,54 @@ describe('sceneLogic', () => {
             [Scene.DataManagement]: expectedAnnotation,
             [Scene.Settings]: expectedSettings,
         })
+    })
+
+    it('can pin and unpin tabs, syncing storage', async () => {
+        const teamId = teamLogic.values.currentTeamId ?? 'null'
+        const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`
+
+        logic.actions.setTabs([
+            {
+                id: 'tab-1',
+                active: true,
+                pathname: '/a',
+                search: '',
+                hash: '',
+                title: 'Tab A',
+                iconType: 'blank',
+            },
+            {
+                id: 'tab-2',
+                active: false,
+                pathname: '/b',
+                search: '',
+                hash: '',
+                title: 'Tab B',
+                iconType: 'blank',
+            },
+        ])
+
+        logic.actions.pinTab('tab-2')
+
+        await expectLogic(logic).toMatchValues({
+            tabs: [
+                expect.objectContaining({ id: 'tab-2', pinned: true }),
+                expect.objectContaining({ id: 'tab-1', pinned: false }),
+            ],
+        })
+
+        const storedPinned = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '[]')
+        expect(storedPinned).toEqual([expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })])
+
+        logic.actions.unpinTab('tab-2')
+
+        await expectLogic(logic).toMatchValues({
+            tabs: [
+                expect.objectContaining({ id: 'tab-1', pinned: false }),
+                expect.objectContaining({ id: 'tab-2', pinned: false }),
+            ],
+        })
+
+        expect(localStorage.getItem(pinnedStorageKey)).toBeNull()
     })
 })
