@@ -281,6 +281,7 @@ class AssistantTool(StrEnum):
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
+    CREATE_FEATURE_FLAG = "create_feature_flag"
 
 
 class AssistantToolCall(BaseModel):
@@ -4282,6 +4283,7 @@ class LLMTrace(BaseModel):
     )
     aiSessionId: Optional[str] = None
     createdAt: str
+    errorCount: Optional[float] = None
     events: list[LLMTraceEvent]
     id: str
     inputCost: Optional[float] = None

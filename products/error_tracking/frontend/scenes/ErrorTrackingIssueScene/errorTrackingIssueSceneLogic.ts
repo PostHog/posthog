@@ -79,6 +79,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         updateStatus: (status: ErrorTrackingIssue['status']) => ({ status }),
         updateName: (name: string) => ({ name }),
         updateDescription: (description: string) => ({ description }),
+        setSimilarIssuesMaxDistance: (distance: number) => ({ distance }),
     }),
 
     defaults({
@@ -90,6 +91,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         selectedEvent: null as ErrorEventType | null,
         initialEventTimestamp: null as string | null,
         initialEventLoading: true as boolean,
+        similarIssuesMaxDistance: 0.2 as number,
     }),
 
     reducers(({ values }) => ({
@@ -102,6 +104,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 }
                 return prevLastSeen
             },
+        },
+        similarIssuesMaxDistance: {
+            setSimilarIssuesMaxDistance: (_, { distance }) => distance,
         },
         initialEventTimestamp: {
             setInitialEventTimestamp: (state, { timestamp }) => {
@@ -233,7 +238,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     const query = errorTrackingSimilarIssuesQuery({
                         issueId: props.id,
                         limit: 10,
-                        maxDistance: 0.2,
+                        maxDistance: values.similarIssuesMaxDistance,
                     })
                     const response = await api.query(query, {
                         refresh: refresh ? 'force_blocking' : 'blocking',
@@ -357,6 +362,9 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 if (mutationName === 'createIssueCohort') {
                     actions.loadIssue()
                 }
+            },
+            setSimilarIssuesMaxDistance: () => {
+                actions.loadSimilarIssues(true)
             },
         }
     }),

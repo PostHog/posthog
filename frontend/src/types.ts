@@ -4677,6 +4677,7 @@ export enum ActivityScope {
     BATCH_IMPORT = 'BatchImport',
     FEATURE_FLAG = 'FeatureFlag',
     PERSON = 'Person',
+    PERSONAL_API_KEY = 'PersonalAPIKey',
     GROUP = 'Group',
     INSIGHT = 'Insight',
     PLUGIN = 'Plugin',
@@ -5593,6 +5594,8 @@ export type CyclotronJobInvocationGlobals = {
         headers: Record<string, string>
         ip?: string
     }
+    // For HogFlows, workflow-level variables
+    variables?: Record<string, any>
 }
 
 export type CyclotronJobInvocationGlobalsWithInputs = Partial<CyclotronJobInvocationGlobals> & {

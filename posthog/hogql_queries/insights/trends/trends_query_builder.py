@@ -1,5 +1,7 @@
 from typing import cast
 
+import posthoganalytics
+
 from posthog.schema import (
     ActionsNode,
     Breakdown as BreakdownSchema,
@@ -115,6 +117,115 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
     def _outer_select_query(self, inner_query: ast.SelectQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        if self.breakdown.enabled and self._team_flag_fewer_array_ops():
+            if self.breakdown.is_multiple_breakdown:
+                breakdown_count = len(self.breakdown.field_exprs)
+                breakdown_other_expr = parse_expr(
+                    str([BREAKDOWN_OTHER_STRING_LABEL] * breakdown_count),
+                )
+            else:
+                breakdown_other_expr = ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL)
+
+            breakdown_limit_expr = ast.Constant(value=self._get_breakdown_limit())
+            is_cumulative = self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
+
+            return parse_select(
+                f"""
+                WITH
+                (
+                    -- Raw per-day breakdown rows
+                    SELECT * FROM {{inner_query}}
+                ) AS breakdown_series,
+                (
+                    -- Aggregate totals per breakdown for ranking
+                    SELECT
+                        breakdown_value,
+                        sum(count) AS total_count_for_breakdown,
+                        {{breakdown_order}} AS ordering
+                    FROM breakdown_series
+                    GROUP BY breakdown_value
+                ) AS totals_per_breakdown,
+                (
+                    -- Global rank applied to aggregated totals
+                    SELECT
+                        breakdown_value,
+                        ordering,
+                        total_count_for_breakdown,
+                        row_number() OVER (
+                            ORDER BY ordering ASC, total_count_for_breakdown DESC, breakdown_value ASC
+                        ) AS breakdown_rank
+                    FROM totals_per_breakdown
+                ) AS ranked_breakdown_totals,
+                (
+                    -- Attach ranks back to per-day rows
+                    SELECT
+                        breakdown_series.*,
+                        ranked_breakdown_totals.ordering,
+                        ranked_breakdown_totals.breakdown_rank
+                    FROM breakdown_series
+                    JOIN ranked_breakdown_totals ON ranked_breakdown_totals.breakdown_value = breakdown_series.breakdown_value
+                ) AS ranked_breakdown_values,
+                (
+                    -- Top N breakdown values
+                    SELECT
+                        day_start,
+                        count AS value,
+                        breakdown_value
+                    FROM ranked_breakdown_values
+                    WHERE breakdown_rank <= {{breakdown_limit}}
+                ) AS top_n_breakdown_values,
+                (
+                    -- "Other" breakdown value
+                    SELECT
+                        day_start,
+                        sum(count) as value,
+                        {{breakdown_other}} as breakdown_value
+                    FROM ranked_breakdown_values
+                    WHERE breakdown_rank > {{breakdown_limit}}
+                    GROUP BY breakdown_value, day_start
+                ) AS other_breakdown_values,
+                (
+                    -- Combine and order top N and "other" breakdown values
+                    SELECT * FROM (
+                        SELECT * FROM top_n_breakdown_values
+                        UNION ALL
+                        SELECT * FROM other_breakdown_values
+                    ) ORDER BY day_start, value
+                ) AS top_n_and_other_breakdown_values,
+
+                -- Transpose the results into arrays for each breakdown value
+                {'SELECT date, total, breakdown_value FROM (' if is_cumulative else ''}
+                SELECT
+                    {{all_dates}},
+                    arrayMap(d ->
+                        arraySum(
+                            arrayMap((v, dd) -> dd = d ? v : 0, vals, days)
+                        ),
+                        date
+                    ) AS {'values' if is_cumulative else 'total'},
+                    {'arrayMap(i -> arraySum(arraySlice(values, 1, i)), arrayEnumerate(values)) AS total,' if is_cumulative else ''}
+                    breakdown_value
+                FROM (
+                    SELECT
+                        groupArray(day_start) AS days,
+                        groupArray(value) AS vals,
+                        breakdown_value
+                    FROM top_n_and_other_breakdown_values
+                    GROUP BY breakdown_value
+                )
+                ORDER BY {{breakdown_order}} ASC, arraySum(total) DESC, breakdown_value ASC
+                {')' if is_cumulative else ''}
+                """,
+                {
+                    "inner_query": inner_query,
+                    "breakdown_other": breakdown_other_expr,
+                    "breakdown_limit": breakdown_limit_expr,
+                    "breakdown_order": self._breakdown_query_order_by(self.breakdown),
+                    "all_dates": self._get_date_subqueries(),
+                    **self.query_date_range.to_placeholders(),
+                },
+            )
+
         total_array = parse_expr(
             """
             arrayMap(
@@ -270,7 +381,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         if self.breakdown.enabled:
             query = self._inner_breakdown_subquery(query, self.breakdown)
 
-        if self._trends_display.should_wrap_inner_query():
+        if self._trends_display.should_wrap_inner_query() and (
+            not self._team_flag_fewer_array_ops() or not self.breakdown.enabled
+        ):
             query = self._trends_display.wrap_inner_query(query, self.breakdown.enabled)
             if self.breakdown.enabled:
                 query.select.append(ast.Field(chain=["breakdown_value"]))
@@ -887,4 +1000,24 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             """
             breakdown_value IS NOT NULL
             """
+        )
+
+    def _team_flag_fewer_array_ops(self) -> bool:
+        return posthoganalytics.feature_enabled(
+            "trends-breakdown-fewer-array-ops",
+            str(self.team.uuid),
+            groups={
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(self.team.organization_id),
+                },
+                "project": {
+                    "id": str(self.team.id),
+                },
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
         )

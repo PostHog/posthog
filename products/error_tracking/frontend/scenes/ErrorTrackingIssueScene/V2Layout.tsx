@@ -1,7 +1,6 @@
 import './ErrorTrackingIssueScene.scss'
 
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useRef } from 'react'
 
 import { IconFilter, IconList, IconSearch, IconShare, IconWarning } from '@posthog/icons'
@@ -10,7 +9,6 @@ import { LemonBanner, LemonDivider } from '@posthog/lemon-ui'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconComment, IconRobot } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -40,25 +38,8 @@ import { errorTrackingIssueSceneConfigurationLogic } from './errorTrackingIssueS
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
 export function V2Layout(): JSX.Element {
-    const { selectedEvent } = useValues(errorTrackingIssueSceneLogic)
-
-    const isPostHogSDKIssue = selectedEvent?.properties.$exception_values?.some((v: string) =>
-        v.includes('persistence.isDisabled is not a function')
-    )
-
     return (
         <ErrorTrackingSetupPrompt>
-            {isPostHogSDKIssue && (
-                <LemonBanner
-                    type="error"
-                    action={{ to: 'https://status.posthog.com/incidents/l70cgmt7475m', children: 'Read more' }}
-                    className="mb-4"
-                >
-                    This issue was captured because of a bug in the PostHog SDK. We've fixed the issue, and you won't be
-                    charged for any of these exception events. We recommend setting this issue's status to "Suppressed".
-                </LemonBanner>
-            )}
-
             <div className="ErrorTrackingIssue flex h-full min-h-0">
                 <LeftHandColumn />
                 <RightHandColumn />
@@ -71,8 +52,23 @@ const RightHandColumn = (): JSX.Element => {
     const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
 
+    const isPostHogSDKIssue = selectedEvent?.properties.$exception_values?.some((v: string) =>
+        v.includes('persistence.isDisabled is not a function')
+    )
+
     return (
         <div className="flex flex-1 flex-col gap-y-1 pl-4 overflow-y-auto min-w-[375px]">
+            {isPostHogSDKIssue && (
+                <LemonBanner
+                    type="error"
+                    action={{ to: 'https://status.posthog.com/incidents/l70cgmt7475m', children: 'Read more' }}
+                    className="mb-4"
+                >
+                    This issue was captured because of a bug in the PostHog SDK. We've fixed the issue, and you won't be
+                    charged for any of these exception events. We recommend setting this issue's status to "Suppressed".
+                </LemonBanner>
+            )}
+
             <ExceptionCard
                 issue={issue ?? undefined}
                 issueLoading={issueLoading}
@@ -103,18 +99,12 @@ const LeftHandColumn = (): JSX.Element => {
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
     const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { openSidePanel } = useActions(sidePanelLogic)
-    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
     const style = isSidebarOpen ? { width: desiredSize ?? '30%', minWidth: CLOSE_THRESHOLD + 80 } : {}
 
     const comment = (
         <ButtonPrimitive
-            onClick={() => {
-                if (!hasDiscussions) {
-                    posthog.updateEarlyAccessFeatureEnrollment('discussions', true)
-                }
-                openSidePanel(SidePanelTab.Discussion)
-            }}
+            onClick={() => openSidePanel(SidePanelTab.Discussion)}
             tooltip="Comment"
             iconOnly={!isSidebarOpen}
         >
