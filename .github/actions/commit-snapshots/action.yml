@@ -94,8 +94,8 @@ runs:
                 git add ${{ inputs.snapshot-path }} -A
                 git commit -m "${{ inputs.commit-message }}"
                 # Pull before push to avoid race condition when multiple workflows commit simultaneously
-                git pull --rebase --autostash
-                git push
+                git pull --rebase --autostash --quiet
+                git push --quiet
                 SNAPSHOT_SHA=$(git rev-parse HEAD)
                 echo "committed=true" >> $GITHUB_OUTPUT
                 echo "snapshot-sha=$SNAPSHOT_SHA" >> $GITHUB_OUTPUT
