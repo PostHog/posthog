@@ -490,7 +490,7 @@ jobs:
                     COMMENT_MODE="check-failed"
                   fi
 
-                  .github/scripts/post-snapshot-comment.sh \
+                  .github/scripts/post-snapshot-comment.js \
                     "storybook" \
                     "$COMMENT_MODE" \
                     '${{ steps.diff.outputs.changes }}' \
