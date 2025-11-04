@@ -1,6 +1,7 @@
 from dataclasses import is_dataclass
 from typing import Any, Literal, Optional
 
+import temporalio.exceptions
 from posthoganalytics import api_key, capture_exception
 from temporalio import activity, workflow
 from temporalio.worker import (
@@ -64,6 +65,11 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         try:
             return await super().execute_workflow(input)
         except Exception as e:
+            # we don't want to capture cancelled errors
+            if isinstance(e, temporalio.exceptions.ActivityError) and isinstance(
+                e.cause, temporalio.exceptions.CancelledError
+            ):
+                raise
             workflow_info = workflow.info()
             properties = {
                 "temporal.execution_type": "workflow",
