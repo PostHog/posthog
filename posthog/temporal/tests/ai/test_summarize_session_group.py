@@ -11,6 +11,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
+
 from openai.types.chat.chat_completion import ChatCompletion, ChatCompletionMessage, Choice
 from pytest_mock import MockerFixture
 from temporalio.client import WorkflowExecutionStatus
@@ -18,7 +20,6 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
@@ -995,7 +996,7 @@ class TestSummarizeSessionGroupWorkflow:
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
                 async with Worker(
                     activity_environment.client,
-                    task_queue=constants.GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                     workflows=WORKFLOWS,
                     activities=[
                         get_llm_single_session_summary_activity,

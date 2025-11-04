@@ -13,7 +13,8 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.team import Team
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.sync import database_sync_to_async
-from posthog.warehouse.models.external_data_source import ExternalDataSource
+
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
 
 def query_teams_for_digest() -> QuerySet:
@@ -43,7 +44,7 @@ def query_org_members(organization: Organization) -> QuerySet:
     return (
         OrganizationMembership.objects.filter(organization_id=organization.id)
         .select_related("user")
-        .only("id", "user__distinct_id")
+        .only("id", "user__distinct_id", "user__first_name", "user__email")
     )
 
 

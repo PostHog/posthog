@@ -100,7 +100,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
         selectedConnector,
         connectors,
     } = useValues(sourceWizardLogic)
-    const { onBack, onSubmit, onClear, setInitialConnector } = useActions(sourceWizardLogic)
+    const { onBack, onSubmit, setInitialConnector } = useActions(sourceWizardLogic)
     const { tableLoading: manualLinkIsLoading } = useValues(dataWarehouseTableLogic)
 
     // Initialize wizard with initial source if provided
@@ -112,8 +112,6 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
             }
         }
     }, [props.initialSource, connectors, setInitialConnector])
-
-    useEffect(() => onClear, [onClear])
 
     const footer = useCallback(() => {
         if (currentStep === 1) {
