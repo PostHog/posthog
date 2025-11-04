@@ -167,6 +167,197 @@ class TestResaveCohortsCommandSingleTeam(BaseTest):
         assert behavioral_filter_4["conditionHash"] is not None
 
 
+class TestResaveCohortsCommandWithDependencies(BaseTest):
+    def test_cohort_dependency_blocks_realtime(self):
+        """Test that a cohort referencing a non-realtime cohort cannot be realtime."""
+        team: Team = self.team
+
+        # Create a cohort with unsupported filters (cannot be realtime)
+        unsupported_cohort = Cohort.objects.create(
+            team=team,
+            name="unsupported_dependency",
+            filters=_make_unsupported_filters(),  # This cannot be realtime
+        )
+
+        # Create a cohort that would be realtime on its own (person-only filter)
+        # but references the unsupported cohort
+        dependent_cohort = Cohort.objects.create(
+            team=team,
+            name="dependent_cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "person", "key": "email", "operator": "exact", "value": "test@example.com"},
+                        {"type": "cohort", "key": "id", "value": unsupported_cohort.id},
+                    ],
+                }
+            },
+        )
+
+        # Create another cohort that only has realtime-capable filters
+        realtime_cohort = Cohort.objects.create(team=team, name="fully_realtime", filters=_make_person_only_filters())
+
+        # Run command
+        call_command("resave_cohorts", team_id=team.id)
+
+        # Reload cohorts
+        unsupported_cohort.refresh_from_db()
+        dependent_cohort.refresh_from_db()
+        realtime_cohort.refresh_from_db()
+
+        # Assertions:
+        # 1. Unsupported cohort should NOT be realtime
+        assert unsupported_cohort.cohort_type is None
+
+        # 2. Dependent cohort should NOT be realtime (blocked by dependency)
+        assert dependent_cohort.cohort_type is None
+
+        # 3. Realtime cohort should be realtime (no problematic dependencies)
+        assert realtime_cohort.cohort_type == "realtime"
+
+    def test_cohort_with_multiple_leaf_dependencies_can_be_realtime(self):
+        """Test that a cohort referencing multiple leaf cohorts (no dependencies) can be realtime."""
+        team: Team = self.team
+
+        # Create two cohorts with realtime-capable filters (no dependencies)
+        leaf_cohort1 = Cohort.objects.create(
+            team=team, name="leaf_cohort_1", filters=_make_person_only_filters(email="user1@example.com")
+        )
+
+        leaf_cohort2 = Cohort.objects.create(
+            team=team, name="leaf_cohort_2", filters=_make_person_only_filters(email="user2@example.com")
+        )
+
+        # Create a cohort that references both leaf cohorts
+        multi_ref_cohort = Cohort.objects.create(
+            team=team,
+            name="multi_ref_cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "cohort", "key": "id", "value": leaf_cohort1.id},
+                        {"type": "cohort", "key": "id", "value": leaf_cohort2.id},
+                    ],
+                }
+            },
+        )
+
+        # Run command
+        call_command("resave_cohorts", team_id=team.id)
+
+        # Reload cohorts
+        leaf_cohort1.refresh_from_db()
+        leaf_cohort2.refresh_from_db()
+        multi_ref_cohort.refresh_from_db()
+
+        # Assertions:
+        # 1. Both leaf cohorts should be realtime
+        assert leaf_cohort1.cohort_type == "realtime"
+        assert leaf_cohort2.cohort_type == "realtime"
+
+        # 2. Multi-reference cohort CAN be realtime (references only leaf cohorts)
+        assert multi_ref_cohort.cohort_type == "realtime"
+
+    def test_cohort_with_realtime_dependency_can_be_realtime(self):
+        """Test that a cohort referencing a realtime cohort can be realtime."""
+        team: Team = self.team
+
+        # Create a cohort with realtime-capable filters
+        realtime_dependency = Cohort.objects.create(
+            team=team,
+            name="realtime_dependency",
+            filters=_make_person_only_filters(),  # This can be realtime
+        )
+
+        # Create a cohort that references the realtime dependency
+        dependent_cohort = Cohort.objects.create(
+            team=team,
+            name="dependent_cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "person", "key": "name", "operator": "exact", "value": "Test User"},
+                        {"type": "cohort", "key": "id", "value": realtime_dependency.id},
+                    ],
+                }
+            },
+        )
+
+        # Run command
+        call_command("resave_cohorts", team_id=team.id)
+
+        # Reload cohorts
+        realtime_dependency.refresh_from_db()
+        dependent_cohort.refresh_from_db()
+
+        # Assertions:
+        # 1. Dependency cohort should be realtime
+        assert realtime_dependency.cohort_type == "realtime"
+
+        # 2. Dependent cohort should also be realtime (dependency is realtime)
+        assert dependent_cohort.cohort_type == "realtime"
+
+    def test_cohort_referencing_non_leaf_cannot_be_realtime(self):
+        """Test that a cohort referencing a non-leaf cohort (B->C) cannot be realtime."""
+        team: Team = self.team
+
+        # Create base cohort C (realtime capable, leaf)
+        cohort_c = Cohort.objects.create(
+            team=team, name="cohort_c", filters=_make_person_only_filters(email="c@example.com")
+        )
+
+        # Create cohort B that references C (non-leaf)
+        cohort_b = Cohort.objects.create(
+            team=team,
+            name="cohort_b",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "cohort", "key": "id", "value": cohort_c.id},
+                        {"type": "person", "key": "name", "operator": "exact", "value": "B User"},
+                    ],
+                }
+            },
+        )
+
+        # Create cohort A that references B (B has dependencies, so A cannot be realtime)
+        cohort_a = Cohort.objects.create(
+            team=team,
+            name="cohort_a",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "cohort", "key": "id", "value": cohort_b.id},
+                        {"type": "person", "key": "name", "operator": "exact", "value": "A User"},
+                    ],
+                }
+            },
+        )
+
+        # Run command
+        call_command("resave_cohorts", team_id=team.id)
+
+        # Reload cohorts
+        cohort_a.refresh_from_db()
+        cohort_b.refresh_from_db()
+        cohort_c.refresh_from_db()
+
+        # Assertions:
+        # 1. Base cohort C can be realtime (no dependencies)
+        assert cohort_c.cohort_type == "realtime"
+
+        # 2. Cohort B can be realtime (references only leaf cohort C)
+        assert cohort_b.cohort_type == "realtime"
+
+        # 3. Cohort A cannot be realtime (references B which has dependencies)
+        assert cohort_a.cohort_type is None
+
+
 class TestResaveCohortsCommandTwoTeams(BaseTest):
     def test_resave_two_teams_each_five_types(self):
         team_a: Team = self.team
