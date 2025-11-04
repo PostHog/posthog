@@ -64,6 +64,7 @@ const MetricsTab = (): JSX.Element => {
         primaryMetricsLengthWithSharedMetrics,
         hasMinimumExposureForResults,
         usesNewQueryRunner,
+        featureFlags,
     } = useValues(experimentLogic)
     /**
      * we still use the legacy metric results here. Results on the new format are loaded
@@ -93,7 +94,7 @@ const MetricsTab = (): JSX.Element => {
         firstPrimaryMetric &&
         firstPrimaryMetricResult
 
-    const isAiSummaryEnabled = useFeatureFlag('EXPERIMENT_AI_SUMMARY', 'test')
+    const isAiSummaryEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_AI_SUMMARY] === 'test'
 
     return (
         <>
