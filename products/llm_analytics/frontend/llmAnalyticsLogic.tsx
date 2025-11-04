@@ -401,7 +401,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         },
 
         toggleSessionExpanded: async ({ sessionId }) => {
-            if (values.expandedSessionIds.has(sessionId) && !values.sessionTraces[sessionId]) {
+            if (
+                values.expandedSessionIds.has(sessionId) &&
+                !values.sessionTraces[sessionId] &&
+                !values.loadingSessionTraces.has(sessionId)
+            ) {
                 actions.loadSessionTraces(sessionId)
             }
         },
@@ -438,7 +442,11 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         },
 
         toggleTraceExpanded: async ({ traceId }) => {
-            if (values.expandedTraceIds.has(traceId) && !values.fullTraces[traceId]) {
+            if (
+                values.expandedTraceIds.has(traceId) &&
+                !values.fullTraces[traceId] &&
+                !values.loadingFullTraces.has(traceId)
+            ) {
                 actions.loadFullTrace(traceId)
             }
         },
