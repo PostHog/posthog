@@ -243,6 +243,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         return RunEvaluationInputs(
             evaluation_id=inputs[0],
             target_event_id=inputs[1],
+            timestamp=inputs[2],
         )
 
     @temporalio.workflow.run
