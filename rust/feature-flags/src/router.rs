@@ -3,7 +3,7 @@ use std::{future::ready, sync::Arc};
 use crate::billing_limiters::{FeatureFlagsLimiter, SessionReplayLimiter};
 use crate::database_pools::DatabasePools;
 use axum::{
-    http::Method,
+    http::{Method, StatusCode},
     routing::{any, get},
     Router,
 };
@@ -103,6 +103,9 @@ where
         )
     });
 
+    // Clone database_pools for readiness check before moving into State
+    let db_pools_for_readiness = database_pools.clone();
+
     let state = State {
         redis_reader,
         redis_writer,
@@ -130,7 +133,10 @@ where
     // liveness/readiness checks
     let status_router = Router::new()
         .route("/", get(index))
-        .route("/_readiness", get(index))
+        .route(
+            "/_readiness",
+            get(move || readiness(db_pools_for_readiness.clone())),
+        )
         .route("/_liveness", get(move || ready(liveness.get_status())));
 
     // flags endpoint
@@ -167,6 +173,15 @@ where
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
         router
+    }
+}
+
+pub async fn readiness(
+    database_pools: Arc<DatabasePools>,
+) -> Result<&'static str, (StatusCode, &'static str)> {
+    match database_pools.non_persons_reader.acquire().await {
+        Ok(_) => Ok("ready"),
+        Err(_) => Err((StatusCode::SERVICE_UNAVAILABLE, "database unavailable")),
     }
 }
 
