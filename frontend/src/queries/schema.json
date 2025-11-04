@@ -1838,7 +1838,8 @@
                 "search",
                 "read_data",
                 "todo_write",
-                "filter_revenue_analytics"
+                "filter_revenue_analytics",
+                "create_feature_flag"
             ],
             "type": "string"
         },
@@ -16245,6 +16246,9 @@
                 "createdAt": {
                     "type": "string"
                 },
+                "errorCount": {
+                    "type": "number"
+                },
                 "events": {
                     "items": {
                         "$ref": "#/definitions/LLMTraceEvent"
@@ -26268,6 +26272,7 @@
                 "revenue_analytics_properties",
                 "resources",
                 "error_tracking_properties",
+                "activity_log_properties",
                 "max_ai_context"
             ],
             "type": "string"

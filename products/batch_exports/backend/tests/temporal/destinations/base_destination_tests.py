@@ -14,12 +14,13 @@ from collections.abc import AsyncGenerator, Callable
 
 import pytest
 
+from django.conf import settings
+
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.batch_exports.models import BatchExport
 from posthog.batch_exports.service import (
     BackfillDetails,
@@ -164,7 +165,7 @@ class BaseDestinationTest(ABC):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[self.workflow_class],
                 activities=[
                     start_batch_export_run,
@@ -180,7 +181,7 @@ class BaseDestinationTest(ABC):
                             self.workflow_class.run,  # type: ignore[attr-defined]
                             inputs,
                             id=workflow_id,
-                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                             retry_policy=RetryPolicy(maximum_attempts=1),
                             execution_timeout=dt.timedelta(minutes=5),
                         )
@@ -190,7 +191,7 @@ class BaseDestinationTest(ABC):
                             self.workflow_class.run,  # type: ignore[attr-defined]
                             inputs,
                             id=workflow_id,
-                            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                             retry_policy=RetryPolicy(maximum_attempts=1),
                             execution_timeout=dt.timedelta(minutes=5),
                         )

@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import pytest
 
+from django.conf import settings
 from django.test import override_settings
 
 from temporalio.client import WorkflowFailureError
@@ -17,7 +18,6 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
@@ -80,7 +80,7 @@ async def _run_workflow(
         await WorkflowEnvironment.start_time_skipping() as activity_environment,
         Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -96,7 +96,7 @@ async def _run_workflow(
                 SnowflakeBatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
                 execution_timeout=execution_timeout,
             )
@@ -313,7 +313,7 @@ async def test_snowflake_export_workflow_handles_cancellation(
         await WorkflowEnvironment.start_time_skipping() as activity_environment,
         Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[SnowflakeBatchExportWorkflow],
             activities=[
                 start_batch_export_run,
@@ -330,7 +330,7 @@ async def test_snowflake_export_workflow_handles_cancellation(
                 SnowflakeBatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
 
