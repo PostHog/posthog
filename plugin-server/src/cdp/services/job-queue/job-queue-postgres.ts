@@ -5,6 +5,7 @@
  */
 import { chunk } from 'lodash'
 import { DateTime } from 'luxon'
+import { validate as isUuid } from 'uuid'
 
 import {
     CyclotronJob,
@@ -219,7 +220,12 @@ function invocationToCyclotronJobInitial(invocation: CyclotronJobInvocation): Cy
         }
     }
 
-    const job: CyclotronJobInit = {
+    // Preserve the invocation id when inserting into Postgres so switching backends keeps the same ID
+    // cyclotron db expects this to be a valid UUID
+    const isValidUuid = typeof invocation.id === 'string' && isUuid(invocation.id)
+
+    const job: CyclotronJobInit & { id?: string } = {
+        id: isValidUuid ? invocation.id : undefined,
         teamId: invocation.teamId,
         functionId: invocation.functionId,
         queueName: invocation.queue,

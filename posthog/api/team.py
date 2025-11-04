@@ -176,6 +176,7 @@ TEAM_CONFIG_FIELDS = (
     "base_currency",
     "web_analytics_pre_aggregated_tables_enabled",
     "experiment_recalculation_time",
+    "receive_org_level_activity_logs",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -359,7 +360,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
     def get_managed_viewsets(self, obj):
-        from posthog.warehouse.models import DataWarehouseManagedViewSet
+        from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
         enabled_set = set(enabled_viewsets)
@@ -706,7 +707,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
 
         if "events" in validated_data:
-            from posthog.warehouse.models import DataWarehouseManagedViewSet
+            from products.data_warehouse.backend.models import DataWarehouseManagedViewSet
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=instance,

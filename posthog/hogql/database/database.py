@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Prefetch, Q
 
+import structlog
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
@@ -116,9 +117,9 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import WeekStartDay
-from posthog.warehouse.models.external_data_job import ExternalDataJob
-from posthog.warehouse.models.table import DataWarehouseTable, DataWarehouseTableColumns
 
+from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
@@ -145,6 +146,8 @@ type DatabaseSchemaTable = (
     | DatabaseSchemaViewTable
     | DatabaseSchemaManagedViewTable
 )
+
+logger = structlog.get_logger(__name__)
 
 
 class Database(BaseModel):
@@ -236,12 +239,17 @@ class Database(BaseModel):
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
 
         self._week_start_day = week_start_day
+        self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
 
     def get_week_start_day(self) -> WeekStartDay:
         return self._week_start_day or WeekStartDay.SUNDAY
+
+    def get_serialization_errors(self) -> dict[str, str]:
+        """Return any errors encountered during serialization."""
+        return self._serialization_errors.copy()
 
     def has_table(self, table_name: str | list[str]) -> bool:
         if isinstance(table_name, str):
@@ -319,8 +327,7 @@ class Database(BaseModel):
         context: HogQLContext,
         include_only: set[str] | None = None,
     ) -> dict[str, DatabaseSchemaTable]:
-        from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
+        from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
         from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 
         tables: dict[str, DatabaseSchemaTable] = {}
@@ -437,26 +444,35 @@ class Database(BaseModel):
             if include_only and table_key not in include_only:
                 continue
 
-            field_input = {}
-            table = self.get_table(table_key)
-            if isinstance(table, Table):
-                field_input = table.fields
+            try:
+                field_input = {}
+                table = self.get_table(table_key)
+                if isinstance(table, Table):
+                    field_input = table.fields
 
-            fields = serialize_fields(
-                field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
-            )
-            fields_dict = {field.name: field for field in fields}
+                fields = serialize_fields(
+                    field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
+                )
+                fields_dict = {field.name: field for field in fields}
 
-            tables[table_key] = DatabaseSchemaDataWarehouseTable(
-                fields=fields_dict,
-                id=str(warehouse_table.id),
-                name=table_key,
-                format=warehouse_table.format,
-                url_pattern=warehouse_table.url_pattern,
-                schema=schema,
-                source=source,
-                row_count=warehouse_table.row_count,
-            )
+                tables[table_key] = DatabaseSchemaDataWarehouseTable(
+                    fields=fields_dict,
+                    id=str(warehouse_table.id),
+                    name=table_key,
+                    format=warehouse_table.format,
+                    url_pattern=warehouse_table.url_pattern,
+                    schema=schema,
+                    source=source,
+                    row_count=warehouse_table.row_count,
+                )
+            except (QueryError, ResolutionError) as e:
+                # Log error but continue processing other tables
+                logger.warning(
+                    f"Failed to serialize data warehouse table '{table_key}': {str(e)}",
+                    exc_info=True,
+                )
+                self._serialization_errors[table_key] = str(e)
+                continue  # Skip this table but process others
 
         # Fetch all views in a single query
         all_views = (
@@ -525,7 +541,8 @@ class Database(BaseModel):
         from posthog.hogql.query import create_default_modifiers_for_team
 
         from posthog.models import Team
-        from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseSavedQuery
+
+        from products.data_warehouse.backend.models import DataWarehouseJoin, DataWarehouseSavedQuery
 
         if timings is None:
             timings = HogQLTimings()

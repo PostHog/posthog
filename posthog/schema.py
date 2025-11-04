@@ -281,6 +281,7 @@ class AssistantTool(StrEnum):
     READ_DATA = "read_data"
     TODO_WRITE = "todo_write"
     FILTER_REVENUE_ANALYTICS = "filter_revenue_analytics"
+    CREATE_FEATURE_FLAG = "create_feature_flag"
 
 
 class AssistantToolCall(BaseModel):
@@ -1139,6 +1140,14 @@ class ErrorTrackingIssueAssigneeType(StrEnum):
     ROLE = "role"
 
 
+class ErrorTrackingIssueCohort(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: float
+    name: str
+
+
 class OrderBy1(StrEnum):
     LAST_SEEN = "last_seen"
     FIRST_SEEN = "first_seen"
@@ -1263,6 +1272,26 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
+class ExperimentMaxBayesianContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chance_to_win: float
+    credible_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    significant: bool
+
+
+class ExperimentMaxFrequentistContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    p_value: float
+    significant: bool
+
+
 class ExperimentMetricGoal(StrEnum):
     INCREASE = "increase"
     DECREASE = "decrease"
@@ -1310,6 +1339,11 @@ class ExperimentSignificanceCode(StrEnum):
     HIGH_P_VALUE = "high_p_value"
 
 
+class ExperimentStatsMethod(StrEnum):
+    BAYESIAN = "bayesian"
+    FREQUENTIST = "frequentist"
+
+
 class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
     BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
@@ -1336,6 +1370,7 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
 
 
 class ExternalDataSourceType(StrEnum):
+    GITHUB = "Github"
     STRIPE = "Stripe"
     HUBSPOT = "Hubspot"
     POSTGRES = "Postgres"
@@ -1450,6 +1485,7 @@ class FileSystemIconType(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     TASK = "task"
     LINK = "link"
+    LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
@@ -1816,6 +1852,7 @@ class IntegrationKind(StrEnum):
 
 
 class IntervalType(StrEnum):
+    SECOND = "second"
     MINUTE = "minute"
     HOUR = "hour"
     DAY = "day"
@@ -1910,7 +1947,15 @@ class MatchedRecordingEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    timestamp: str
     uuid: str
+
+
+class MatchingEventsResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: list[MatchedRecordingEvent]
 
 
 class MaxActionContext(BaseModel):
@@ -2000,6 +2045,26 @@ class MaxEventContext(BaseModel):
     id: str
     name: Optional[str] = None
     type: Literal["event"] = "event"
+
+
+class MaxExperimentVariantResultBayesian(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chance_to_win: Optional[float] = None
+    credible_interval: Optional[list[float]] = None
+    key: str
+    significant: bool
+
+
+class MaxExperimentVariantResultFrequentist(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_interval: Optional[list[float]] = None
+    key: str
+    p_value: Optional[float] = None
+    significant: bool
 
 
 class MaxProductInfo(BaseModel):
@@ -2577,6 +2642,7 @@ class SessionData(BaseModel):
     event_uuid: str
     person_id: str
     session_id: str
+    timestamp: str
 
 
 class SessionEventsItem(BaseModel):
@@ -2882,6 +2948,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
+    ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
     MAX_AI_CONTEXT = "max_ai_context"
 
 
@@ -4271,6 +4338,7 @@ class LLMTrace(BaseModel):
     )
     aiSessionId: Optional[str] = None
     createdAt: str
+    errorCount: Optional[float] = None
     events: list[LLMTraceEvent]
     id: str
     inputCost: Optional[float] = None
@@ -4382,6 +4450,26 @@ class MaxBillingContextBillingPeriod(BaseModel):
     current_period_end: str
     current_period_start: str
     interval: MaxBillingContextBillingPeriodInterval
+
+
+class MaxExperimentMetricResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    variant_results: list[Union[MaxExperimentVariantResultBayesian, MaxExperimentVariantResultFrequentist]]
+
+
+class MaxExperimentSummaryContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    experiment_id: Union[float, str]
+    experiment_name: str
+    metrics_results: list[MaxExperimentMetricResult]
+    stats_method: ExperimentStatsMethod
+    variants: list[str]
 
 
 class NewExperimentQueryResponse(BaseModel):
@@ -8710,6 +8798,7 @@ class ErrorTrackingIssue(BaseModel):
     )
     aggregations: Optional[ErrorTrackingIssueAggregations] = None
     assignee: Optional[ErrorTrackingIssueAssignee] = None
+    cohort: Optional[ErrorTrackingIssueCohort] = None
     description: Optional[str] = None
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_event: Optional[FirstEvent] = None
@@ -8793,6 +8882,7 @@ class ErrorTrackingRelationalIssue(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
+    cohort: Optional[ErrorTrackingIssueCohort] = None
     description: Optional[str] = None
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
     first_seen: datetime
@@ -11643,6 +11733,8 @@ class TracesQuery(BaseModel):
     )
     dateRange: Optional[DateRange] = None
     filterTestAccounts: Optional[bool] = None
+    groupKey: Optional[str] = None
+    groupTypeIndex: Optional[int] = None
     kind: Literal["TracesQuery"] = "TracesQuery"
     limit: Optional[int] = None
     modifiers: Optional[HogQLQueryModifiers] = Field(
@@ -12416,6 +12508,7 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
         extra="forbid",
     )
     assignee: Optional[ErrorTrackingIssueAssignee] = None
+    cohort: Optional[ErrorTrackingIssueCohort] = None
     description: Optional[str] = None
     event: str
     external_issues: Optional[list[ErrorTrackingExternalReference]] = None
@@ -13413,6 +13506,8 @@ class ErrorTrackingQuery(BaseModel):
     dateRange: DateRange
     filterGroup: Optional[PropertyGroupFilter] = None
     filterTestAccounts: Optional[bool] = None
+    groupKey: Optional[str] = None
+    groupTypeIndex: Optional[int] = None
     issueId: Optional[str] = None
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: Optional[int] = None
@@ -15873,6 +15968,7 @@ class SourceConfig(BaseModel):
             SourceFieldSSHTunnelConfig,
         ]
     ]
+    iconClassName: Optional[str] = None
     iconPath: str
     label: Optional[str] = None
     name: ExternalDataSourceType

@@ -28,9 +28,9 @@ pub struct ReleaseInfo {
 }
 
 impl ReleaseRecord {
-    pub async fn for_symbol_set<'c, E>(
+    pub async fn for_symbol_set_ref<'c, E>(
         e: E,
-        symbol_set_ref: String,
+        symbol_set_ref: &str,
         team_id: i32,
     ) -> Result<Option<Self>, sqlx::Error>
     where
@@ -45,6 +45,31 @@ impl ReleaseRecord {
             WHERE ss.ref = $1 AND ss.team_id = $2
             "#,
             symbol_set_ref,
+            team_id
+        )
+        .fetch_optional(e)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn for_symbol_set_id<'c, E>(
+        e: E,
+        symbol_set_id: Uuid,
+        team_id: i32,
+    ) -> Result<Option<Self>, sqlx::Error>
+    where
+        E: Executor<'c, Database = sqlx::Postgres>,
+    {
+        let row = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT r.id, r.team_id, r.hash_id, r.created_at, r.version, r.project, r.metadata
+            FROM posthog_errortrackingsymbolset ss
+            INNER JOIN posthog_errortrackingrelease r ON ss.release_id = r.id
+            WHERE ss.id = $1 AND ss.team_id = $2
+            "#,
+            symbol_set_id,
             team_id
         )
         .fetch_optional(e)

@@ -18,8 +18,10 @@ import {
     EventPropertyFilter,
     EventType,
     ExperimentHoldoutType,
+    ExperimentIdType,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
+    ExperimentStatsMethod,
     FileSystemIconColor,
     FilterLogicalOperator,
     FilterType,
@@ -35,6 +37,7 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     LogEntryPropertyFilter,
+    MatchedRecordingEvent,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -464,6 +467,10 @@ export const VALID_RECORDING_ORDERS = [
     'activity_score',
     'recording_ttl',
 ] as const
+
+export interface MatchingEventsResponse {
+    results: MatchedRecordingEvent[]
+}
 
 export type RecordingOrder = (typeof VALID_RECORDING_ORDERS)[number]
 
@@ -2230,6 +2237,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     limit?: integer
     offset?: integer
     personId?: string
+    groupKey?: string
+    groupTypeIndex?: integer
 }
 
 export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
@@ -2293,6 +2302,11 @@ export interface ErrorTrackingExternalReference {
     integration: ErrorTrackingExternalReferenceIntegration
 }
 
+export interface ErrorTrackingIssueCohort {
+    id: number
+    name: string
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -2302,6 +2316,7 @@ export interface ErrorTrackingRelationalIssue {
     /**  @format date-time */
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
+    cohort?: ErrorTrackingIssueCohort
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
@@ -2560,6 +2575,7 @@ export type FileSystemIconType =
     | 'data_warehouse'
     | 'task'
     | 'link'
+    | 'live_debugger'
     | 'logs'
     | 'workflows'
     | 'notebook'
@@ -2643,6 +2659,48 @@ export interface ExperimentVariantFunnelsBaseStats {
     key: string
     success_count: number
     failure_count: number
+}
+
+export interface ExperimentMaxBayesianContext {
+    key: string
+    chance_to_win: number
+    credible_interval: [number, number]
+    significant: boolean
+}
+
+export interface ExperimentMaxFrequentistContext {
+    key: string
+    p_value: number
+    confidence_interval: [number, number]
+    significant: boolean
+}
+
+export interface MaxExperimentVariantResultBayesian {
+    key: string
+    chance_to_win: number | null
+    credible_interval: number[] | null
+    significant: boolean
+}
+
+export interface MaxExperimentVariantResultFrequentist {
+    key: string
+    p_value: number | null
+    confidence_interval: number[] | null
+    significant: boolean
+}
+
+export interface MaxExperimentMetricResult {
+    name: string
+    variant_results: (MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist)[]
+}
+
+export interface MaxExperimentSummaryContext {
+    experiment_id: ExperimentIdType
+    experiment_name: string
+    description: string | null
+    variants: string[]
+    metrics_results: MaxExperimentMetricResult[]
+    stats_method: ExperimentStatsMethod
 }
 
 export enum ExperimentSignificanceCode {
@@ -2847,6 +2905,7 @@ export interface SessionData {
     person_id: string
     session_id: string
     event_uuid: string
+    timestamp: string
 }
 
 export interface ExperimentStatsBase {
@@ -3521,6 +3580,7 @@ export interface LLMTrace {
     inputState?: any
     outputState?: any
     traceName?: string
+    errorCount?: number
     events: LLMTraceEvent[]
 }
 
@@ -3543,6 +3603,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     properties?: AnyPropertyFilter[]
     /** Person who performed the event */
     personId?: string
+    groupKey?: string
+    groupTypeIndex?: integer
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -4179,9 +4241,11 @@ export interface SourceConfig {
     betaSource?: boolean
     iconPath: string
     featureFlag?: string
+    iconClassName?: string
 }
 
 export const externalDataSources = [
+    'Github',
     'Stripe',
     'Hubspot',
     'Postgres',

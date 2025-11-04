@@ -240,6 +240,8 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
                 return false
             }
 
+            suppressAutoFocus.current = true
+
             elements.forEach((el) => el.removeAttribute('data-focused'))
 
             if (virtualFocus) {
@@ -252,6 +254,11 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             }
 
             targetElement.scrollIntoView({ block: 'nearest' })
+
+            setTimeout(() => {
+                suppressAutoFocus.current = false
+            }, 100)
+
             return true
         },
         [virtualFocus, recalculateFocusableElements, setVirtualFocusedElement]
@@ -333,6 +340,7 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
                 return focusItemByKey(focusKey)
             }
             // Focus directly
+            suppressAutoFocus.current = true
             focusableElements.current.forEach((el) => el.removeAttribute('data-focused'))
 
             if (virtualFocus) {
@@ -345,6 +353,9 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
             }
 
             element.scrollIntoView({ block: 'nearest' })
+            setTimeout(() => {
+                suppressAutoFocus.current = false
+            }, 100)
             return true
         },
         [focusItemByKey, virtualFocus, setVirtualFocusedElement]
