@@ -299,6 +299,58 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             expect(result[0].bytecode).toEqual(behavioralBytecode)
         })
 
+        it('filters out cohort filters and only keeps event filters', async () => {
+            // This test uses the exact structure from the user's example
+            const filters = JSON.stringify({
+                properties: {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'OR',
+                            values: [
+                                {
+                                    key: 'id',
+                                    type: 'cohort',
+                                    value: 41,
+                                    bytecode: ['_H', 1, 33, 41, 2, 'inCohort', 1],
+                                    negation: false,
+                                    conditionHash: '5e6d68bd7c7babae',
+                                },
+                            ],
+                        },
+                        {
+                            type: 'OR',
+                            values: [
+                                {
+                                    key: '$pageview',
+                                    type: 'behavioral',
+                                    value: 'performed_event',
+                                    bytecode: ['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11],
+                                    negation: false,
+                                    event_type: 'events',
+                                    conditionHash: 'f9c616030a87e68f',
+                                    explicit_datetime: '-30d',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            await createCohort(postgres, teamId, 'Cohort with InCohort Filter', filters)
+
+            const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeam(teamId)
+
+            // Should filter out the cohort filter and only return the event filter
+            expect(result).toHaveLength(1)
+            expect(result[0].conditionHash).toBe('f9c616030a87e68f')
+            expect(result[0].bytecode).toEqual(['_H', 1, 32, '$pageview', 32, 'event', 1, 1, 11])
+
+            // Verify the cohort filter was filtered out
+            const cohortFilter = result.find((f) => f.conditionHash === '5e6d68bd7c7babae')
+            expect(cohortFilter).toBeUndefined()
+        })
+
         it('handles complex OR structure with multiple filter groups', async () => {
             // Test structure with OR at top level containing multiple groups (matching user's second example)
             const pageviewWithBrowserBytecode = [

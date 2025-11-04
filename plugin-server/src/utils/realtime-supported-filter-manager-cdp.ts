@@ -107,8 +107,10 @@ export class RealtimeSupportedFilterManagerCDP {
             if (!node || !node.conditionHash || !node.bytecode) {
                 return
             }
-            // Skip person property entries
-            if (node.type === 'person') {
+
+            // Only accept event filters - skip person and cohort filters
+            // Note: 'behavioral' filters are event-related and should pass through
+            if (node.type === 'person' || node.type === 'cohort') {
                 return
             }
 
