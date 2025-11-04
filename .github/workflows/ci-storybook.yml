@@ -464,6 +464,16 @@ jobs:
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
+            # Disable auto-merge if bot committed snapshots (requires human review)
+            # Only run from one shard to avoid duplicate calls
+            - name: Disable auto-merge
+              if: steps.commit.outputs.pushed == 'true' && matrix.browser == 'chromium' && matrix.shard == 1
+              env:
+                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+              run: |
+                  gh pr merge --disable-auto ${{ github.event.pull_request.number }}
+                  echo "Auto-merge disabled - snapshot changes require human review"
+
             # Post PR comment about snapshot changes
             # Only post from one shard to avoid duplicate comments
             - name: Post snapshot comment
