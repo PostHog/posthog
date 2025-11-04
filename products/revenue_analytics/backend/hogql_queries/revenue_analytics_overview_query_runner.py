@@ -28,7 +28,10 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         subqueries = list(
-            self.revenue_subqueries(VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM])
+            RevenueAnalyticsQueryRunner.revenue_subqueries(
+                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM],
+                self.database,
+            )
         )
 
         # If there is no revenue item view, we return a query that returns 0 for all values

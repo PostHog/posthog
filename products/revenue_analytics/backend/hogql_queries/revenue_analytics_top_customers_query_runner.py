@@ -26,7 +26,10 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         subqueries = list(
-            self.revenue_subqueries(VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM])
+            RevenueAnalyticsQueryRunner.revenue_subqueries(
+                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM],
+                self.database,
+            )
         )
         if not subqueries:
             columns = ["customer_id", "name", "amount", "month"]
@@ -72,8 +75,9 @@ class RevenueAnalyticsTopCustomersQueryRunner(RevenueAnalyticsQueryRunner[Revenu
             limit_by=ast.LimitByExpr(n=ast.Constant(value=20), exprs=[ast.Field(chain=["month"])]),
         )
 
-        customer_views = self.revenue_subqueries(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER]
+        customer_views = RevenueAnalyticsQueryRunner.revenue_subqueries(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER],
+            self.database,
         )
         customer_view = next(
             (customer_view for customer_view in customer_views if customer_view.prefix == view.prefix), None

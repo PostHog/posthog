@@ -48,7 +48,10 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         subqueries = list(
-            self.revenue_subqueries(VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM])
+            RevenueAnalyticsQueryRunner.revenue_subqueries(
+                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM],
+                self.database,
+            )
         )
         if not subqueries:
             columns = ["breakdown_by", "period_start", "amount"]
@@ -375,8 +378,9 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
             ),
         ]
 
-        subscription_views = self.revenue_subqueries(
-            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION]
+        subscription_views = RevenueAnalyticsQueryRunner.revenue_subqueries(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION],
+            self.database,
         )
         subscription_view = next(
             (subscription_view for subscription_view in subscription_views if subscription_view.prefix == view.prefix),

@@ -10,14 +10,13 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.models import UnknownDatabaseField
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 
-class RevenueExampleDataWarehouseTablesQueryRunner(
-    RevenueAnalyticsQueryRunner[RevenueExampleDataWarehouseTablesQueryResponse]
-):
+class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunnerWithHogQLContext):
     query: RevenueExampleDataWarehouseTablesQuery
     response: RevenueExampleDataWarehouseTablesQueryResponse
     cached_response: CachedRevenueExampleDataWarehouseTablesQueryResponse
@@ -31,7 +30,10 @@ class RevenueExampleDataWarehouseTablesQueryRunner(
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         queries: list[ast.SelectQuery] = []
-        views = self.revenue_subqueries(VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM])
+        views = RevenueAnalyticsQueryRunner.revenue_subqueries(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM],
+            self.database,
+        )
         for view in views:
             if view.is_event_view():
                 continue

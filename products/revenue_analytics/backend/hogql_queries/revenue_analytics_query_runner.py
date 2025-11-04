@@ -13,11 +13,10 @@ from posthog.schema import (
     RevenueAnalyticsOverviewQuery,
     RevenueAnalyticsPropertyFilter,
     RevenueAnalyticsTopCustomersQuery,
-    RevenueExampleDataWarehouseTablesQuery,
-    RevenueExampleEventsQuery,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.property import property_to_expr
 
@@ -72,8 +71,6 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         RevenueAnalyticsGrossRevenueQuery,
         RevenueAnalyticsOverviewQuery,
         RevenueAnalyticsTopCustomersQuery,
-        RevenueExampleDataWarehouseTablesQuery,
-        RevenueExampleEventsQuery,
     ]
 
     def validate_query_runner_access(self, user: User) -> bool:
@@ -310,24 +307,26 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
 
         return initial_join
 
-    def revenue_subqueries(self, schema: RevenueAnalyticsSchema) -> Iterable[RevenueAnalyticsBaseView]:
-        for view_name in self.database.get_view_names():
+    @staticmethod
+    def revenue_subqueries(schema: RevenueAnalyticsSchema, database: Database) -> Iterable[RevenueAnalyticsBaseView]:
+        for view_name in database.get_view_names():
             if view_name.endswith(schema.source_suffix) or view_name.endswith(schema.events_suffix):
                 # Handle both the old way (`RevenueAnalyticsBaseView`) and the feature-flagged way (`SavedQuery` via managed viewsets)
                 # Once the `managed-viewsets` feature flag is fully rolled out we can remove the first check
                 # To be extra sure we aren't including user-defined queries we also assert they're managed by the Revenue Analytics managed viewset
-                table = self.database.get_table(view_name)
+                table = database.get_table(view_name)
                 if isinstance(table, RevenueAnalyticsBaseView):
                     yield table
                 elif (
                     isinstance(table, SavedQuery)
                     and table.metadata.get("managed_viewset_kind") == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
                 ):
-                    yield self.saved_query_to_revenue_analytics_base_view(table)
+                    yield RevenueAnalyticsQueryRunner.saved_query_to_revenue_analytics_base_view(table)
 
     # This is pretty complex right now and it's doing a lot of string matching to determine the class
     # This will become simpler once we don't need to support the old way anymore
-    def saved_query_to_revenue_analytics_base_view(self, saved_query: SavedQuery) -> RevenueAnalyticsBaseView:
+    @staticmethod
+    def saved_query_to_revenue_analytics_base_view(saved_query: SavedQuery) -> RevenueAnalyticsBaseView:
         Klass: type[RevenueAnalyticsBaseView] | None = None
         if saved_query.name.endswith(
             VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE].source_suffix
