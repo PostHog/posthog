@@ -46,6 +46,7 @@ from products.data_warehouse.backend.models import (
     ExternalDataSource,
 )
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+from products.data_warehouse.backend.models.util import validate_source_prefix
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
@@ -361,6 +362,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         prefix = request.data.get("prefix", None)
         source_type = request.data["source_type"]
+
+        # Validate prefix characters
+        is_valid, error_message = validate_source_prefix(prefix)
+        if not is_valid:
+            raise ValidationError(error_message)
 
         if self.prefix_required(source_type):
             if not prefix:
