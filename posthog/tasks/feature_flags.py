@@ -37,6 +37,10 @@ def sync_all_flags_cache() -> None:
 CACHE_MISS_QUEUE_KEY = "posthog:flag_cache_miss_queue"
 RATE_LIMIT_KEY_TEMPLATE = "posthog:flag_cache_rebuild_rate_limit:{team_id}"
 
+# Redis TTL constants (return values from redis.ttl())
+REDIS_TTL_KEY_DOES_NOT_EXIST = -2
+REDIS_TTL_KEY_HAS_NO_EXPIRY = -1
+
 # Configurable operational parameters
 RATE_LIMIT_WINDOW = get_from_env("FLAG_CACHE_MISS_RATE_LIMIT_WINDOW", 60, type_cast=int)
 MAX_REBUILDS_PER_WINDOW = get_from_env("FLAG_CACHE_MISS_MAX_REBUILDS", 2, type_cast=int)
@@ -93,11 +97,12 @@ def process_flag_cache_miss_queue() -> None:
             # Rate limiting - don't rebuild too frequently for same team
             rate_limit_key = RATE_LIMIT_KEY_TEMPLATE.format(team_id=team_id)
 
-            # Increment counter and check if we're under the rate limit
+            # Atomically increment and ensure TTL is set to avoid orphaned keys
             current_count = redis.incr(rate_limit_key)
-
-            # Set expiry on first increment
             if current_count == 1:
+                redis.expire(rate_limit_key, RATE_LIMIT_WINDOW)
+            elif redis.ttl(rate_limit_key) == REDIS_TTL_KEY_HAS_NO_EXPIRY:
+                # Recovery: key exists but has no TTL (process crashed after incr)
                 redis.expire(rate_limit_key, RATE_LIMIT_WINDOW)
 
             if current_count <= MAX_REBUILDS_PER_WINDOW:
