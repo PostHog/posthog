@@ -15,6 +15,36 @@ from .tool_formatter import format_tools
 SEPARATOR = "-" * 80
 
 
+def _dict_to_yaml_lines(obj: Any, indent: int = 0) -> list[str]:
+    """
+    Convert a dict/list/value to YAML-like formatted lines.
+    Simple implementation that handles nested structures.
+    """
+    lines: list[str] = []
+    prefix = "  " * indent
+
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if isinstance(value, dict | list):
+                lines.append(f"{prefix}{key}:")
+                lines.extend(_dict_to_yaml_lines(value, indent + 1))
+            else:
+                # Simple value - show inline
+                lines.append(f"{prefix}{key}: {value}")
+    elif isinstance(obj, list):
+        for item in obj:
+            if isinstance(item, dict | list):
+                lines.append(f"{prefix}-")
+                lines.extend(_dict_to_yaml_lines(item, indent + 1))
+            else:
+                lines.append(f"{prefix}- {item}")
+    else:
+        # Simple value at root level
+        lines.append(f"{prefix}{obj}")
+
+    return lines
+
+
 def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
     """
     Generate complete text representation of a generation event.
@@ -58,13 +88,25 @@ def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions
 
         error_value = props.get("$ai_error")
         if error_value:
-            if isinstance(error_value, str):
-                lines.append(error_value)
-            elif isinstance(error_value, dict):
-                import json
+            import json
 
-                lines.append(json.dumps(error_value, indent=2))
+            # Try to parse string as JSON first
+            parsed_dict = None
+            if isinstance(error_value, str):
+                try:
+                    parsed = json.loads(error_value)
+                    if isinstance(parsed, dict):
+                        parsed_dict = parsed
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            elif isinstance(error_value, dict):
+                parsed_dict = error_value
+
+            # If we have a dict, render as YAML-like format
+            if parsed_dict:
+                lines.extend(_dict_to_yaml_lines(parsed_dict, indent=0))
             else:
+                # Fallback: just use the string as-is
                 lines.append(str(error_value))
         else:
             lines.append("An error occurred (no details available)")
@@ -108,13 +150,25 @@ def format_embedding_text_repr(event: dict[str, Any], options: FormatterOptions 
 
         error_value = props.get("$ai_error")
         if error_value:
-            if isinstance(error_value, str):
-                lines.append(error_value)
-            elif isinstance(error_value, dict):
-                import json
+            import json
 
-                lines.append(json.dumps(error_value, indent=2))
+            # Try to parse string as JSON first
+            parsed_dict = None
+            if isinstance(error_value, str):
+                try:
+                    parsed = json.loads(error_value)
+                    if isinstance(parsed, dict):
+                        parsed_dict = parsed
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            elif isinstance(error_value, dict):
+                parsed_dict = error_value
+
+            # If we have a dict, render as YAML-like format
+            if parsed_dict:
+                lines.extend(_dict_to_yaml_lines(parsed_dict, indent=0))
             else:
+                # Fallback: just use the string as-is
                 lines.append(str(error_value))
         else:
             lines.append("An error occurred (no details available)")
