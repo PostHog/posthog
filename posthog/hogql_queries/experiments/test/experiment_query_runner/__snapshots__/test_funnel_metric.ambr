@@ -290,8 +290,7 @@
                events.uuid AS uuid,
                events.properties AS properties,
                nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
-               equals(events.event, '$pageview') AS exposure_condition,
-               if(exposure_condition, 1, 0) AS step_0,
+               if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
         LEFT OUTER JOIN
@@ -909,8 +908,7 @@
                toTimeZone(events.timestamp, 'UTC') AS timestamp,
                events.uuid AS uuid,
                nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
-               and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])) AS exposure_condition,
-               if(exposure_condition, 1, 0) AS step_0,
+               if(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test'])), 1, 0) AS step_0,
                if(equals(events.event, '$pageview'), 1, 0) AS step_1,
                if(equals(events.event, 'purchase'), 1, 0) AS step_2
         FROM events
@@ -1802,8 +1800,7 @@
                events.uuid AS uuid,
                events.properties AS properties,
                nullIf(nullIf(events.`$session_id`, ''), 'null') AS session_id,
-               equals(events.event, '$pageview') AS exposure_condition,
-               if(exposure_condition, 1, 0) AS step_0,
+               if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
         LEFT OUTER JOIN
