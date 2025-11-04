@@ -2,9 +2,19 @@ from django.db import models
 from django.utils import timezone
 
 from posthog.models.event_definition import EventDefinition
-from posthog.models.property_definition import PropertyType
 from posthog.models.team import Team
 from posthog.models.utils import UUIDTModel
+
+
+class SchemaPropertyType(models.TextChoices):
+    """Property types supported in schema definitions (includes Object for TypeScript generation)"""
+
+    Datetime = "DateTime", "DateTime"
+    String = "String", "String"
+    Numeric = "Numeric", "Numeric"
+    Boolean = "Boolean", "Boolean"
+    Duration = "Duration", "Duration"
+    Object = "Object", "Object"
 
 
 class SchemaPropertyGroup(UUIDTModel):
@@ -60,7 +70,7 @@ class SchemaPropertyGroupProperty(UUIDTModel):
         related_query_name="property",
     )
     name = models.CharField(max_length=400)
-    property_type = models.CharField(max_length=50, choices=PropertyType.choices)
+    property_type = models.CharField(max_length=50, choices=SchemaPropertyType.choices)
     is_required = models.BooleanField(default=False)
     description = models.TextField(blank=True)
     created_at = models.DateTimeField(default=timezone.now)
@@ -80,7 +90,7 @@ class SchemaPropertyGroupProperty(UUIDTModel):
             ),
             models.CheckConstraint(
                 name="property_type_is_valid_schema",
-                check=models.Q(property_type__in=PropertyType.values),
+                check=models.Q(property_type__in=SchemaPropertyType.values),
             ),
         ]
         ordering = ["name"]

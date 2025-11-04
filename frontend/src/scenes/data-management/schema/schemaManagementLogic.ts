@@ -10,6 +10,15 @@ import type { schemaManagementLogicType } from './schemaManagementLogicType'
 
 export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Duration' | 'Object'
 
+export const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
+    { value: 'String', label: 'String' },
+    { value: 'Numeric', label: 'Numeric' },
+    { value: 'Boolean', label: 'Boolean' },
+    { value: 'DateTime', label: 'DateTime' },
+    { value: 'Duration', label: 'Duration' },
+    { value: 'Object', label: 'Object' },
+]
+
 function getErrorMessage(error: any, defaultMessage: string): string {
     // Handle field-specific errors from DRF serializer
     if (error.name) {

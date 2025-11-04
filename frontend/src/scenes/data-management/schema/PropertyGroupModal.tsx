@@ -7,16 +7,12 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSelect, LemonT
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
-import { PropertyType, SchemaPropertyGroupProperty, schemaManagementLogic } from './schemaManagementLogic'
-
-const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
-    { value: 'String', label: 'String' },
-    { value: 'Numeric', label: 'Numeric' },
-    { value: 'Boolean', label: 'Boolean' },
-    { value: 'DateTime', label: 'DateTime' },
-    { value: 'Duration', label: 'Duration' },
-    { value: 'Object', label: 'Object' },
-]
+import {
+    PROPERTY_TYPE_OPTIONS,
+    PropertyType,
+    SchemaPropertyGroupProperty,
+    schemaManagementLogic,
+} from './schemaManagementLogic'
 
 function isValidPropertyName(name: string): boolean {
     if (!name || !name.trim()) {
