@@ -524,7 +524,7 @@ jobs:
                   commit-message: Update UI snapshots (all browsers)
                   pr-number: ${{ github.event.pull_request.number }}
                   repository: ${{ github.repository }}
-                  commit-sha: ${{ github.sha }}
+                  commit-sha: ${{ github.event.pull_request.head.sha }}
 
     check-mode-failure:
         name: Handle CHECK mode failures
@@ -555,7 +555,7 @@ jobs:
                     '${{ steps.count.outputs.changes }}' \
                     "${{ github.event.pull_request.number }}" \
                     "${{ github.repository }}" \
-                    "${{ github.sha }}"
+                    "${{ github.event.pull_request.head.sha }}"
 
     calculate-running-time:
         name: Calculate running time
