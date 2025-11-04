@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-10-27 20:05:04 UTC
+// Generated at: 2025-11-03 20:02:08 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -58,7 +58,6 @@ export type CanonicalProvider =
     | 'inference-net-fp8'
     | 'infermatic'
     | 'infermatic-bf16'
-    | 'infermatic-fp8'
     | 'inflection'
     | 'liquid'
     | 'mancer-fp16'
@@ -86,6 +85,7 @@ export type CanonicalProvider =
     | 'novita-bf16'
     | 'novita-fp16'
     | 'novita-fp8'
+    | 'nvidia'
     | 'nvidia-bf16'
     | 'open-inference-int8'
     | 'openai'
@@ -101,7 +101,6 @@ export type CanonicalProvider =
     | 'sambanova-fp8'
     | 'sambanova-turbo'
     | 'siliconflow-fp8'
-    | 'stealth'
     | 'switchpoint'
     | 'targon-bf16'
     | 'targon-fp8'

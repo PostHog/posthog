@@ -1,8 +1,8 @@
-import json
 import asyncio
 from collections.abc import Iterable
 from functools import cached_property
 from typing import Optional, Union, cast
+from uuid import uuid4
 
 from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableConfig
@@ -10,13 +10,14 @@ from pydantic import BaseModel
 
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
+    AssistantMessage,
+    AssistantToolCall,
     CachedActorsPropertyTaxonomyQueryResponse,
     CachedEventTaxonomyQueryResponse,
     CacheMissResponse,
     EventTaxonomyItem,
     EventTaxonomyQuery,
     QueryStatusResponse,
-    TaskExecutionItem,
     TaskExecutionStatus,
 )
 
@@ -38,7 +39,7 @@ from ee.hogai.graph.taxonomy.format import (
     format_properties_yaml,
     format_property_values,
 )
-from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResult
+from ee.hogai.utils.types.base import AssistantState, BaseStateWithTasks, TaskArtifact, TaskResult
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
@@ -113,7 +114,7 @@ class TaxonomyErrorMessages:
 
 class TaxonomyTaskExecutorNode(
     BaseTaskExecutorNode[
-        BaseStateWithTasks,
+        AssistantState,
         BaseStateWithTasks,
     ]
 ):
@@ -121,29 +122,33 @@ class TaxonomyTaskExecutorNode(
     Task executor node specifically for taxonomy operations.
     """
 
+    def __init__(self, team: Team, user: User, parent_tool_call_id: str | None):
+        super().__init__(team, user)
+        self._parent_tool_call_id = parent_tool_call_id
+
     @property
     def node_name(self) -> MaxNodeName:
         return TaxonomyNodeName.TASK_EXECUTOR
 
-    async def _aget_input_tuples(self, state: BaseStateWithTasks) -> list[TaskExecutionInputTuple]:
+    async def _aget_input_tuples(self, tool_calls: list[AssistantToolCall]) -> list[TaskExecutionInputTuple]:
         taxonomy_toolkit = TaxonomyAgentToolkit(self._team, self._user)
-        if not state.tasks:
-            raise ValueError("No tasks to execute")
         input_tuples: list[TaskExecutionInputTuple] = []
-        for task in state.tasks:
-            if task.task_type == "retrieve_event_or_action_properties":
+        for task in tool_calls:
+            if task.name == "retrieve_event_or_action_properties":
                 input_tuples.append((task, [], taxonomy_toolkit._handle_event_or_action_properties_task))
-            elif task.task_type == "retrieve_entity_properties":
+            elif task.name == "retrieve_entity_properties":
                 input_tuples.append((task, [], taxonomy_toolkit._handle_entity_properties_task))
-            elif task.task_type == "retrieve_group_properties":
+            elif task.name == "retrieve_group_properties":
                 input_tuples.append((task, [], taxonomy_toolkit._handle_group_properties_task))
             else:
-                raise ValueError(f"Unsupported task type: {task.task_type}")
+                raise ValueError(f"Unsupported task type: {task.name}")
         return input_tuples
 
 
 class TaxonomyAgentToolkit:
     """Base toolkit for taxonomy agents that handle tool execution."""
+
+    _parent_tool_call_id: str | None
 
     def __init__(self, team: Team, user: User):
         self._team = team
@@ -360,7 +365,7 @@ class TaxonomyAgentToolkit:
         return results
 
     async def retrieve_entity_properties_parallel(self, entities: list[str]) -> dict[str, str]:
-        entity_tasks = []
+        tool_calls = []
         groups = []
 
         for entity in entities:
@@ -369,34 +374,25 @@ class TaxonomyAgentToolkit:
             if entity in group_types:
                 groups.append(entity)
             else:
-                entity_tasks.append(
-                    TaskExecutionItem(
+                tool_calls.append(
+                    AssistantToolCall(
                         id=str(entity),
-                        prompt=entity,
-                        status=TaskExecutionStatus.PENDING,
-                        description="Retrieving entity properties",
-                        progress_text=f"Retrieving properties for {entity}...",
-                        task_type="retrieve_entity_properties",
+                        name="retrieve_entity_properties",
+                        args={"entity": entity},
                     )
                 )
 
         if groups:
-            entity_tasks.append(
-                TaskExecutionItem(
+            tool_calls.append(
+                AssistantToolCall(
                     id="group_properties",
-                    prompt=str(groups),
-                    status=TaskExecutionStatus.PENDING,
-                    description="Retrieving group properties",
-                    progress_text="Retrieving properties for groups...",
-                    task_type="retrieve_group_properties",
+                    name="retrieve_group_properties",
+                    args={"groups": groups},
                 )
             )
-        task_executor_state = BaseStateWithTasks(
-            tasks=entity_tasks,
-        )
-        config = RunnableConfig()
-        executor = TaxonomyTaskExecutorNode(self._team, self._user)
-        result = await executor.arun(task_executor_state, config)
+        message = AssistantMessage(content="", id=str(uuid4()), tool_calls=tool_calls)
+        executor = TaxonomyTaskExecutorNode(self._team, self._user, parent_tool_call_id=self._parent_tool_call_id)
+        result = await executor.arun(AssistantState(messages=[message]), RunnableConfig())
 
         final_result = {}
         for task_result in result.task_results:
@@ -417,25 +413,23 @@ class TaxonomyAgentToolkit:
         Retrieve properties for an event.
         """
 
-        task = cast(TaskExecutionItem, input_dict["task"])
-
+        task = cast(AssistantToolCall, input_dict["task"])
+        event_name_or_action_id = task.args["event_name_or_action_id"]
         try:
-            response, verbose_name = await self._retrieve_event_or_action_taxonomy(task.prompt)
+            response, verbose_name = await self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         except Action.DoesNotExist:
             project_actions = await self._get_project_actions()
             if not project_actions:
                 result = TaxonomyErrorMessages.no_actions_exist()
                 return TaskResult(
                     id=task.id,
-                    description=task.description,
                     result=result,
                     artifacts=[],
                     status=TaskExecutionStatus.FAILED,
                 )
-            result = TaxonomyErrorMessages.action_not_found(task.prompt)
+            result = TaxonomyErrorMessages.action_not_found(event_name_or_action_id)
             return TaskResult(
                 id=task.id,
-                description=task.description,
                 result=result,
                 artifacts=[],
                 status=TaskExecutionStatus.FAILED,
@@ -444,7 +438,6 @@ class TaxonomyAgentToolkit:
             result = TaxonomyErrorMessages.generic_not_found("Properties")
             return TaskResult(
                 id=task.id,
-                description=task.description,
                 result=result,
                 artifacts=[],
                 status=TaskExecutionStatus.FAILED,
@@ -453,7 +446,6 @@ class TaxonomyAgentToolkit:
             result = TaxonomyErrorMessages.event_properties_not_found(verbose_name)
             return TaskResult(
                 id=task.id,
-                description=task.description,
                 result=result,
                 artifacts=[],
                 status=TaskExecutionStatus.FAILED,
@@ -477,7 +469,6 @@ class TaxonomyAgentToolkit:
             result = TaxonomyErrorMessages.event_properties_not_found(verbose_name)
             return TaskResult(
                 id=task.id,
-                description=task.description,
                 result=result,
                 artifacts=[],
                 status=TaskExecutionStatus.FAILED,
@@ -486,20 +477,14 @@ class TaxonomyAgentToolkit:
         formatted_properties = self._format_properties(self._enrich_props_with_descriptions("event", props))
         return TaskResult(
             id=task.id,
-            description=task.description,
             result=formatted_properties,
             artifacts=[],
             status=TaskExecutionStatus.COMPLETED,
         )
 
     async def _handle_group_properties_task(self, input_dict: dict) -> TaskResult:
-        task = cast(TaskExecutionItem, input_dict["task"])
-        try:
-            # Convert Python list string to JSON format and parse
-            json_str = task.prompt.replace("'", '"')
-            group_entities = json.loads(json_str)
-        except json.JSONDecodeError:
-            group_entities = [task.prompt]
+        task = cast(AssistantToolCall, input_dict["task"])
+        group_entities = task.args["groups"]
 
         entity_to_group_index = {}
         artifacts = []
@@ -548,15 +533,14 @@ class TaxonomyAgentToolkit:
 
         return TaskResult(
             id=task.id,
-            description=task.description,
             result="",
             artifacts=artifacts,
             status=TaskExecutionStatus.COMPLETED,
         )
 
     async def _handle_entity_properties_task(self, input_dict: dict) -> TaskResult:
-        task = cast(TaskExecutionItem, input_dict["task"])
-        entity = task.prompt
+        task = cast(AssistantToolCall, input_dict["task"])
+        entity = task.args["entity"]
         if entity == "person":
             person_qs = PropertyDefinition.objects.filter(
                 team=self._team, type=PropertyDefinition.Type.PERSON
@@ -570,7 +554,6 @@ class TaxonomyAgentToolkit:
                 status = TaskExecutionStatus.FAILED
             return TaskResult(
                 id=task.id,
-                description=task.description,
                 result=result,
                 artifacts=[],
                 status=status,
@@ -590,7 +573,6 @@ class TaxonomyAgentToolkit:
                 status = TaskExecutionStatus.FAILED
             return TaskResult(
                 id=task.id,
-                description=task.description,
                 result=result,
                 artifacts=[],
                 status=status,
@@ -598,7 +580,6 @@ class TaxonomyAgentToolkit:
         else:
             return TaskResult(
                 id=task.id,
-                description=task.description,
                 result=TaxonomyErrorMessages.entity_not_found(entity, await self._get_entity_names()),
                 artifacts=[],
                 status=TaskExecutionStatus.FAILED,
@@ -661,23 +642,18 @@ class TaxonomyAgentToolkit:
     async def retrieve_event_or_action_properties_parallel(
         self, event_name_or_action_ids: list[str | int]
     ) -> dict[str, str]:
-        task_executor_state = BaseStateWithTasks(
-            tasks=[
-                TaskExecutionItem(
-                    id=str(event_name_or_action_id),
-                    prompt=str(event_name_or_action_id),
-                    status=TaskExecutionStatus.PENDING,
-                    description="Retrieving event or action properties",
-                    progress_text=f"Retrieving properties for {event_name_or_action_id}...",
-                    task_type="retrieve_event_or_action_properties",
-                )
-                for event_name_or_action_id in event_name_or_action_ids
-            ],
-        )
-        config = RunnableConfig()
-        executor = TaxonomyTaskExecutorNode(self._team, self._user)
-        result = await executor.arun(task_executor_state, config)
-        return {task.id: task.result for task in result.task_results}
+        tool_calls = [
+            AssistantToolCall(
+                id=str(event_name_or_action_id),
+                name="retrieve_event_or_action_properties",
+                args={"event_name_or_action_id": event_name_or_action_id},
+            )
+            for event_name_or_action_id in event_name_or_action_ids
+        ]
+        message = AssistantMessage(content="", id=str(uuid4()), tool_calls=tool_calls)
+        executor = TaxonomyTaskExecutorNode(self._team, self._user, parent_tool_call_id=self._parent_tool_call_id)
+        result = await executor.arun(AssistantState(messages=[message]), RunnableConfig())
+        return {task_result.id: task_result.result for task_result in result.task_results}
 
     async def retrieve_event_or_action_property_values(
         self, event_properties: dict[str | int, list[str]]
@@ -789,10 +765,10 @@ class TaxonomyAgentToolkit:
             "entity_properties": [],  # [entities]
             "event_property_values": {},  # event_name -> [property_names]
             "event_properties": [],  # [event_names]
-            "entity_prop_mapping": {},  # (entity, property) -> tool_call_id
-            "entity_mapping": {},  # entity -> tool_call_id
-            "event_prop_mapping": {},  # (event, property) -> tool_call_id
-            "event_mapping": {},  # event -> tool_call_id
+            "entity_prop_mapping": {},  # (entity, property) -> [tool_call_id]
+            "entity_mapping": {},  # entity -> [tool_call_id]
+            "event_prop_mapping": {},  # (event, property) -> [tool_call_id]
+            "event_mapping": {},  # event -> [tool_call_id]
         }
 
         for tool_name, tool_inputs in tool_metadata.items():
@@ -803,12 +779,12 @@ class TaxonomyAgentToolkit:
                     if entity not in result["entity_property_values"]:
                         result["entity_property_values"][entity] = []
                     result["entity_property_values"][entity].append(property_name)
-                    result["entity_prop_mapping"][(entity, property_name)] = tool_call_id
+                    result["entity_prop_mapping"].setdefault((entity, property_name), []).append(tool_call_id)
 
                 elif tool_name == "retrieve_entity_properties":
                     entity = tool_input.arguments.entity  # type: ignore
                     result["entity_properties"].append(entity)
-                    result["entity_mapping"][entity] = tool_call_id
+                    result["entity_mapping"].setdefault(entity, []).append(tool_call_id)
 
                 elif tool_name == "retrieve_event_property_values":
                     event_name = tool_input.arguments.event_name  # type: ignore
@@ -816,12 +792,12 @@ class TaxonomyAgentToolkit:
                     if event_name not in result["event_property_values"]:
                         result["event_property_values"][event_name] = []
                     result["event_property_values"][event_name].append(property_name)
-                    result["event_prop_mapping"][(event_name, property_name)] = tool_call_id
+                    result["event_prop_mapping"].setdefault((event_name, property_name), []).append(tool_call_id)
 
                 elif tool_name == "retrieve_event_properties":
                     event_name = tool_input.arguments.event_name  # type: ignore
                     result["event_properties"].append(event_name)
-                    result["event_mapping"][event_name] = tool_call_id
+                    result["event_mapping"].setdefault(event_name, []).append(tool_call_id)
                 else:
                     raise TaxonomyToolNotFoundError(f"Tool {tool_name} not found in taxonomy toolkit.")
 
@@ -841,12 +817,18 @@ class TaxonomyAgentToolkit:
             )
             for entity, property_results in entity_property_values.items():
                 for i, property_name in enumerate(collected_tools["entity_property_values"][entity]):
-                    results[collected_tools["entity_prop_mapping"][(entity, property_name)]] = property_results[i]
+                    id_queue = collected_tools["entity_prop_mapping"].get((entity, property_name), [])
+                    if id_queue:
+                        tool_call_id = id_queue.pop(0)
+                        results[tool_call_id] = property_results[i]
 
         if collected_tools["entity_properties"]:
-            entity_properties = await self.retrieve_entity_properties_parallel(collected_tools["entity_properties"])
+            # Deduplicate entity names
+            unique_entity_names = list(dict.fromkeys(collected_tools["entity_properties"]))
+            entity_properties = await self.retrieve_entity_properties_parallel(unique_entity_names)
             for entity, result in entity_properties.items():
-                results[collected_tools["entity_mapping"][entity]] = result
+                for tool_call_id in collected_tools["entity_mapping"].get(entity, []):
+                    results[tool_call_id] = result
 
         if collected_tools["event_property_values"]:
             event_property_values = await self.retrieve_event_or_action_property_values(
@@ -854,14 +836,18 @@ class TaxonomyAgentToolkit:
             )
             for event_name, property_results in event_property_values.items():
                 for i, property_name in enumerate(collected_tools["event_property_values"][event_name]):
-                    results[collected_tools["event_prop_mapping"][(event_name, property_name)]] = property_results[i]
+                    id_queue = collected_tools["event_prop_mapping"].get((event_name, property_name), [])
+                    if id_queue:
+                        tool_call_id = id_queue.pop(0)
+                        results[tool_call_id] = property_results[i]
 
         if collected_tools["event_properties"]:
-            event_properties = await self.retrieve_event_or_action_properties_parallel(
-                collected_tools["event_properties"]
-            )
+            # Deduplicate event names
+            unique_event_names = list(dict.fromkeys(collected_tools["event_properties"]))
+            event_properties = await self.retrieve_event_or_action_properties_parallel(unique_event_names)
             for event_name, result in event_properties.items():
-                results[collected_tools["event_mapping"][event_name]] = result
+                for tool_call_id in collected_tools["event_mapping"].get(event_name, []):
+                    results[tool_call_id] = result
 
         return results
 

@@ -552,11 +552,11 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.createTab(query, undefined, insight)
         },
         createTab: async ({ query = '', view, insight, draft }) => {
-            const currentModelCount = 1
+            // Use tabId to ensure each browser tab has its own unique Monaco model
             const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
 
             if (props.monaco) {
-                const uri = props.monaco.Uri.parse(currentModelCount.toString())
+                const uri = props.monaco.Uri.parse(`tab-${props.tabId}`)
                 let model = props.monaco.editor.getModel(uri)
                 if (!model) {
                     model = props.monaco.editor.createModel(query, 'hogQL', uri)
@@ -1106,7 +1106,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 !searchParams.output_tab &&
                 !hashParams.q &&
                 !hashParams.view &&
-                !hashParams.insight
+                !hashParams.insight &&
+                values.queryInput !== null
             ) {
                 return
             }
@@ -1227,7 +1228,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     // only when opening the tab
                     actions.createTab(hashParams.q)
                     tabAdded = true
-                } else {
+                } else if (values.queryInput === null) {
                     actions.createTab('')
                     tabAdded = true
                 }

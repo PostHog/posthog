@@ -303,19 +303,8 @@
             "id": "temporalTaskQueue",
             "type": "pickString",
             "description": "Task queue name",
-            "options": [
-                "general-purpose-task-queue",
-                "max-ai-task-queue",
-                "batch-exports-task-queue",
-                "data-warehouse-task-queue",
-                "data-warehouse-compaction-task-queue",
-                "data-modeling-task-queue",
-                "tasks-task-queue",
-                "billing-task-queue",
-                "video-export-task-queue",
-                "session-replay-task-queue"
-            ],
-            "default": "general-purpose-task-queue"
+            "options": ["development-task-queue"],
+            "default": "development-task-queue"
         }
     ],
     "compounds": [
