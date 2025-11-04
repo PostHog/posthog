@@ -144,9 +144,9 @@ class TestGroupsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             create_group(
                 team_id=self.team.pk,
                 group_type_index=0,
-                group_key=group["key"],
+                group_key=group["key"],  # type: ignore[arg-type]
                 properties={"name": group["name"]},
-                timestamp=group["ts"],
+                timestamp=group["ts"],  # type: ignore[arg-type]
             )
 
         query = GroupsQuery(
