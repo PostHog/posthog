@@ -352,18 +352,24 @@ jobs:
 
             # Upload screenshots as artifact for aggregation
             # Only upload changed files to reduce artifact size
+            # Run even if tests fail to capture updated snapshots
             - name: Create tar of changed screenshots
-              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
+              id: create-tar
+              if: (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
               run: |
                   cd playwright
                   # Create tar of only git-modified files (added or modified)
-                  git diff --name-only --diff-filter=AM . | tar -czf /tmp/playwright-snapshots.tar.gz -T - 2>/dev/null || echo "No changes to upload"
-                  if [ -f /tmp/playwright-snapshots.tar.gz ]; then
+                  git diff --name-only --diff-filter=AM . | tar -czf /tmp/playwright-snapshots.tar.gz -T - 2>/dev/null || true
+                  if [ -f /tmp/playwright-snapshots.tar.gz ] && [ -s /tmp/playwright-snapshots.tar.gz ]; then
                     echo "Created tar with changed screenshots"
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "No screenshot changes to upload"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
                   fi
 
             - name: Upload screenshot artifact
-              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
+              if: steps.create-tar.outputs.has-changes == 'true'
               uses: actions/upload-artifact@v4
               with:
                   name: playwright-snapshots
