@@ -161,7 +161,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
                 // Clean up Web Analytics queries by removing invalid fields that might have been saved
                 if (isWebStatsTableQuery(source) || isWebOverviewQuery(source)) {
-                    const { interval, series, breakdownFilter, ...cleanSource } = source as any
+                    const { series, breakdownFilter, ...cleanSource } = source as any
                     return cleanSource
                 }
 

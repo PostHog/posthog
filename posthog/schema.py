@@ -11927,6 +11927,13 @@ class WebExternalClicksTableQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     kind: Literal["WebExternalClicksTableQuery"] = "WebExternalClicksTableQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -11950,6 +11957,13 @@ class WebGoalsQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     kind: Literal["WebGoalsQuery"] = "WebGoalsQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -11972,6 +11986,13 @@ class WebOverviewQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     kind: Literal["WebOverviewQuery"] = "WebOverviewQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
@@ -11993,6 +12014,13 @@ class WebPageURLSearchQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     kind: Literal["WebPageURLSearchQuery"] = "WebPageURLSearchQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -12020,6 +12048,15 @@ class WebStatsTableQuery(BaseModel):
     includeBounceRate: bool | None = None
     includeRevenue: bool | None = None
     includeScrollDepth: bool | None = None
+||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    includeBounceRate: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
+    includeScrollDepth: Optional[bool] = None
     kind: Literal["WebStatsTableQuery"] = "WebStatsTableQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -12917,6 +12954,10 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration IDs")
+||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+    filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
+    integrationFilter: Optional[IntegrationFilter] = Field(default=None, description="Filter by integration IDs")
     kind: Literal["MarketingAnalyticsAggregatedQuery"] = "MarketingAnalyticsAggregatedQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter]
@@ -12947,6 +12988,9 @@ class MarketingAnalyticsTableQuery(BaseModel):
     )
     includeRevenue: bool | None = None
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration type")
+||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+    includeRevenue: Optional[bool] = None
+    integrationFilter: Optional[IntegrationFilter] = Field(default=None, description="Filter by integration type")
     kind: Literal["MarketingAnalyticsTableQuery"] = "MarketingAnalyticsTableQuery"
     limit: int | None = Field(default=None, description="Number of rows to return")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -13322,6 +13366,14 @@ class WebTrendsQuery(BaseModel):
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
     interval: IntervalType
+||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
+    interval: IntervalType
     kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
     limit: int | None = None
     metrics: list[WebTrendsMetric]
@@ -13346,6 +13398,13 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     kind: Literal["WebVitalsPathBreakdownQuery"] = "WebVitalsPathBreakdownQuery"
     metric: WebVitalsMetric
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -15025,6 +15084,13 @@ class WebVitalsQuery(BaseModel):
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
+||||||| parent of 1a798ce22c1 (refactor: add shared interval field)
+    compareFilter: Optional[CompareFilter] = None
+    conversionGoal: Optional[Union[ActionConversionGoal, CustomEventConversionGoal]] = None
+    dateRange: Optional[DateRange] = None
+    doPathCleaning: Optional[bool] = None
+    filterTestAccounts: Optional[bool] = None
+    includeRevenue: Optional[bool] = None
     kind: Literal["WebVitalsQuery"] = "WebVitalsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
