@@ -72,21 +72,15 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
         print("No SES email identities found to migrate.")  # noqa: T201
         return
 
-    ses_region = settings.SES_REGION
-    ses_endpoint = settings.SES_ENDPOINT if getattr(settings, "SES_ENDPOINT", None) else None
-    access_key = settings.SES_ACCESS_KEY_ID
-    secret_key = settings.SES_SECRET_ACCESS_KEY
-
+    sts_client = boto3.client(
+        "sts",
+    )
     tenant_client = boto3.client(
         "sesv2",
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        region_name=ses_region,
-        endpoint_url=ses_endpoint,
     )
 
     try:
-        aws_account_id = tenant_client.get_caller_identity()["Account"]
+        aws_account_id = sts_client.get_caller_identity()["Account"]
     except (ClientError, BotoCoreError) as e:
         logger.exception("Failed to get AWS account id for SES tenant association: %s", e)
         print("Error determining AWS account ID. Aborting.")  # noqa: T201
@@ -95,7 +89,7 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
     for batch in _batched(pairs, 50):
         for team_id, domain in batch:
             tenant_name = f"team-{team_id}"
-            identity_arn = f"arn:aws:ses:{ses_region}:{aws_account_id}:identity/{domain}"
+            identity_arn = f"arn:aws:ses:{settings.SES_REGION}:{aws_account_id}:identity/{domain}"
 
             # Create tenant if missing
             try:

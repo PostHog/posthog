@@ -12,20 +12,13 @@ logger = logging.getLogger(__name__)
 
 class SESProvider:
     def __init__(self):
-        # Initialize SES client
-        self.client = boto3.client(
+        # Initialize the boto3 clients
+        self.sts_client = boto3.client("sts")
+        self.ses_client = boto3.client(
             "ses",
-            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
-            region_name=settings.SES_REGION,
-            endpoint_url=settings.SES_ENDPOINT if settings.SES_ENDPOINT else None,
         )
-        self.tenant_client = boto3.client(
+        self.ses_v2_client = boto3.client(
             "sesv2",
-            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
-            region_name=settings.SES_REGION,
-            endpoint_url=settings.SES_ENDPOINT if settings.SES_ENDPOINT else None,
         )
 
     def create_email_domain(self, domain: str, team_id: int):
@@ -35,16 +28,16 @@ class SESProvider:
         # Create a tenant for the domain if not exists
         tenant_name = f"team-{team_id}"
         try:
-            self.tenant_client.create_tenant(TenantName=tenant_name, Tags=[{"Key": "team_id", "Value": str(team_id)}])
+            self.ses_v2_client.create_tenant(TenantName=tenant_name, Tags=[{"Key": "team_id", "Value": str(team_id)}])
         except ClientError as e:
             if e.response["Error"]["Code"] != "AlreadyExistsException":
                 raise
 
         # Associate the new domain identity with the tenant
         try:
-            self.tenant_client.create_tenant_resource_association(
+            self.ses_v2_client.create_tenant_resource_association(
                 TenantName=tenant_name,
-                ResourceArn=f"arn:aws:ses:{settings.SES_REGION}:{self.tenant_client.get_caller_identity()['Account']}:identity/{domain}",
+                ResourceArn=f"arn:aws:ses:{settings.SES_REGION}:{self.sts_client.get_caller_identity()['Account']}:identity/{domain}",
             )
         except ClientError as e:
             if e.response["Error"]["Code"] != "AlreadyExistsException":
@@ -61,7 +54,7 @@ class SESProvider:
         # Start/ensure domain verification (TXT at _amazonses.domain) ---
         verification_token = None
         try:
-            resp = self.client.verify_domain_identity(Domain=domain)
+            resp = self.ses_client.verify_domain_identity(Domain=domain)
             verification_token = resp.get("VerificationToken")
         except ClientError as e:
             # If already requested/exists, carry on; SES v1 is idempotent-ish here
@@ -82,7 +75,7 @@ class SESProvider:
         #  Start/ensure DKIM (three CNAMEs) ---
         dkim_tokens: list[str] = []
         try:
-            resp = self.client.verify_domain_dkim(Domain=domain)
+            resp = self.ses_client.verify_domain_dkim(Domain=domain)
             dkim_tokens = resp.get("DkimTokens", []) or []
         except ClientError as e:
             if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
@@ -111,7 +104,7 @@ class SESProvider:
 
         # Current verification / DKIM statuses to compute overall status & per-record statuses ---
         try:
-            id_attrs = self.client.get_identity_verification_attributes(Identities=[domain])
+            id_attrs = self.ses_client.get_identity_verification_attributes(Identities=[domain])
             verification_status = (
                 id_attrs["VerificationAttributes"].get(domain, {}).get("VerificationStatus", "Unknown")
             )
@@ -119,7 +112,7 @@ class SESProvider:
             verification_status = "Unknown"
 
         try:
-            dkim_attrs = self.client.get_identity_dkim_attributes(Identities=[domain])
+            dkim_attrs = self.ses_client.get_identity_dkim_attributes(Identities=[domain])
             dkim_status = dkim_attrs["DkimAttributes"].get(domain, {}).get("DkimVerificationStatus", "Unknown")
         except ClientError:
             dkim_status = "Unknown"
@@ -156,7 +149,7 @@ class SESProvider:
         Delete an identity from SES
         """
         try:
-            self.client.delete_identity(Identity=identity)
+            self.ses_client.delete_identity(Identity=identity)
             logger.info(f"Identity {identity} deleted from SES")
         except (ClientError, BotoCoreError) as e:
             logger.exception(f"SES API error deleting identity: {e}")
