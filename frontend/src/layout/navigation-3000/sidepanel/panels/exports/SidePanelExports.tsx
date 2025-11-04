@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconDownload, IconPencil, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSkeleton, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import { downloadExportedAsset, exportedAssetBlob } from 'lib/components/ExportButton/exporter'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { takeScreenshotLogic } from 'lib/components/TakeScreenshot/takeScreenshotLogic'
 import { dayjs } from 'lib/dayjs'
-import { IconWithCount } from 'lib/lemon-ui/icons'
+import { IconRefresh, IconWithCount } from 'lib/lemon-ui/icons'
 
 import { ExportedAssetType, ExporterFormat } from '~/types'
 
@@ -25,9 +25,44 @@ export const SidePanelExportsIcon = (): JSX.Element => {
     )
 }
 
-const ExportsContent = (): JSX.Element => {
-    const { exports, freshUndownloadedExports, assetFormat } = useValues(sidePanelExportsLogic)
-    const { loadExports, removeFresh, setAssetFormat } = useActions(sidePanelExportsLogic)
+function ExportPanelHeader(): JSX.Element {
+    const { assetFormat, exportsLoading } = useValues(sidePanelExportsLogic)
+    const { loadExports, setAssetFormat } = useActions(sidePanelExportsLogic)
+
+    return (
+        <div className="flex justify-between items-center">
+            <LemonSelect
+                size="small"
+                options={[
+                    {
+                        label: 'All',
+                        value: null,
+                    },
+                    ...Object.entries(ExporterFormat).map(([key, value]) => ({
+                        label: key,
+                        value: value,
+                    })),
+                ]}
+                value={assetFormat}
+                onChange={setAssetFormat}
+                disabledReason={exportsLoading ? 'Loading exports...' : undefined}
+            />
+            <LemonButton
+                onClick={loadExports}
+                type="tertiary"
+                size="small"
+                icon={<IconRefresh />}
+                loading={exportsLoading}
+            >
+                Refresh
+            </LemonButton>
+        </div>
+    )
+}
+
+function ExportRow({ asset }: { asset: ExportedAssetType }): JSX.Element {
+    const { freshUndownloadedExports } = useValues(sidePanelExportsLogic)
+    const { removeFresh } = useActions(sidePanelExportsLogic)
     const { setBlob } = useActions(takeScreenshotLogic({ screenshotKey: 'exports' }))
 
     const handleEdit = async (asset: ExportedAssetType): Promise<void> => {
@@ -39,106 +74,91 @@ const ExportsContent = (): JSX.Element => {
         setBlob(r)
     }
 
+    const isNotDownloaded = freshUndownloadedExports.some((fresh) => fresh.id === asset.id)
+    const stillCalculating = !asset.has_content && !asset.exception
+    let disabledReason: string | undefined = undefined
+    if (asset.exception) {
+        disabledReason = asset.exception
+    } else if (!asset.has_content) {
+        disabledReason = 'Export not ready yet'
+    }
+
+    return (
+        <div className="flex justify-between mt-2 gap-2 border rounded bg-fill-primary items-center">
+            <div className="flex items-center justify-between flex-auto p-2">
+                <div>
+                    <span className="text-link font-medium block">{asset.filename}</span>
+                    {asset.created_at && <span className="text-xs mt-1">{dayjs(asset.created_at).fromNow()}</span>}
+                    {asset.expires_after && (
+                        <span className="text-xs text-secondary mt-1">
+                            {' '}
+                            · expires {dayjs(asset.expires_after).fromNow()}
+                        </span>
+                    )}
+                    {isNotDownloaded && <span className="text-xs text-secondary mt-1"> · not downloaded yet</span>}
+                    {asset.export_format === ExporterFormat.CSV && (
+                        <span className="text-xs text-secondary mt-1"> · {ROW_LIMIT_IN_THOUSANDS}k row limit</span>
+                    )}
+                </div>
+            </div>
+            <div className="flex gap-2 mr-2">
+                {asset.export_format === ExporterFormat.PNG && (
+                    <LemonButton
+                        tooltip="Edit"
+                        size="small"
+                        disabledReason={disabledReason}
+                        type={isNotDownloaded ? 'primary' : 'secondary'}
+                        icon={<IconPencil />}
+                        onClick={() => {
+                            void handleEdit(asset)
+                        }}
+                    />
+                )}
+                <LemonButton
+                    tooltip="Download"
+                    size="small"
+                    type={isNotDownloaded ? 'primary' : 'secondary'}
+                    key={asset.id}
+                    disabledReason={disabledReason}
+                    onClick={() => {
+                        removeFresh(asset)
+                        void downloadExportedAsset(asset)
+                    }}
+                    sideIcon={
+                        stillCalculating ? (
+                            <Spinner />
+                        ) : asset.has_content ? (
+                            <IconDownload className="text-link" />
+                        ) : (
+                            <IconWarning className="text-link" />
+                        )
+                    }
+                />
+            </div>
+        </div>
+    )
+}
+
+const ExportsContent = (): JSX.Element => {
+    const { exports, exportsLoading } = useValues(sidePanelExportsLogic)
+
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
             <div className="flex-1 overflow-y-auto p-2">
-                <div className="flex justify-between items-center">
-                    <LemonSelect
-                        size="small"
-                        options={[
-                            {
-                                label: 'All',
-                                value: null,
-                            },
-                            ...Object.entries(ExporterFormat).map(([key, value]) => ({
-                                label: key,
-                                value: value,
-                            })),
-                        ]}
-                        value={assetFormat}
-                        onChange={setAssetFormat}
-                    />
-                    <LemonButton onClick={loadExports} type="tertiary" size="small" icon={<IconRefresh />}>
-                        Refresh
-                    </LemonButton>
-                </div>
+                <ExportPanelHeader />
 
                 <ScreenShotEditor screenshotKey="exports" />
-                {exports.map((asset) => {
-                    const isNotDownloaded = freshUndownloadedExports.some((fresh) => fresh.id === asset.id)
-                    const stillCalculating = !asset.has_content && !asset.exception
-                    let disabledReason: string | undefined = undefined
-                    if (asset.exception) {
-                        disabledReason = asset.exception
-                    } else if (!asset.has_content) {
-                        disabledReason = 'Export not ready yet'
-                    }
-
-                    return (
-                        <div
-                            className="flex justify-between mt-2 gap-2 border rounded bg-fill-primary items-center"
-                            key={asset.id}
-                        >
-                            <div className="flex items-center justify-between flex-auto p-2">
-                                <div>
-                                    <span className="text-link font-medium block">{asset.filename}</span>
-                                    {asset.created_at && (
-                                        <span className="text-xs mt-1">{dayjs(asset.created_at).fromNow()}</span>
-                                    )}
-                                    {asset.expires_after && (
-                                        <span className="text-xs text-secondary mt-1">
-                                            {' '}
-                                            · expires {dayjs(asset.expires_after).fromNow()}
-                                        </span>
-                                    )}
-                                    {isNotDownloaded && (
-                                        <span className="text-xs text-secondary mt-1"> · not downloaded yet</span>
-                                    )}
-                                    {asset.export_format === ExporterFormat.CSV && (
-                                        <span className="text-xs text-secondary mt-1">
-                                            {' '}
-                                            · {ROW_LIMIT_IN_THOUSANDS}k row limit
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                            <div className="flex gap-2 mr-2">
-                                {asset.export_format === ExporterFormat.PNG && (
-                                    <LemonButton
-                                        tooltip="Edit"
-                                        size="small"
-                                        disabledReason={disabledReason}
-                                        type={isNotDownloaded ? 'primary' : 'secondary'}
-                                        icon={<IconPencil />}
-                                        onClick={() => {
-                                            void handleEdit(asset)
-                                        }}
-                                    />
-                                )}
-                                <LemonButton
-                                    tooltip="Download"
-                                    size="small"
-                                    type={isNotDownloaded ? 'primary' : 'secondary'}
-                                    key={asset.id}
-                                    disabledReason={disabledReason}
-                                    onClick={() => {
-                                        removeFresh(asset)
-                                        void downloadExportedAsset(asset)
-                                    }}
-                                    sideIcon={
-                                        stillCalculating ? (
-                                            <Spinner />
-                                        ) : asset.has_content ? (
-                                            <IconDownload className="text-link" />
-                                        ) : (
-                                            <IconWarning className="text-link" />
-                                        )
-                                    }
-                                />
-                            </div>
-                        </div>
-                    )
-                })}
+                {exportsLoading ? (
+                    <LemonSkeleton repeat={10} active={true} fade={true} />
+                ) : exports.length === 0 ? (
+                    <div className="flex justify-between mt-2 gap-2 border rounded bg-fill-primary items-center">
+                        No exports matching current filters
+                    </div>
+                ) : (
+                    exports.map((asset) => {
+                        return <ExportRow asset={asset} key={asset.id} />
+                    })
+                )}
             </div>
         </div>
     )
