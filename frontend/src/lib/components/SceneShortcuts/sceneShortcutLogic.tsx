@@ -61,6 +61,44 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
     }),
 
     selectors({
+        shortcuts: [
+            (s) => [s.actionPaletteOpen],
+            (actionPaletteOpen: boolean): SceneShortcuts => {
+                return {
+                    app: {
+                        newTab: {
+                            keys: ['command', 'option', 't'],
+                            description: 'New tab',
+                            onAction: () => sceneShortcutLogic.actions.triggerNewTab(),
+                            order: -2,
+                        },
+                        closeCurrentTab: {
+                            keys: ['command', 'option', 'w'],
+                            description: 'Close current tab',
+                            onAction: () => sceneShortcutLogic.actions.triggerCloseCurrentTab(),
+                            order: -1,
+                        },
+                        toggleShortcutMenu: {
+                            keys: ['command', 'k'],
+                            description: 'Toggle shortcut menu',
+                            onAction: () => {
+                                sceneShortcutLogic.actions.setActionPaletteOpen(!actionPaletteOpen)
+                            },
+                            type: 'toggle',
+                            active: actionPaletteOpen,
+                        },
+                    },
+                    [Scene.Dashboard]: {
+                        toggleEditMode: {
+                            keys: ['command', 'option', 'e'],
+                            description: 'Toggle dashboard edit mode',
+                            sceneKey: Scene.Dashboard,
+                        },
+                    },
+                }
+            },
+        ],
+
         activeSceneShortcuts: [
             (s) => [s.sceneShortcuts, (state, props) => sceneLogic.selectors.activeTabId(state, props)],
             (
@@ -205,43 +243,8 @@ export const sceneShortcutLogic = kea<sceneShortcutLogicType>([
 
 type ShortcutDefinition = Omit<SceneShortcutProps, 'children'>
 
-type SceneShortcuts = {
+export type SceneShortcuts = {
     app: Record<string, ShortcutDefinition>
 } & {
     [key in Scene]?: Record<string, ShortcutDefinition>
-}
-
-export const SHORTCUTS: SceneShortcuts = {
-    app: {
-        // Here we define shortcuts that are available in all scenes
-        newTab: {
-            keys: ['command', 'option', 't'],
-            description: 'New tab',
-            onAction: () => sceneShortcutLogic.actions.triggerNewTab(),
-            order: -2,
-        },
-        closeCurrentTab: {
-            keys: ['command', 'option', 'w'],
-            description: 'Close current tab',
-            onAction: () => sceneShortcutLogic.actions.triggerCloseCurrentTab(),
-            order: -1,
-        },
-        toggleShortcutMenu: {
-            keys: ['command', 'k'],
-            description: 'Toggle shortcut menu',
-            onAction: () => {
-                sceneShortcutLogic.actions.setActionPaletteOpen(true)
-            },
-            type: 'toggle',
-            active: true,
-        },
-    },
-    // Here we define shortcuts that are available in specific scenes
-    [Scene.Dashboard]: {
-        toggleEditMode: {
-            keys: ['command', 'option', 'e'],
-            description: 'Toggle dashboard edit mode',
-            sceneKey: Scene.Dashboard,
-        },
-    },
 }

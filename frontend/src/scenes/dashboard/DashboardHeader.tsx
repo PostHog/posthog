@@ -9,7 +9,7 @@ import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { FullScreen } from 'lib/components/FullScreen'
 import { SceneShortcut } from 'lib/components/SceneShortcuts/SceneShortcut'
-import { SHORTCUTS } from 'lib/components/SceneShortcuts/sceneShortcutLogic'
+import { sceneShortcutLogic } from 'lib/components/SceneShortcuts/sceneShortcutLogic'
 import { SceneExportDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneExportDropdownMenu'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
@@ -86,6 +86,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { setScenePanelOpen } = useActions(sceneLayoutLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { user } = useValues(userLogic)
+    const { shortcuts } = useValues(sceneShortcutLogic)
 
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
@@ -255,7 +256,7 @@ export function DashboardHeader(): JSX.Element | null {
                     )}
                     {dashboard && canEditDashboard && (
                         <SceneShortcut
-                            {...SHORTCUTS[Scene.Dashboard]!.toggleEditMode}
+                            {...shortcuts[Scene.Dashboard]!.toggleEditMode}
                             onActionToggle={(active) => {
                                 if (active) {
                                     setDashboardMode(null, DashboardEventSource.SceneCommonButtons)

@@ -10,7 +10,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { IconPlus, IconX } from '@posthog/icons'
 
 import { SceneShortcut } from 'lib/components/SceneShortcuts/SceneShortcut'
-import { SHORTCUTS, sceneShortcutLogic } from 'lib/components/SceneShortcuts/sceneShortcutLogic'
+import { sceneShortcutLogic } from 'lib/components/SceneShortcuts/sceneShortcutLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
@@ -41,6 +41,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const { setActionPaletteOpen } = useActions(sceneShortcutLogic)
+    const { shortcuts } = useValues(sceneShortcutLogic)
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (over && active.id !== over.id) {
@@ -77,7 +78,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                 <SortableContext items={[...tabs.map((t) => t.id), 'new']} strategy={horizontalListSortingStrategy}>
                     <div className={cn('flex flex-row gap-1 max-w-full items-center', className)}>
                         <div className="pl-[2px] shrink-0">
-                            <SceneShortcut {...SHORTCUTS.app.toggleShortcutMenu}>
+                            <SceneShortcut {...shortcuts.app.toggleShortcutMenu}>
                                 <ButtonPrimitive
                                     iconOnly
                                     onClick={() => setActionPaletteOpen(true)}
@@ -106,7 +107,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 <SortableSceneTab key={tab.id} tab={tab} />
                             ))}
                         </div>
-                        <SceneShortcut {...SHORTCUTS.app.newTab}>
+                        <SceneShortcut {...shortcuts.app.newTab}>
                             <Link
                                 to={urls.newTab()}
                                 data-attr="scene-tab-new-button"
@@ -158,6 +159,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
     const inputRef = useRef<HTMLInputElement>(null)
     const { clickOnTab, removeTab, startTabEdit, endTabEdit, saveTabEdit } = useActions(sceneLogic)
     const { editingTabId, tabs } = useValues(sceneLogic)
+    const { shortcuts } = useValues(sceneShortcutLogic)
     const [editValue, setEditValue] = useState('')
     const canRemoveTab = tabs.length > 1
 
@@ -192,7 +194,7 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 className="border-0 rounded-none group/colorful-product-icons colorful-product-icons-true"
             >
                 {canRemoveTab && tab.active && (
-                    <SceneShortcut {...SHORTCUTS.app.closeCurrentTab} enabled={tab.active && tabs.length > 1}>
+                    <SceneShortcut {...shortcuts.app.closeCurrentTab} enabled={tab.active && tabs.length > 1}>
                         <ButtonPrimitive
                             onClick={(e) => {
                                 e.stopPropagation()
