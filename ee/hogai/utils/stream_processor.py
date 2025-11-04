@@ -150,9 +150,6 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
     ) -> AssistantResultUnion | None:
         """Handle a message from a node."""
         node_name = cast(MaxNodeName, action.node_name)
-
-        # Set the parent tool call id on the message if it's required,
-        # so the frontend can properly display the message chain.
         produced_message: AssistantResultUnion | None = None
 
         # Output all messages from the top-level graph.
