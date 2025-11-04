@@ -50,14 +50,19 @@ runs:
         - name: Extract tar archives
           shell: bash
           run: |
-              # Extract all tar files from downloaded artifacts
-              mkdir -p ${{ inputs.snapshot-path }}
-
               # Check if download succeeded and artifacts exist
               if [ "${{ steps.download.outcome }}" == "failure" ]; then
                 echo "No artifacts found - all tests passed with no snapshot changes"
                 exit 0
               fi
+
+              # Clear snapshot directory to handle deletions properly
+              # Without this, deleted snapshots would remain from the checkout
+              if [ -d "${{ inputs.snapshot-path }}" ]; then
+                echo "Clearing existing snapshots to handle deletions..."
+                rm -rf ${{ inputs.snapshot-path }}
+              fi
+              mkdir -p ${{ inputs.snapshot-path }}
 
               if [ -d /tmp/snapshot-artifacts/ ] && [ "$(ls -A /tmp/snapshot-artifacts/*.tar.gz 2>/dev/null)" ]; then
                 for tar in /tmp/snapshot-artifacts/*.tar.gz; do
