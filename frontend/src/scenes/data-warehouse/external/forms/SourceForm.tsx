@@ -260,8 +260,22 @@ export function SourceFormComponent({
                 )}
             </Group>
             {showPrefix && (
-                <LemonField name="prefix" label="Table prefix (optional)">
-                    {({ value, onChange }) => {
+                <LemonField
+                    name="prefix"
+                    label="Table prefix (optional)"
+                    help="Use only letters, numbers, and underscores. Must start with a letter or underscore."
+                >
+                    {({ value, onChange, error }) => {
+                        const cleaned = value ? value.trim().replace(/^_+|_+$/g, '') : ''
+                        let validationError = ''
+
+                        if (cleaned && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(cleaned)) {
+                            validationError =
+                                'Prefix must contain only letters, numbers, and underscores, and start with a letter or underscore'
+                        } else if (value && !cleaned) {
+                            validationError = 'Prefix cannot consist of only underscores'
+                        }
+
                         const tableName = value
                             ? `${sourceConfig.name.toLowerCase()}.${value}.table_name`
                             : `${sourceConfig.name.toLowerCase()}.table_name`
@@ -273,7 +287,9 @@ export function SourceFormComponent({
                                     placeholder="internal"
                                     value={value}
                                     onChange={onChange}
+                                    status={validationError ? 'danger' : undefined}
                                 />
+                                {validationError && <p className="text-danger text-xs mt-1">{validationError}</p>}
                                 <p>
                                     Example table name:&nbsp;
                                     <strong>{tableName}</strong>
