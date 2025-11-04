@@ -25,6 +25,7 @@ export function ItemSessionChange({ item }: ItemSessionChangeProps): JSX.Element
                     to={urls.replaySingle(targetSession)}
                     icon={item.tag === '$session_starting' ? <IconArrowLeft /> : <IconArrowRight />}
                     tooltip="PostHog might split user sessions, for example if a session has been idle for a long time. You can jump between these sessions to see the continued journey for the user."
+                    data-attr="session-recording-player-inspector-item-session-change-button"
                 >
                     Jump to {item.tag === '$session_starting' ? 'previous' : 'next'} session
                 </LemonButton>
