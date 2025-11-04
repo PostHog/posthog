@@ -94,8 +94,8 @@ runs:
           env:
               GH_TOKEN: ${{ inputs.github-token }}
           run: |
-              gh pr merge --disable-auto ${{ inputs.pr-number }}
-              echo "Auto-merge disabled - snapshot changes require human review"
+              gh pr merge --disable-auto ${{ inputs.pr-number }} || echo "Auto-merge was not enabled"
+              echo "Snapshot changes require human review"
 
         - name: Post snapshot comment
           if: steps.commit.outputs.committed == 'true'
