@@ -1,10 +1,11 @@
 from copy import deepcopy
-from typing import Optional, cast
+from typing import Optional, Union, cast
 
 from posthog.schema import (
     ActionsNode,
     ExperimentDataWarehouseNode,
     ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
@@ -29,19 +30,14 @@ from posthog.hogql_queries.experiments.base_query_utils import (
 from posthog.hogql_queries.experiments.exposure_query_logic import normalize_to_exposure_criteria
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import extract_aggregation_and_inner_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models import Experiment
 from posthog.models.team.team import Team
 
 
 def get_exposure_config_params_for_builder(
-    experiment: Experiment,
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
 ) -> tuple[ExperimentEventExposureConfig | ActionsNode, MultipleVariantHandling, bool]:
-    """A helper function that takes an experiment and returns some of the required parameters for the query builder.
-
-    This is to decouple the relation a bit between experiments and the builder it self. The builder shouldn't need to know this
-    experiment specific stuff.
-    """
-    criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
+    """Returns exposure-related parameters required by the query builder."""
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     if criteria is None:
         exposure_config = ExperimentEventExposureConfig(event="$feature_flag_called", properties=[])

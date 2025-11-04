@@ -119,9 +119,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
     def _get_exposure_query(self) -> ast.SelectQuery:
         if self._should_use_new_query_builder():
             # Use new CTE-based query builder
-            exposure_config, multiple_variant_handling, filter_test_accounts = get_exposure_config_params_for_builder(
-                self.experiment
-            )
+            (
+                exposure_config,
+                multiple_variant_handling,
+                filter_test_accounts,
+            ) = get_exposure_config_params_for_builder(self.exposure_criteria)
 
             builder = ExperimentQueryBuilder(
                 team=self.team,
