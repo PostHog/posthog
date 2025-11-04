@@ -662,7 +662,7 @@ def get_synthetic_playlist(short_id: str, team: Team | None = None) -> Synthetic
                         groups={"organization": str(team.organization_id)},
                     )
                     # Skip if flag is not set to "test" variant
-                    if flag_result is None or flag_result != "test":
+                    if flag_result is None or flag_result != "test":  # type: ignore[comparison-overlap]
                         continue
                 except Exception:
                     # If feature flag check fails, skip this source
@@ -690,7 +690,7 @@ def get_all_synthetic_playlists(team: Team) -> list[SyntheticPlaylistDefinition]
                     str(team.uuid),
                     groups={"organization": str(team.organization_id)},
                 )
-                if flag_result is None or flag_result != "test":
+                if flag_result is None or flag_result != "test":  # type: ignore[comparison-overlap]
                     continue
             except Exception:
                 # If feature flag check fails, skip this source
