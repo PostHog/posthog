@@ -193,7 +193,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
     return filters
 
 
-# ========= Realtime Cohort helpers ========= #
+# Realtime Cohort helpers
 
 
 def build_behavioral_event_expr(behavioral_filter: dict, team: Team) -> ast.Expr | None:
