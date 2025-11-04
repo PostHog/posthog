@@ -879,23 +879,32 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
         # TODO: Move this into the producer to support dataclasses
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 
-        if created and instance.team_id is not None:
-            produce_internal_event(
-                team_id=instance.team_id,
-                event=InternalEventEvent(
-                    event="$activity_log_entry_created",
-                    distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
-                    properties=serialized_data,
-                ),
-                person=(
-                    InternalEventPerson(
-                        id=user_data["id"],
-                        properties=user_data,
-                    )
-                    if user_data
-                    else None
-                ),
-            )
+        if created:
+            if instance.team_id is not None:
+                produce_internal_event(
+                    team_id=instance.team_id,
+                    event=InternalEventEvent(
+                        event="$activity_log_entry_created",
+                        distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
+                        properties=serialized_data,
+                    ),
+                    person=(
+                        InternalEventPerson(
+                            id=user_data["id"],
+                            properties=user_data,
+                        )
+                        if user_data
+                        else None
+                    ),
+                )
+            elif instance.organization_id is not None:
+                from posthog.tasks.activity_log import broadcast_activity_log_to_organization
+
+                broadcast_activity_log_to_organization.delay(
+                    organization_id=instance.organization_id,
+                    serialized_data=serialized_data,
+                    user_data=user_data,
+                )
     except Exception as e:
         # We don't want to hard fail here.
         logger.exception("Failed to produce internal event", data=serialized_data, error=e)
