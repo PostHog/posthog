@@ -94,7 +94,10 @@ runs:
                 git add ${{ inputs.snapshot-path }} -A
                 git commit -m "${{ inputs.commit-message }}"
                 # Pull before push to avoid race condition when multiple workflows commit simultaneously
-                git pull --rebase --autostash --quiet
+                # Only fetch current branch to avoid verbose output from fetching all branches
+                CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+                git fetch origin "$CURRENT_BRANCH" --quiet
+                git rebase origin/"$CURRENT_BRANCH" --autostash
                 git push --quiet
                 SNAPSHOT_SHA=$(git rev-parse HEAD)
                 echo "committed=true" >> $GITHUB_OUTPUT
