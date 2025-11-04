@@ -351,7 +351,7 @@ class TestGeminiErrorHandling(BaseTest):
         mock_posthog.return_value = self.mock_posthog_client
         mock_genai.return_value = self.mock_genai_client
 
-        self.mock_genai_client.models.generate_content_stream.side_effect = APIError("API rate limit exceeded", {})  # type: ignore
+        self.mock_genai_client.models.generate_content_stream.side_effect = APIError("API rate limit exceeded", {})
 
         provider = GeminiProvider("gemini-2.0-flash")
         response = provider.stream_response(system="Be helpful", messages=self.messages, distinct_id="test-user")
