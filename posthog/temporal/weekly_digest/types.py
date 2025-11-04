@@ -192,7 +192,7 @@ class TeamDigest(BaseModel):
             == 0
         )
 
-    def render_payload(self):
+    def render_payload(self) -> dict[str, str | dict[str, list]]:
         return {
             "team_name": self.name,
             "report": {
@@ -228,8 +228,13 @@ class OrganizationDigest(BaseModel):
     def is_empty(self) -> bool:
         return all(digest.is_empty() for digest in self.team_digests)
 
-    def render_payload(self):
-        return {"organization_name": self.name, "teams": [td.render_payload() for td in self.team_digests]}
+    def render_payload(self) -> dict[str, str | list]:
+        return {
+            "organization_name": self.name,
+            "teams": [td.render_payload() for td in self.team_digests],
+            "scope": "user",
+            "template_name": "periodic_digest_report",
+        }
 
 
 class PlaylistCount(BaseModel):
