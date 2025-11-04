@@ -42,10 +42,10 @@ await buildInParallel(
             ...common,
         },
         {
-            name: 'Test Worker',
-            entryPoints: ['src/scenes/session-recordings/player/testWorker.ts'],
+            name: 'Decompression Worker',
+            entryPoints: ['src/scenes/session-recordings/player/snapshot-processing/decompressionWorker.ts'],
             format: 'esm',
-            outfile: path.resolve(__dirname, 'dist', 'testWorker.js'),
+            outfile: path.resolve(__dirname, 'dist', 'decompressionWorker.js'),
             ...common,
         },
         {
