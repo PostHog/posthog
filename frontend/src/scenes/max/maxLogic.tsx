@@ -1,12 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBook, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
+import { IconBook, IconFlag, IconPlug } from '@posthog/icons'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { IconSurveys } from 'lib/lemon-ui/icons'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -16,6 +15,7 @@ import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
@@ -503,7 +503,7 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
 export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Product analytics',
-        icon: <IconGraph />,
+        icon: iconForType('product_analytics'),
         suggestions: [
             {
                 content: 'Create a funnel of the Pirate Metrics (AARRR)',
@@ -525,7 +525,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     },
     {
         label: 'SQL',
-        icon: <IconHogQL />,
+        icon: iconForType('sql_editor'),
         suggestions: [
             {
                 content: 'Write an SQL query to…',
@@ -536,7 +536,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     },
     {
         label: 'Session replay',
-        icon: <IconRewindPlay />,
+        icon: iconForType('session_replay'),
         suggestions: [
             {
                 content: 'Find recordings for…',
@@ -574,8 +574,38 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
         tooltip: 'Max can help you set up PostHog SDKs in your stack.',
     },
     {
+        label: 'Feature flags',
+        icon: <IconFlag />,
+        suggestions: [
+            {
+                content: 'Create a flag to gradually roll out…',
+            },
+            {
+                content: 'Create a flag that starts at 10% rollout for…',
+            },
+            {
+                content: 'Create a multivariate flag for…',
+            },
+            {
+                content: 'Create a beta testing flag for…',
+            },
+        ],
+    },
+    {
+        label: 'Experiments',
+        icon: iconForType('experiment'),
+        suggestions: [
+            {
+                content: 'Create an experiment to test…',
+            },
+            {
+                content: 'Set up an A/B test with a 70/30 split between control and test for…',
+            },
+        ],
+    },
+    {
         label: 'Surveys',
-        icon: <IconSurveys />,
+        icon: iconForType('survey'),
         suggestions: [
             {
                 content: 'Create a survey to collect NPS responses from users',

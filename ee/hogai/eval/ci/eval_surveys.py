@@ -8,9 +8,8 @@ from posthog.schema import SurveyCreationSchema
 
 from posthog.models import FeatureFlag
 
-from products.surveys.backend.max_tools import FeatureFlagLookupGraph
-
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.root.tools.create_survey import FeatureFlagLookupGraph
 from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval

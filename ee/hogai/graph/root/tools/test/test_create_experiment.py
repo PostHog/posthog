@@ -1,9 +1,9 @@
 from posthog.test.base import APIBaseTest
 
 from posthog.models import Experiment, FeatureFlag
+from posthog.sync import database_sync_to_async
 
-from products.experiments.backend.max_tools import CreateExperimentTool
-
+from ee.hogai.graph.root.tools.create_experiment import CreateExperimentTool
 from ee.hogai.utils.types import AssistantState
 
 
@@ -39,21 +39,22 @@ class TestCreateExperimentTool(APIBaseTest):
         )
 
         assert "Successfully created" in result
-        assert artifact["experiment_name"] == "Test Experiment"
-        assert artifact["feature_flag_key"] == "test-experiment-flag"
-        assert "/experiments/" in artifact["url"]
-
-        from posthog.sync import database_sync_to_async
+        assert isinstance(artifact, dict)
+        self.assertEqual(artifact["experiment_name"], "Test Experiment")
+        self.assertEqual(artifact["feature_flag_key"], "test-experiment-flag")
+        self.assertIn("/experiments/", artifact["url"])
+        self.assertEqual(artifact["type"], "product")
+        self.assertIn("/experiments/", artifact["url"])
 
         @database_sync_to_async
         def get_experiment():
             return Experiment.objects.select_related("feature_flag").get(name="Test Experiment", team=self.team)
 
         experiment = await get_experiment()
-        assert experiment.description == ""
-        assert experiment.type == "product"
-        assert experiment.start_date is None  # Draft
-        assert experiment.feature_flag.key == "test-experiment-flag"
+        self.assertEqual(experiment.description, "")
+        self.assertEqual(experiment.type, "product")
+        self.assertIsNone(experiment.start_date)  # Draft
+        self.assertEqual(experiment.feature_flag.key, "test-experiment-flag")
 
     async def test_create_experiment_with_description(self):
         # Create feature flag first
@@ -86,10 +87,10 @@ class TestCreateExperimentTool(APIBaseTest):
             description="Testing new checkout flow to improve conversion rates",
         )
 
-        assert "Successfully created" in result
+        self.assertIn("Successfully created", result)
 
         experiment = await Experiment.objects.aget(name="Checkout Experiment", team=self.team)
-        assert experiment.description == "Testing new checkout flow to improve conversion rates"
+        self.assertEqual(experiment.description, "Testing new checkout flow to improve conversion rates")
 
     async def test_create_experiment_web_type(self):
         # Create feature flag first
@@ -122,11 +123,12 @@ class TestCreateExperimentTool(APIBaseTest):
             type="web",
         )
 
-        assert "Successfully created" in result
-        assert artifact["type"] == "web"
+        self.assertIn("Successfully created", result)
+        assert isinstance(artifact, dict)
+        self.assertEqual(artifact["type"], "web")
 
         experiment = await Experiment.objects.aget(name="Homepage Redesign", team=self.team)
-        assert experiment.type == "web"
+        self.assertEqual(experiment.type, "web")
 
     async def test_create_experiment_duplicate_name(self):
         flag = await FeatureFlag.objects.acreate(
@@ -178,9 +180,10 @@ class TestCreateExperimentTool(APIBaseTest):
             feature_flag_key="another-flag",
         )
 
-        assert "Failed to create" in result
-        assert "already exists" in result
-        assert artifact.get("error")
+        self.assertIn("Failed to create", result)
+        self.assertIn("already exists", result)
+        assert isinstance(artifact, dict)
+        self.assertIsNotNone(artifact.get("error"))
 
     async def test_create_experiment_with_existing_flag(self):
         # Create a feature flag first
@@ -212,16 +215,14 @@ class TestCreateExperimentTool(APIBaseTest):
             feature_flag_key="existing-flag",
         )
 
-        assert "Successfully created" in result
-
-        from posthog.sync import database_sync_to_async
+        self.assertIn("Successfully created", result)
 
         @database_sync_to_async
         def get_experiment():
             return Experiment.objects.select_related("feature_flag").get(name="New Experiment", team=self.team)
 
         experiment = await get_experiment()
-        assert experiment.feature_flag.key == "existing-flag"
+        self.assertEqual(experiment.feature_flag.key, "existing-flag")
 
     async def test_create_experiment_flag_already_used(self):
         # Create a flag and experiment
@@ -258,9 +259,10 @@ class TestCreateExperimentTool(APIBaseTest):
             feature_flag_key="used-flag",
         )
 
-        assert "Failed to create" in result
-        assert "already used by experiment" in result
-        assert artifact.get("error")
+        self.assertIn("Failed to create", result)
+        self.assertIn("already used by experiment", result)
+        assert isinstance(artifact, dict)
+        self.assertIsNotNone(artifact.get("error"))
 
     async def test_create_experiment_default_parameters(self):
         # Create feature flag first
@@ -292,17 +294,21 @@ class TestCreateExperimentTool(APIBaseTest):
             feature_flag_key="param-test",
         )
 
-        assert "Successfully created" in result
+        self.assertIn("Successfully created", result)
 
         experiment = await Experiment.objects.aget(name="Parameter Test", team=self.team)
         # Variants should come from the feature flag, not hardcoded
-        assert experiment.parameters["feature_flag_variants"] == [
-            {"key": "control", "name": "Control", "rollout_percentage": 50},
-            {"key": "test", "name": "Test", "rollout_percentage": 50},
-        ]
-        assert experiment.parameters["minimum_detectable_effect"] == 30
-        assert experiment.metrics == []
-        assert experiment.metrics_secondary == []
+        assert isinstance(experiment.parameters, dict)
+        self.assertEqual(
+            experiment.parameters["feature_flag_variants"],
+            [
+                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                {"key": "test", "name": "Test", "rollout_percentage": 50},
+            ],
+        )
+        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 30)
+        self.assertEqual(experiment.metrics, [])
+        self.assertEqual(experiment.metrics_secondary, [])
 
     async def test_create_experiment_missing_flag(self):
         """Test error when trying to create experiment with non-existent flag."""
@@ -318,9 +324,10 @@ class TestCreateExperimentTool(APIBaseTest):
             feature_flag_key="non-existent-flag",
         )
 
-        assert "Failed to create" in result
-        assert "does not exist" in result
-        assert artifact.get("error")
+        self.assertIn("Failed to create", result)
+        self.assertIn("does not exist", result)
+        assert isinstance(artifact, dict)
+        self.assertIsNotNone(artifact.get("error"))
 
     async def test_create_experiment_flag_without_variants(self):
         """Test error when flag doesn't have multivariate variants."""
@@ -345,9 +352,10 @@ class TestCreateExperimentTool(APIBaseTest):
             feature_flag_key="no-variants-flag",
         )
 
-        assert "Failed to create" in result
-        assert "must have multivariate variants" in result
-        assert artifact.get("error")
+        self.assertIn("Failed to create", result)
+        self.assertIn("must have multivariate variants", result)
+        assert isinstance(artifact, dict)
+        self.assertIsNotNone(artifact.get("error"))
 
     async def test_create_experiment_flag_with_one_variant(self):
         """Test error when flag has only 1 variant (need at least 2)."""
@@ -379,9 +387,10 @@ class TestCreateExperimentTool(APIBaseTest):
             feature_flag_key="one-variant-flag",
         )
 
-        assert "Failed to create" in result
-        assert "at least 2 variants" in result
-        assert artifact.get("error")
+        self.assertIn("Failed to create", result)
+        self.assertIn("at least 2 variants", result)
+        assert isinstance(artifact, dict)
+        self.assertIsNotNone(artifact.get("error"))
 
     async def test_create_experiment_uses_flag_variants(self):
         """Test that experiment uses the actual variants from the feature flag."""
@@ -415,12 +424,13 @@ class TestCreateExperimentTool(APIBaseTest):
             feature_flag_key="custom-variants-flag",
         )
 
-        assert "Successfully created" in result
+        self.assertIn("Successfully created", result)
 
         experiment = await Experiment.objects.aget(name="Custom Variants Test", team=self.team)
-        assert len(experiment.parameters["feature_flag_variants"]) == 3
-        assert experiment.parameters["feature_flag_variants"][0]["key"] == "variant_a"
-        assert experiment.parameters["feature_flag_variants"][0]["name"] == "Variant A"
-        assert experiment.parameters["feature_flag_variants"][0]["rollout_percentage"] == 33
-        assert experiment.parameters["feature_flag_variants"][1]["key"] == "variant_b"
-        assert experiment.parameters["feature_flag_variants"][2]["key"] == "variant_c"
+        assert isinstance(experiment.parameters, dict)
+        self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 3)
+        self.assertEqual(experiment.parameters["feature_flag_variants"][0]["key"], "variant_a")
+        self.assertEqual(experiment.parameters["feature_flag_variants"][0]["name"], "Variant A")
+        self.assertEqual(experiment.parameters["feature_flag_variants"][0]["rollout_percentage"], 33)
+        self.assertEqual(experiment.parameters["feature_flag_variants"][1]["key"], "variant_b")
+        self.assertEqual(experiment.parameters["feature_flag_variants"][2]["key"], "variant_c")

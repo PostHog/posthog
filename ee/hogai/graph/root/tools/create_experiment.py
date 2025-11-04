@@ -46,7 +46,7 @@ Examples:
 - "Set up an A/B test for our pricing page redesign"
 - "Create an experiment called 'homepage-cta-test' to test different call-to-action buttons
 
-**IMPORTANT**: You must first find or create a multivariate feature flag using `create_feature_flag`, with at least two variants (control and test). Navigate to the feature flags page to create the flag, create the flag, then navigate back to the experiments page and use this tool to create the experiment."
+**IMPORTANT**: You must first find or create a multivariate feature flag using `create_feature_flag`, with at least two variants (control and test)."
     """.strip()
     context_prompt_template: str = "Creates a new A/B test experiment in the project"
     args_schema: type[BaseModel] = CreateExperimentArgs

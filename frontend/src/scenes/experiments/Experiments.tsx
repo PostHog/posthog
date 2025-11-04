@@ -439,10 +439,8 @@ export function Experiments(): JSX.Element {
                             identifier="create_experiment"
                             initialMaxPrompt="Create an experiment for "
                             suggestions={[
-                                'Create an experiment to test our new checkout flow',
-                                'Set up an A/B test for the pricing page redesign',
-                                'Create an experiment to test different call-to-action buttons on the homepage',
-                                'Create an experiment for testing our new recommendation algorithm',
+                                'Create an experiment to test…',
+                                'Set up an A/B test with a 70/30 split between control and test for…',
                             ]}
                             callback={(toolOutput: {
                                 experiment_id?: string | number

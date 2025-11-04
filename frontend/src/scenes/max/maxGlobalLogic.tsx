@@ -76,6 +76,21 @@ export const STATIC_TOOLS: ToolRegistration[] = [
         name: 'Query data',
         description: 'Query data by creating insights and SQL queries',
     },
+    {
+        identifier: 'create_survey' as const,
+        name: TOOL_DEFINITIONS['create_survey'].name,
+        description: TOOL_DEFINITIONS['create_survey'].description,
+    },
+    {
+        identifier: 'create_feature_flag' as const,
+        name: TOOL_DEFINITIONS['create_feature_flag'].name,
+        description: TOOL_DEFINITIONS['create_feature_flag'].description,
+    },
+    {
+        identifier: 'create_experiment' as const,
+        name: TOOL_DEFINITIONS['create_experiment'].name,
+        description: TOOL_DEFINITIONS['create_experiment'].description,
+    },
 ]
 
 export const maxGlobalLogic = kea<maxGlobalLogicType>([
@@ -129,10 +144,15 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         registeredToolMap: [
             {} as Record<string, ToolRegistration>,
             {
-                registerTool: (state, { tool }) => ({
-                    ...state,
-                    [tool.identifier]: tool,
-                }),
+                registerTool: (state, { tool }) => {
+                    if (STATIC_TOOLS.some((t) => t.identifier === tool.identifier)) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        [tool.identifier]: tool,
+                    }
+                },
                 deregisterTool: (state, { key }) => {
                     const newState = { ...state }
                     delete newState[key]
