@@ -56,6 +56,8 @@ class AssistantStreamProcessorProtocol(Protocol):
 
 StateType = TypeVar("StateType", bound=BaseStateWithMessages)
 
+MESSAGE_TYPE_TUPLE = get_args(AssistantMessageUnion)
+
 
 class AssistantStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateType]):
     """
@@ -161,7 +163,7 @@ class AssistantStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
 
         # Messages with existing IDs must be deduplicated.
         # Messages WITHOUT IDs must be streamed because they're progressive.
-        if isinstance(produced_message, get_args(AssistantMessageUnion)) and produced_message.id is not None:
+        if isinstance(produced_message, MESSAGE_TYPE_TUPLE) and produced_message.id is not None:
             if produced_message.id in self._streamed_update_ids:
                 return None
             self._streamed_update_ids.add(produced_message.id)
