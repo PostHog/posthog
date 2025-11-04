@@ -220,7 +220,12 @@ deploy:
         description: Migrate session recordings from MinIO to SeaweedFS for hobby deployments
     deploy:migrate-storage:
         bin_script: migrate-minio-to-seaweedfs
-        description: Migrate objects between MinIO and SeaweedFS (local dev and hobby)
+        description: "Migrate or sync object storage between MinIO and SeaweedFS\n\nServices:\
+            \ session-recordings, session-recordings-lts, query-cache, \n         media-uploads,\
+            \ exports, source-maps\n\nModes:\n  --mode migrate  One-way copy (default)\n\
+            \  --mode sync     Bidirectional sync\n\nExamples:\n  hogli deploy:migrate-storage\
+            \ --service query-cache --mode sync --dry-run\n  hogli deploy:migrate-storage\
+            \ --service media-uploads --mode migrate"
 build:
     build:frontend:
         cmd: pnpm --filter=@posthog/frontend build
@@ -423,7 +428,11 @@ tools:
         hidden: true
     create:notebook:node:
         bin_script: create-notebook-node.sh
-        description: 'Create a new NotebookNode file and update types and editor references'
+        description: Create a new NotebookNode file and update types and editor references
+        hidden: true
+    sync:storage:
+        bin_script: sync-storage
+        description: 'TODO: add description for sync-storage'
         hidden: true
 utilities:
     utilities:posthog-worktree:

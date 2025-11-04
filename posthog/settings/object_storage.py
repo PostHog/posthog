@@ -38,3 +38,21 @@ OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET = os.getenv("OBJECT_STORAGE_EXTERNA
 
 # Query cache specific bucket - falls back to general object storage bucket if not set
 QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+
+# SeaweedFS configuration (for gradual migration from MinIO)
+# These settings allow services to be migrated to SeaweedFS incrementally
+if TEST or DEBUG:
+    SEAWEEDFS_ENDPOINT = os.getenv("SEAWEEDFS_ENDPOINT", "http://localhost:8333")
+    SEAWEEDFS_ACCESS_KEY_ID = os.getenv("SEAWEEDFS_ACCESS_KEY_ID", "any")
+    SEAWEEDFS_SECRET_ACCESS_KEY = os.getenv("SEAWEEDFS_SECRET_ACCESS_KEY", "any")
+else:
+    SEAWEEDFS_ENDPOINT = os.getenv("SEAWEEDFS_ENDPOINT", "")
+    SEAWEEDFS_ACCESS_KEY_ID = os.getenv("SEAWEEDFS_ACCESS_KEY_ID", "") or None
+    SEAWEEDFS_SECRET_ACCESS_KEY = os.getenv("SEAWEEDFS_SECRET_ACCESS_KEY", "") or None
+
+# Feature flags for gradual migration to SeaweedFS
+# Set these to True to use SeaweedFS instead of MinIO for specific data types
+USE_SEAWEEDFS_FOR_QUERY_CACHE = get_from_env("USE_SEAWEEDFS_FOR_QUERY_CACHE", False, type_cast=str_to_bool)
+USE_SEAWEEDFS_FOR_MEDIA = get_from_env("USE_SEAWEEDFS_FOR_MEDIA", False, type_cast=str_to_bool)
+USE_SEAWEEDFS_FOR_EXPORTS = get_from_env("USE_SEAWEEDFS_FOR_EXPORTS", False, type_cast=str_to_bool)
+USE_SEAWEEDFS_FOR_SOURCE_MAPS = get_from_env("USE_SEAWEEDFS_FOR_SOURCE_MAPS", False, type_cast=str_to_bool)

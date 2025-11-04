@@ -1,22 +1,38 @@
 #!/usr/bin/env node
 
 /**
- * Migration script to copy session recording data from MinIO to SeaweedFS
+ * Migration and sync script for object storage between MinIO and SeaweedFS
  *
- * This script safely migrates session recording objects from MinIO (port 19000)
- * to SeaweedFS (port 8333) for local development environments only.
+ * This script supports:
+ * - One-way migration (MinIO → SeaweedFS or SeaweedFS → MinIO)
+ * - Bidirectional sync (keeps both storages in sync)
+ * - Multiple services (session recordings, exports, media uploads, etc.)
  *
  * Usage:
  *   node bin/migrate-minio-to-seaweedfs.js [options]
  *
  * Options:
- *   --service <name>    Service to migrate (default: session-recordings)
- *   --force             Overwrite existing objects in destination
- *   --dry-run           Show what would be migrated without copying
- *   --workers <n>       Number of concurrent workers (default: 5)
- *   --resume            Resume from last checkpoint
- *   --revert            Copy from SeaweedFS back to MinIO (reverse direction)
- *   --help              Show this help message
+ *   --service <name>       Service to migrate (default: session-recordings)
+ *   --mode <mode>          Mode: migrate | sync (default: migrate)
+ *   --force                Overwrite existing objects in destination
+ *   --dry-run              Show what would be migrated without copying
+ *   --workers <n>          Number of concurrent workers (default: 5)
+ *   --resume               Resume from last checkpoint
+ *   --revert               Copy from SeaweedFS back to MinIO (reverse direction)
+ *   --conflict <strategy>  Conflict resolution: newest | largest | skip (default: newest)
+ *   --help                 Show this help message
+ *
+ * Modes:
+ *   migrate  One-way copy from source to destination
+ *   sync     Bidirectional sync - copies missing objects in both directions
+ *
+ * Services:
+ *   session-recordings      Session recording blobs (V2)
+ *   session-recordings-lts  Long-term storage session recordings
+ *   query-cache            Query result cache
+ *   media-uploads          User uploaded media
+ *   exports                Exported assets (CSV, PNG, PDF, videos)
+ *   source-maps            Error tracking source maps
  */
 
 const {
@@ -34,7 +50,47 @@ const SERVICES = {
     'session-recordings': {
         bucket: 'posthog',
         prefix: 'session_recordings/',
-        description: 'Session recording blobs',
+        description: 'Session recording blobs (V2)',
+        bidirectional: true,
+        conflictResolution: 'newest',
+    },
+    'session-recordings-lts': {
+        bucket: 'posthog',
+        prefix: 'session_recordings_lts/',
+        description: 'Long-term storage session recordings',
+        bidirectional: true,
+        conflictResolution: 'newest',
+    },
+    'query-cache': {
+        bucket: 'posthog',
+        prefix: 'query_cache/',
+        description: 'Query result cache (ephemeral)',
+        bidirectional: true,
+        conflictResolution: 'skip', // Cache can be regenerated
+    },
+    'media-uploads': {
+        bucket: 'posthog',
+        prefix: 'media_uploads/',
+        description: 'User uploaded media files',
+        bidirectional: true,
+        conflictResolution: 'largest', // Keep largest to avoid corrupted files
+        critical: true,
+    },
+    exports: {
+        bucket: 'posthog',
+        prefix: 'exports/',
+        description: 'Exported assets (CSV, PNG, PDF, videos)',
+        bidirectional: true,
+        conflictResolution: 'newest',
+        critical: true,
+    },
+    'source-maps': {
+        bucket: 'posthog',
+        prefix: 'symbolsets/',
+        description: 'Error tracking source maps',
+        bidirectional: true,
+        conflictResolution: 'newest',
+        critical: true,
     },
 }
 
@@ -149,17 +205,26 @@ function parseArgs() {
     const args = process.argv.slice(2)
     const options = {
         service: 'session-recordings',
+        mode: 'migrate',
         force: false,
         dryRun: false,
         workers: 5,
         resume: false,
         revert: false,
+        conflictResolution: 'newest',
     }
 
     for (let i = 0; i < args.length; i++) {
         switch (args[i]) {
             case '--service':
                 options.service = args[++i]
+                break
+            case '--mode':
+                options.mode = args[++i]
+                if (!['migrate', 'sync'].includes(options.mode)) {
+                    console.error(`Invalid mode: ${options.mode}. Must be 'migrate' or 'sync'`)
+                    process.exit(1)
+                }
                 break
             case '--force':
                 options.force = true
@@ -175,6 +240,15 @@ function parseArgs() {
                 break
             case '--revert':
                 options.revert = true
+                break
+            case '--conflict':
+                options.conflictResolution = args[++i]
+                if (!['newest', 'largest', 'skip'].includes(options.conflictResolution)) {
+                    console.error(
+                        `Invalid conflict resolution: ${options.conflictResolution}. Must be 'newest', 'largest', or 'skip'`
+                    )
+                    process.exit(1)
+                }
                 break
             case '--help':
                 console.log(__doc__)
@@ -300,6 +374,42 @@ async function objectExists(client, bucket, key) {
     }
 }
 
+async function getObjectMetadata(client, bucket, key) {
+    try {
+        const response = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }))
+        return {
+            Size: response.ContentLength,
+            LastModified: response.LastModified,
+            ETag: response.ETag,
+        }
+    } catch (err) {
+        if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {
+            return null
+        }
+        throw err
+    }
+}
+
+async function objectsAreSame(sourceClient, destClient, bucket, key) {
+    const [sourceMetadata, destMetadata] = await Promise.all([
+        getObjectMetadata(sourceClient, bucket, key),
+        getObjectMetadata(destClient, bucket, key),
+    ])
+
+    // If destination doesn't exist, they're not the same
+    if (!destMetadata) {
+        return false
+    }
+
+    // If source doesn't exist (shouldn't happen), consider them different
+    if (!sourceMetadata) {
+        return false
+    }
+
+    // Use the needsSync logic (inverted)
+    return !needsSync(sourceMetadata, destMetadata)
+}
+
 async function copyObject(sourceClient, destClient, bucket, key) {
     const getCommand = new GetObjectCommand({ Bucket: bucket, Key: key })
     const response = await sourceClient.send(getCommand)
@@ -319,6 +429,90 @@ async function copyObject(sourceClient, destClient, bucket, key) {
     await destClient.send(putCommand)
 
     return { size: buffer.length }
+}
+
+async function listAllObjectsWithMetadata(client, bucket, prefix) {
+    const allObjects = []
+    let continuationToken = undefined
+
+    do {
+        const command = new ListObjectsV2Command({
+            Bucket: bucket,
+            Prefix: prefix,
+            ContinuationToken: continuationToken,
+        })
+        const response = await client.send(command)
+
+        if (response.Contents) {
+            allObjects.push(...response.Contents)
+        }
+
+        continuationToken = response.NextContinuationToken
+    } while (continuationToken)
+
+    return allObjects
+}
+
+function needsSync(objA, objB) {
+    // Different size = different content
+    if (objA.Size !== objB.Size) return true
+
+    // Different modification time (with tolerance of 2 seconds for clock skew)
+    const timeDiff = Math.abs(new Date(objA.LastModified) - new Date(objB.LastModified))
+    if (timeDiff > 2000) return true
+
+    // ETag comparison if available (not all S3 implementations provide this)
+    if (objA.ETag && objB.ETag && objA.ETag !== objB.ETag) return true
+
+    return false
+}
+
+async function resolveConflict(conflict, strategy, minioClient, seaweedfsClient, bucket) {
+    const { key, minioObj, seaweedfsObj } = conflict
+
+    let winnerObj, winnerClient, loserClient, winnerName
+
+    switch (strategy) {
+        case 'newest':
+            const minioTime = new Date(minioObj.LastModified)
+            const seaweedfsTime = new Date(seaweedfsObj.LastModified)
+            if (minioTime > seaweedfsTime) {
+                winnerObj = minioObj
+                winnerClient = minioClient
+                loserClient = seaweedfsClient
+                winnerName = 'MinIO'
+            } else {
+                winnerObj = seaweedfsObj
+                winnerClient = seaweedfsClient
+                loserClient = minioClient
+                winnerName = 'SeaweedFS'
+            }
+            break
+
+        case 'largest':
+            if (minioObj.Size > seaweedfsObj.Size) {
+                winnerObj = minioObj
+                winnerClient = minioClient
+                loserClient = seaweedfsClient
+                winnerName = 'MinIO'
+            } else {
+                winnerObj = seaweedfsObj
+                winnerClient = seaweedfsClient
+                loserClient = minioClient
+                winnerName = 'SeaweedFS'
+            }
+            break
+
+        case 'skip':
+            return { action: 'skipped', key }
+
+        default:
+            throw new Error(`Unknown conflict resolution strategy: ${strategy}`)
+    }
+
+    // Copy winner to loser
+    await copyObject(winnerClient, loserClient, bucket, key)
+    return { action: 'resolved', key, winner: winnerName, size: winnerObj.Size }
 }
 
 async function migrateService(serviceName, config, options, checkpoint) {
@@ -427,8 +621,9 @@ async function migrateService(serviceName, config, options, checkpoint) {
                     if (!obj) break
 
                     try {
-                        const exists = await objectExists(destClient, config.bucket, obj.Key)
-                        if (exists && !options.force) {
+                        // Check if objects are identical (same size, timestamp, content)
+                        const areSame = await objectsAreSame(sourceClient, destClient, config.bucket, obj.Key)
+                        if (areSame && !options.force) {
                             checkpoint.markSkipped(serviceName)
                             progress.increment('skipped')
                         } else {
@@ -462,7 +657,7 @@ async function migrateService(serviceName, config, options, checkpoint) {
     console.log('📊 Migration Summary')
     console.log(`${'='.repeat(80)}`)
     console.log(`✅ Completed: ${progress.completed}`)
-    console.log(`⊘  Skipped:   ${progress.skipped}`)
+    console.log(`⊘  Skipped:   ${progress.skipped} (already identical in destination)`)
     console.log(`✗  Failed:    ${progress.failed}`)
     console.log(`📦 Data transferred: ${(progress.bytesTransferred / 1024 / 1024).toFixed(2)} MB`)
     console.log(`⏱  Total time: ${Math.floor((Date.now() - progress.startTime) / 1000)}s`)
@@ -479,10 +674,244 @@ async function migrateService(serviceName, config, options, checkpoint) {
     }
 }
 
+async function syncService(serviceName, config, options, checkpoint) {
+    console.log(`\n${'='.repeat(80)}`)
+    console.log(`🔄 Syncing: ${serviceName}`)
+    console.log(`   ${config.description}`)
+    console.log(`   Mode: Bidirectional Sync`)
+    console.log(`   Bucket: ${config.bucket}`)
+    console.log(`   Prefix: ${config.prefix}`)
+    console.log(`${'='.repeat(80)}\n`)
+
+    // Create S3 clients
+    const minioClient = await createS3Client(
+        'http://localhost:19000',
+        'object_storage_root_user',
+        'object_storage_root_password'
+    )
+    const seaweedfsClient = await createS3Client('http://localhost:8333', 'any', 'any')
+
+    // Ensure bucket exists in both
+    await ensureBucketExists(minioClient, config.bucket)
+    await ensureBucketExists(seaweedfsClient, config.bucket)
+
+    // Test connectivity
+    const minioOk = await testConnectivity(minioClient, 'MinIO', config.bucket)
+    const seaweedfsOk = await testConnectivity(seaweedfsClient, 'SeaweedFS', config.bucket)
+
+    if (!minioOk || !seaweedfsOk) {
+        throw new Error('Failed to connect to storage backends')
+    }
+
+    // List objects from both sides
+    console.log(`📋 Listing objects from both storages...`)
+    const [minioObjects, seaweedfsObjects] = await Promise.all([
+        listAllObjectsWithMetadata(minioClient, config.bucket, config.prefix),
+        listAllObjectsWithMetadata(seaweedfsClient, config.bucket, config.prefix),
+    ])
+
+    console.log(`✅ MinIO: ${minioObjects.length} objects`)
+    console.log(`✅ SeaweedFS: ${seaweedfsObjects.length} objects`)
+
+    // Build key maps
+    const minioMap = new Map(minioObjects.map((o) => [o.Key, o]))
+    const seaweedfsMap = new Map(seaweedfsObjects.map((o) => [o.Key, o]))
+
+    // Find differences
+    const onlyInMinio = []
+    const onlyInSeaweedfs = []
+    const conflicts = []
+
+    for (const [key, minioObj] of minioMap) {
+        if (!seaweedfsMap.has(key)) {
+            onlyInMinio.push(minioObj)
+        } else {
+            const seaweedfsObj = seaweedfsMap.get(key)
+            if (needsSync(minioObj, seaweedfsObj)) {
+                conflicts.push({ key, minioObj, seaweedfsObj })
+            }
+        }
+    }
+
+    for (const [key, seaweedfsObj] of seaweedfsMap) {
+        if (!minioMap.has(key)) {
+            onlyInSeaweedfs.push(seaweedfsObj)
+        }
+    }
+
+    // Calculate objects already in sync
+    const totalObjects = minioObjects.length + seaweedfsObjects.length
+    const inBothStorages = minioObjects.filter((obj) => seaweedfsMap.has(obj.Key)).length
+    const alreadyInSync = inBothStorages - conflicts.length
+
+    console.log(`\n📊 Sync Analysis:`)
+    console.log(`   Total objects: ${totalObjects}`)
+    console.log(`   Already in sync: ${alreadyInSync} ✓`)
+    console.log(`   MinIO → SeaweedFS: ${onlyInMinio.length} objects`)
+    console.log(`   SeaweedFS → MinIO: ${onlyInSeaweedfs.length} objects`)
+    console.log(`   Conflicts to resolve: ${conflicts.length} objects`)
+
+    const totalOperations = onlyInMinio.length + onlyInSeaweedfs.length + conflicts.length
+
+    if (totalOperations === 0) {
+        console.log(`\n✨ Storages are already in sync! No changes needed.`)
+        return
+    }
+
+    if (options.dryRun) {
+        console.log('\n🔍 DRY RUN MODE - No objects will be copied\n')
+        if (onlyInMinio.length > 0) {
+            console.log('Would copy MinIO → SeaweedFS:')
+            onlyInMinio.slice(0, 5).forEach((obj) => {
+                console.log(`  - ${obj.Key} (${(obj.Size / 1024).toFixed(2)} KB)`)
+            })
+            if (onlyInMinio.length > 5) console.log(`  ... and ${onlyInMinio.length - 5} more`)
+        }
+        if (onlyInSeaweedfs.length > 0) {
+            console.log('\nWould copy SeaweedFS → MinIO:')
+            onlyInSeaweedfs.slice(0, 5).forEach((obj) => {
+                console.log(`  - ${obj.Key} (${(obj.Size / 1024).toFixed(2)} KB)`)
+            })
+            if (onlyInSeaweedfs.length > 5) console.log(`  ... and ${onlyInSeaweedfs.length - 5} more`)
+        }
+        if (conflicts.length > 0) {
+            const resolution = options.conflictResolution || config.conflictResolution
+            console.log(`\nWould resolve ${conflicts.length} conflicts using strategy: ${resolution}`)
+            conflicts.slice(0, 3).forEach((c) => {
+                console.log(`  - ${c.key}:`)
+                console.log(`    MinIO: ${(c.minioObj.Size / 1024).toFixed(2)} KB, ${c.minioObj.LastModified}`)
+                console.log(
+                    `    SeaweedFS: ${(c.seaweedfsObj.Size / 1024).toFixed(2)} KB, ${c.seaweedfsObj.LastModified}`
+                )
+            })
+            if (conflicts.length > 3) console.log(`  ... and ${conflicts.length - 3} more`)
+        }
+        return
+    }
+
+    // Sync in both directions
+    console.log(`\n🚀 Starting bidirectional sync with ${options.workers} workers...\n`)
+    const progress = new ProgressTracker(totalOperations)
+    const failedObjects = []
+
+    // Copy MinIO → SeaweedFS
+    console.log(`📤 Copying ${onlyInMinio.length} objects from MinIO to SeaweedFS...`)
+    const queue1 = [...onlyInMinio]
+    const workers1 = []
+    for (let i = 0; i < options.workers; i++) {
+        workers1.push(
+            (async () => {
+                while (true) {
+                    const obj = queue1.shift()
+                    if (!obj) break
+                    try {
+                        const result = await copyObject(minioClient, seaweedfsClient, config.bucket, obj.Key)
+                        progress.increment('completed', result.size)
+                    } catch (err) {
+                        progress.increment('failed')
+                        failedObjects.push({ key: obj.Key, error: err.message, direction: 'MinIO→SeaweedFS' })
+                    }
+                }
+            })()
+        )
+    }
+    await Promise.all(workers1)
+
+    // Copy SeaweedFS → MinIO
+    console.log(`📥 Copying ${onlyInSeaweedfs.length} objects from SeaweedFS to MinIO...`)
+    const queue2 = [...onlyInSeaweedfs]
+    const workers2 = []
+    for (let i = 0; i < options.workers; i++) {
+        workers2.push(
+            (async () => {
+                while (true) {
+                    const obj = queue2.shift()
+                    if (!obj) break
+                    try {
+                        const result = await copyObject(seaweedfsClient, minioClient, config.bucket, obj.Key)
+                        progress.increment('completed', result.size)
+                    } catch (err) {
+                        progress.increment('failed')
+                        failedObjects.push({ key: obj.Key, error: err.message, direction: 'SeaweedFS→MinIO' })
+                    }
+                }
+            })()
+        )
+    }
+    await Promise.all(workers2)
+
+    // Resolve conflicts
+    if (conflicts.length > 0) {
+        const resolution = options.conflictResolution || config.conflictResolution
+        console.log(`\n⚔️  Resolving ${conflicts.length} conflicts using strategy: ${resolution}...`)
+        const queue3 = [...conflicts]
+        const workers3 = []
+        for (let i = 0; i < options.workers; i++) {
+            workers3.push(
+                (async () => {
+                    while (true) {
+                        const conflict = queue3.shift()
+                        if (!conflict) break
+                        try {
+                            const result = await resolveConflict(
+                                conflict,
+                                resolution,
+                                minioClient,
+                                seaweedfsClient,
+                                config.bucket
+                            )
+                            if (result.action === 'skipped') {
+                                progress.increment('skipped')
+                            } else {
+                                progress.increment('completed', result.size)
+                            }
+                        } catch (err) {
+                            progress.increment('failed')
+                            failedObjects.push({ key: conflict.key, error: err.message, direction: 'conflict' })
+                        }
+                    }
+                })()
+            )
+        }
+        await Promise.all(workers3)
+    }
+
+    progress.finish()
+
+    // Summary
+    console.log(`\n${'='.repeat(80)}`)
+    console.log('📊 Sync Summary')
+    console.log(`${'='.repeat(80)}`)
+    console.log(`✅ Synced: ${progress.completed}`)
+    console.log(`⊘  Skipped: ${progress.skipped}`)
+    console.log(`✗  Failed: ${progress.failed}`)
+    console.log(`📦 Data transferred: ${(progress.bytesTransferred / 1024 / 1024).toFixed(2)} MB`)
+    console.log(`⏱  Total time: ${Math.floor((Date.now() - progress.startTime) / 1000)}s`)
+
+    if (failedObjects.length > 0) {
+        console.log(`\n❌ Failed objects:`)
+        failedObjects.slice(0, 10).forEach((obj) => {
+            console.log(`   [${obj.direction}] ${obj.key}: ${obj.error}`)
+        })
+        if (failedObjects.length > 10) {
+            console.log(`   ... and ${failedObjects.length - 10} more`)
+        }
+    }
+
+    if (config.critical && failedObjects.length > 0) {
+        console.log(`\n⚠️  WARNING: This is a CRITICAL service and ${failedObjects.length} objects failed to sync!`)
+    }
+}
+
 async function main() {
     const options = parseArgs()
 
-    const title = options.revert ? 'SeaweedFS to MinIO Migration Tool' : 'MinIO to SeaweedFS Migration Tool'
+    let title
+    if (options.mode === 'sync') {
+        title = 'Bidirectional Storage Sync Tool'
+    } else {
+        title = options.revert ? 'SeaweedFS to MinIO Migration Tool' : 'MinIO to SeaweedFS Migration Tool'
+    }
     console.log(`🔄 ${title}`)
     console.log('=====================================\n')
 
@@ -501,10 +930,19 @@ async function main() {
     const checkpoint = new Checkpoint(options.service)
 
     try {
-        await migrateService(options.service, config, options, checkpoint)
-        console.log('\n✨ Migration completed successfully!\n')
+        if (options.mode === 'sync') {
+            if (!config.bidirectional) {
+                console.warn(`⚠️  Warning: Service '${options.service}' is not configured for bidirectional sync.`)
+                console.warn(`   Proceeding anyway, but this service may not be suitable for sync mode.`)
+            }
+            await syncService(options.service, config, options, checkpoint)
+            console.log('\n✨ Sync completed successfully!\n')
+        } else {
+            await migrateService(options.service, config, options, checkpoint)
+            console.log('\n✨ Migration completed successfully!\n')
+        }
     } catch (err) {
-        console.error('\n❌ Migration failed:', err.message)
+        console.error(`\n❌ ${options.mode === 'sync' ? 'Sync' : 'Migration'} failed:`, err.message)
         console.error(err.stack)
         process.exit(1)
     }
