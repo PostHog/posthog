@@ -14,7 +14,7 @@ export STATSD_PORT=${STATSD_PORT:-8125}
 
 # Dual-mode support: USE_GRANIAN env var switches between Granian (default) and Unit
 if [ "${USE_GRANIAN:-true}" = "true" ]; then
-    echo "🚀 Starting with Granian ASGI server..."
+    echo "🚀 Starting with Granian ASGI server (default)..."
 
     # Granian configuration
     export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
@@ -38,7 +38,7 @@ if [ "${USE_GRANIAN:-true}" = "true" ]; then
         --access-log \
         --respawn-failed-workers
 else
-    echo "🔧 Starting with Nginx Unit server..."
+    echo "🔧 Starting with Nginx Unit server (fallback via USE_GRANIAN=false)..."
 
     export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
     export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
