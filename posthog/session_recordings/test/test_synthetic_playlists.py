@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from django.utils.timezone import now
 
@@ -296,15 +296,10 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
         # Clear replay events table before each test
         sync_execute("TRUNCATE TABLE sharded_session_replay_events")
 
-        # Mock the feature flag to return "test" variant
+        # Mock the feature flag to return "test" string directly
         self.feature_flag_patcher = patch("posthoganalytics.get_feature_flag")
         mock_get_feature_flag = self.feature_flag_patcher.start()
-
-        # Create a mock FeatureFlag object with variant="test"
-        mock_flag = Mock()
-        mock_flag.variant = "test"
-        mock_flag.enabled = True
-        mock_get_feature_flag.return_value = mock_flag
+        mock_get_feature_flag.return_value = "test"
 
     def tearDown(self):
         self.feature_flag_patcher.stop()
@@ -314,71 +309,18 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
         self, session_id: str, urls: list[str], timestamp: str | datetime | None = None
     ) -> None:
         """Helper to create a replay event with specific URLs"""
-        from posthog.clickhouse.client import sync_execute
-        from posthog.models.event.util import format_clickhouse_timestamp
-        from posthog.utils import cast_timestamp_or_now
+        from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
-        timestamp_dt = cast_timestamp_or_now(timestamp)
-        timestamp_str = format_clickhouse_timestamp(timestamp_dt)
-        # DateTime column needs format without microseconds
-        timestamp_dt_str = (
-            timestamp_dt.strftime("%Y-%m-%d %H:%M:%S")
-            if hasattr(timestamp_dt, "strftime")
-            else timestamp_str.split(".")[0]
-        )
-
-        # Insert directly into sharded_session_replay_events with all_urls
-        # Need to use SELECT syntax for AggregateFunction columns
-        sync_execute(
-            """
-            INSERT INTO sharded_session_replay_events (
-                session_id,
-                team_id,
-                distinct_id,
-                min_first_timestamp,
-                max_last_timestamp,
-                first_url,
-                all_urls,
-                click_count,
-                keypress_count,
-                mouse_activity_count,
-                active_milliseconds,
-                console_log_count,
-                console_warn_count,
-                console_error_count,
-                size,
-                retention_period_days,
-                _timestamp
-            )
-            SELECT
-                %(session_id)s,
-                %(team_id)s,
-                %(distinct_id)s,
-                toDateTime64(%(timestamp)s, 6, 'UTC'),
-                toDateTime64(%(timestamp)s, 6, 'UTC'),
-                argMinState(cast(%(first_url)s, 'Nullable(String)'), toDateTime64(%(timestamp)s, 6, 'UTC')),
-                %(all_urls)s,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                %(retention_days)s,
-                %(_timestamp)s
-            """,
-            {
-                "session_id": session_id,
-                "team_id": self.team.pk,
-                "distinct_id": "user",
-                "timestamp": timestamp_str,
-                "_timestamp": timestamp_dt_str,
-                "first_url": urls[0] if urls else "",
-                "all_urls": urls,
-                "retention_days": 30,
-            },
+        # Use the standard helper function which has proper type handling
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=session_id,
+            distinct_id="user",
+            first_timestamp=timestamp,
+            last_timestamp=timestamp,
+            first_url=urls[0] if urls else None,
+            all_urls=urls,
+            ensure_analytics_event_in_session=False,  # Don't create analytics events for these tests
         )
 
     def _get_playlists_response(self, query_params: str = "") -> dict:
@@ -417,8 +359,8 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
         # Check that playlist names include the URLs
         playlist_names = {p["name"] for p in new_url_playlists}
-        assert "New: https://new-page.com/checkout" in playlist_names
-        assert "New: https://new-page.com/pricing" in playlist_names
+        assert "New URL: https://new-page.com/checkout" in playlist_names
+        assert "New URL: https://new-page.com/pricing" in playlist_names
 
     def test_new_urls_ignores_historical_urls(self) -> None:
         """Test that URLs that appeared before the 14-day window are not considered new"""
@@ -459,7 +401,7 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
         # Should have 1 playlist only for the truly new URL
         assert len(new_url_playlists) == 1
-        assert new_url_playlists[0]["name"] == "New: https://new.com"
+        assert new_url_playlists[0]["name"] == "New URL: https://new.com"
 
     def test_retrieve_new_url_playlist(self) -> None:
         """Test retrieving a specific new URL playlist by its short_id"""
@@ -482,7 +424,7 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
         playlist = self._get_synthetic_playlist(short_id)
 
         assert playlist["short_id"] == short_id
-        assert playlist["name"] == "New: https://test.com/page"
+        assert playlist["name"] == "New URL: https://test.com/page"
         assert playlist["type"] == "collection"
         assert playlist["is_synthetic"] is True
         assert playlist["recordings_counts"]["collection"]["count"] == 2
@@ -510,25 +452,25 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
         """Test that new URL detection results are cached"""
         from django.core.cache import cache
 
-        from posthog.session_recordings.synthetic_playlists import NewUrlsSyntheticPlaylistSource
-
         cache.clear()
 
         now_time = datetime.now()
         self._produce_replay_with_urls("session-1", ["https://cached-url.com"], now_time - timedelta(days=1))
 
-        # First call should hit the database
-        cache_key = NewUrlsSyntheticPlaylistSource._get_cache_key(self.team.pk)
+        # First call should hit the database - cache should be empty
+        cache_key = f"new_urls_synthetic_playlist_with_sessions_{self.team.pk}"
         assert cache.get(cache_key) is None
 
         # Get playlists (should populate cache)
         new_url_playlists = self._get_new_url_playlists()
         assert len(new_url_playlists) == 1
 
-        # Cache should now be populated
-        cached_urls = cache.get(cache_key)
-        assert cached_urls is not None
-        assert "https://cached-url.com" in cached_urls
+        # Cache should now be populated with (counts_dict, sessions_dict) tuple
+        cached_data = cache.get(cache_key)
+        assert cached_data is not None
+        counts_dict, sessions_dict = cached_data
+        assert "https://cached-url.com" in counts_dict
+        assert "https://cached-url.com" in sessions_dict
 
         # Second call should use cache (even if we add more data)
         self._produce_replay_with_urls("session-2", ["https://another-url.com"], now_time - timedelta(days=1))
@@ -544,7 +486,8 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
         cache.clear()
 
         now_time = datetime.now()
-        long_url = "https://example.com/" + "a" * 100  # Very long URL
+        # Very long URL with multiple path segments (won't get normalized to placeholders)
+        long_url = "https://example.com/very/long/path/with/many/segments/that/should/be/truncated/in/the/display"
 
         self._produce_replay_with_urls("session-1", [long_url], now_time - timedelta(days=1))
 
@@ -552,8 +495,8 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
         assert len(new_url_playlists) == 1
 
         # Name should be truncated with ellipsis
-        assert new_url_playlists[0]["name"].startswith("New: ")
-        assert len(new_url_playlists[0]["name"]) <= 70  # "New: " + 60 chars + "..."
+        assert new_url_playlists[0]["name"].startswith("New URL: ")
+        assert len(new_url_playlists[0]["name"]) <= 73  # "New URL: " (9) + 60 chars + "..." (3) = 72
         assert new_url_playlists[0]["name"].endswith("...")
 
     def test_url_grouping_with_numeric_ids(self) -> None:
@@ -634,7 +577,7 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
 
         # Should have only 1 playlist (query params are stripped)
         assert len(new_url_playlists) == 1
-        assert new_url_playlists[0]["name"] == "New: https://app.posthog.com/billing"
+        assert new_url_playlists[0]["name"] == "New URL: https://app.posthog.com/billing"
 
         # Should contain all 3 sessions
         assert new_url_playlists[0]["recordings_counts"]["collection"]["count"] == 3
@@ -664,9 +607,9 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
         assert len(new_url_playlists) == 3
 
         playlist_names = {p["name"] for p in new_url_playlists}
-        assert "New: https://app.posthog.com/project/{id}/settings" in playlist_names
-        assert "New: https://app.posthog.com/project/{id}/billing" in playlist_names
-        assert "New: https://app.posthog.com/user/{id}/settings" in playlist_names
+        assert "New URL: https://app.posthog.com/project/{id}/settings" in playlist_names
+        assert "New URL: https://app.posthog.com/project/{id}/billing" in playlist_names
+        assert "New URL: https://app.posthog.com/user/{id}/settings" in playlist_names
 
         # Each should have 1 session
         for playlist in new_url_playlists:
@@ -709,19 +652,19 @@ class TestNewUrlsSyntheticPlaylists(APIBaseTest):
         # Verify counts
         playlist_by_name = {p["name"]: p for p in new_url_playlists}
 
-        settings_playlist = playlist_by_name.get("New: https://app.posthog.com/project/{id}/settings")
+        settings_playlist = playlist_by_name.get("New URL: https://app.posthog.com/project/{id}/settings")
         assert settings_playlist is not None
         assert settings_playlist["recordings_counts"]["collection"]["count"] == 2
 
-        insights_playlist = playlist_by_name.get("New: https://app.posthog.com/project/{id}/insights")
+        insights_playlist = playlist_by_name.get("New URL: https://app.posthog.com/project/{id}/insights")
         assert insights_playlist is not None
         assert insights_playlist["recordings_counts"]["collection"]["count"] == 1
 
-        recording_playlist = playlist_by_name.get("New: https://app.posthog.com/recording/{hash}")
+        recording_playlist = playlist_by_name.get("New URL: https://app.posthog.com/recording/{hash}")
         assert recording_playlist is not None
         assert recording_playlist["recordings_counts"]["collection"]["count"] == 2
 
-        dashboard_playlist = playlist_by_name.get("New: https://app.posthog.com/dashboard")
+        dashboard_playlist = playlist_by_name.get("New URL: https://app.posthog.com/dashboard")
         assert dashboard_playlist is not None
         assert dashboard_playlist["recordings_counts"]["collection"]["count"] == 1
 

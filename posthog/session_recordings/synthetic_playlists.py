@@ -371,14 +371,14 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
             return url
 
     @staticmethod
-    def _get_new_urls_with_counts(team: Team) -> dict[str, int]:
+    def _get_new_urls_with_sessions(team: Team) -> tuple[dict[str, int], dict[str, list[str]]]:
         """
         Query ClickHouse to find URL patterns that first appeared in the last 14 days.
-        Also pre-computes session counts for each pattern in a SINGLE query for performance.
+        Pre-computes BOTH session counts AND session IDs for each pattern in a SINGLE query.
 
-        Returns: dict mapping pattern -> session count
+        Returns: tuple of (pattern -> count dict, pattern -> session_ids list dict)
         """
-        cache_key = f"{NewUrlsSyntheticPlaylistSource.CACHE_KEY_PREFIX}_with_counts_{team.pk}"
+        cache_key = f"{NewUrlsSyntheticPlaylistSource.CACHE_KEY_PREFIX}_with_sessions_{team.pk}"
         cached_data = cache.get(cache_key)
         if cached_data is not None:
             return cached_data
@@ -441,10 +441,25 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
             key=lambda x: (-x[1], x[0]),  # Sort by count desc, then pattern asc
         )[:20]
 
-        result_dict = dict(sorted_patterns)
+        counts_dict = dict(sorted_patterns)
 
-        cache.set(cache_key, result_dict, NewUrlsSyntheticPlaylistSource.CACHE_TTL)
-        return result_dict
+        # Also prepare session IDs for the top patterns (convert sets to sorted lists)
+        sessions_dict = {pattern: sorted(pattern_sessions.get(pattern, set())) for pattern in counts_dict.keys()}
+
+        result_tuple = (counts_dict, sessions_dict)
+        cache.set(cache_key, result_tuple, NewUrlsSyntheticPlaylistSource.CACHE_TTL)
+        return result_tuple
+
+    @staticmethod
+    def _get_new_urls_with_counts(team: Team) -> dict[str, int]:
+        """
+        Query ClickHouse to find URL patterns that first appeared in the last 14 days.
+        Also pre-computes session counts for each pattern in a SINGLE query for performance.
+
+        Returns: dict mapping pattern -> session count
+        """
+        counts_dict, _ = NewUrlsSyntheticPlaylistSource._get_new_urls_with_sessions(team)
+        return counts_dict
 
     @staticmethod
     def _get_new_urls(team: Team) -> list[str]:
@@ -456,63 +471,16 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
     def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
         """
         Get session IDs for sessions that visited URLs matching this pattern.
-        Since self.url is a normalized pattern (like /project/{id}/settings),
-        we need to fetch all URLs and match them after normalization.
-
-        Uses caching to avoid expensive queries on every request.
+        Uses pre-computed session IDs from _get_new_urls_with_sessions for performance.
         """
         if not self.url:
             return []
 
-        # Cache key includes the pattern URL to ensure different patterns have different caches
-        cache_key = f"{self.CACHE_KEY_PREFIX}_sessions_{team.pk}_{hashlib.sha256(self.url.encode()).hexdigest()[:16]}"
-        cached_session_ids = cache.get(cache_key)
-        if cached_session_ids is not None:
-            return self._paginate_list(cached_session_ids, limit, offset)
+        # Get pre-computed session IDs (cached for 1 hour)
+        _, sessions_dict = self._get_new_urls_with_sessions(team)
 
-        now = datetime.now(pytz.timezone("UTC"))
-        lookback_start = now - timedelta(days=self.LOOKBACK_DAYS)
-
-        # Fetch sessions with their URLs from the lookback window
-        # We limit and sample to avoid fetching millions of rows for high-traffic teams
-        # Since results are cached for 1 hour, the first request will build the cache
-        query = """
-            SELECT
-                session_id,
-                arrayJoin(all_urls) as url
-            FROM session_replay_events
-            WHERE team_id = %(team_id)s
-                AND min_first_timestamp >= %(lookback_start)s
-                AND min_first_timestamp <= %(now)s
-                AND url != ''
-            ORDER BY min_first_timestamp DESC
-            LIMIT 100000
-        """
-
-        result = sync_execute(
-            query,
-            {
-                "team_id": team.pk,
-                "lookback_start": lookback_start,
-                "now": now,
-            },
-        )
-
-        # Filter to sessions where any URL normalizes to our pattern
-        # Use early termination if we find enough sessions (optimization)
-        matching_session_ids = set()
-        for session_id, raw_url in result:
-            normalized = self._normalize_url(raw_url)
-            if normalized == self.url:
-                matching_session_ids.add(session_id)
-                # Early termination: if we've found 1000+ sessions, that's plenty
-                # (we only show top 50 by default anyway)
-                if len(matching_session_ids) >= 1000:
-                    break
-
-        # Convert to sorted list for consistent ordering and cache it
-        session_ids = sorted(matching_session_ids)
-        cache.set(cache_key, session_ids, self.CACHE_TTL)
+        # Look up session IDs for this pattern
+        session_ids = sessions_dict.get(self.url, [])
 
         return self._paginate_list(session_ids, limit, offset)
 
