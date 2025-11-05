@@ -86,8 +86,6 @@ export const generatePiiMaskingCSS = (baseColor: string): string => {
     `
 }
 
-export const PII_MASKING_DEFAULT_COLOR = '#888888'
-
 export const PII_MASKING_PRESET_COLORS = [
     { label: 'Grey', value: '#888888' },
     { label: 'Red', value: '#aa7777' },
