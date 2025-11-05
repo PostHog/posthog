@@ -27,7 +27,7 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
     const { summaryData, summaryDataLoading } = useValues(logic)
     const { generateSummary } = useActions(logic)
     const [isRenderingMarkdown, setIsRenderingMarkdown] = useState(true)
-    const [summaryMode, setSummaryMode] = useState<SummaryMode>('detailed')
+    const [summaryMode, setSummaryMode] = useState<SummaryMode>('minimal')
 
     const isSummarizable = trace || (event && (event.event === '$ai_generation' || event.event === '$ai_span'))
 

@@ -11,7 +11,7 @@ from ..utils import load_summarization_template
 
 
 async def summarize_trace(
-    trace: dict[str, Any], hierarchy: list[dict[str, Any]], text_repr: str, mode: str = "detailed"
+    trace: dict[str, Any], hierarchy: list[dict[str, Any]], text_repr: str, mode: str = "minimal"
 ) -> str:
     """
     Generate a summary of a trace using LLM.

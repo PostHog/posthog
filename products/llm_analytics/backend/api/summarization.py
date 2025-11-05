@@ -37,7 +37,7 @@ class SummarizeRequestSerializer(serializers.Serializer):
     )
     mode = serializers.ChoiceField(
         choices=["minimal", "detailed"],
-        default="detailed",
+        default="minimal",
         help_text="Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points",
     )
     data = serializers.JSONField(

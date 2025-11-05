@@ -34,7 +34,7 @@ export const summaryTabLogic = kea([
     loaders(({ props }) => ({
         summaryData: {
             __default: null as { summary: string; text_repr: string } | null,
-            generateSummary: async (mode: SummaryMode = 'detailed') => {
+            generateSummary: async (mode: SummaryMode = 'minimal') => {
                 // Determine if we're summarizing a trace or an event
                 const isTrace = !!props.trace
 

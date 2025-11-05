@@ -10,7 +10,7 @@ from ..llm.call import call_summarization_llm
 from ..utils import load_summarization_template
 
 
-async def summarize_event(event: dict[str, Any], text_repr: str, mode: str = "detailed") -> str:
+async def summarize_event(event: dict[str, Any], text_repr: str, mode: str = "minimal") -> str:
     """
     Generate a summary of an event using LLM.
 
