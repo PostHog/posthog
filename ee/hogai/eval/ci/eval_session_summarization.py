@@ -7,7 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.graph.session_summaries.nodes import _SessionSearch
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
 from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
@@ -22,16 +22,7 @@ def call_root_for_replay_sessions(demo_org_team_user):
     graph = (
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-        .add_root(
-            {
-                "insights": AssistantNodeName.END,
-                "search_documentation": AssistantNodeName.END,
-                "session_summarization": AssistantNodeName.END,
-                "insights_search": AssistantNodeName.END,
-                "root": AssistantNodeName.END,
-                "end": AssistantNodeName.END,
-            }
-        )
+        .add_root(lambda state: AssistantNodeName.END)
         .compile(checkpointer=DjangoCheckpointer())
     )
 

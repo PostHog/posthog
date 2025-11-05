@@ -52,7 +52,7 @@ class WithInsightCreationTaskExecution:
         The type allows None for compatibility with the base class.
         """
         # Import here to avoid circular dependency
-        from ee.hogai.graph.graph import InsightsAssistantGraph
+        from ee.hogai.graph.insights_graph.graph import InsightsGraph
 
         task = cast(AssistantToolCall, input_dict["task"])
         artifacts = input_dict["artifacts"]
@@ -60,7 +60,7 @@ class WithInsightCreationTaskExecution:
 
         self._current_task_id = task.id
 
-        # This is needed by the InsightsAssistantGraph to return an AssistantToolCallMessage
+        # This is needed by the InsightsGraph to return an AssistantToolCallMessage
         task_tool_call_id = f"task_{uuid.uuid4().hex[:8]}"
         query = task.args["query_description"]
 
@@ -77,9 +77,7 @@ class WithInsightCreationTaskExecution:
         )
 
         subgraph_result_messages: list[AssistantMessageUnion] = []
-        assistant_graph = InsightsAssistantGraph(
-            self._team, self._user, tool_call_id=self._parent_tool_call_id
-        ).compile_full_graph()
+        assistant_graph = InsightsGraph(self._team, self._user).compile_full_graph()
         try:
             async for chunk in assistant_graph.astream(
                 input_state,
@@ -156,7 +154,7 @@ class WithInsightCreationTaskExecution:
             if isinstance(message, VisualizationMessage) and message.id:
                 artifact = InsightArtifact(
                     task_id=tool_call.id,
-                    id=None,  # The InsightsAssistantGraph does not create the insight objects
+                    id=None,  # The InsightsGraph does not create the insight objects
                     content="",
                     query=cast(AnyAssistantGeneratedQuery, message.answer),
                 )
@@ -194,9 +192,7 @@ class WithInsightSearchTaskExecution:
         )
 
         try:
-            result = await InsightSearchNode(self._team, self._user, tool_call_id=self._parent_tool_call_id).arun(
-                input_state, config
-            )
+            result = await InsightSearchNode(self._team, self._user).arun(input_state, config)
 
             if not result or not result.messages:
                 logger.warning("Task failed: no messages received from node executor", task_id=task.id)

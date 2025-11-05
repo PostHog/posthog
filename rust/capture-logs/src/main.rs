@@ -13,6 +13,8 @@ use health::HealthRegistry;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
+use limiters::token_dropper::TokenDropper;
+
 common_alloc::used!();
 
 fn setup_tracing() {
@@ -61,7 +63,8 @@ async fn main() {
     let management_bind = format!("{}:{}", config.management_host, config.management_port);
     info!("Healthcheck and metrics listening on {}", management_bind);
 
-    let logs_service = match Service::new(kafka_sink).await {
+    let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
+    let logs_service = match Service::new(kafka_sink, token_dropper).await {
         Ok(service) => service,
         Err(e) => {
             error!("Failed to initialize log service: {}", e);
