@@ -194,6 +194,11 @@ async fn handle_event_payload(
     };
     Span::current().record("batch_size", events.len());
 
+    // Normalize events: extract jwt and clock_skew from properties to top-level fields
+    for event in &mut events {
+        event.normalize();
+    }
+
     let token = match extract_and_verify_token(&events, maybe_batch_token) {
         Ok(token) => token,
         Err(err) => {
@@ -428,6 +433,9 @@ pub fn process_single_event(
         CaptureError::NonRetryableSinkError
     })?;
 
+    // Extract JWT from event properties
+    let jwt = event.extract_jwt();
+
     // Compute the actual event timestamp using our timestamp parsing logic
     let sent_at_utc = context.sent_at.map(|sa| {
         DateTime::from_timestamp(sa.unix_timestamp(), sa.nanosecond()).unwrap_or_default()
@@ -438,12 +446,16 @@ pub fn process_single_event(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
+    // Extract clock skew from event properties
+    let clock_skew = event.extract_clock_skew();
+
     // Parse the event timestamp
     let computed_timestamp = timestamp::parse_event_timestamp(
         event.timestamp.as_deref(),
         event.offset,
         sent_at_utc,
         ignore_sent_at,
+        clock_skew,
         context.now,
     );
 
@@ -454,6 +466,7 @@ pub fn process_single_event(
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: event_name.clone(),
+        jwt,
     };
 
     if historical_cfg.should_reroute(metadata.data_type, computed_timestamp) {
@@ -543,11 +556,13 @@ pub async fn process_replay_events<'a>(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
+    let clock_skew = events[0].extract_clock_skew();
     let computed_timestamp = timestamp::parse_event_timestamp(
         events[0].timestamp.as_deref(),
         events[0].offset,
         sent_at_utc,
         ignore_sent_at,
+        clock_skew,
         context.now,
     );
 
@@ -599,6 +614,7 @@ pub async fn process_replay_events<'a>(
         // missing lib could be one of multiple libraries, so we try to fall back to user agent
         .or_else(|| snapshot_library_fallback_from(context.user_agent.as_ref()))
         .unwrap_or_else(|| String::from("unknown"));
+    let jwt = events[0].extract_jwt();
 
     let mut snapshot_items: Vec<Value> = Vec::with_capacity(events.len());
     for mut event in events {
@@ -623,6 +639,7 @@ pub async fn process_replay_events<'a>(
         session_id: Some(session_id_str.to_string()),
         computed_timestamp: Some(computed_timestamp), // Use computed event timestamp
         event_name: "$snapshot_items".to_string(),
+        jwt,
     };
 
     let event = CapturedEvent {

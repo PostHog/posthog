@@ -235,6 +235,7 @@ fn build_kafka_event(
         None, // offset
         sent_at_utc,
         ignore_sent_at,
+        None, // clock_skew
         now,
     );
 
@@ -279,6 +280,7 @@ fn build_kafka_event(
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
         event_name: parsed.event_name,
+        jwt: None, // AI events don't use JWT
     };
 
     // Create ProcessedEvent

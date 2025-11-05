@@ -37,6 +37,7 @@ pub fn captured_parse_fn(
             None, // No offset for historical data
             None, // No sent_at for historical data
             true, // Ignore sent_at
+            None, // No clock_skew for historical data
             now,
         );
 

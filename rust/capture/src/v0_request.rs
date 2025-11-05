@@ -365,6 +365,8 @@ impl RawRequest {
                         set: engage_event.set,
                         set_once: engage_event.set_once,
                         properties: engage_event.properties,
+                        jwt: engage_event.jwt,
+                        clock_skew: engage_event.clock_skew,
                     }])
                 } else {
                     let err_msg = String::from("non-engage request missing event name attribute");
@@ -463,6 +465,7 @@ pub struct ProcessedEventMetadata {
     pub session_id: Option<String>,
     pub computed_timestamp: Option<chrono::DateTime<chrono::Utc>>,
     pub event_name: String,
+    pub jwt: Option<String>,
 }
 
 #[cfg(test)]

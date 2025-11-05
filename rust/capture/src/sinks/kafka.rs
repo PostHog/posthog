@@ -243,6 +243,11 @@ impl KafkaSink {
         // Use the event's to_headers() method for consistent header serialization
         let mut headers = event.to_headers();
 
+        // Add jwt from metadata if present
+        if let Some(jwt) = metadata.jwt.clone() {
+            headers.jwt = Some(jwt);
+        }
+
         drop(event); // Events can be EXTREMELY memory hungry
 
         let (topic, partition_key): (&str, Option<&str>) = match data_type {
@@ -496,6 +501,7 @@ mod tests {
             session_id: None,
             computed_timestamp: None,
             event_name: "test_event".to_string(),
+            jwt: None,
         };
 
         let event = ProcessedEvent {
@@ -640,6 +646,7 @@ mod tests {
             now: Some("2023-01-01T12:00:00Z".to_string()),
             force_disable_person_processing: None,
             historical_migration: Some(true),
+            jwt: None,
         };
 
         let owned_headers: OwnedHeaders = headers_historical.into();
@@ -656,6 +663,7 @@ mod tests {
             now: Some("2023-01-01T12:00:00Z".to_string()),
             force_disable_person_processing: None,
             historical_migration: Some(false),
+            jwt: None,
         };
 
         let owned_headers: OwnedHeaders = headers_main.into();
@@ -680,6 +688,7 @@ mod tests {
             now: Some(test_now.clone()),
             force_disable_person_processing: None,
             historical_migration: None,
+            jwt: None,
         };
 
         // Convert to owned headers and back

@@ -12,6 +12,7 @@ const FUTURE_EVENT_HOURS_CUTOFF_MILLIS: i64 = 23 * 3600 * 1000; // 23 hours
 /// * `offset` - The offset in milliseconds (optional)
 /// * `sent_at` - The client-sent timestamp (optional)
 /// * `ignore_sent_at` - Whether to ignore sent_at for clock skew adjustment
+/// * `clock_skew` - The clock skew in milliseconds (optional, added to computed timestamp)
 /// * `now` - The current server timestamp
 ///
 /// # Returns
@@ -21,6 +22,7 @@ pub fn parse_event_timestamp(
     offset: Option<i64>,
     sent_at: Option<DateTime<Utc>>,
     ignore_sent_at: bool,
+    clock_skew: Option<i64>,
     now: DateTime<Utc>,
 ) -> DateTime<Utc> {
     // Use sent_at only if not ignored
@@ -28,6 +30,11 @@ pub fn parse_event_timestamp(
 
     // Handle timestamp parsing and clock skew adjustment
     let mut parsed_ts = handle_timestamp(timestamp, offset, effective_sent_at, now);
+
+    // Apply clock skew if present
+    if let Some(skew_ms) = clock_skew {
+        parsed_ts = parsed_ts + Duration::milliseconds(skew_ms);
+    }
 
     // Check for future events - clamp to now
     let now_diff = parsed_ts.signed_duration_since(now).num_milliseconds();
@@ -150,4 +157,183 @@ fn convert_jiff_to_chrono(jiff_timestamp: jiff::Zoned) -> Option<DateTime<Utc>> 
     // Convert i32 to u32 safely (nanoseconds should always be positive)
     let nanos_u32 = nanos.try_into().ok()?;
     DateTime::from_timestamp(seconds, nanos_u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_event_timestamp_with_clock_skew_positive() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let timestamp_str = "2023-01-01T10:00:00Z";
+        let clock_skew = Some(5000); // 5 seconds in milliseconds
+
+        let result = parse_event_timestamp(
+            Some(timestamp_str),
+            None,
+            None,
+            false,
+            clock_skew,
+            now,
+        );
+
+        // Expected: timestamp (10:00:00) + clock_skew (5 seconds) = 10:00:05
+        let expected = DateTime::parse_from_rfc3339("2023-01-01T10:00:05Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_parse_event_timestamp_with_clock_skew_negative() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let timestamp_str = "2023-01-01T10:00:00Z";
+        let clock_skew = Some(-3000); // -3 seconds in milliseconds
+
+        let result = parse_event_timestamp(
+            Some(timestamp_str),
+            None,
+            None,
+            false,
+            clock_skew,
+            now,
+        );
+
+        // Expected: timestamp (10:00:00) + clock_skew (-3 seconds) = 09:59:57
+        let expected = DateTime::parse_from_rfc3339("2023-01-01T09:59:57Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_parse_event_timestamp_without_clock_skew() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let timestamp_str = "2023-01-01T10:00:00Z";
+
+        let result = parse_event_timestamp(
+            Some(timestamp_str),
+            None,
+            None,
+            false,
+            None, // No clock_skew
+            now,
+        );
+
+        let expected = DateTime::parse_from_rfc3339("2023-01-01T10:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_parse_event_timestamp_with_sent_at_and_clock_skew() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let timestamp_str = "2023-01-01T10:00:00Z";
+        let sent_at = DateTime::parse_from_rfc3339("2023-01-01T11:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let clock_skew = Some(2000); // 2 seconds in milliseconds
+
+        let result = parse_event_timestamp(
+            Some(timestamp_str),
+            None,
+            Some(sent_at),
+            false,
+            clock_skew,
+            now,
+        );
+
+        // First apply sent_at adjustment: now + (timestamp - sent_at) = 12:00:00 + (10:00:00 - 11:00:00) = 11:00:00
+        // Then apply clock_skew: 11:00:00 + 2 seconds = 11:00:02
+        let expected = DateTime::parse_from_rfc3339("2023-01-01T11:00:02Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_parse_event_timestamp_clock_skew_with_no_timestamp() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let clock_skew = Some(5000); // 5 seconds
+
+        let result = parse_event_timestamp(
+            None, // No timestamp
+            None,
+            None,
+            false,
+            clock_skew,
+            now,
+        );
+
+        // Expected: now (12:00:00) + clock_skew (5 seconds) = 12:00:05
+        let expected = DateTime::parse_from_rfc3339("2023-01-01T12:00:05Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_parse_event_timestamp_clock_skew_doesnt_affect_offset() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let offset = Some(3600000); // 1 hour in milliseconds
+        let clock_skew = Some(5000); // 5 seconds
+
+        let result = parse_event_timestamp(
+            None,
+            offset,
+            None,
+            false,
+            clock_skew,
+            now,
+        );
+
+        // Offset is applied: now - offset = 12:00:00 - 1 hour = 11:00:00
+        // Then clock_skew is applied: 11:00:00 + 5 seconds = 11:00:05
+        let expected = DateTime::parse_from_rfc3339("2023-01-01T11:00:05Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_parse_event_timestamp_clock_skew_clamped_to_now() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let timestamp_str = "2023-01-01T10:00:00Z";
+        // Very large positive clock skew that would push timestamp > 23 hours into future
+        let clock_skew = Some(100 * 3600 * 1000); // 100 hours in milliseconds
+
+        let result = parse_event_timestamp(
+            Some(timestamp_str),
+            None,
+            None,
+            false,
+            clock_skew,
+            now,
+        );
+
+        // Should be clamped to now since it exceeds the 23-hour cutoff
+        assert_eq!(result, now);
+    }
 }

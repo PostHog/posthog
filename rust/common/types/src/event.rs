@@ -39,6 +39,10 @@ pub struct RawEvent {
     pub set: Option<HashMap<String, Value>>,
     #[serde(rename = "$set_once", skip_serializing_if = "Option::is_none")]
     pub set_once: Option<HashMap<String, Value>>,
+    #[serde(alias = "$jwt", skip_serializing_if = "Option::is_none")]
+    pub jwt: Option<String>,
+    #[serde(alias = "$clock_skew", skip_serializing_if = "Option::is_none")]
+    pub clock_skew: Option<i64>, // Clock skew in milliseconds
 }
 
 #[derive(Default, Debug, Deserialize, Serialize)]
@@ -66,8 +70,13 @@ pub struct RawEngageEvent {
     pub set: Option<HashMap<String, Value>>,
     #[serde(rename = "$set_once", skip_serializing_if = "Option::is_none")]
     pub set_once: Option<HashMap<String, Value>>,
+    #[serde(alias = "$jwt", skip_serializing_if = "Option::is_none")]
+    pub jwt: Option<String>,
+    #[serde(alias = "$clock_skew", skip_serializing_if = "Option::is_none")]
+    pub clock_skew: Option<i64>, // Clock skew in milliseconds
 }
 
+#[derive(Clone)]
 pub struct CapturedEventHeaders {
     pub token: Option<String>,
     pub distinct_id: Option<String>,
@@ -77,6 +86,7 @@ pub struct CapturedEventHeaders {
     pub now: Option<String>,
     pub force_disable_person_processing: Option<bool>,
     pub historical_migration: Option<bool>,
+    pub jwt: Option<String>,
 }
 
 impl CapturedEventHeaders {
@@ -124,6 +134,10 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
                 key: "historical_migration",
                 value: historical_migration_str.as_deref(),
             })
+            .insert(Header {
+                key: "jwt",
+                value: headers.jwt.as_deref(),
+            })
     }
 }
 
@@ -151,6 +165,7 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
             historical_migration: headers_map
                 .get("historical_migration")
                 .and_then(|v| v.parse::<bool>().ok()),
+            jwt: headers_map.get("jwt").cloned(),
         }
     }
 }
@@ -204,6 +219,7 @@ impl CapturedEvent {
             } else {
                 None
             },
+            jwt: None, // Set from metadata in kafka sink
         }
     }
 
@@ -374,6 +390,44 @@ impl RawEvent {
 
         Some(LibraryInfo { name, version })
     }
+
+    /// Extract JWT from the event
+    /// Returns the jwt field value
+    pub fn extract_jwt(&self) -> Option<String> {
+        self.jwt.clone()
+    }
+
+    /// Extract clock skew from the event
+    /// Returns the clock_skew field value in milliseconds
+    pub fn extract_clock_skew(&self) -> Option<i64> {
+        self.clock_skew
+    }
+
+    /// Normalize the event by extracting jwt and clock_skew from properties
+    /// and moving them to top-level fields. Also removes them from properties.
+    pub fn normalize(&mut self) {
+        // Extract $jwt from properties if not already set at top level
+        if self.jwt.is_none() {
+            if let Some(Value::String(jwt)) = self.properties.remove("$jwt") {
+                self.jwt = Some(jwt);
+            }
+        } else {
+            // If jwt is already set at top level, still remove from properties
+            self.properties.remove("$jwt");
+        }
+
+        // Extract $clock_skew from properties if not already set at top level
+        if self.clock_skew.is_none() {
+            if let Some(clock_skew_value) = self.properties.remove("$clock_skew") {
+                if let Some(clock_skew) = clock_skew_value.as_i64() {
+                    self.clock_skew = Some(clock_skew);
+                }
+            }
+        } else {
+            // If clock_skew is already set at top level, still remove from properties
+            self.properties.remove("$clock_skew");
+        }
+    }
 }
 
 impl CapturedEvent {
@@ -460,5 +514,279 @@ mod tests {
             serde_json::from_str(json).expect("Failed to deserialize");
         // Should default to false when not present
         assert!(!deserialized.historical_migration);
+    }
+
+    #[test]
+    fn test_extract_jwt_present() {
+        let event = RawEvent {
+            token: None,
+            distinct_id: None,
+            uuid: None,
+            event: "test_event".to_string(),
+            properties: HashMap::new(),
+            timestamp: None,
+            offset: None,
+            set: None,
+            set_once: None,
+            jwt: Some("test-jwt-token".to_string()),
+            clock_skew: None,
+        };
+
+        assert_eq!(event.extract_jwt(), Some("test-jwt-token".to_string()));
+    }
+
+    #[test]
+    fn test_extract_jwt_missing() {
+        let event = RawEvent {
+            token: None,
+            distinct_id: None,
+            uuid: None,
+            event: "test_event".to_string(),
+            properties: HashMap::new(),
+            timestamp: None,
+            offset: None,
+            set: None,
+            set_once: None,
+            jwt: None,
+            clock_skew: None,
+        };
+
+        assert_eq!(event.extract_jwt(), None);
+    }
+
+    #[test]
+    fn test_extract_clock_skew_present() {
+        let event = RawEvent {
+            token: None,
+            distinct_id: None,
+            uuid: None,
+            event: "test_event".to_string(),
+            properties: HashMap::new(),
+            timestamp: None,
+            offset: None,
+            set: None,
+            set_once: None,
+            jwt: None,
+            clock_skew: Some(5000),
+        };
+
+        assert_eq!(event.extract_clock_skew(), Some(5000));
+    }
+
+    #[test]
+    fn test_extract_clock_skew_negative() {
+        let event = RawEvent {
+            token: None,
+            distinct_id: None,
+            uuid: None,
+            event: "test_event".to_string(),
+            properties: HashMap::new(),
+            timestamp: None,
+            offset: None,
+            set: None,
+            set_once: None,
+            jwt: None,
+            clock_skew: Some(-3000),
+        };
+
+        assert_eq!(event.extract_clock_skew(), Some(-3000));
+    }
+
+    #[test]
+    fn test_extract_clock_skew_missing() {
+        let event = RawEvent {
+            token: None,
+            distinct_id: None,
+            uuid: None,
+            event: "test_event".to_string(),
+            properties: HashMap::new(),
+            timestamp: None,
+            offset: None,
+            set: None,
+            set_once: None,
+            jwt: None,
+            clock_skew: None,
+        };
+
+        assert_eq!(event.extract_clock_skew(), None);
+    }
+
+    #[test]
+    fn test_captured_event_headers_with_jwt() {
+        let headers = CapturedEventHeaders {
+            token: Some("test-token".to_string()),
+            distinct_id: Some("user-123".to_string()),
+            timestamp: Some("1234567890".to_string()),
+            event: Some("test_event".to_string()),
+            uuid: Some("550e8400-e29b-41d4-a716-446655440000".to_string()),
+            now: Some("2023-01-01T12:00:00Z".to_string()),
+            force_disable_person_processing: None,
+            historical_migration: None,
+            jwt: Some("test-jwt-token".to_string()),
+        };
+
+        let owned_headers: OwnedHeaders = headers.clone().into();
+        let headers_back: CapturedEventHeaders = owned_headers.into();
+
+        assert_eq!(headers_back.jwt, Some("test-jwt-token".to_string()));
+    }
+
+    #[test]
+    fn test_captured_event_headers_without_jwt() {
+        let headers = CapturedEventHeaders {
+            token: Some("test-token".to_string()),
+            distinct_id: Some("user-123".to_string()),
+            timestamp: Some("1234567890".to_string()),
+            event: Some("test_event".to_string()),
+            uuid: Some("550e8400-e29b-41d4-a716-446655440000".to_string()),
+            now: Some("2023-01-01T12:00:00Z".to_string()),
+            force_disable_person_processing: None,
+            historical_migration: None,
+            jwt: None,
+        };
+
+        let owned_headers: OwnedHeaders = headers.clone().into();
+        let headers_back: CapturedEventHeaders = owned_headers.into();
+
+        assert_eq!(headers_back.jwt, None);
+    }
+
+    #[test]
+    fn test_raw_event_json_serialization_with_jwt_and_clock_skew() {
+        let mut properties = HashMap::new();
+        properties.insert("test_prop".to_string(), Value::String("test_value".to_string()));
+
+        let event = RawEvent {
+            token: Some("test-token".to_string()),
+            distinct_id: Some(Value::String("user-123".to_string())),
+            uuid: None,
+            event: "test_event".to_string(),
+            properties,
+            timestamp: Some("2023-01-01T12:00:00Z".to_string()),
+            offset: None,
+            set: None,
+            set_once: None,
+            jwt: Some("test-jwt-token".to_string()),
+            clock_skew: Some(5000),
+        };
+
+        let serialized = serde_json::to_string(&event).expect("Failed to serialize");
+        assert!(serialized.contains("\"jwt\":\"test-jwt-token\""));
+        assert!(serialized.contains("\"clock_skew\":5000"));
+
+        let deserialized: RawEvent = serde_json::from_str(&serialized).expect("Failed to deserialize");
+        assert_eq!(deserialized.jwt, Some("test-jwt-token".to_string()));
+        assert_eq!(deserialized.clock_skew, Some(5000));
+    }
+
+    #[test]
+    fn test_raw_event_json_deserialization_without_jwt_and_clock_skew() {
+        let json = r#"{
+            "event": "test_event",
+            "properties": {"test_prop": "test_value"},
+            "timestamp": "2023-01-01T12:00:00Z"
+        }"#;
+
+        let deserialized: RawEvent = serde_json::from_str(json).expect("Failed to deserialize");
+        assert_eq!(deserialized.jwt, None);
+        assert_eq!(deserialized.clock_skew, None);
+    }
+
+    #[test]
+    fn test_normalize_extracts_jwt_from_properties() {
+        let json = r#"{
+            "event": "test_event",
+            "properties": {
+                "$jwt": "test-jwt-token",
+                "other_prop": "value"
+            }
+        }"#;
+
+        let mut event: RawEvent = serde_json::from_str(json).expect("Failed to deserialize");
+
+        // Before normalization, jwt should be None
+        assert_eq!(event.jwt, None);
+        assert!(event.properties.contains_key("$jwt"));
+
+        // Normalize the event
+        event.normalize();
+
+        // After normalization, jwt should be extracted
+        assert_eq!(event.jwt, Some("test-jwt-token".to_string()));
+        // And removed from properties
+        assert!(!event.properties.contains_key("$jwt"));
+        // Other properties should remain
+        assert_eq!(event.properties.get("other_prop").and_then(|v| v.as_str()), Some("value"));
+    }
+
+    #[test]
+    fn test_normalize_extracts_clock_skew_from_properties() {
+        let json = r#"{
+            "event": "test_event",
+            "properties": {
+                "$clock_skew": 5000,
+                "other_prop": "value"
+            }
+        }"#;
+
+        let mut event: RawEvent = serde_json::from_str(json).expect("Failed to deserialize");
+
+        // Before normalization
+        assert_eq!(event.clock_skew, None);
+        assert!(event.properties.contains_key("$clock_skew"));
+
+        // Normalize
+        event.normalize();
+
+        // After normalization
+        assert_eq!(event.clock_skew, Some(5000));
+        assert!(!event.properties.contains_key("$clock_skew"));
+        assert_eq!(event.properties.get("other_prop").and_then(|v| v.as_str()), Some("value"));
+    }
+
+    #[test]
+    fn test_normalize_extracts_both_jwt_and_clock_skew() {
+        let json = r#"{
+            "event": "test_event",
+            "properties": {
+                "$jwt": "test-jwt-token",
+                "$clock_skew": -3000,
+                "user_id": "123"
+            }
+        }"#;
+
+        let mut event: RawEvent = serde_json::from_str(json).expect("Failed to deserialize");
+
+        event.normalize();
+
+        assert_eq!(event.jwt, Some("test-jwt-token".to_string()));
+        assert_eq!(event.clock_skew, Some(-3000));
+        assert!(!event.properties.contains_key("$jwt"));
+        assert!(!event.properties.contains_key("$clock_skew"));
+        assert_eq!(event.properties.get("user_id").and_then(|v| v.as_str()), Some("123"));
+    }
+
+    #[test]
+    fn test_normalize_preserves_top_level_fields() {
+        let json = r#"{
+            "event": "test_event",
+            "jwt": "top-level-jwt",
+            "clock_skew": 1000,
+            "properties": {
+                "$jwt": "properties-jwt",
+                "$clock_skew": 2000
+            }
+        }"#;
+
+        let mut event: RawEvent = serde_json::from_str(json).expect("Failed to deserialize");
+
+        event.normalize();
+
+        // Top-level fields should be preserved, not overwritten by properties
+        assert_eq!(event.jwt, Some("top-level-jwt".to_string()));
+        assert_eq!(event.clock_skew, Some(1000));
+        // Properties should still be removed
+        assert!(!event.properties.contains_key("$jwt"));
+        assert!(!event.properties.contains_key("$clock_skew"));
     }
 }
