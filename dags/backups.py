@@ -474,7 +474,9 @@ def prepare_run_config(config: BackupConfig) -> dagster.RunConfig:
     )
 
 
-def run_backup_request(table: str, incremental: bool, context: dagster.ScheduleEvaluationContext) -> dagster.RunRequest:
+def run_backup_request(
+    table: str, incremental: bool, context: dagster.ScheduleEvaluationContext
+) -> dagster.RunRequest | dagster.SkipReason:
     skip_reason = check_for_concurrent_runs(
         context,
         tags={

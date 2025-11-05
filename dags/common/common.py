@@ -145,6 +145,9 @@ def check_for_concurrent_runs(
 ) -> Optional[dagster.SkipReason]:
     # Get the schedule name from the context
     schedule_name = context._schedule_name
+    if schedule_name is None:
+        context.log.info("Skipping concurrent runs check because schedule name is not available")
+        return None
 
     # Get the schedule definition from the repository to find the associated job
     schedule_def = context.repository_def.get_schedule_def(schedule_name)
