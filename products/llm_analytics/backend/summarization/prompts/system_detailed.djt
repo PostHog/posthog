@@ -35,13 +35,14 @@ You must return valid JSON matching this schema:
 }
 
 FLOW DIAGRAM FORMAT:
-Use ASCII flow with arrows, indentation, and symbols:
-- Use ↓ or → for flow direction
-- Use ├─→ and └─→ for branches
+Use ASCII flow with vertical (top-to-bottom) layout to avoid horizontal scrolling:
+- ALWAYS flow vertically (top to bottom) using ↓
+- Use ├─→ and └─→ for branches only when necessary
 - Use ✓ for success paths
 - Use ✗ for errors or failures
 - Use || for parallel operations
-- Keep it readable and well-structured
+- Keep it readable, well-structured, and vertically oriented
+- Avoid wide horizontal layouts
 - Example with decision:
   User Input
       ↓

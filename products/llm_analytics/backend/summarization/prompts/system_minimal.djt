@@ -35,11 +35,12 @@ You must return valid JSON matching this schema:
 Note: interesting_notes can be empty [] if nothing critical to highlight.
 
 FLOW DIAGRAM FORMAT:
-Use simple ASCII flow with arrows and indentation:
-- Use ↓ or → for flow direction
-- Use → for branches or alternatives
+Use simple ASCII flow with vertical (top-to-bottom) layout to avoid horizontal scrolling:
+- ALWAYS flow vertically (top to bottom) using ↓
+- Use indentation and ├─→/└─→ for branches only when necessary
 - Use ✗ for errors or failures
-- Keep it simple and readable
+- Keep it simple, readable, and vertically oriented
+- Avoid wide horizontal layouts
 - Example:
   User Input
       ↓
