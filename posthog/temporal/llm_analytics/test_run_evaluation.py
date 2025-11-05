@@ -60,7 +60,10 @@ class TestRunEvaluationWorkflow:
                 )
             ]
 
-            inputs = RunEvaluationInputs(evaluation_id=str(evaluation.id), target_event_id=event_id)
+            timestamp = datetime.now().isoformat()
+            inputs = RunEvaluationInputs(
+                evaluation_id=str(evaluation.id), target_event_id=event_id, timestamp=timestamp
+            )
 
             result = await fetch_target_event_activity(inputs, team.id)
 
@@ -80,7 +83,10 @@ class TestRunEvaluationWorkflow:
         evaluation = setup_data["evaluation"]
         team = setup_data["team"]
 
-        inputs = RunEvaluationInputs(evaluation_id=str(evaluation.id), target_event_id=str(uuid.uuid4()))
+        timestamp = datetime.now().isoformat()
+        inputs = RunEvaluationInputs(
+            evaluation_id=str(evaluation.id), target_event_id=str(uuid.uuid4()), timestamp=timestamp
+        )
 
         with patch("posthog.temporal.llm_analytics.run_evaluation.Evaluation.objects.get") as mock_get:
             mock_evaluation = MagicMock()

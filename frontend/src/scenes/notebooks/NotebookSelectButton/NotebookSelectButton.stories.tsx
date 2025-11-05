@@ -9,6 +9,9 @@ import { NotebookNodeType } from '../types'
 export default {
     title: 'Scenes-App/Notebooks/Components/Notebook Select Button',
     component: NotebookSelectButton,
+    parameters: {
+        mockDate: '2025-10-28',
+    },
 } as Meta<typeof NotebookSelectButton>
 
 const allNotebooks = [
