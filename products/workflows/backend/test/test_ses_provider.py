@@ -1,6 +1,8 @@
+from typing import Optional
+
 import pytest
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -10,6 +12,9 @@ TEST_DOMAIN = "test.posthog.com"
 
 
 class TestSESProvider(TestCase):
+    boto3_client_patcher: Optional[patch] = None  # type: ignore
+    mock_boto3_client: Optional[MagicMock] = None
+
     @classmethod
     def setUpClass(cls):
         # Patch boto3.client for all tests in this class
