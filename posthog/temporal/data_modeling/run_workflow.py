@@ -1429,9 +1429,11 @@ class RunWorkflow(PostHogWorkflow):
                 run_dag_activity,
                 run_model_activity_inputs,
                 start_to_close_timeout=dt.timedelta(hours=1),
-                heartbeat_timeout=dt.timedelta(minutes=2),
+                # 10 minutes is the clickhouse max execution time, so we set something higher here
+                # so clickhouse will error first on execptionally large or slow queries
+                heartbeat_timeout=dt.timedelta(minutes=15),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=1,
+                    maximum_attempts=3,
                 ),
                 cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
             )
