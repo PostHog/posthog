@@ -37,8 +37,8 @@
 
 .scene-tab--pinned {
     min-width: 36px;
-    padding-left: 0.5rem;
     padding-right: 0.5rem;
+    padding-left: 0.5rem;
 }
 
 .scene-tab--pinned .scene-tab-title {

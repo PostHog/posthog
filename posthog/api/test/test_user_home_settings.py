@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from posthog.test.base import APIBaseTest
 
 from rest_framework import status
@@ -49,9 +51,11 @@ class TestUserHomeSettingsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        expected_tab = {k: v for k, v in payload["tabs"][0].items() if k != "active"}
+        tabs_payload = cast(list[dict[str, Any]], payload["tabs"])
+        expected_tab = {k: v for k, v in tabs_payload[0].items() if k != "active"}
         expected_tab["pinned"] = True
-        expected_homepage = {k: v for k, v in payload["homepage"].items() if k != "active"}
+        homepage_payload = cast(dict[str, Any], payload["homepage"])
+        expected_homepage = {k: v for k, v in homepage_payload.items() if k != "active"}
         expected_homepage["pinned"] = True
 
         self.assertEqual(
@@ -64,12 +68,14 @@ class TestUserHomeSettingsAPI(APIBaseTest):
 
         stored = UserHomeSettings.objects.get(user=self.user, team=self.team)
         self.assertEqual(len(stored.tabs), 1)
-        stored_tab = stored.tabs[0]
+        stored_tab = cast(dict[str, Any], stored.tabs[0])
         self.assertEqual(stored_tab["id"], "tab-1")
         self.assertEqual(stored_tab["pinned"], True)
         self.assertNotIn("active", stored_tab)
-        self.assertEqual(stored.homepage["id"], "home-1")
-        self.assertEqual(stored.homepage["pinned"], True)
+        self.assertIsNotNone(stored.homepage)
+        homepage = cast(dict[str, Any], stored.homepage)
+        self.assertEqual(homepage["id"], "home-1")
+        self.assertEqual(homepage["pinned"], True)
 
         self.assertFalse(UserHomeSettings.objects.filter(user=None, team=self.team).exists())
 

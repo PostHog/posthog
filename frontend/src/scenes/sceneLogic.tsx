@@ -54,13 +54,13 @@ import { userLogic } from './userLogic'
 const TAB_STATE_KEY = 'scene-tabs-state'
 const PINNED_TAB_STATE_KEY = 'scene-tabs-pinned-state'
 
-interface PersistedPinnedState {
+export interface PersistedPinnedState {
     tabs: SceneTab[]
     homepage: SceneTab | null
 }
 
 const getStorageKey = (key: string): string => {
-    const teamId = getCurrentTeamIdOrNone()
+    const teamId = getCurrentTeamIdOrNone() ?? teamLogic.findMounted()?.values.currentTeamId ?? 'null'
     return `${key}-${teamId}`
 }
 

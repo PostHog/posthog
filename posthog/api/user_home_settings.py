@@ -125,22 +125,28 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
             }
         )
 
-    def _sanitize_tabs(self, tabs: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+    def _sanitize_tabs(self, tabs: Iterable[Optional[dict[str, Any]]]) -> tuple[list[dict[str, Any]], bool]:
         sanitized_tabs: list[dict[str, Any]] = []
         changed = False
         for tab in tabs:
             sanitized, sanitized_changed = self._sanitize_tab(tab)
             if sanitized_changed:
                 changed = True
-            sanitized_tabs.append(sanitized)
+            if sanitized is not None:
+                sanitized_tabs.append(sanitized)
+            elif tab is not None:
+                changed = True
         return sanitized_tabs, changed
 
     def _sanitize_tab(self, tab: Optional[dict[str, Any]]) -> tuple[Optional[dict[str, Any]], bool]:
         if tab is None:
             return None, False
 
-        if not isinstance(tab, dict) or not tab:
-            return None, tab is not None and bool(tab)
+        if not isinstance(tab, dict):
+            return None, True
+
+        if not tab:
+            return None, False
 
         sanitized = {**tab}
         changed = False
