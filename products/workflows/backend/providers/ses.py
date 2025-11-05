@@ -13,12 +13,23 @@ logger = logging.getLogger(__name__)
 class SESProvider:
     def __init__(self):
         # Initialize the boto3 clients
-        self.sts_client = boto3.client("sts")
+        self.sts_client = boto3.client(
+            "sts",
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
+        )
         self.ses_client = boto3.client(
             "ses",
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
         )
         self.ses_v2_client = boto3.client(
             "sesv2",
+            aws_access_key_id=settings.SES_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.SES_SECRET_ACCESS_KEY,
+            region_name=settings.SES_REGION,
         )
 
     def create_email_domain(self, domain: str, team_id: int):

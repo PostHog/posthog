@@ -13,7 +13,7 @@ class TestSESProvider(TestCase):
     def setUp(self):
         # Remove all domains from SES
         ses_provider = SESProvider()
-        if TEST_DOMAIN in ses_provider.client.list_identities()["Identities"]:
+        if TEST_DOMAIN in ses_provider.ses_client.list_identities()["Identities"]:
             ses_provider.delete_identity(TEST_DOMAIN)
 
     def test_init_with_valid_credentials(self):
@@ -24,7 +24,9 @@ class TestSESProvider(TestCase):
             SES_ENDPOINT="",
         ):
             provider = SESProvider()
-            assert provider.client
+            assert provider.ses_client
+            assert provider.ses_v2_client
+            assert provider.sts_client
 
     def test_create_email_domain_success(self):
         provider = SESProvider()
