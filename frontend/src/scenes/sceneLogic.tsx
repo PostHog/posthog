@@ -1051,7 +1051,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 return
             }
             if (sceneId === Scene.MoveToPostHogCloud && preflight?.cloud) {
-                router.actions.replace(urls.projectHomepage())
+                router.actions.replace(urls.projectRoot())
                 return
             }
 
@@ -1348,6 +1348,37 @@ export const sceneLogic = kea<sceneLogicType>([
                 )
             }
         }
+        mapping['/'] = (_params, searchParams) => {
+            const homepage = values.homepage
+
+            if (homepage) {
+                let targetPathname = homepage.pathname
+                    ? addProjectIdIfMissing(homepage.pathname)
+                    : urls.projectHomepage()
+                if (targetPathname === '/') {
+                    targetPathname = urls.projectHomepage()
+                }
+                router.actions.replace(targetPathname, homepage.search || '', homepage.hash || '')
+                return
+            }
+
+            const primaryDashboardId = teamLogic.values.currentTeam?.primary_dashboard
+            if (primaryDashboardId) {
+                router.actions.replace(
+                    withForwardedSearchParams(
+                        urls.dashboard(primaryDashboardId),
+                        searchParams,
+                        forwardedRedirectQueryParams
+                    )
+                )
+                return
+            }
+
+            router.actions.replace(
+                withForwardedSearchParams(urls.projectHomepage(), searchParams, forwardedRedirectQueryParams)
+            )
+        }
+
         for (const [path, [scene, sceneKey]] of Object.entries(routes)) {
             mapping[path] = (params, searchParams, hashParams, { method }) => {
                 const tabId = ensureNavigationTabId()

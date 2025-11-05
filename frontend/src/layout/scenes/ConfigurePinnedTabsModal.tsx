@@ -5,10 +5,12 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { emptySceneParams } from '~/scenes/scenes'
+import { teamLogic } from '~/scenes/teamLogic'
 import { urls } from '~/scenes/urls'
 
 export interface ConfigurePinnedTabsModalProps {
@@ -18,17 +20,27 @@ export interface ConfigurePinnedTabsModalProps {
 
 export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTabsModalProps): JSX.Element {
     const { tabs, homepage } = useValues(sceneLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { rawDashboards } = useValues(dashboardsModel)
     const { pinTab, unpinTab, setHomepage } = useActions(sceneLogic)
 
     const homepageTabForDisplay = homepage ? (tabs.find((tab) => tab.id === homepage.id) ?? homepage) : null
     const isUsingProjectDefault = !homepage
     const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
 
+    const projectDefaultDashboardId = currentTeam?.primary_dashboard ?? null
+    const projectDefaultDashboard =
+        projectDefaultDashboardId != null ? rawDashboards?.[projectDefaultDashboardId] : null
+    const projectDefaultDashboardName =
+        projectDefaultDashboard?.name ??
+        (projectDefaultDashboardId != null ? `Dashboard #${projectDefaultDashboardId}` : null)
+    const projectDefaultSubtitle = projectDefaultDashboardName ?? 'Not configured'
+
     const homepageDisplayTitle = homepageTabForDisplay
         ? homepageTabForDisplay.customTitle || homepageTabForDisplay.title
-        : 'Project homepage'
+        : "Project's default dashboard"
     const homepageSubtitle = isUsingProjectDefault
-        ? 'Project default homepage'
+        ? projectDefaultSubtitle
         : isUsingNewTabHomepage
           ? 'New tab page'
           : null

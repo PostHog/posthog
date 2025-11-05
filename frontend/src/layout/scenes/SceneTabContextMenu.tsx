@@ -100,12 +100,15 @@ export function SceneTabContextMenu({ tab, children, onConfigurePinnedTabs }: Sc
                         <IconExternal /> Open in new browser tab
                     </ButtonPrimitive>
                 </ContextMenuItem>
-                {tab.pinned && onConfigurePinnedTabs && (
-                    <ContextMenuItem asChild>
-                        <ButtonPrimitive menuItem onClick={onConfigurePinnedTabs}>
-                            <IconGear /> Configure tabs & home
-                        </ButtonPrimitive>
-                    </ContextMenuItem>
+                {onConfigurePinnedTabs && (
+                    <>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem asChild>
+                            <ButtonPrimitive menuItem onClick={onConfigurePinnedTabs}>
+                                <IconGear /> Configure tabs & home
+                            </ButtonPrimitive>
+                        </ContextMenuItem>
+                    </>
                 )}
                 <ContextMenuSeparator />
                 <ContextMenuItem asChild>
