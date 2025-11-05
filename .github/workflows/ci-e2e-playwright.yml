@@ -348,9 +348,10 @@ jobs:
 
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Run even if tests fail to capture updated snapshots
+            # Run in both UPDATE and CHECK modes to detect snapshot changes
             - name: Create screenshot patch
               id: create-patch
-              if: (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
+              if: (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   # Check if there are any changes in the playwright directory
                   if git diff --quiet playwright/; then
