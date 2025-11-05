@@ -185,12 +185,19 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
             for index, item in enumerate(results):
                 label = item.get("label", f"Series #{index + 1}")
                 compare_label = item.get("compare_label", "")
-                series_name = f"{label} - {compare_label}" if compare_label else label
+                action = item.get("action")
+
+                if isinstance(action, dict) and action.get("name"):
+                    series_name = action["name"]
+                else:
+                    series_name = label
+
+                if compare_label:
+                    series_name = f"{series_name} - {compare_label}"
 
                 line = {"series": series_name}
 
                 label_item = date_labels_item if is_comparison else item
-                action = item.get("action")
 
                 if isinstance(action, dict) and action.get("custom_name"):
                     line["custom name"] = action.get("custom_name")
