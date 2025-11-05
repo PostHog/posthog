@@ -411,34 +411,22 @@ jobs:
                   if-no-files-found: ignore
 
             # ── Artifacts on failure / always ─────────────────────────────────────
-            - name: Show celery logs
+            - name: Capture docker logs
               if: always()
-              run: cat /tmp/celery.log || echo "No celery log found"
-            - name: Show server logs
-              if: always()
-              run: cat /tmp/server.log || echo "No server log found"
+              run: docker logs posthog-proxy-1 > playwright/test-results/docker-proxy.log 2>&1 || echo "No proxy container" > playwright/test-results/docker-proxy.log
 
-            - name: Show proxy logs
-              if: always()
-              run: |
-                  docker ps
-                  docker logs posthog-proxy-1 2>/dev/null || echo "No proxy container found"
-
-            - name: Archive Playwright report on failure
-              if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
-              uses: actions/upload-artifact@v4
-              with:
-                  name: playwright-report
-                  path: playwright/playwright-report/
-                  retention-days: 30
-
-            - name: Archive screenshots
+            - name: Archive test artifacts
               if: always()
               uses: actions/upload-artifact@v4
               with:
-                  name: playwright-screenshots
-                  path: playwright/test-results
+                  name: playwright-test-results-${{ matrix.segment }}
+                  path: |
+                      playwright/playwright-report/
+                      playwright/test-results/
+                      /tmp/celery.log
+                      /tmp/server.log
                   retention-days: 30
+                  if-no-files-found: ignore
 
     capture-run-time:
         name: Capture run time
