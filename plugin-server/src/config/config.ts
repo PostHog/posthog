@@ -276,7 +276,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0, // defaults to off
 
         // Session recording V2
-        SESSION_RECORDING_MAX_BATCH_SIZE_KB: isDevEnv() ? 10 * 1024 : 100 * 1024, // 100MB on prod and test, 10MB on dev
+        SESSION_RECORDING_MAX_BATCH_SIZE_KB: isDevEnv() ? 2 * 1024 : 100 * 1024, // 2MB on dev, 100MB on prod and test
         SESSION_RECORDING_MAX_BATCH_AGE_MS: 10 * 1000, // 10 seconds
         SESSION_RECORDING_V2_S3_BUCKET: 'posthog',
         SESSION_RECORDING_V2_S3_PREFIX: 'session_recordings',
@@ -284,7 +284,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_REGION: 'us-east-1',
         SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any',
         SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any',
-        SESSION_RECORDING_V2_S3_TIMEOUT_MS: 30000,
+        SESSION_RECORDING_V2_S3_TIMEOUT_MS: isDevEnv() ? 120000 : 30000,
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,
