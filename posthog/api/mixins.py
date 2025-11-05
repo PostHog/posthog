@@ -161,12 +161,13 @@ def validated_request(
                 return result
 
             # Step 5: Validate response matches serializer
-            serializer_class = response_config.response
-            context = getattr(self, "get_serializer_context", lambda: {})()
-            serialized = serializer_class(data=data, context=context)
 
-            if not serialized.is_valid(raise_exception=strict_response_validation):
-                if settings.DEBUG:
+            if strict_response_validation or settings.DEBUG:
+                serializer_class = response_config.response
+                context = getattr(self, "get_serializer_context", lambda: {})()
+                serialized = serializer_class(data=data, context=context)
+
+                if not serialized.is_valid(raise_exception=strict_response_validation):
                     logger.warning(
                         f"Response data does not match declared serializer for status code {status_code} declared in responses parameter of the @validated_request decorator. Please update the provided API schema to ensure API docs remain up to date",
                         view_func=view_func.__name__,
@@ -174,7 +175,6 @@ def validated_request(
                         serializer_class=serializer_class.__name__,
                         validation_errors=serialized.errors,
                     )
-                return result
 
             return result
 
