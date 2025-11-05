@@ -22,7 +22,6 @@ class Migration(migrations.Migration):
                     ("String", "String"),
                     ("Numeric", "Numeric"),
                     ("Boolean", "Boolean"),
-                    ("Duration", "Duration"),
                     ("Object", "Object"),
                 ],
                 max_length=50,

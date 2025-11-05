@@ -8,14 +8,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { schemaManagementLogicType } from './schemaManagementLogicType'
 
-export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Duration' | 'Object'
+export type PropertyType = 'String' | 'Numeric' | 'Boolean' | 'DateTime' | 'Object'
 
 export const PROPERTY_TYPE_OPTIONS: { value: PropertyType; label: string }[] = [
     { value: 'String', label: 'String' },
     { value: 'Numeric', label: 'Numeric' },
     { value: 'Boolean', label: 'Boolean' },
     { value: 'DateTime', label: 'DateTime' },
-    { value: 'Duration', label: 'Duration' },
     { value: 'Object', label: 'Object' },
 ]
 

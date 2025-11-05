@@ -13,7 +13,6 @@ class SchemaPropertyType(models.TextChoices):
     String = "String", "String"
     Numeric = "Numeric", "Numeric"
     Boolean = "Boolean", "Boolean"
-    Duration = "Duration", "Duration"
     Object = "Object", "Object"
 
 
