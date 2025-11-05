@@ -28,7 +28,8 @@ from posthog.tasks.periodic_digest.playlist_digests import (
 )
 from posthog.tasks.report_utils import OrgDigestReport, TeamDigestReport, capture_event, get_user_team_lookup
 from posthog.tasks.usage_report import USAGE_REPORT_TASK_KWARGS, get_instance_metadata, get_ph_client
-from posthog.warehouse.models.external_data_source import ExternalDataSource
+
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
 

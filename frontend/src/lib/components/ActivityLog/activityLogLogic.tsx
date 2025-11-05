@@ -18,6 +18,7 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { actionActivityDescriber } from 'scenes/actions/actionActivityDescriber'
 import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescriptions'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
+import { userActivityDescriber } from 'scenes/authentication/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
@@ -34,6 +35,7 @@ import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
+import { personalAPIKeyActivityDescriber } from 'scenes/settings/user/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 import { urls } from 'scenes/urls'
@@ -124,6 +126,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return dashboardActivityDescriber
         case ActivityScope.PERSON:
             return personActivityDescriber
+        case ActivityScope.PERSONAL_API_KEY:
+            return personalAPIKeyActivityDescriber
         case ActivityScope.GROUP:
             return groupActivityDescriber
         case ActivityScope.EVENT_DEFINITION:
@@ -155,6 +159,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.EXTERNAL_DATA_SOURCE:
         case ActivityScope.EXTERNAL_DATA_SCHEMA:
             return externalDataSourceActivityDescriber
+        case ActivityScope.USER:
+            return userActivityDescriber
         case ActivityScope.ENDPOINT:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
         default:

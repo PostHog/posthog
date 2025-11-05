@@ -43,6 +43,7 @@ pub async fn validate_secret_api_token(state: &AppState, token: &str) -> Result<
         state.redis_reader.clone(),
         state.redis_writer.clone(),
         token,
+        Some(state.config.team_cache_ttl_seconds),
         || async move {
             Team::from_pg_by_secret_token(pg_reader, &token_str)
                 .await

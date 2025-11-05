@@ -159,6 +159,13 @@ class ClickHouseQueryNotFound(ClickHouseError):
         super().__init__(query, f"Query with ID '{query_id}' was not found in query log")
 
 
+class ClickHouseMemoryLimitExceededError(ClickHouseError):
+    """Exception raised when a query exceeds the memory limit."""
+
+    def __init__(self, query, error_message):
+        super().__init__(query, error_message)
+
+
 def update_query_tags_with_temporal_info(query_tags: typing.Optional[QueryTags] = None):
     """
     Updates query_tags with a temporal workflow's properties.
@@ -316,12 +323,16 @@ class ClickHouseClient:
             ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
                 "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
                 and fallback_to_stale_replicas_for_distributed_queries=0
+            ClickHouseMemoryLimitExceededError: If the status code is not 200 and error message contains
+                "MEMORY_LIMIT_EXCEEDED".
             ClickHouseError: If the status code is not 200.
         """
         if response.status != 200:
             error_message = await response.text()
             if "ALL_REPLICAS_ARE_STALE" in error_message:
                 raise ClickHouseAllReplicasAreStaleError(query, error_message)
+            if "MEMORY_LIMIT_EXCEEDED" in error_message:
+                raise ClickHouseMemoryLimitExceededError(query, error_message)
             raise ClickHouseError(query, error_message)
 
     def check_response(self, response, query) -> None:
@@ -331,12 +342,16 @@ class ClickHouseClient:
             ClickHouseAllReplicasAreStaleError: If status code is not 200 and error message contains
                 "ALL_REPLICAS_ARE_STALE". This can happen when using max_replica_delay_for_distributed_queries
                 and fallback_to_stale_replicas_for_distributed_queries=0
+            ClickHouseMemoryLimitExceededError: If the status code is not 200 and error message contains
+                "MEMORY_LIMIT_EXCEEDED".
             ClickHouseError: If the status code is not 200.
         """
         if response.status_code != 200:
             error_message = response.text
             if "ALL_REPLICAS_ARE_STALE" in error_message:
                 raise ClickHouseAllReplicasAreStaleError(query, error_message)
+            if "MEMORY_LIMIT_EXCEEDED" in error_message:
+                raise ClickHouseMemoryLimitExceededError(query, error_message)
             raise ClickHouseError(query, error_message)
 
     @contextlib.asynccontextmanager

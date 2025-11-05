@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconMinus } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconMinus } from '@posthog/icons'
 import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ErrorTrackingCorrelatedIssue, ErrorTrackingIssue } from '~/queries/schema/schema-general'

@@ -93,6 +93,7 @@ export const urls = {
     login: (): string => '/login',
     login2FA: (): string => '/login/2fa',
     login2FASetup: (): string => '/login/2fa_setup',
+    cliAuthorize: (): string => '/cli/authorize',
     emailMFAVerify: (): string => '/login/verify',
     liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',

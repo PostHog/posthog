@@ -43,9 +43,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             mock_graph.ainvoke.return_value = mock_result
             mock_compile.return_value = mock_graph
 
-            tool = HogQLGeneratorTool(
-                team=self.team, user=self.user, state=AssistantState(messages=[]), tool_call_id="test-tool-call-id"
-            )
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
             tool_call = AssistantToolCall(
                 id="1",
                 name="generate_hogql_query",
@@ -83,9 +81,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             mock_graph.ainvoke.return_value = mock_result
             mock_compile.return_value = mock_graph
 
-            tool = HogQLGeneratorTool(
-                team=self.team, user=self.user, state=AssistantState(messages=[]), tool_call_id="test-tool-call-id"
-            )
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
             tool_call = AssistantToolCall(
                 id="1",
                 name="generate_hogql_query",
@@ -119,9 +115,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
             mock_compile.return_value = mock_graph
 
-            tool = HogQLGeneratorTool(
-                team=self.team, user=self.user, state=AssistantState(messages=[]), tool_call_id="test-tool-call-id"
-            )
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
             tool_call = AssistantToolCall(
                 id="1",
                 name="generate_hogql_query",
@@ -171,9 +165,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
                 "SELECT suspicious_query FROM events", "Suspicious query detected"
             )
 
-            tool = HogQLGeneratorTool(
-                team=self.team, user=self.user, state=AssistantState(messages=[]), tool_call_id="test-tool-call-id"
-            )
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
             tool_call = AssistantToolCall(
                 id="1",
                 name="generate_hogql_query",
@@ -223,9 +215,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             mock_graph.ainvoke.return_value = mock_result
             mock_compile.return_value = mock_graph
 
-            tool = HogQLGeneratorTool(
-                team=self.team, user=self.user, state=AssistantState(messages=[]), tool_call_id="test-tool-call-id"
-            )
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
             tool_call = AssistantToolCall(
                 id="1",
                 name="generate_hogql_query",
@@ -263,9 +253,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             mock_graph.ainvoke.return_value = graph_result
             mock_compile.return_value = mock_graph
 
-            tool = HogQLGeneratorTool(
-                team=self.team, user=self.user, state=AssistantState(messages=[]), tool_call_id="test-tool-call-id"
-            )
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
             tool_call = AssistantToolCall(
                 id="1",
                 name="generate_hogql_query",
@@ -301,9 +289,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             mock_graph.ainvoke.return_value = graph_result
             mock_compile.return_value = mock_graph
 
-            tool = HogQLGeneratorTool(
-                team=self.team, user=self.user, state=AssistantState(messages=[]), tool_call_id="test-tool-call-id"
-            )
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
             tool_call = AssistantToolCall(
                 id="1",
                 name="generate_hogql_query",
@@ -339,9 +325,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
             mock_graph.ainvoke.return_value = graph_result
             mock_compile.return_value = mock_graph
 
-            tool = HogQLGeneratorTool(
-                team=self.team, user=self.user, state=AssistantState(messages=[]), tool_call_id="test-tool-call-id"
-            )
+            tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
             tool_call = AssistantToolCall(
                 id="1",
                 name="generate_hogql_query",
@@ -353,9 +337,7 @@ class TestDataWarehouseMaxTools(NonAtomicBaseTest):
 
     def test_current_query_included_in_system_prompt_template(self):
         """Test that the system prompt template includes the current query section."""
-        tool = HogQLGeneratorTool(
-            team=self.team, user=self.user, state=AssistantState(messages=[]), tool_call_id="test-tool-call-id"
-        )
+        tool = HogQLGeneratorTool(team=self.team, user=self.user, state=AssistantState(messages=[]))
 
         # Verify the system prompt template contains the expected current query section
         self.assertIn("The current HogQL query", tool.context_prompt_template)
