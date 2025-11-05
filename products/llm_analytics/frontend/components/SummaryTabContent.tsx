@@ -44,7 +44,7 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
         : null
 
     return (
-        <div className="p-4 space-y-4">
+        <div className="p-4 flex flex-col gap-4 h-full overflow-hidden">
             {!summaryData && !summaryDataLoading && !errorMessage && (
                 <div className="flex flex-col items-center gap-4 py-8">
                     <div className="text-muted text-center">
@@ -78,7 +78,7 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
 
             {summaryData && !summaryDataLoading && (
                 <>
-                    <div className="relative group">
+                    <div className="relative group flex-none">
                         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 z-10 bg-bg-light p-1 rounded shadow-md">
                             <LemonButton
                                 size="small"
@@ -101,9 +101,9 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
                         </div>
                     </div>
 
-                    <div>
+                    <div className="flex-1 flex flex-col min-h-0">
                         <h4 className="font-semibold mb-2">Text Representation</h4>
-                        <div className="border rounded">
+                        <div className="border rounded flex-1 overflow-hidden">
                             <TextReprDisplay textRepr={summaryData.text_repr} />
                         </div>
                     </div>
@@ -245,7 +245,7 @@ function TextReprDisplay({ textRepr }: { textRepr: string }): JSX.Element {
     const lines = textRepr.split('\n')
 
     return (
-        <div className="p-4 overflow-auto max-h-96 font-mono text-sm whitespace-pre bg-bg-light">
+        <div className="p-4 overflow-auto h-full font-mono text-sm whitespace-pre bg-bg-light">
             {lines.map((line, index) => {
                 // Extract line number from format "L  1:", "L 10:", "L100:"
                 const match = line.match(/^L\s*(\d+):/)
