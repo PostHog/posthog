@@ -247,9 +247,6 @@ export function InsightDisplayConfig(): JSX.Element {
                                               ? !!querySource.trendsFilter?.exactTimeRange
                                               : false
                                       }
-                                      disabledReason={
-                                          !isTrends ? 'Exact time range is only available for trends' : undefined
-                                      }
                                       onChange={(checked) => {
                                           if (isTrendsQuery(querySource)) {
                                               const newQuery = { ...querySource }
