@@ -123,7 +123,7 @@ export const workflowLogic = kea<workflowLogicType>([
         // NOTE: This is a wrapper for setWorkflowValues, to get around some weird typegen issues
         setWorkflowInfo: (workflow: Partial<HogFlow>) => ({ workflow }),
         saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
-        triggerManualWorkflow: (variables: HogFlow['variables']) => ({ variables }),
+        triggerManualWorkflow: (variables: Record<string, string>) => ({ variables }),
         discardChanges: true,
     }),
     loaders(({ props, values }) => ({
@@ -409,7 +409,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        user_id: values.user?.id,
+                        user_id: String(values.user?.id),
                         variables,
                     }),
                     credentials: 'omit',
