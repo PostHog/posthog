@@ -6,6 +6,7 @@ from django.conf import settings
 
 import aiohttp
 import structlog
+from slack_sdk.errors import SlackApiError
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
@@ -213,6 +214,28 @@ async def _send_slack_message_with_retry(client, max_retries: int = 3, **kwargs)
             else:
                 # Final attempt failed, re-raise
                 raise
+        except SlackApiError as e:
+            slack_error = e.response.get("error", "")
+
+            # Only retry invalid_blocks errors (transient image download issues)
+            if slack_error == "invalid_blocks" and attempt < max_retries - 1:
+                wait_time = 2**attempt
+                logger.warning(
+                    "_send_slack_message_with_retry.invalid_blocks_retrying",
+                    attempt=attempt + 1,
+                    max_retries=max_retries,
+                    wait_time=wait_time,
+                    channel=kwargs.get("channel"),
+                    is_thread=bool(kwargs.get("thread_ts")),
+                    slack_error=slack_error,
+                    slack_error_details=e.response.get("errors", []),
+                    exc_info=True,
+                )
+                await asyncio.sleep(wait_time)
+                continue
+            else:
+                # Final attempt failed, re-raise
+                raise
 
 
 async def send_slack_message_with_integration_async(
@@ -234,6 +257,7 @@ async def send_slack_message_with_integration_async(
             blocks=message_data.blocks,
             text=message_data.title,
         )
+        logger.info("send_slack_message_with_integration_async.main_message_sent", subscription_id=subscription.id)
 
         thread_ts = message_res.get("ts")
         failed_thread_messages = []
@@ -247,14 +271,13 @@ async def send_slack_message_with_integration_async(
                         thread_ts=thread_ts,
                         **thread_msg,
                     )
-                except TimeoutError:
+                except Exception as e:
+                    # Thread message failed, continue with others
                     logger.error(
-                        "send_slack_message_with_integration_async.slack_thread_message_failed_after_retries",
+                        "send_slack_message_with_integration_async.thread_message_failed",
                         subscription_id=subscription.id,
-                        channel=message_data.channel,
-                        thread_index=idx,
-                        total_thread_messages=len(message_data.thread_messages),
-                        thread_ts=thread_ts,
+                        thread_message_index=idx,
+                        error=str(e),
                         exc_info=True,
                     )
                     failed_thread_messages.append(idx)
