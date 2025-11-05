@@ -2,8 +2,8 @@
 SESSION_SUMMARIES_STREAMING_MODEL = "gpt-4.1"  # Model to use when streaming (usually, single session summaries)
 SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS = {SESSION_SUMMARIES_STREAMING_MODEL}
 # Model to use for sync calls (usually, reasoning, like pattern extraction for session group summaries)
-SESSION_SUMMARIES_SYNC_MODEL = "gpt-5"
-SESSION_SUMMARIES_REASONING_EFFORT = "low"
+SESSION_SUMMARIES_SYNC_MODEL = "o3"
+SESSION_SUMMARIES_REASONING_EFFORT = "medium"
 SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS = {SESSION_SUMMARIES_SYNC_MODEL}
 SESSION_SUMMARIES_TEMPERATURE = 0.1  # Reduce hallucinations, but >0 to allow for some creativity
 

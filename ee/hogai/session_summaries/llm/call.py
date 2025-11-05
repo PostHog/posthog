@@ -141,7 +141,6 @@ async def call_llm(
             input=messages,
             model=model,
             reasoning={"effort": SESSION_SUMMARIES_REASONING_EFFORT},
-            text={"verbosity": "low"},
             user=user_param,
             posthog_trace_id=trace_id,
         )
