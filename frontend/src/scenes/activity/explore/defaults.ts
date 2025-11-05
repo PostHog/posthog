@@ -16,3 +16,18 @@ export const getDefaultEventsSceneQuery = (properties?: AnyPropertyFilter[]): Da
     showSavedQueries: true,
     showPersistentColumnConfigurator: true,
 })
+
+export const getDefaultSessionsSceneQuery = (properties?: AnyPropertyFilter[]): DataTableNode => ({
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: {
+        kind: NodeKind.SessionsQuery,
+        select: defaultDataTableColumns(NodeKind.SessionsQuery),
+        orderBy: ['$start_timestamp DESC'],
+        after: '-24h',
+        ...(properties ? { properties } : {}),
+    },
+    propertiesViaUrl: true,
+    showSavedQueries: true,
+    showPersistentColumnConfigurator: true,
+})
