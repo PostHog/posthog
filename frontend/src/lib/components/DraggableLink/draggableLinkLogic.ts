@@ -65,13 +65,7 @@ export const draggableLinkLogic = kea<draggableLinkLogicType>([
     listeners(({ cache, actions, values }) => ({
         startDropMode: () => {
             cache.dragEntercount = 0
-            cache.dragStart = null
-            cache.lastPanelAction = null
-
-            cache.initialPanelState = {
-                sidePanelOpen: values.sidePanelOpen,
-                selectedTab: values.selectedTab,
-            }
+            // Removed automatic panel state tracking since auto-opening is disabled
 
             // Add drag listener using disposables
             cache.disposables.add(() => {
@@ -82,10 +76,9 @@ export const draggableLinkLogic = kea<draggableLinkLogicType>([
 
                     // The drop distance is the percentage between where the drag started and where it now is
                     const distanceFromRightEdge = window.innerWidth - event.pageX
-                    const distanceFromDragStart = event.pageX - cache.dragStart
 
-                    // If we have dragged a little bit to the right, or we are dragging close to the side panel
-                    const shouldBeOpen = distanceFromDragStart > 50 || distanceFromRightEdge < 200
+                    // If we are dragging close to the side panel
+                    const shouldBeOpen = distanceFromRightEdge < 200
 
                     // Track the last action to prevent excessive calls to the same action
                     const currentState = values.sidePanelOpen && values.selectedTab === SidePanelTab.Notebooks
@@ -107,14 +100,7 @@ export const draggableLinkLogic = kea<draggableLinkLogicType>([
             }, 'dragListener')
         },
         endDropMode: () => {
-            // If we are in the notebook panel then we leave it open, otherwise we revert to the original state
-            if (cache.dragEntercount <= 0) {
-                if (!cache.initialPanelState.sidePanelOpen) {
-                    actions.closeSidePanel()
-                } else {
-                    actions.openSidePanel(cache.initialPanelState.selectedTab)
-                }
-            }
+            // Clean up drag listener - no automatic panel state changes since we disabled auto-opening
             cache.disposables.dispose('dragListener')
         },
     })),
