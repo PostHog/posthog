@@ -482,18 +482,19 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             actions.loadSessionEvents()
         },
         loadMoreSessionEventsSuccess: ({ sessionEvents }) => {
-            // eventsOffset still holds the OLD count (before this batch)
             const previousCount = values.eventsOffset
             const newCount = sessionEvents.length
             const fetchedCount = newCount - previousCount
 
-            // If we fetched less than 50, we've reached the end
+            // Stop loading if we fetched less than 50 events (or if something went wrong)
             if (fetchedCount < 50) {
                 actions.setHasMoreEvents(false)
             }
 
-            // Update the offset to the new total
-            actions.updateEventsOffset(newCount)
+            // Only update offset if we actually got new events
+            if (fetchedCount > 0) {
+                actions.updateEventsOffset(newCount)
+            }
         },
         loadEventDetailsSuccess: ({ eventDetails }) => {
             // After loading event details, update the sessionEvents array

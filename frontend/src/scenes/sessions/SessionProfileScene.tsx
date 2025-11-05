@@ -41,6 +41,8 @@ export function SessionProfileScene(): JSX.Element {
         isLoadingMore,
         hasMoreEvents,
         sortOrder,
+        sessionDataLoading,
+        sessionEventsLoading,
     } = useValues(sessionProfileLogic)
     const { loadEventDetails, loadSessionData, loadMoreSessionEvents, setSortOrder } = useActions(sessionProfileLogic)
 
@@ -65,7 +67,12 @@ export function SessionProfileScene(): JSX.Element {
                     key: 'sessions',
                 }}
                 actions={
-                    <LemonButton type="secondary" icon={<IconRefresh />} onClick={() => loadSessionData()}>
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        onClick={() => loadSessionData()}
+                        loading={sessionDataLoading || sessionEventsLoading}
+                    >
                         Refresh
                     </LemonButton>
                 }
