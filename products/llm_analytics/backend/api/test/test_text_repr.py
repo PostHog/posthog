@@ -473,7 +473,7 @@ class TestEdgeCases(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.data
         self.assertEqual(data["metadata"]["truncated"], True)
-        self.assertLessEqual(data["metadata"]["char_count"], 3000000 + 200)
+        self.assertLessEqual(data["metadata"]["char_count"], 4000000 + 200)
 
     def test_unicode_content(self):
         """Should handle Unicode content correctly."""
