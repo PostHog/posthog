@@ -263,6 +263,11 @@ jobs:
                   EXIT_CODE=$?
                   set -e  # Re-enable exit on error
 
+                  # Save analysis to file for artifact upload
+                  if [ -n "$RISK_ANALYSIS" ]; then
+                    echo "$RISK_ANALYSIS" > migration_analysis.md
+                  fi
+
                   # Get existing comments
                   COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                     -H "Accept: application/vnd.github.v3+json" \
@@ -297,6 +302,14 @@ jobs:
                   if [ $EXIT_CODE -ne 0 ]; then
                     exit $EXIT_CODE
                   fi
+
+            - name: Upload migration analysis artifact
+              if: always() && github.event_name == 'pull_request'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: migration-analysis
+                  path: migration_analysis.md
+                  if-no-files-found: ignore
 
             - name: Run migrations for this PR
               run: |
