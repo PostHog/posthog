@@ -71,7 +71,7 @@ import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
 import { MarkdownMessage } from './MarkdownMessage'
-import { getToolDefinition } from './max-constants'
+import { ToolRegistration, getToolDefinition } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
@@ -173,7 +173,7 @@ interface MessageProps {
 }
 
 function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element {
-    const { editInsightToolRegistered } = useValues(maxGlobalLogic)
+    const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading } = useValues(maxThreadLogic)
 
@@ -259,6 +259,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                                 <ToolCallsAnswer
                                     key={`${key}-tools`}
                                     toolCalls={message.tool_calls as EnhancedToolCall[]}
+                                    registeredToolMap={registeredToolMap}
                                 />
                             ) : null
 
@@ -834,9 +835,10 @@ function ReasoningAnswer({ content, completed, id, showCompletionIcon = true }: 
 
 interface ToolCallsAnswerProps {
     toolCalls: EnhancedToolCall[]
+    registeredToolMap: Record<string, ToolRegistration>
 }
 
-function ToolCallsAnswer({ toolCalls }: ToolCallsAnswerProps): JSX.Element {
+function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps): JSX.Element {
     // Separate todo_write tool calls from regular tool calls
     const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
     const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
@@ -867,7 +869,7 @@ function ToolCallsAnswer({ toolCalls }: ToolCallsAnswerProps): JSX.Element {
                         let description = `Executing ${toolCall.name}`
                         if (definition) {
                             if (definition.displayFormatter) {
-                                description = definition.displayFormatter(toolCall)
+                                description = definition.displayFormatter(toolCall, { registeredToolMap })
                             }
                             if (commentary) {
                                 description = commentary

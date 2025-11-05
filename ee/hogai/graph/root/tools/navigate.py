@@ -10,7 +10,7 @@ from posthog.models import Team, User
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import AssistantState
+from ee.hogai.utils.types.base import AssistantState, NodePath
 
 NAVIGATION_TOOL_PROMPT = """
 Use the `navigate` tool to move between different pages in the PostHog application.
@@ -57,7 +57,7 @@ class NavigateTool(MaxTool):
         *,
         team: Team,
         user: User,
-        tool_call_id: str,
+        node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
@@ -69,7 +69,7 @@ class NavigateTool(MaxTool):
         return cls(
             team=team,
             user=user,
-            tool_call_id=tool_call_id,
+            node_path=node_path,
             state=state,
             config=config,
             context_manager=context_manager,

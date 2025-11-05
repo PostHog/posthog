@@ -2,11 +2,12 @@ import datetime
 from typing import cast
 from uuid import uuid4
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import patch
 
+from langchain_core.runnables import RunnableConfig
+
 from posthog.schema import (
-    AssistantToolCallMessage,
     BillingSpendResponseBreakdownType,
     BillingUsageResponseBreakdownType,
     MaxAddonInfo,
@@ -21,26 +22,30 @@ from posthog.schema import (
     UsageHistoryItem,
 )
 
-from ee.hogai.graph.billing.nodes import BillingNode
+from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.graph.root.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.utils.types import AssistantState
 
 
-class TestBillingNode(ClickhouseTestMixin, BaseTest):
+class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
     def setUp(self):
         super().setUp()
-        self.node = BillingNode(self.team, self.user)
-        self.tool_call_id = str(uuid4())
-        self.state = AssistantState(messages=[], root_tool_call_id=self.tool_call_id)
+        self.tool = ReadBillingTool(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[], root_tool_call_id=str(uuid4())),
+            config=RunnableConfig(configurable={}),
+            context_manager=AssistantContextManager(self.team, self.user, {}),
+        )
 
-    def test_run_with_no_billing_context(self):
-        with patch.object(self.node.context_manager, "get_billing_context", return_value=None):
-            result = self.node.run(self.state, {})
-            self.assertEqual(len(result.messages), 1)
-            message = result.messages[0]
-            self.assertIsInstance(message, AssistantToolCallMessage)
-            self.assertEqual(cast(AssistantToolCallMessage, message).content, "No billing information available")
+    async def test_run_with_no_billing_context(self):
+        with patch.object(self.tool._context_manager, "get_billing_context", return_value=None):
+            result = await self.tool.execute()
+            self.assertEqual(result, "No billing information available")
 
-    def test_run_with_billing_context(self):
+    async def test_run_with_billing_context(self):
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="paid",
@@ -50,17 +55,13 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             products=[],
         )
         with (
-            patch.object(self.node.context_manager, "get_billing_context", return_value=billing_context),
-            patch.object(self.node, "_format_billing_context", return_value="Formatted Context"),
+            patch.object(self.tool._context_manager, "get_billing_context", return_value=billing_context),
+            patch.object(self.tool, "_format_billing_context", return_value="Formatted Context"),
         ):
-            result = self.node.run(self.state, {})
-            self.assertEqual(len(result.messages), 1)
-            message = result.messages[0]
-            self.assertIsInstance(message, AssistantToolCallMessage)
-            self.assertEqual(cast(AssistantToolCallMessage, message).content, "Formatted Context")
-            self.assertEqual(cast(AssistantToolCallMessage, message).tool_call_id, self.tool_call_id)
+            result = await self.tool.execute()
+            self.assertEqual(result, "Formatted Context")
 
-    def test_format_billing_context(self):
+    async def test_format_billing_context(self):
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="paid",
@@ -89,8 +90,8 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
         )
 
-        with patch.object(self.node, "_get_top_events_by_usage", return_value=[]):
-            formatted_string = self.node._format_billing_context(billing_context)
+        with patch.object(self.tool, "_get_top_events_by_usage", return_value=[]):
+            formatted_string = await self.tool._format_billing_context(billing_context)
             self.assertIn("(paid)", formatted_string)
             self.assertIn("Period: 2023-01-01 to 2023-01-31", formatted_string)
 
@@ -123,19 +124,21 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             ),
         ]
 
-        usage_table = self.node._format_history_table(usage_history)
+        usage_table = self.tool._format_history_table(usage_history)
         self.assertIn("### Overall (all projects)", usage_table)
         self.assertIn("| Data Type | 2023-01-01 | 2023-01-02 |", usage_table)
         self.assertIn("| Recordings | 100.00 | 200.00 |", usage_table)
         self.assertIn("| Events | 1.50 | 2.50 |", usage_table)
 
-        spend_table = self.node._format_history_table(spend_history)
+        spend_table = self.tool._format_history_table(spend_history)
         self.assertIn("| Mobile Recordings | 10.50 | 20.00 |", spend_table)
 
     def test_get_top_events_by_usage(self):
         mock_results = [("pageview", 1000), ("$autocapture", 500)]
-        with patch("ee.hogai.graph.billing.nodes.sync_execute", return_value=mock_results) as mock_sync_execute:
-            top_events = self.node._get_top_events_by_usage()
+        with patch(
+            "ee.hogai.graph.root.tools.read_billing_tool.tool.sync_execute", return_value=mock_results
+        ) as mock_sync_execute:
+            top_events = self.tool._get_top_events_by_usage()
             self.assertEqual(len(top_events), 2)
             self.assertEqual(top_events[0]["event"], "pageview")
             self.assertEqual(top_events[0]["count"], 1000)
@@ -150,13 +153,14 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
 
     def test_get_top_events_by_usage_query_fails(self):
         with patch(
-            "ee.hogai.graph.billing.nodes.sync_execute", side_effect=Exception("DB connection failed")
+            "ee.hogai.graph.root.tools.read_billing_tool.tool.sync_execute",
+            side_effect=Exception("DB connection failed"),
         ) as mock_sync_execute:
-            top_events = self.node._get_top_events_by_usage()
+            top_events = self.tool._get_top_events_by_usage()
             self.assertEqual(top_events, [])
             mock_sync_execute.assert_called_once()
 
-    def test_format_billing_context_with_addons(self):
+    async def test_format_billing_context_with_addons(self):
         """Test that addons are properly nested within products in the formatted output"""
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
@@ -230,14 +234,14 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         )
 
         with patch.object(
-            self.node,
+            self.tool,
             "_get_top_events_by_usage",
             return_value=[
                 {"event": "$pageview", "count": 50000, "formatted_count": "50,000"},
                 {"event": "$autocapture", "count": 30000, "formatted_count": "30,000"},
             ],
         ):
-            formatted_string = self.node._format_billing_context(billing_context)
+            formatted_string = await self.tool._format_billing_context(billing_context)
 
             # Check basic info
             self.assertIn("paid subscription (startup)", formatted_string)
@@ -274,7 +278,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("$pageview", formatted_string)
             self.assertIn("50,000 events", formatted_string)
 
-    def test_format_billing_context_no_subscription(self):
+    async def test_format_billing_context_no_subscription(self):
         """Test formatting when user has no active subscription (free plan)"""
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.FREE,
@@ -286,8 +290,8 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             trial=MaxBillingContextTrial(is_active=True, expires_at="2023-02-01", target="teams"),
         )
 
-        with patch.object(self.node, "_get_top_events_by_usage", return_value=[]):
-            formatted_string = self.node._format_billing_context(billing_context)
+        with patch.object(self.tool, "_get_top_events_by_usage", return_value=[]):
+            formatted_string = await self.tool._format_billing_context(billing_context)
 
             self.assertIn("free subscription", formatted_string)
             self.assertIn("Active subscription: No (Free plan)", formatted_string)
@@ -297,7 +301,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
     def test_format_history_table_with_team_breakdown(self):
         """Test that history tables properly group by team when breakdown includes team IDs"""
         # Mock the teams map
-        self.node._teams_map = {
+        self.tool._teams_map = {
             1: "Team Alpha (ID: 1)",
             2: "Team Beta (ID: 2)",
         }
@@ -337,7 +341,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             ),
         ]
 
-        table = self.node._format_history_table(usage_history)
+        table = self.tool._format_history_table(usage_history)
 
         # Check team-specific tables
         self.assertIn("### Team Alpha (ID: 1)", table)
@@ -349,7 +353,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         self.assertIn("| Recordings | 100.00 | 200.00 |", table)
         self.assertIn("| Feature Flag Requests | 50.00 | 100.00 |", table)
 
-    def test_format_billing_context_edge_cases(self):
+    async def test_format_billing_context_edge_cases(self):
         """Test edge cases and potential security issues"""
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.CUSTOM,
@@ -374,8 +378,8 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=0),
         )
 
-        with patch.object(self.node, "_get_top_events_by_usage", return_value=[]):
-            formatted_string = self.node._format_billing_context(billing_context)
+        with patch.object(self.tool, "_get_top_events_by_usage", return_value=[]):
+            formatted_string = await self.tool._format_billing_context(billing_context)
 
             # Check deactivated status
             self.assertIn("Status: Account is deactivated", formatted_string)
@@ -393,7 +397,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             # Check exceeded limit warning
             self.assertIn("⚠️ Usage limit exceeded", formatted_string)
 
-    def test_format_billing_context_complete_template_coverage(self):
+    async def test_format_billing_context_complete_template_coverage(self):
         """Test all possible template variables are covered"""
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
@@ -472,14 +476,14 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
         )
 
         # Mock teams map for history table
-        self.node._teams_map = {1: "Main Team (ID: 1)"}
+        self.tool._teams_map = {1: "Main Team (ID: 1)"}
 
         with patch.object(
-            self.node,
+            self.tool,
             "_get_top_events_by_usage",
             return_value=[{"event": "$identify", "count": 10000, "formatted_count": "10,000"}],
         ):
-            formatted_string = self.node._format_billing_context(billing_context)
+            formatted_string = await self.tool._format_billing_context(billing_context)
 
             # Verify all template sections are present
             self.assertIn("<billing_context>", formatted_string)
@@ -545,12 +549,12 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             ),
         ]
 
-        self.node._teams_map = {
+        self.tool._teams_map = {
             84444: "Project 84444",
             12345: "Project 12345",
         }
 
-        table = self.node._format_history_table(usage_history)
+        table = self.tool._format_history_table(usage_history)
 
         # Should always include aggregated table first
         self.assertIn("### Overall (all projects)", table)
@@ -597,7 +601,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             ),
         ]
 
-        table = self.node._format_history_table(usage_history)
+        table = self.tool._format_history_table(usage_history)
 
         # Should include aggregated table
         self.assertIn("### Overall (all projects)", table)
@@ -645,7 +649,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             )
         ]
 
-        aggregated = self.node._create_aggregated_items(team_items, other_items)
+        aggregated = self.tool._create_aggregated_items(team_items, other_items)
 
         # Should have 2 aggregated items: events and feature flags
         self.assertEqual(len(aggregated), 2)
@@ -687,7 +691,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             ),
         ]
 
-        table = self.node._format_history_table(usage_history)
+        table = self.tool._format_history_table(usage_history)
 
         # Should only have aggregated table, no team-specific tables
         self.assertIn("### Overall (all projects)", table)
@@ -721,18 +725,18 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             )
         ]
 
-        self.node._teams_map = {
+        self.tool._teams_map = {
             123: "Project 123",
         }
 
         # Test usage history formatting
-        usage_table = self.node._format_history_table(usage_history)
+        usage_table = self.tool._format_history_table(usage_history)
         self.assertIn("### Overall (all projects)", usage_table)
         self.assertIn("### Project 123", usage_table)
         self.assertIn("| Events | 1,000.00 |", usage_table)
 
         # Test spend history formatting
-        spend_table = self.node._format_history_table(spend_history)
+        spend_table = self.tool._format_history_table(spend_history)
         self.assertIn("### Overall (all projects)", spend_table)
         self.assertIn("### Project 123", spend_table)
         self.assertIn("| Events | 50.00 |", spend_table)
@@ -758,7 +762,7 @@ class TestBillingNode(ClickhouseTestMixin, BaseTest):
             ),
         ]
 
-        table = self.node._format_history_table(usage_history)
+        table = self.tool._format_history_table(usage_history)
 
         # Should handle empty dates gracefully and still show valid data
         self.assertIn("### Overall (all projects)", table)

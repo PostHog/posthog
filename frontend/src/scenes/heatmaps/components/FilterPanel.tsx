@@ -7,6 +7,7 @@ import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
+import { SectionSetting } from 'lib/components/heatmaps/HeatMapsSettings'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -150,6 +151,21 @@ export function FilterPanel(): JSX.Element {
                                         heatmapFixedPositionMode={heatmapFixedPositionMode}
                                         setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
                                     />
+                                    <SectionSetting
+                                        title="Internal and test users filter"
+                                        info="Filter out internal and test users"
+                                    >
+                                        <TestAccountFilter
+                                            size="small"
+                                            filters={{ filter_test_accounts: commonFilters?.filter_test_accounts }}
+                                            onChange={(value) => {
+                                                setCommonFilters?.({
+                                                    ...commonFilters,
+                                                    filter_test_accounts: value.filter_test_accounts,
+                                                })
+                                            }}
+                                        />
+                                    </SectionSetting>
                                 </div>
                             }
                             visible={isSettingsOpen}
@@ -173,18 +189,6 @@ export function FilterPanel(): JSX.Element {
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                     <ViewportChooser />
-                    <div className="flex items-center gap-2">
-                        <TestAccountFilter
-                            size="small"
-                            filters={{ filter_test_accounts: commonFilters?.filter_test_accounts }}
-                            onChange={(value) => {
-                                setCommonFilters?.({
-                                    ...commonFilters,
-                                    filter_test_accounts: value.filter_test_accounts,
-                                })
-                            }}
-                        />
-                    </div>
                 </div>
             </div>
             {heatmapEmpty ? (
