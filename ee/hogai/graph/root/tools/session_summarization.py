@@ -122,7 +122,11 @@ class SessionSummarizationTool(MaxTool):
     show_tool_call_message: bool = False
 
     async def _arun_impl(
-        self, session_summarization_query: str, should_use_current_filters: bool, summary_title: str, session_summarization_limit: int
+        self,
+        session_summarization_query: str,
+        should_use_current_filters: bool,
+        summary_title: str,
+        session_summarization_limit: int,
     ) -> tuple[str, ToolMessagesArtifact | None]:
         node = SessionSummarizationNode(self._team, self._user)
         chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
