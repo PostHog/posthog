@@ -24,7 +24,8 @@ VERBOSE_NODES: set["MaxNodeName"] = {
     AssistantNodeName.SQL_GENERATOR,
     AssistantNodeName.TRENDS_GENERATOR,
     AssistantNodeName.ROOT,
-    AssistantNodeName.ROOT_TOOLS,
+    AssistantNodeName.AGENT_EXECUTOR,
+    AssistantNodeName.AGENT_EXECUTOR_TOOLS,
 }
 
 

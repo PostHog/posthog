@@ -73,8 +73,6 @@ from .prompts import (
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
 
-SLASH_COMMAND_INIT = "/init"
-SLASH_COMMAND_REMEMBER = "/remember"
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)

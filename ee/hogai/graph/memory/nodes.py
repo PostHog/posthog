@@ -34,9 +34,9 @@ from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQu
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.utils import human_list
 
+from ee.hogai.graph.agent_modes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown

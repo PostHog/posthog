@@ -32,16 +32,17 @@ from posthog.models.organization import OrganizationMembership
 
 from products.replay.backend.max_tools import SearchSessionRecordingsTool
 
-from ee.hogai.graph.root.nodes import RootNode, RootNodeTools
-from ee.hogai.graph.root.prompts import (
-    ROOT_BILLING_CONTEXT_ERROR_PROMPT,
-    ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
-    ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
-)
 from ee.hogai.tool import ToolMessagesArtifact
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion
+
+from ..nodes import RootNode, RootNodeTools
+from ..prompts import (
+    ROOT_BILLING_CONTEXT_ERROR_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
+    ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
+)
 
 
 @contextmanager

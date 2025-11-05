@@ -24,7 +24,8 @@ if TYPE_CHECKING:
 
 
 STREAMING_NODES: set["MaxNodeName"] = {
-    AssistantNodeName.ROOT,
+    AssistantNodeName.AGENT_EXECUTOR,
+    AssistantNodeName.AGENT_EXECUTOR_TOOLS,
     AssistantNodeName.INKEEP_DOCS,
     AssistantNodeName.MEMORY_ONBOARDING,
     AssistantNodeName.MEMORY_INITIALIZER,
@@ -42,7 +43,7 @@ VERBOSE_NODES: set["MaxNodeName"] = {
     AssistantNodeName.INSIGHTS_SEARCH,
     AssistantNodeName.QUERY_EXECUTOR,
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
-    AssistantNodeName.ROOT_TOOLS,
+    AssistantNodeName.AGENT_EXECUTOR_TOOLS,
     TaxonomyNodeName.TOOLS_NODE,
     TaxonomyNodeName.TASK_EXECUTOR,
 }

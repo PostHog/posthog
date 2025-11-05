@@ -164,8 +164,8 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 await self.tool.execute("test query", "custom-tool-call-id")
 
     @override_settings(INKEEP_API_KEY="test-inkeep-key")
-    @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")
-    @patch("ee.hogai.graph.root.tools.search.InkeepDocsSearchTool._has_rag_docs_search_feature_flag", return_value=True)
+    @patch("ee.hogai.tools.search.ChatOpenAI")
+    @patch("ee.hogai.tools.search.InkeepDocsSearchTool._has_rag_docs_search_feature_flag", return_value=True)
     async def test_search_docs_with_successful_results(self, mock_has_rag_docs_search_feature_flag, mock_llm_class):
         response_json = """{
             "content": [
