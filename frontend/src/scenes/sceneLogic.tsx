@@ -258,7 +258,9 @@ const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallbackPinn
 const composeTabsFromStorage = (storedPinned: PersistedPinnedState | null, baseTabs: SceneTab[]): SceneTab[] => {
     const { pinned: basePinned, unpinned } = partitionTabs(baseTabs)
     const mergedPinned = mergePinnedTabs(storedPinned, basePinned)
-    return ensureActiveTab([...mergedPinned, ...unpinned.map((tab) => ({ ...tab, pinned: false }))])
+    const unpinnedIds = new Set(unpinned.map((tab) => tab.id))
+    const filteredPinned = mergedPinned.filter((tab) => !tab.id || !unpinnedIds.has(tab.id))
+    return ensureActiveTab([...filteredPinned, ...unpinned.map((tab) => ({ ...tab, pinned: false }))])
 }
 
 export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
