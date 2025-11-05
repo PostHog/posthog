@@ -5,7 +5,6 @@ import { IconButton } from '@posthog/icons'
 import { LemonButton, Popover } from '@posthog/lemon-ui'
 
 import { workflowLogic } from '../workflowLogic'
-import { WorkflowSceneLogicProps } from '../workflowSceneLogic'
 
 const VariableInputsPopover: React.FC = () => {
     const { workflow } = useValues(workflowLogic)
@@ -19,9 +18,8 @@ const VariableInputsPopover: React.FC = () => {
     )
 }
 
-export const HogFlowManualTriggerButton = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
-    const logic = workflowLogic(props)
-    const { workflow } = useValues(logic)
+export const HogFlowManualTriggerButton = (): JSX.Element => {
+    const { workflow } = useValues(workflowLogic)
     const [manualTriggerPopoverVisible, setManualTriggerPopoverVisible] = useState(false)
 
     const triggerButton = (
