@@ -15,7 +15,7 @@ WITH candidates AS (
   SELECT arrayJoin(topK(100)(
            (team_id, distinct_id)
          )) AS k
-  FROM posthog.events_recent
+  FROM events_recent
   PREWHERE timestamp >= now() - INTERVAL {time_window_minutes} MINUTE
 )
 
@@ -23,7 +23,7 @@ SELECT
   e.team_id,
   e.distinct_id,
   count() AS offending_event_count
-FROM posthog.events_recent AS e
+FROM events_recent AS e
 PREWHERE e.timestamp >= now() - INTERVAL {time_window_minutes} MINUTE
 WHERE (e.team_id, e.distinct_id) IN
   (SELECT tupleElement(k, 1), tupleElement(k, 2) FROM candidates)

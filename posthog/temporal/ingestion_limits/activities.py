@@ -54,14 +54,14 @@ async def query_ingestion_limits_activity(inputs: IngestionLimitsWorkflowInput) 
         total_candidates = 0
 
         try:
-            async with get_client() as client:
+            async with get_client(default_format="JSONEachRow") as client:
                 query_id = str(uuid4())
                 async for row in client.stream_query_as_jsonl(query, query_id=query_id):
-                    offending_event_count = row.get("offending_event_count", 0)
+                    offending_event_count = int(row.get("offending_event_count", 0))
                     if offending_event_count >= inputs.event_threshold:
                         high_volume_distinct_ids.append(
                             HighVolumeDistinctId(
-                                team_id=row["team_id"],
+                                team_id=int(row.get("team_id", 0)),
                                 distinct_id=row["distinct_id"],
                                 offending_event_count=offending_event_count,
                             )
