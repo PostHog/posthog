@@ -105,7 +105,7 @@ const persistPinnedTabs = (tabs: SceneTab[], homepage: SceneTab | null): void =>
         return
     }
 
-    const serialized = JSON.stringify({ personal: pinnedTabs, homepage: homepageTab })
+    const serialized = JSON.stringify({ tabs: pinnedTabs, homepage: homepageTab })
     if (localStorage.getItem(key) !== serialized) {
         localStorage.setItem(key, serialized)
     }
@@ -143,6 +143,9 @@ const getPersistedPinnedState = (): PersistedPinnedState | null => {
             } else if (parsed && typeof parsed === 'object') {
                 if (Array.isArray(parsed.tabs)) {
                     tabs = parsed.tabs
+                } else if (Array.isArray(parsed.personal)) {
+                    // Backwards compatibility for older local storage entries.
+                    tabs = parsed.personal
                 }
 
                 homepage = normalizeStoredHomepage(parsed.homepage)

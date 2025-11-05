@@ -143,7 +143,7 @@ describe('sceneLogic', () => {
 
         const storedPinned = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '{}')
         expect(storedPinned).toEqual({
-            personal: [expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })],
+            tabs: [expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })],
             homepage: null,
         })
 
@@ -166,7 +166,7 @@ describe('sceneLogic', () => {
         )
 
         expect(JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '{}')).toEqual({
-            personal: [expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })],
+            tabs: [expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })],
             homepage: expect.objectContaining({ id: 'tab-2', pinned: true }),
         })
 
@@ -186,5 +186,47 @@ describe('sceneLogic', () => {
         })
         expect(localStorage.getItem(pinnedStorageKey)).toBeNull()
         expect(logic.values.homepage).toBeNull()
+    })
+    it('hydrates pinned tabs stored under legacy personal key', async () => {
+        const teamId = teamLogic.values.currentTeamId ?? 'null'
+        const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`
+
+        logic.unmount()
+
+        localStorage.setItem(
+            pinnedStorageKey,
+            JSON.stringify({
+                personal: [
+                    {
+                        id: 'legacy-tab',
+                        pathname: '/legacy',
+                        search: '',
+                        hash: '',
+                        title: 'Legacy tab',
+                        iconType: 'blank',
+                        pinned: true,
+                    },
+                ],
+                homepage: {
+                    id: 'legacy-tab',
+                    pathname: '/legacy',
+                    search: '',
+                    hash: '',
+                    title: 'Legacy tab',
+                    iconType: 'blank',
+                    pinned: true,
+                },
+            })
+        )
+
+        logic = sceneLogic({ scenes: testScenes })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['setTabs'])
+            .toMatchValues({
+                tabs: [expect.objectContaining({ pathname: '/legacy', pinned: true })],
+                homepage: expect.objectContaining({ pathname: '/legacy', pinned: true }),
+            })
     })
 })
