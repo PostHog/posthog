@@ -229,16 +229,11 @@ function SummaryRenderer({
     }
 
     if (isRenderingMarkdown) {
-        // For markdown mode, we need to process the text before rendering
-        const processedSummary = parseLineReferences(summary)
+        // For markdown mode, render as-is without processing line references
+        // This preserves markdown structure (line references visible but not interactive)
         return (
-            <div className="whitespace-pre">
-                {processedSummary.map((part, index) => {
-                    if (typeof part === 'string') {
-                        return <LemonMarkdown key={index}>{part}</LemonMarkdown>
-                    }
-                    return part
-                })}
+            <div>
+                <LemonMarkdown>{summary}</LemonMarkdown>
             </div>
         )
     }
