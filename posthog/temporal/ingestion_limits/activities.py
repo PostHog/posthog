@@ -31,24 +31,24 @@ LOGGER = get_logger(__name__)
 
 @activity.defn(name="query-ingestion-limits")
 async def query_ingestion_limits_activity(inputs: IngestionLimitsWorkflowInput) -> IngestionLimitsReport:
-    """Query ClickHouse for high-volume event senders.
+    """Query ClickHouse for teams that are submitting high rates of events with the same distinct ID.
 
     Args:
         inputs: Workflow input parameters
 
     Returns:
-        IngestionLimitsReport with high-volume distinct IDs found
+        IngestionLimitsReport with list of offending teams and distinct IDs found
+        and the number of events counted for each during the time window
     """
     async with Heartbeater():
         bind_contextvars(
-            time_window_hours=inputs.time_window_hours,
+            time_window_minutes=inputs.time_window_minutes,
             event_threshold=inputs.event_threshold,
         )
         logger = LOGGER.bind()
         logger.info("Querying ingestion limits from ClickHouse")
 
-        time_window_minutes = inputs.time_window_hours * 60
-        query = get_high_volume_distinct_ids_query(time_window_minutes)
+        query = get_high_volume_distinct_ids_query(inputs.time_window_minutes)
 
         high_volume_distinct_ids: list[HighVolumeDistinctId] = []
         total_candidates = 0
@@ -82,7 +82,7 @@ async def query_ingestion_limits_activity(inputs: IngestionLimitsWorkflowInput) 
             high_volume_distinct_ids=high_volume_distinct_ids,
             total_candidates=total_candidates,
             timestamp=datetime.now(UTC),
-            time_window_minutes=time_window_minutes,
+            time_window_minutes=inputs.time_window_minutes,
         )
 
 

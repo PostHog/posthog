@@ -47,7 +47,7 @@ async def test_query_ingestion_limits_activity(mock_get_client, mock_clickhouse_
 
     mock_clickhouse_client.stream_query_as_jsonl = mock_stream
 
-    inputs = IngestionLimitsWorkflowInput(event_threshold=1000, time_window_hours=1)
+    inputs = IngestionLimitsWorkflowInput(event_threshold=1000, time_window_minutes=60)
 
     result = await query_ingestion_limits_activity(inputs)
 

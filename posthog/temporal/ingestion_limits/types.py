@@ -21,7 +21,7 @@ class IngestionLimitsWorkflowInput(BaseModel):
     report_destination: ReportDestination = ReportDestination.BOTH
     slack_channel: Optional[str] = None
     kafka_topic: Optional[str] = None
-    time_window_hours: int = 24
+    time_window_minutes: int = 10
     event_threshold: int
 
 

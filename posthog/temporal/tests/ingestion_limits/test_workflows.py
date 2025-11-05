@@ -52,7 +52,7 @@ async def test_ingestion_limits_workflow(mock_get_client, workflow_environment):
     ):
         inputs = IngestionLimitsWorkflowInput(
             event_threshold=1000,
-            time_window_hours=1,
+            time_window_minutes=60,
             report_destination=ReportDestination.BOTH,
             slack_channel="#test-channel",
             kafka_topic="test_topic",
