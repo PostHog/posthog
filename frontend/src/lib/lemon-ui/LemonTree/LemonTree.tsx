@@ -419,6 +419,8 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             : renderItemTooltip?.(item)
                                     }
                                     tooltipPlacement="right"
+                                    // Good practice, but used for drag and drop and link into shortcuts panel (pinned folder)
+                                    title={item.name}
                                 >
                                     {size === 'default' && (
                                         <span

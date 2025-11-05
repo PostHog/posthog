@@ -16,6 +16,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { cn } from 'lib/utils/css-classes'
 
 import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { shortcutDropLogic } from '~/layout/panel-layout/PinnedFolder/shortcutDropLogic'
@@ -55,7 +56,9 @@ function ShortcutDropZone({ children }: { children: React.ReactNode }): JSX.Elem
 
     return (
         <div
-            className={`relative h-full flex-1 ${showDropZone ? 'bg-accent/10 outline-2 outline-dashed outline-accent' : ''}`}
+            className={cn('relative h-full flex-1', {
+                'bg-accent/10 outline-2 outline-dashed -outline-offset-2 outline-accent': showDropZone,
+            })}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
@@ -150,7 +153,8 @@ export function PinnedFolder(): JSX.Element {
                 ) : (
                     <div className="absolute right-1 z-10 top-px">{configMenu}</div>
                 ))}
-            <div className="flex flex-col mt-[-0.25rem] h-full group/colorful-product-icons colorful-product-icons-true">
+            {/* Note: h-[calc(100%-30px)] is the height of the button/header above */}
+            <div className="flex flex-col mt-[-0.25rem] h-[calc(100%-30px)] group/colorful-product-icons colorful-product-icons-true">
                 <ProjectTree root={pinnedFolder} onlyTree treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'} />
             </div>
         </>
