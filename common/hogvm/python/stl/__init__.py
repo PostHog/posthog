@@ -11,7 +11,6 @@ import pytz
 
 from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_error, to_hog_interval
 from ..utils import get_nested_value, like
-from .cohort import inCohort, notInCohort
 from .crypto import md5, sha256, sha256HmacChain
 from .date import (
     formatDateTime,
@@ -1094,7 +1093,4 @@ STL: dict[str, STLFunction] = {
     # only in python, async function in nodejs
     "sleep": STLFunction(fn=sleep, minArgs=1, maxArgs=1),
     "run": STLFunction(fn=run, minArgs=1, maxArgs=1),
-    # Cohort membership functions
-    "inCohort": STLFunction(fn=inCohort, minArgs=2, maxArgs=2),
-    "notInCohort": STLFunction(fn=notInCohort, minArgs=2, maxArgs=2),
 }
