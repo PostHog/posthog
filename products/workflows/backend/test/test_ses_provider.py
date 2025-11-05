@@ -32,11 +32,6 @@ class TestSESProvider(TestCase):
         mock_client_instance.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
         mock_client_instance.get_caller_identity.return_value = {"Account": "123456789012"}
 
-    @classmethod
-    def tearDownClass(cls):
-        if cls.boto3_client_patcher:
-            cls.boto3_client_patcher.stop()
-
     def setUp(self):
         # Remove all domains from SES (mocked)
         ses_provider = SESProvider()
