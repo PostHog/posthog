@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconDatabase, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDivider, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -32,6 +32,22 @@ const SYNC_FREQUENCY_OPTIONS: { value: DataWarehouseSyncInterval; label: string 
     { value: '24hour', label: 'Once a day' },
     { value: '7day', label: 'Once a week' },
 ]
+
+function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'warning' | 'default' {
+    if (!status) {
+        return 'warning'
+    }
+    switch (status.toLowerCase()) {
+        case 'failed':
+            return 'danger'
+        case 'running':
+            return 'warning'
+        case 'completed':
+            return 'success'
+        default:
+            return 'default'
+    }
+}
 
 export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
     const { setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(endpointLogic({ tabId }))
@@ -87,9 +103,9 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                                     <IconDatabase className="text-lg" />
                                     <span className="font-medium">Materialization status</span>
                                 </div>
-                                <span className="text-xs px-2 py-1 bg-success-highlight text-success rounded">
+                                <LemonTag type={getStatusTagType(materializationStatus)}>
                                     {materializationStatus || 'Pending'}
-                                </span>
+                                </LemonTag>
                             </div>
 
                             {lastMaterializedAt && (
