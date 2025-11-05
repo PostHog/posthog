@@ -13,6 +13,7 @@ from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORK
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
 from posthog.temporal.delete_recordings import WORKFLOWS as DELETE_RECORDING_WORKFLOWS
 from posthog.temporal.enforce_max_replay_retention import WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+from posthog.temporal.ingestion_limits import WORKFLOWS as INGESTION_LIMITS_WORKFLOWS
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOWS
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
@@ -128,6 +129,7 @@ class Command(BaseCommand):
             + DATA_IMPORT_WORKFLOWS
             + PROXY_SERVICE_WORKFLOWS
             + DELETE_PERSONS_WORKFLOWS
+            + INGESTION_LIMITS_WORKFLOWS
             + USAGE_REPORTS_WORKFLOWS
             + QUOTA_LIMITING_WORKFLOWS
             + AI_WORKFLOWS
