@@ -13,7 +13,7 @@ import { SessionEventItem } from './SessionEventItem'
 export interface SessionEventsListProps {
     events: RecordingEventType[] | null
     isLoading?: boolean
-    onLoadEventDetails?: (eventId: string) => void
+    onLoadEventDetails?: (eventId: string, eventName: string) => void
 }
 
 export function SessionEventsList({ events, isLoading, onLoadEventDetails }: SessionEventsListProps): JSX.Element {
