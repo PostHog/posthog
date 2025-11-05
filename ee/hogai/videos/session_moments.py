@@ -29,6 +29,7 @@ from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_EXPORT_MIME_TYPE,
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
     VALIDATION_VIDEO_DURATION,
+    VALIDATION_VIDEO_PLAYBACK_SPEED,
 )
 
 logger = structlog.get_logger(__name__)
@@ -152,8 +153,8 @@ class SessionMomentsLLMAnalyzer:
                     "timestamp": moment.timestamp_s,
                     "filename": moment_filename,
                     "duration": moment.duration_s,
-                    # 4x to reduce the rendering time
-                    "playback_speed": 4,
+                    # Speed up to reduce the rendering time
+                    "playback_speed": VALIDATION_VIDEO_PLAYBACK_SPEED,
                     # Keeping default values
                     "mode": "screenshot",
                 },
