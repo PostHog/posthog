@@ -1,0 +1,37 @@
+from datetime import datetime
+from enum import Enum
+from typing import Optional
+
+from pydantic import BaseModel
+
+
+class ReportDestination(str, Enum):
+    SLACK = "slack"
+    KAFKA = "kafka"
+    BOTH = "both"
+
+
+class HighVolumeDistinctId(BaseModel):
+    team_id: int
+    distinct_id: str
+    offending_event_count: int
+
+
+class IngestionLimitsWorkflowInput(BaseModel):
+    report_destination: ReportDestination = ReportDestination.BOTH
+    slack_channel: Optional[str] = None
+    kafka_topic: Optional[str] = None
+    time_window_hours: int = 24
+    event_threshold: int
+
+
+class IngestionLimitsReport(BaseModel):
+    high_volume_distinct_ids: list[HighVolumeDistinctId]
+    total_candidates: int
+    timestamp: datetime
+    time_window_minutes: int
+
+
+class ReportIngestionLimitsInput(BaseModel):
+    workflow_inputs: IngestionLimitsWorkflowInput
+    report: IngestionLimitsReport
