@@ -1,14 +1,11 @@
-/**
- * Logic for Summary Tab Content
- *
- * Manages API calls for trace/event summarization and state.
- */
 import { kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { getCookie } from 'lib/api'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
+
+import type { summaryTabLogicType } from './summaryTabLogicType'
 
 export type SummaryMode = 'minimal' | 'detailed'
 
@@ -34,7 +31,7 @@ export interface SummaryTabLogicProps {
     tree?: any[]
 }
 
-export const summaryTabLogic = kea([
+export const summaryTabLogic = kea<summaryTabLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'components', 'summaryTabLogic']),
     props({} as SummaryTabLogicProps),
     key((props) => {

@@ -67,6 +67,10 @@ class TextReprOptionsSerializer(serializers.Serializer):
         required=False,
         help_text="Number of tools before collapsing the list (default: 5)",
     )
+    include_line_numbers = serializers.BooleanField(
+        required=False,
+        help_text="Prefix each line with line number (default: false)",
+    )
 
 
 class TextReprRequestSerializer(serializers.Serializer):
@@ -215,9 +219,10 @@ into formatted text representations suitable for display, logging, or analysis.
 - `tools_collapse_threshold`: Number of tools before auto-collapsing list (default: 5)
   - Tool lists >5 items show `<<<TOOLS_EXPANDABLE|...>>>` marker for frontend
   - Or `[+] AVAILABLE TOOLS: N` for backend when `include_markers: false`
+- `include_line_numbers`: Prefix each line with line number like L001:, L010: (default: false)
 
 **Use Cases:**
-- Frontend display: `truncated: true, include_markers: true`
+- Frontend display: `truncated: true, include_markers: true, include_line_numbers: true`
 - Backend LLM context (summary): `truncated: true, include_markers: false, collapsed: true`
 - Backend LLM context (full): `truncated: false`
 

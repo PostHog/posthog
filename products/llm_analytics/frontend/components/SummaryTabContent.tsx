@@ -374,7 +374,7 @@ function TextReprDisplay({ textRepr }: { textRepr: string }): JSX.Element {
     const lines = textRepr.split('\n')
 
     return (
-        <div className="p-4 overflow-auto h-full font-mono text-sm whitespace-pre bg-bg-light">
+        <div className="p-4 overflow-auto h-full font-mono text-xs whitespace-pre bg-bg-light">
             {lines.map((line, index) => {
                 // Extract line number from zero-padded format "L001:", "L010:", "L100:"
                 const match = line.match(/^(L\d+:)(.*)$/)

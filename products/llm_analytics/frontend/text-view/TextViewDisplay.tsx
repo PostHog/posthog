@@ -9,6 +9,7 @@ import { IconCopy, IconExternal } from '@posthog/icons'
 import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -381,28 +382,68 @@ function parseUrls(text: string, traceId?: string): Array<TextPart | EventLinkPa
 }
 
 /**
- * Render text with clickable URLs and event links
+ * Render text with muted line numbers, clickable URLs and event links
  */
 function renderTextWithLinks(text: string, traceId?: string): JSX.Element[] {
     const parts = parseUrls(text, traceId)
-    return parts.map((part, i) => {
+    const result: JSX.Element[] = []
+
+    parts.forEach((part, i) => {
         if (part.type === 'url') {
-            return (
-                <Link key={i} to={part.content} target="_blank" targetBlankIcon>
+            result.push(
+                <Link key={`url-${i}`} to={part.content} target="_blank" targetBlankIcon>
                     {part.content}
                 </Link>
             )
-        }
-        if (part.type === 'event_link' && traceId) {
-            return (
-                <Link key={i} to={urls.llmAnalyticsTrace(traceId, { event: part.eventId })}>
+        } else if (part.type === 'event_link' && traceId) {
+            result.push(
+                <Link key={`event-${i}`} to={urls.llmAnalyticsTrace(traceId, { event: part.eventId })}>
                     {part.displayText}
                 </Link>
             )
+        } else {
+            // Must be TextPart - process line by line to handle line numbers
+            const content = (part as TextPart).content
+            const lines = content.split('\n')
+
+            lines.forEach((line, lineIdx) => {
+                if (lineIdx > 0) {
+                    // Add newline between lines (except before first line)
+                    result.push(<span key={`nl-${i}-${lineIdx}`}>{'\n'}</span>)
+                }
+
+                const lineMatch = line.match(/^(L\d+:)(.*)$/)
+                if (lineMatch) {
+                    const linePrefix = lineMatch[1]
+                    const lineContent = lineMatch[2]
+                    const lineNumber = parseInt(linePrefix.slice(1, -1), 10)
+                    result.push(
+                        <span key={`line-${i}-${lineIdx}`} id={`line-${lineNumber}`}>
+                            <Tooltip title="Click to copy permalink to this line">
+                                <button
+                                    type="button"
+                                    className="text-muted hover:text-link cursor-pointer"
+                                    onClick={() => {
+                                        const url = new URL(window.location.href)
+                                        url.searchParams.set('line', lineNumber.toString())
+                                        copyToClipboard(url.toString(), 'line')
+                                        lemonToast.success('Permalink copied to clipboard')
+                                    }}
+                                >
+                                    {linePrefix}
+                                </button>
+                            </Tooltip>
+                            {lineContent}
+                        </span>
+                    )
+                } else {
+                    result.push(<span key={`text-${i}-${lineIdx}`}>{line}</span>)
+                }
+            })
         }
-        // Must be TextPart
-        return <span key={i}>{(part as TextPart).content}</span>
     })
+
+    return result
 }
 
 interface TraceTreeNode {
@@ -588,11 +629,13 @@ export function TextViewDisplay({
     trace,
     tree,
     onFallback,
+    lineNumber,
 }: {
     event?: LLMTraceEvent
     trace?: LLMTrace
     tree?: TraceTreeNode[]
     onFallback?: () => void
+    lineNumber?: number | null
 }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const [copied, setCopied] = useState(false)
@@ -603,6 +646,24 @@ export function TextViewDisplay({
 
     // Get trace ID for event links
     const traceId = trace?.id
+
+    // Scroll to line when lineNumber changes
+    useEffect(() => {
+        if (lineNumber && !loading) {
+            // Small delay to ensure the content is rendered
+            setTimeout(() => {
+                const element = document.getElementById(`line-${lineNumber}`)
+                if (element) {
+                    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                    // Highlight temporarily
+                    element.classList.add('bg-warning-highlight', 'border-l-4', 'border-warning')
+                    setTimeout(() => {
+                        element.classList.remove('bg-warning-highlight', 'border-l-4', 'border-warning')
+                    }, 3000)
+                }
+            }, 100)
+        }
+    }, [lineNumber, loading])
 
     // Fetch text representation from API
     useEffect(() => {
@@ -639,6 +700,7 @@ export function TextViewDisplay({
                         options: {
                             truncated: true,
                             include_markers: true,
+                            include_line_numbers: true,
                         },
                     }
                 } else if (event) {
@@ -649,6 +711,7 @@ export function TextViewDisplay({
                         options: {
                             truncated: true,
                             include_markers: true,
+                            include_line_numbers: true,
                         },
                     }
                 } else {

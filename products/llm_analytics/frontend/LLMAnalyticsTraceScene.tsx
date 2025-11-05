@@ -588,7 +588,7 @@ const EventContent = React.memo(
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const { displayOption } = useValues(llmAnalyticsTraceLogic)
+        const { displayOption, lineNumber } = useValues(llmAnalyticsTraceLogic)
         const { setDisplayOption } = useActions(llmAnalyticsTraceLogic)
 
         const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
@@ -746,12 +746,14 @@ const EventContent = React.memo(
                                                     event.event === '$ai_embedding') ? (
                                                     <TextViewDisplay
                                                         event={event}
+                                                        lineNumber={lineNumber}
                                                         onFallback={() => setDisplayOption(DisplayOption.ExpandAll)}
                                                     />
                                                 ) : !isLLMEvent(event) ? (
                                                     <TextViewDisplay
                                                         trace={event}
                                                         tree={tree}
+                                                        lineNumber={lineNumber}
                                                         onFallback={() => setDisplayOption(DisplayOption.ExpandAll)}
                                                     />
                                                 ) : null
