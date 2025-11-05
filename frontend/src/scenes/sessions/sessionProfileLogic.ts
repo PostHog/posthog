@@ -132,7 +132,9 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             properties.$exception_list,
                             distinct_id
                         FROM events
-                        WHERE $session_id = ${props.sessionId}
+                        WHERE timestamp >= UUIDv7ToDateTime(toUUID(${props.sessionId}))
+                            AND timestamp <= UUIDv7ToDateTime(toUUID(${props.sessionId})) + INTERVAL 1 DAY
+                            AND $session_id = ${props.sessionId}
                         ORDER BY timestamp ASC
                         LIMIT 10000
                     `
