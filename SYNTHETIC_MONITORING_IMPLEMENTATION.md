@@ -42,11 +42,9 @@ TODO. Do not implement this for now.
 - `GET /api/projects/:id/synthetic_monitors/` - List monitors
 - `POST /api/projects/:id/synthetic_monitors/` - Create monitor
 - `GET /api/projects/:id/synthetic_monitors/:monitor_id/` - Get monitor details
-- `PUT/PATCH /api/projects/:id/synthetic_monitors/:monitor_id/` - Update monitor
+- `PUT/PATCH /api/projects/:id/synthetic_monitors/:monitor_id/` - Update monitor (use `enabled` field to pause/resume)
 - `DELETE /api/projects/:id/synthetic_monitors/:monitor_id/` - Delete monitor
 - `POST /api/projects/:id/synthetic_monitors/:monitor_id/test/` - Trigger test check
-- `POST /api/projects/:id/synthetic_monitors/:monitor_id/pause/` - Pause monitoring
-- `POST /api/projects/:id/synthetic_monitors/:monitor_id/resume/` - Resume monitoring
 
 **Features:**
 

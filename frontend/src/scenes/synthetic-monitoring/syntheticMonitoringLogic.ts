@@ -37,12 +37,12 @@ export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
                     return values.monitors.filter((m) => m.id !== id)
                 },
                 pauseMonitor: async ({ id }) => {
-                    const updated = await api.syntheticMonitoring.pause(id)
+                    const updated = await api.syntheticMonitoring.update(id, { enabled: false })
                     lemonToast.success('Monitor paused')
                     return values.monitors.map((m) => (m.id === id ? updated : m))
                 },
                 resumeMonitor: async ({ id }) => {
-                    const updated = await api.syntheticMonitoring.resume(id)
+                    const updated = await api.syntheticMonitoring.update(id, { enabled: true })
                     lemonToast.success('Monitor resumed')
                     return values.monitors.map((m) => (m.id === id ? updated : m))
                 },

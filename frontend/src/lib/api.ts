@@ -4680,12 +4680,6 @@ const api = {
         async delete(id: string): Promise<void> {
             await new ApiRequest().syntheticMonitor(id).delete()
         },
-        async pause(id: string): Promise<any> {
-            return await new ApiRequest().syntheticMonitor(id).withAction('pause').create()
-        },
-        async resume(id: string): Promise<any> {
-            return await new ApiRequest().syntheticMonitor(id).withAction('resume').create()
-        },
         async test(id: string): Promise<any> {
             return await new ApiRequest().syntheticMonitor(id).withAction('test').create()
         },

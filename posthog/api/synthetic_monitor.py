@@ -112,6 +112,9 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
     def update(self, instance: SyntheticMonitor, validated_data: dict) -> SyntheticMonitor:
         request = self.context["request"]
 
+        # Track if enabled status is changing
+        enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
+
         # If frequency changed, recalculate next_check_at
         frequency_changed = (
             "frequency_minutes" in validated_data and validated_data["frequency_minutes"] != instance.frequency_minutes
@@ -120,15 +123,32 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
         for key, value in validated_data.items():
             setattr(instance, key, value)
 
+        # Handle enabled state changes
+        if enabled_changed:
+            if instance.enabled:
+                # Resuming: set to healthy and schedule next check
+                instance.state = SyntheticMonitor.MonitorState.HEALTHY
+                instance.update_next_check()
+            else:
+                # Pausing: set to disabled
+                instance.state = SyntheticMonitor.MonitorState.DISABLED
+
         if frequency_changed:
             instance.update_next_check()
 
         with transaction.atomic():
             instance.save()
 
+        action = (
+            "synthetic monitor resumed"
+            if enabled_changed and instance.enabled
+            else (
+                "synthetic monitor paused" if enabled_changed and not instance.enabled else "synthetic monitor updated"
+            )
+        )
         report_user_action(
             request.user,
-            "synthetic monitor updated",
+            action,
             {
                 "monitor_id": str(instance.id),
             },
@@ -208,40 +228,3 @@ class SyntheticMonitorViewSet(
             },
             status=status.HTTP_200_OK,
         )
-
-    @action(methods=["POST"], detail=True)
-    def pause(self, request: Request, **kwargs) -> Response:
-        """Pause the monitor by disabling it"""
-        monitor = self.get_object()
-        monitor.enabled = False
-        monitor.state = SyntheticMonitor.MonitorState.DISABLED
-        monitor.save(update_fields=["enabled", "state"])
-
-        report_user_action(
-            request.user,
-            "synthetic monitor paused",
-            {
-                "monitor_id": str(monitor.id),
-            },
-        )
-
-        return Response(SyntheticMonitorSerializer(monitor, context=self.get_serializer_context()).data)
-
-    @action(methods=["POST"], detail=True)
-    def resume(self, request: Request, **kwargs) -> Response:
-        """Resume the monitor by enabling it"""
-        monitor = self.get_object()
-        monitor.enabled = True
-        monitor.state = SyntheticMonitor.MonitorState.HEALTHY
-        monitor.update_next_check()
-        monitor.save(update_fields=["enabled", "state", "next_check_at"])
-
-        report_user_action(
-            request.user,
-            "synthetic monitor resumed",
-            {
-                "monitor_id": str(monitor.id),
-            },
-        )
-
-        return Response(SyntheticMonitorSerializer(monitor, context=self.get_serializer_context()).data)
