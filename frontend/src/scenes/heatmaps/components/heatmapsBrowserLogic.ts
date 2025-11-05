@@ -43,7 +43,7 @@ export interface ReplayIframeData {
 }
 
 // Helper function to detect if a URL contains regex pattern characters
-export const isUrlPattern = (url: string): boolean => {
+const isUrlPattern = (url: string): boolean => {
     return /[*+?^${}()|[\]\\]/.test(url)
 }
 

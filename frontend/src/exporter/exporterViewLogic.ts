@@ -1,10 +1,13 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { isUrlPattern } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 
 import type { exporterViewLogicType } from './exporterViewLogicType'
 import { ExportType, ExportedData } from './types'
+
+const isUrlPattern = (url: string): boolean => {
+    return /[*+?^${}()|[\]\\]/.test(url)
+}
 
 // This is a simple logic that is mounted by the Exporter view and then can be found by any nested callers
 // This simplifies passing props everywhere.
