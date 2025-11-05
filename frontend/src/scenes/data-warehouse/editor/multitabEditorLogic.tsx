@@ -853,8 +853,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 view.query?.query !== latestView?.query.query
             ) {
                 actions._setSuggestionPayload({
-                    // undefined satisfies types, queryInput shouldn't be null here
-                    suggestedValue: values.queryInput || undefined,
+                    suggestedValue: values.queryInput!,
                     originalValue: latestView?.query.query,
                     acceptText: 'Confirm changes',
                     rejectText: 'Cancel',
