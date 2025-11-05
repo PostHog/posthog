@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="UserPinnedSceneTabs",
+            name="UserHomeSettings",
             fields=[
                 (
                     "id",
@@ -26,6 +26,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("tabs", models.JSONField(blank=True, default=list)),
+                ("homepage", models.JSONField(blank=True, default=dict, null=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
                     "team",
@@ -42,17 +43,17 @@ class Migration(migrations.Migration):
                         blank=True,
                         null=True,
                         on_delete=django.db.models.deletion.CASCADE,
-                        related_name="pinned_scene_tabs",
+                        related_name="home_settings",
                         to=settings.AUTH_USER_MODEL,
                     ),
                 ),
             ],
         ),
         migrations.AddConstraint(
-            model_name="userpinnedscenetabs",
+            model_name="userhomesettings",
             constraint=models.UniqueConstraint(
                 fields=("team", "user"),
-                name="posthog_unique_user_pinned_scene_tabs",
+                name="posthog_unique_user_home_settings",
             ),
         ),
     ]

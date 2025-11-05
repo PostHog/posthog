@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
@@ -15,13 +15,17 @@ export interface ConfigurePinnedTabsModalProps {
 }
 
 export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTabsModalProps): JSX.Element {
-    const { tabs } = useValues(sceneLogic)
-    const { pinTab, unpinTab } = useActions(sceneLogic)
+    const { tabs, homepage } = useValues(sceneLogic)
+    const { pinTab, unpinTab, setHomepage } = useActions(sceneLogic)
 
     const personalPinnedTabs = tabs.filter((tab) => tab.pinned)
     const regularTabs = tabs.filter((tab) => !tab.pinned)
 
-    const renderTabRow = (tab: SceneTab, actions: { label: string; onClick: () => void }[]): JSX.Element => (
+    const renderTabRow = (
+        tab: SceneTab,
+        actions: { label: string; onClick: () => void }[],
+        isHomepage = false
+    ): JSX.Element => (
         <div
             key={tab.id}
             className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-surface-primary"
@@ -34,7 +38,10 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                             : undefined
                     )}
                 </span>
-                <div className="truncate font-medium text-primary">{tab.customTitle || tab.title}</div>
+                <div className="flex items-center gap-2 truncate">
+                    <div className="truncate font-medium text-primary">{tab.customTitle || tab.title}</div>
+                    {isHomepage && <LemonTag size="small">Homepage</LemonTag>}
+                </div>
             </div>
             <div className="flex flex-wrap gap-2">
                 {actions.map(({ label, onClick }) => (
@@ -51,7 +58,8 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
         description: string,
         sectionTabs: SceneTab[],
         actions: (tab: SceneTab) => { label: string; onClick: () => void }[],
-        emptyState: string
+        emptyState: string,
+        isHomepage?: (tab: SceneTab) => boolean
     ): JSX.Element => (
         <section className="space-y-3">
             <div>
@@ -59,7 +67,9 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                 <p className="text-sm text-muted-alt">{description}</p>
             </div>
             {sectionTabs.length > 0 ? (
-                <div className="space-y-2">{sectionTabs.map((tab) => renderTabRow(tab, actions(tab)))}</div>
+                <div className="space-y-2">
+                    {sectionTabs.map((tab) => renderTabRow(tab, actions(tab), isHomepage?.(tab)))}
+                </div>
             ) : (
                 <div className="rounded-lg border border-dashed border-border px-3 py-6 text-center text-sm text-muted">
                     {emptyState}
@@ -75,8 +85,14 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                     'Your personal pinned tabs',
                     'Pinned tabs are visible only to you and stay available when you come back.',
                     personalPinnedTabs,
-                    (tab) => [{ label: 'Unpin', onClick: () => unpinTab(tab.id) }],
-                    'No personal pinned tabs yet.'
+                    (tab) => [
+                        homepage?.id === tab.id
+                            ? { label: 'Unset homepage', onClick: () => setHomepage(null) }
+                            : { label: 'Set as homepage', onClick: () => setHomepage(tab) },
+                        { label: 'Unpin', onClick: () => unpinTab(tab.id) },
+                    ],
+                    'No personal pinned tabs yet.',
+                    (tab) => homepage?.id === tab.id
                 )}
                 {renderSection(
                     'Regular tabs (unpinned)',

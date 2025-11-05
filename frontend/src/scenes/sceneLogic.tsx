@@ -54,7 +54,10 @@ import { userLogic } from './userLogic'
 const TAB_STATE_KEY = 'scene-tabs-state'
 const PINNED_TAB_STATE_KEY = 'scene-tabs-pinned-state'
 
-type PersistedPinnedTabs = SceneTab[]
+interface PersistedPinnedState {
+    tabs: SceneTab[]
+    homepage: SceneTab | null
+}
 
 const getStorageKey = (key: string): string => {
     const teamId = getCurrentTeamIdOrNone()
@@ -79,19 +82,30 @@ const getPersistedSessionTabs = (): SceneTab[] | null => {
     return null
 }
 
-const persistPinnedTabs = (tabs: SceneTab[]): void => {
+const sanitizeTabForPersistence = (tab: SceneTab): SceneTab => {
+    const { active, ...rest } = tab
+    return {
+        ...rest,
+        id: tab.id || generateTabId(),
+        pinned: true,
+        active: false,
+    }
+}
+
+const persistPinnedTabs = (tabs: SceneTab[], homepage: SceneTab | null): void => {
     const pinnedTabs = getPinnedTabsForPersistence(tabs)
+    const homepageTab = getHomepageForPersistence(homepage)
 
     const key = getStorageKey(PINNED_TAB_STATE_KEY)
 
-    if (pinnedTabs.length === 0) {
+    if (pinnedTabs.length === 0 && !homepageTab) {
         if (localStorage.getItem(key) !== null) {
             localStorage.removeItem(key)
         }
         return
     }
 
-    const serialized = JSON.stringify(pinnedTabs)
+    const serialized = JSON.stringify({ personal: pinnedTabs, homepage: homepageTab })
     if (localStorage.getItem(key) !== serialized) {
         localStorage.setItem(key, serialized)
     }
@@ -108,18 +122,39 @@ const normalizeStoredPinnedTabs = (tabs: SceneTab[]): SceneTab[] =>
         return sanitized
     })
 
-const getPersistedPinnedTabs = (): PersistedPinnedTabs | null => {
+const normalizeStoredHomepage = (tab: SceneTab | Record<string, any> | null | undefined): SceneTab | null => {
+    if (!tab || typeof tab !== 'object') {
+        return null
+    }
+
+    return sanitizeTabForPersistence(tab as SceneTab)
+}
+
+const getPersistedPinnedState = (): PersistedPinnedState | null => {
     const savedTabs = localStorage.getItem(getStorageKey(PINNED_TAB_STATE_KEY))
     if (savedTabs) {
         try {
             const parsed = JSON.parse(savedTabs)
+            let tabs: SceneTab[] = []
+            let homepage: SceneTab | null = null
+
             if (Array.isArray(parsed)) {
-                return normalizeStoredPinnedTabs(parsed)
+                tabs = parsed
+            } else if (parsed && typeof parsed === 'object') {
+                if (Array.isArray(parsed.tabs)) {
+                    tabs = parsed.tabs
+                } else {
+                    const personal = Array.isArray(parsed.personal) ? parsed.personal : []
+                    const project = Array.isArray(parsed.project) ? parsed.project : []
+                    tabs = [...personal, ...project]
+                }
+
+                homepage = normalizeStoredHomepage(parsed.homepage)
             }
-            if (parsed && typeof parsed === 'object') {
-                const personal = Array.isArray(parsed.personal) ? parsed.personal : []
-                const project = Array.isArray(parsed.project) ? parsed.project : []
-                return normalizeStoredPinnedTabs([...(personal ?? []), ...(project ?? [])])
+
+            return {
+                tabs: normalizeStoredPinnedTabs(tabs ?? []),
+                homepage,
             }
         } catch (e) {
             console.error('Failed to parse saved tabs from localStorage:', e)
@@ -128,27 +163,24 @@ const getPersistedPinnedTabs = (): PersistedPinnedTabs | null => {
     return null
 }
 
-const persistTabs = (tabs: SceneTab[]): void => {
+const persistTabs = (tabs: SceneTab[], homepage: SceneTab | null): void => {
     persistSessionTabs(tabs)
-    persistPinnedTabs(tabs)
+    persistPinnedTabs(tabs, homepage)
 }
 
-const getPinnedTabsForPersistence = (tabs: SceneTab[]): PersistedPinnedTabs => {
+const getPinnedTabsForPersistence = (tabs: SceneTab[]): SceneTab[] => {
     const persisted: SceneTab[] = []
     for (const tab of tabs) {
         if (!tab.pinned) {
             continue
         }
-        const { active, ...rest } = tab
-        const sanitized: SceneTab = {
-            ...rest,
-            pinned: true,
-            active: false,
-        }
-        persisted.push(sanitized)
+        persisted.push(sanitizeTabForPersistence(tab))
     }
     return persisted
 }
+
+const getHomepageForPersistence = (homepage: SceneTab | null): SceneTab | null =>
+    homepage ? sanitizeTabForPersistence(homepage) : null
 
 const partitionTabs = (tabs: SceneTab[]): { pinned: SceneTab[]; unpinned: SceneTab[] } => {
     const pinned: SceneTab[] = []
@@ -192,8 +224,10 @@ const ensureActiveTab = (tabs: SceneTab[]): SceneTab[] => {
     return tabs
 }
 
-const mergePinnedTabs = (storedPinned: PersistedPinnedTabs | null, fallbackPinned: SceneTab[]): SceneTab[] => {
-    if (!storedPinned || storedPinned.length === 0) {
+const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallbackPinned: SceneTab[]): SceneTab[] => {
+    const storedTabs = storedPinned?.tabs ?? []
+
+    if (storedTabs.length === 0) {
         return fallbackPinned.map((tab) => ({ ...tab, pinned: true }))
     }
 
@@ -202,7 +236,7 @@ const mergePinnedTabs = (storedPinned: PersistedPinnedTabs | null, fallbackPinne
         activeById.set(tab.id, tab.active)
     }
 
-    const normalized = storedPinned.map((tab) => {
+    const normalized = storedTabs.map((tab) => {
         const id = tab.id || generateTabId()
         return {
             ...tab,
@@ -222,7 +256,7 @@ const mergePinnedTabs = (storedPinned: PersistedPinnedTabs | null, fallbackPinne
     return normalized
 }
 
-const composeTabsFromStorage = (storedPinned: PersistedPinnedTabs | null, baseTabs: SceneTab[]): SceneTab[] => {
+const composeTabsFromStorage = (storedPinned: PersistedPinnedState | null, baseTabs: SceneTab[]): SceneTab[] => {
     const { pinned: basePinned, unpinned } = partitionTabs(baseTabs)
     const mergedPinned = mergePinnedTabs(storedPinned, basePinned)
     return ensureActiveTab([...mergedPinned, ...unpinned.map((tab) => ({ ...tab, pinned: false }))])
@@ -364,7 +398,8 @@ export const sceneLogic = kea<sceneLogicType>([
         }),
         setTabs: (tabs: SceneTab[]) => ({ tabs }),
         loadPinnedTabsFromBackend: true,
-        setPinnedTabsFromBackend: (pinnedTabs: PersistedPinnedTabs) => ({ pinnedTabs }),
+        setPinnedStateFromBackend: (pinnedState: PersistedPinnedState) => ({ pinnedState }),
+        setHomepage: (tab: SceneTab | null) => ({ tab }),
         closeTabId: (tabId: string) => ({ tabId }),
         removeTab: (tab: SceneTab) => ({ tab }),
         activateTab: (tab: SceneTab) => ({ tab }),
@@ -384,8 +419,8 @@ export const sceneLogic = kea<sceneLogicType>([
             [] as SceneTab[],
             {
                 setTabs: (_, { tabs }) => ensureActiveTab(sortTabsPinnedFirst(tabs)),
-                setPinnedTabsFromBackend: (state, { pinnedTabs }) => {
-                    return composeTabsFromStorage(normalizeStoredPinnedTabs(pinnedTabs ?? []), state)
+                setPinnedStateFromBackend: (state, { pinnedState }) => {
+                    return composeTabsFromStorage(pinnedState, state)
                 },
                 newTab: (state, { href, options }) => {
                     const activate = options?.activate ?? true
@@ -599,6 +634,15 @@ export const sceneLogic = kea<sceneLogicType>([
             },
         ],
     }),
+    reducers({
+        homepage: [
+            null as SceneTab | null,
+            {
+                setPinnedStateFromBackend: (_, { pinnedState }) => pinnedState.homepage ?? null,
+                setHomepage: (_, { tab }) => (tab ? sanitizeTabForPersistence(tab) : null),
+            },
+        ],
+    }),
     selectors({
         activeTab: [
             (s) => [s.tabs],
@@ -780,37 +824,52 @@ export const sceneLogic = kea<sceneLogicType>([
             actions.newTab(payload.path)
         },
         newTab: ({ href, options }) => {
-            persistTabs(values.tabs)
+            persistTabs(values.tabs, values.homepage)
             if (!(options?.skipNavigate ?? false)) {
                 router.actions.push(href || urls.newTab())
             }
         },
-        setTabs: () => persistTabs(values.tabs),
-        activateTab: () => persistTabs(values.tabs),
-        duplicateTab: () => persistTabs(values.tabs),
+        setTabs: () => persistTabs(values.tabs, values.homepage),
+        activateTab: () => persistTabs(values.tabs, values.homepage),
+        duplicateTab: () => persistTabs(values.tabs, values.homepage),
         renameTab: ({ tab }) => {
             actions.startTabEdit(tab)
         },
-        pinTab: () => persistTabs(values.tabs),
-        unpinTab: () => persistTabs(values.tabs),
+        pinTab: () => persistTabs(values.tabs, values.homepage),
+        unpinTab: ({ tabId }) => {
+            if (values.homepage?.id === tabId) {
+                actions.setHomepage(null)
+            } else {
+                persistTabs(values.tabs, values.homepage)
+            }
+        },
         loadPinnedTabsFromBackend: async () => {
             try {
                 const response = await api.get<{
                     tabs?: SceneTab[]
                     personal_tabs?: SceneTab[]
                     project_tabs?: SceneTab[]
+                    homepage?: SceneTab | null
                 }>('api/user_pinned_scene_tabs/@me/')
                 const personal = response?.personal_tabs ?? response?.tabs ?? []
                 const project = response?.project_tabs ?? []
+                const homepage = response?.homepage ?? null
                 const combined = [...personal, ...project]
                 cache.skipNextPinnedSync = true
-                actions.setPinnedTabsFromBackend(combined)
+                const pinnedState: PersistedPinnedState = {
+                    tabs: normalizeStoredPinnedTabs(combined),
+                    homepage: homepage ? sanitizeTabForPersistence(homepage) : null,
+                }
+                actions.setPinnedStateFromBackend(pinnedState)
             } catch (error) {
                 console.error('Failed to load pinned scene tabs', error)
             }
         },
-        setPinnedTabsFromBackend: () => {
-            persistTabs(values.tabs)
+        setPinnedStateFromBackend: () => {
+            persistTabs(values.tabs, values.homepage)
+        },
+        setHomepage: () => {
+            persistTabs(values.tabs, values.homepage)
         },
         closeTabId: ({ tabId }) => {
             const tab = values.tabs.find(({ id }) => id === tabId)
@@ -819,16 +878,21 @@ export const sceneLogic = kea<sceneLogicType>([
             }
         },
         removeTab: ({ tab }) => {
+            const isHomepageTab = values.homepage?.id === tab.id
             if (tab.active) {
                 // values.activeTab will already be the new active tab from the reducer
                 const { activeTab } = values
                 if (activeTab) {
                     router.actions.push(activeTab.pathname, activeTab.search, activeTab.hash)
-                } else {
-                    persistTabs(values.tabs)
+                } else if (!isHomepageTab) {
+                    persistTabs(values.tabs, values.homepage)
                 }
-            } else {
-                persistTabs(values.tabs)
+            } else if (!isHomepageTab) {
+                persistTabs(values.tabs, values.homepage)
+            }
+
+            if (isHomepageTab) {
+                actions.setHomepage(null)
             }
         },
         clickOnTab: ({ tab }) => {
@@ -836,10 +900,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 actions.activateTab(tab)
             }
             router.actions.push(tab.pathname, tab.search, tab.hash)
-            persistTabs(values.tabs)
+            persistTabs(values.tabs, values.homepage)
         },
         reorderTabs: () => {
-            persistTabs(values.tabs)
+            persistTabs(values.tabs, values.homepage)
         },
         push: ({ url, hashInput, searchInput }) => {
             let { pathname, search, hash } = combineUrl(url, searchInput, hashInput)
@@ -873,7 +937,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     },
                 ])
             }
-            persistTabs(values.tabs)
+            persistTabs(values.tabs, values.homepage)
         },
         locationChanged: ({ pathname, search, hash, routerState, method }) => {
             pathname = addProjectIdIfMissing(pathname)
@@ -910,7 +974,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     },
                 ])
             }
-            persistTabs(values.tabs)
+            persistTabs(values.tabs, values.homepage)
 
             // Open search or command bar
             const params = new URLSearchParams(search)
@@ -1203,10 +1267,15 @@ export const sceneLogic = kea<sceneLogicType>([
         if (!cache.tabsLoaded) {
             const savedSessionTabs = getPersistedSessionTabs() ?? []
             const sessionWithIds = savedSessionTabs.map((tab) => (tab.id ? tab : { ...tab, id: generateTabId() }))
-            const savedPinnedTabs = getPersistedPinnedTabs()
+            const savedPinnedTabs = getPersistedPinnedState()
             if (sessionWithIds.length > 0 || savedPinnedTabs) {
                 initialTabs = composeTabsFromStorage(savedPinnedTabs, sessionWithIds)
+                cache.skipNextPinnedSync = true
                 actions.setTabs(initialTabs)
+                if (savedPinnedTabs) {
+                    cache.skipNextPinnedSync = true
+                    actions.setHomepage(savedPinnedTabs.homepage ?? null)
+                }
 
                 cache.initialNavigationTabCreated = initialTabs.some((tab) => !tab.pinned)
             }
@@ -1308,79 +1377,99 @@ export const sceneLogic = kea<sceneLogicType>([
         return mapping
     }),
 
-    subscriptions(({ actions, values, cache }) => ({
-        titleAndIcon: ({ title, iconType }) => {
-            const activeIndex = values.tabs.findIndex((t) => t.active)
-            if (activeIndex === -1) {
-                const { currentLocation } = router.values
-                actions.setTabs([
-                    {
-                        id: generateTabId(),
-                        active: true,
-                        pathname: currentLocation.pathname,
-                        search: currentLocation.search,
-                        hash: currentLocation.hash,
-                        title: title || 'Loading...',
-                        iconType,
-                    },
-                ])
-            } else {
-                if (!title || title === '...' || title === 'Loading...') {
-                    // When the tab is loading, don't flicker between the loaded title and the new one
-                    return
-                }
-                const newTabs = values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title, iconType } : tab))
-                actions.setTabs(newTabs)
-            }
-            if (!process?.env?.STORYBOOK) {
-                // This persists the changed tab titles in location.history without a replace/push action.
-                // We'll do it outside the action's event loop to avoid race conditions with subscribing.
-                // Somehow it messes up Storybook, so disabled for it.
-                window.setTimeout(() => router.actions.refreshRouterState(), 1)
-            }
-        },
-        tabs: () => {
-            cache.initialNavigationTabCreated =
-                cache.initialNavigationTabCreated || values.tabs.some((tab) => !tab.pinned)
-            const { tabIds } = values
-            for (const id of Object.keys(cache.mountedTabLogic)) {
-                if (!tabIds[id]) {
-                    const unmount = cache.mountedTabLogic[id]
-                    if (unmount) {
-                        try {
-                            unmount()
-                        } catch (error) {
-                            console.error('Error unmounting tab logic:', error)
-                        }
-                    }
-                    delete cache.mountedTabLogic[id]
-                    if (cache.lastTrackedSceneByTab) {
-                        delete cache.lastTrackedSceneByTab[id]
-                    }
-                }
-            }
+    subscriptions(({ actions, values, cache }) => {
+        const schedulePinnedStateSync = (): void => {
             const pinnedTabsForPersistence = getPinnedTabsForPersistence(values.tabs)
-            const serializedPinnedTabs = JSON.stringify(pinnedTabsForPersistence)
+            const homepageForPersistence = getHomepageForPersistence(values.homepage)
+            const serializedPinnedState = JSON.stringify({
+                tabs: pinnedTabsForPersistence,
+                homepage: homepageForPersistence,
+            })
+
             if (cache.skipNextPinnedSync) {
                 cache.skipNextPinnedSync = false
-                cache.lastPersistedPinnedSerialized = serializedPinnedTabs
-            } else if (cache.lastPersistedPinnedSerialized !== serializedPinnedTabs) {
-                cache.lastPersistedPinnedSerialized = serializedPinnedTabs
-                if (cache.persistPinnedTabsTimeout) {
-                    window.clearTimeout(cache.persistPinnedTabsTimeout)
-                }
-                cache.persistPinnedTabsTimeout = window.setTimeout(async () => {
-                    try {
-                        await api.update('api/user_pinned_scene_tabs/@me/', {
-                            personal_tabs: pinnedTabsForPersistence,
-                        })
-                    } catch (error) {
-                        console.error('Failed to persist pinned scene tabs to backend', error)
-                    }
-                }, 500)
+                cache.lastPersistedPinnedSerialized = serializedPinnedState
+                return
             }
-        },
-    })),
+
+            if (cache.lastPersistedPinnedSerialized === serializedPinnedState) {
+                return
+            }
+
+            cache.lastPersistedPinnedSerialized = serializedPinnedState
+
+            if (cache.persistPinnedTabsTimeout) {
+                window.clearTimeout(cache.persistPinnedTabsTimeout)
+            }
+
+            cache.persistPinnedTabsTimeout = window.setTimeout(async () => {
+                try {
+                    await api.update('api/user_pinned_scene_tabs/@me/', {
+                        personal_tabs: pinnedTabsForPersistence,
+                        homepage: homepageForPersistence,
+                    })
+                } catch (error) {
+                    console.error('Failed to persist pinned scene tabs to backend', error)
+                }
+            }, 500)
+        }
+
+        return {
+            titleAndIcon: ({ title, iconType }) => {
+                const activeIndex = values.tabs.findIndex((t) => t.active)
+                if (activeIndex === -1) {
+                    const { currentLocation } = router.values
+                    actions.setTabs([
+                        {
+                            id: generateTabId(),
+                            active: true,
+                            pathname: currentLocation.pathname,
+                            search: currentLocation.search,
+                            hash: currentLocation.hash,
+                            title: title || 'Loading...',
+                            iconType,
+                        },
+                    ])
+                } else {
+                    if (!title || title === '...' || title === 'Loading...') {
+                        // When the tab is loading, don't flicker between the loaded title and the new one
+                        return
+                    }
+                    const newTabs = values.tabs.map((tab, i) => (i === activeIndex ? { ...tab, title, iconType } : tab))
+                    actions.setTabs(newTabs)
+                }
+                if (!process?.env?.STORYBOOK) {
+                    // This persists the changed tab titles in location.history without a replace/push action.
+                    // We'll do it outside the action's event loop to avoid race conditions with subscribing.
+                    // Somehow it messes up Storybook, so disabled for it.
+                    window.setTimeout(() => router.actions.refreshRouterState(), 1)
+                }
+            },
+            tabs: () => {
+                cache.initialNavigationTabCreated =
+                    cache.initialNavigationTabCreated || values.tabs.some((tab) => !tab.pinned)
+                const { tabIds } = values
+                for (const id of Object.keys(cache.mountedTabLogic)) {
+                    if (!tabIds[id]) {
+                        const unmount = cache.mountedTabLogic[id]
+                        if (unmount) {
+                            try {
+                                unmount()
+                            } catch (error) {
+                                console.error('Error unmounting tab logic:', error)
+                            }
+                        }
+                        delete cache.mountedTabLogic[id]
+                        if (cache.lastTrackedSceneByTab) {
+                            delete cache.lastTrackedSceneByTab[id]
+                        }
+                    }
+                }
+                schedulePinnedStateSync()
+            },
+            homepage: schedulePinnedStateSync,
+        }
+    }),
     afterMount(({ cache }) => {
         cache.disposables.add(() => {
             return () => {
@@ -1397,14 +1486,16 @@ export const sceneLogic = kea<sceneLogicType>([
                 if (event.key !== getStorageKey(PINNED_TAB_STATE_KEY)) {
                     return
                 }
-                const storedPinned = getPersistedPinnedTabs()
+                const storedPinned = getPersistedPinnedState()
                 const currentTabs = values.tabs
                 const updatedTabs = composeTabsFromStorage(storedPinned, currentTabs)
 
                 const previousActiveTab = currentTabs.find((tab) => tab.active)
                 const nextActiveTab = updatedTabs.find((tab) => tab.active)
 
+                cache.skipNextPinnedSync = true
                 actions.setTabs(updatedTabs)
+                actions.setHomepage(storedPinned?.homepage ?? null)
 
                 if (!nextActiveTab?.pinned) {
                     return

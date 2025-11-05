@@ -104,7 +104,7 @@ from . import (
     team,
     uploaded_media,
     user,
-    user_pinned_scene_tabs,
+    user_home_settings,
     web_vitals,
 )
 from .dashboards import dashboard, dashboard_templates
@@ -524,7 +524,7 @@ router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
 router.register(
     r"user_pinned_scene_tabs",
-    user_pinned_scene_tabs.UserPinnedSceneTabsViewSet,
+    user_home_settings.UserHomeSettingsViewSet,
     "user_pinned_scene_tabs",
 )
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
