@@ -188,6 +188,73 @@ describe('sceneLogic', () => {
         expect(logic.values.homepage).toBeNull()
     })
 
+    it('removes pinned tabs when receiving updated storage without them', async () => {
+        const teamId = teamLogic.values.currentTeamId ?? 'null'
+        const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`
+
+        logic.actions.setTabs([
+            {
+                id: 'tab-1',
+                active: true,
+                pathname: '/a',
+                search: '',
+                hash: '',
+                title: 'Tab A',
+                iconType: 'blank',
+            },
+            {
+                id: 'tab-2',
+                active: false,
+                pathname: '/b',
+                search: '',
+                hash: '',
+                title: 'Tab B',
+                iconType: 'blank',
+            },
+        ])
+
+        logic.actions.pinTab('tab-1')
+        logic.actions.pinTab('tab-2')
+
+        await expectLogic(logic).toMatchValues({
+            tabs: [
+                expect.objectContaining({ id: 'tab-1', pinned: true }),
+                expect.objectContaining({ id: 'tab-2', pinned: true }),
+            ],
+        })
+
+        const remoteState = {
+            tabs: [
+                {
+                    id: 'tab-1',
+                    pathname: '/a',
+                    search: '',
+                    hash: '',
+                    title: 'Tab A',
+                    iconType: 'blank',
+                    pinned: true,
+                    active: false,
+                },
+            ],
+            homepage: null,
+        }
+
+        localStorage.setItem(pinnedStorageKey, JSON.stringify(remoteState))
+        window.dispatchEvent(
+            new StorageEvent('storage', {
+                key: pinnedStorageKey,
+                newValue: JSON.stringify(remoteState),
+            })
+        )
+
+        await expectLogic(logic).toMatchValues({
+            tabs: [
+                expect.objectContaining({ id: 'tab-1', pinned: true }),
+                expect.objectContaining({ id: 'tab-2', pinned: false }),
+            ],
+        })
+    })
+
     it('does not duplicate pinned tab when unpinning after reordering', async () => {
         logic.actions.setTabs([
             {

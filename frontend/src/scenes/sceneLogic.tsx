@@ -224,11 +224,11 @@ const ensureActiveTab = (tabs: SceneTab[]): SceneTab[] => {
 }
 
 const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallbackPinned: SceneTab[]): SceneTab[] => {
-    const storedTabs = storedPinned?.tabs ?? []
-
-    if (storedTabs.length === 0) {
+    if (!storedPinned) {
         return fallbackPinned.map((tab) => ({ ...tab, pinned: true }))
     }
+
+    const storedTabs = storedPinned.tabs ?? []
 
     const activeById = new Map<string, boolean>()
     for (const tab of fallbackPinned) {
@@ -244,13 +244,6 @@ const mergePinnedTabs = (storedPinned: PersistedPinnedState | null, fallbackPinn
             active: activeById.get(id) ?? false,
         }
     })
-
-    const existingIds = new Set(normalized.map((tab) => tab.id))
-    for (const fallbackTab of fallbackPinned) {
-        if (!existingIds.has(fallbackTab.id)) {
-            normalized.push({ ...fallbackTab, pinned: true })
-        }
-    }
 
     return normalized
 }
