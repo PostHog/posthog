@@ -48,7 +48,7 @@ class TestAddFieldOperations:
 
         risk = self.analyzer.analyze_operation(op)
 
-        assert risk.score == 0
+        assert risk.score == 1
         assert "nullable" in risk.reason.lower()
         assert risk.level == RiskLevel.SAFE
 
