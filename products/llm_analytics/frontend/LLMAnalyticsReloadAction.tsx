@@ -26,6 +26,7 @@ export function LLMAnalyticsReloadAction(): JSX.Element {
                 icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
                 size="small"
                 disabledReason={isRefreshing ? 'Refreshing...' : undefined}
+                data-attr="llm-analytics-refresh-dashboard"
             >
                 <span className="dashboard-items-action-refresh-text">
                     {isRefreshing ? <>Refreshing...</> : <LastRefreshText />}

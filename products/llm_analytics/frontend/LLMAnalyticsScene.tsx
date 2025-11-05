@@ -75,15 +75,20 @@ const Filters = (): JSX.Element => {
 
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
-            <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
+            <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} data-attr="llm-analytics-date-filter" />
             <PropertyFilters
                 propertyFilters={propertyFilters}
                 taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
                 onChange={setPropertyFilters}
                 pageKey="llm-analytics"
+                data-attr="llm-analytics-property-filters"
             />
             <div className="flex-1" />
-            <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
+            <TestAccountFilterSwitch
+                checked={shouldFilterTestAccounts}
+                onChange={setShouldFilterTestAccounts}
+                data-attr="llm-analytics-test-account-filter"
+            />
             <LLMAnalyticsReloadAction />
         </div>
     )
@@ -216,7 +221,10 @@ function LLMAnalyticsGenerations(): JSX.Element {
                             ) : (
                                 <strong>
                                     <Tooltip title={value}>
-                                        <Link to={`/llm-analytics/traces/${ids.traceId}?event=${value}`}>
+                                        <Link
+                                            to={`/llm-analytics/traces/${ids.traceId}?event=${value}`}
+                                            data-attr="generation-id-link"
+                                        >
                                             {visualValue}
                                         </Link>
                                     </Tooltip>
@@ -348,6 +356,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         checked={evaluation.enabled}
                         onChange={() => toggleEvaluationEnabled(evaluation.id)}
                         size="small"
+                        data-attr="toggle-evaluation-enabled"
                     />
                     <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
                         {evaluation.enabled ? 'Enabled' : 'Disabled'}
@@ -448,7 +457,12 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         Configure evaluation prompts and triggers to automatically assess your LLM generations.
                     </p>
                 </div>
-                <LemonButton type="primary" icon={<IconPlus />} to={urls.llmAnalyticsEvaluation('new')}>
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlus />}
+                    to={urls.llmAnalyticsEvaluation('new')}
+                    data-attr="create-evaluation-button"
+                >
                     Create Evaluation
                 </LemonButton>
             </div>
@@ -459,6 +473,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                     type="search"
                     placeholder="Search evaluations..."
                     value={evaluationsFilter}
+                    data-attr="evaluations-search-input"
                     onChange={setEvaluationsFilter}
                     prefix={<IconSearch />}
                     className="max-w-sm"
@@ -491,6 +506,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             label: 'Dashboard',
             content: <LLMAnalyticsDashboard />,
             link: combineUrl(urls.llmAnalyticsDashboard(), searchParams).url,
+            'data-attr': 'dashboard-tab',
         },
         {
             key: 'traces',
@@ -501,6 +517,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsTraces(), searchParams).url,
+            'data-attr': 'traces-tab',
         },
         {
             key: 'generations',
@@ -511,6 +528,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsGenerations(), searchParams).url,
+            'data-attr': 'generations-tab',
         },
         {
             key: 'users',
@@ -521,6 +539,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsUsers(), searchParams).url,
+            'data-attr': 'users-tab',
         },
     ]
 
@@ -541,6 +560,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 </LLMAnalyticsSetupPrompt>
             ),
             link: combineUrl(urls.llmAnalyticsSessions(), searchParams).url,
+            'data-attr': 'sessions-tab',
         })
     }
 
@@ -557,6 +577,7 @@ export function LLMAnalyticsScene(): JSX.Element {
             ),
             content: <LLMAnalyticsPlaygroundScene />,
             link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
+            'data-attr': 'playground-tab',
         })
     }
 
