@@ -48,7 +48,8 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     GROUP BY breakdown)
+     GROUP BY breakdown
+     ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -117,7 +118,8 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     GROUP BY breakdown)
+     GROUP BY breakdown
+     ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -184,7 +186,8 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     GROUP BY breakdown)
+     GROUP BY breakdown
+     ORDER BY step_2 DESC, step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_2 DESC,
            step_1 DESC
@@ -258,7 +261,8 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     GROUP BY breakdown)
+     GROUP BY breakdown
+     ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_3 DESC,
            step_2 DESC,
@@ -333,7 +337,8 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     GROUP BY breakdown)
+     GROUP BY breakdown
+     ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_3 DESC,
            step_2 DESC,
@@ -415,7 +420,8 @@
            WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
-     GROUP BY breakdown)
+     GROUP BY breakdown
+     ORDER BY step_3 DESC, step_2 DESC, step_1 DESC)
   GROUP BY final_prop
   ORDER BY step_3 DESC,
            step_2 DESC,

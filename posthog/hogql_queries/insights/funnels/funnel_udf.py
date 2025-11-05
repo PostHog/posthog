@@ -221,6 +221,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             if use_breakdown_limit
             else "breakdown"
         )
+        order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
 
         s = parse_select(
             f"""
@@ -232,6 +233,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             FROM
                 {{inner_select}}
             GROUP BY breakdown
+            ORDER BY {order_by}
         """,
             {"inner_select": inner_select},
         )
