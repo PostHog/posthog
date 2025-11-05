@@ -79,6 +79,7 @@ export enum NodeKind {
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
     EventsQuery = 'EventsQuery',
+    SessionsQuery = 'SessionsQuery',
     PersonsNode = 'PersonsNode',
     HogQuery = 'HogQuery',
     HogQLQuery = 'HogQLQuery',
@@ -172,6 +173,7 @@ export type AnyDataNode =
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
     | EventsQuery
+    | SessionsQuery
     | ActorsQuery
     | GroupsQuery
     | InsightActorsQuery
@@ -224,6 +226,7 @@ export type QuerySchema =
     | PersonsNode // old persons API endpoint
     | DataWarehouseNode
     | EventsQuery
+    | SessionsQuery
     | ActorsQuery
     | GroupsQuery
     | InsightActorsQuery
@@ -329,6 +332,7 @@ export type AnyResponseType =
     | HogQLAutocompleteResponse
     | EventsNode['response']
     | EventsQueryResponse
+    | SessionsQueryResponse
     | ErrorTrackingQueryResponse
     | LogsQueryResponse
 
@@ -782,6 +786,48 @@ export interface EventsQuery extends DataNode<EventsQueryResponse> {
     orderBy?: string[]
 }
 
+export interface SessionsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
+    columns: any[]
+    types: string[]
+    hogql: string
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+
+export type CachedSessionsQueryResponse = CachedQueryResponse<SessionsQueryResponse>
+
+export interface SessionsQuery extends DataNode<SessionsQueryResponse> {
+    kind: NodeKind.SessionsQuery
+    /** Return a limited set of data. Required. */
+    select: HogQLExpression[]
+    /** HogQL filters to apply on returned data */
+    where?: HogQLExpression[]
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: AnyFilterLike[]
+    /** Filter test accounts */
+    filterTestAccounts?: boolean
+    /**
+     * Number of rows to return
+     */
+    limit?: integer
+    /**
+     * Number of rows to skip before returning rows
+     */
+    offset?: integer
+    /** Show sessions for a given person */
+    personId?: string
+    /** Only fetch sessions that started before this timestamp */
+    before?: string
+    /** Only fetch sessions that started after this timestamp */
+    after?: string
+    /** Columns to order by */
+    orderBy?: string[]
+}
+
 /**
  * @deprecated Use `ActorsQuery` instead.
  */
@@ -819,6 +865,7 @@ export interface DataTableNode
                     | WebVitalsQuery
                     | WebVitalsPathBreakdownQuery
                     | SessionAttributionExplorerQuery
+                    | SessionsQuery
                     | RevenueAnalyticsGrossRevenueQuery
                     | RevenueAnalyticsMetricsQuery
                     | RevenueAnalyticsMRRQuery
@@ -853,6 +900,7 @@ export interface DataTableNode
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | SessionAttributionExplorerQuery
+        | SessionsQuery
         | RevenueAnalyticsGrossRevenueQuery
         | RevenueAnalyticsMetricsQuery
         | RevenueAnalyticsMRRQuery

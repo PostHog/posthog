@@ -10,6 +10,7 @@ import {
     isRevenueExampleDataWarehouseTablesQuery,
     isRevenueExampleEventsQuery,
     isSessionAttributionExplorerQuery,
+    isSessionsQuery,
     isTracesQuery,
     isWebExternalClicksQuery,
     isWebGoalsQuery,
@@ -45,7 +46,8 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         isHogQLQuery(query) ||
         isEventsQuery(query) ||
         isSessionAttributionExplorerQuery(query) ||
-        isRevenueExampleEventsQuery(query)
+        isRevenueExampleEventsQuery(query) ||
+        isSessionsQuery(query)
     ) {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.columnsInResponse)
@@ -53,6 +55,11 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.testAccountFilters)
+    }
+
+    if (isSessionsQuery(query)) {
+        features.add(QueryFeature.columnConfigurator)
+        features.add(QueryFeature.selectAndOrderByColumns)
     }
 
     if (isRevenueExampleDataWarehouseTablesQuery(query)) {

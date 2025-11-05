@@ -35,7 +35,7 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
                 return getDefaultSessionsSceneQuery()
             },
         ],
-        query: [(s) => [s.savedQuery, s.defaultQuery], (savedQuery, defaultQuery) => savedQuery || defaultQuery],
+        query: [(s) => [s.savedQuery, s.defaultQuery], (savedQuery, defaultQuery): Node => savedQuery || defaultQuery],
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
