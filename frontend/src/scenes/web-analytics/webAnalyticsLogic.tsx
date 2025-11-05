@@ -54,6 +54,7 @@ import {
     WebAnalyticsPropertyFilter,
     WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
+    WebStatsPathExtractionMethod,
     WebStatsTableQuery,
     WebVitalsMetric,
 } from '~/queries/schema/schema-general'
@@ -169,6 +170,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             interval,
         }),
         setIsPathCleaningEnabled: (isPathCleaningEnabled: boolean) => ({ isPathCleaningEnabled }),
+        setPathExtractionMethod: (pathExtractionMethod: WebStatsPathExtractionMethod) => ({ pathExtractionMethod }),
         setShouldFilterTestAccounts: (shouldFilterTestAccounts: boolean) => ({ shouldFilterTestAccounts }),
         setShouldStripQueryParams: (shouldStripQueryParams: boolean) => ({ shouldStripQueryParams }),
         setConversionGoal: (conversionGoal: WebAnalyticsConversionGoal | null) => ({ conversionGoal }),
@@ -454,6 +456,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             persistConfig,
             {
                 setIsPathCleaningEnabled: (_, { isPathCleaningEnabled }) => isPathCleaningEnabled,
+            },
+        ],
+        pathExtractionMethod: [
+            WebStatsPathExtractionMethod.Path as WebStatsPathExtractionMethod,
+            persistConfig,
+            {
+                setPathExtractionMethod: (_, { pathExtractionMethod }) => pathExtractionMethod,
             },
         ],
         tablesOrderBy: [
@@ -1224,6 +1233,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 percentile: webVitalsPercentile,
                                 metric: webVitalsTab,
                                 doPathCleaning: isPathCleaningEnabled,
+                                pathExtractionMethod,
                                 thresholds: [
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].good,
                                     WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
@@ -1383,6 +1393,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeScrollDepth: false, // TODO needs some perf work before it can be enabled
                                               includeBounceRate: true,
                                               doPathCleaning: isPathCleaningEnabled,
+                                              pathExtractionMethod,
                                           },
                                           {
                                               docs: {
@@ -1426,6 +1437,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeBounceRate: true,
                                               includeScrollDepth: false,
                                               doPathCleaning: isPathCleaningEnabled,
+                                              pathExtractionMethod,
                                           },
                                           {
                                               docs: {
@@ -1459,6 +1471,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeBounceRate: false,
                                               includeScrollDepth: false,
                                               doPathCleaning: isPathCleaningEnabled,
+                                              pathExtractionMethod,
                                           },
                                           {
                                               docs: {
@@ -2146,6 +2159,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                       compareFilter,
                                       limit: 10,
                                       doPathCleaning: isPathCleaningEnabled,
+                                      pathExtractionMethod,
                                       tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                                   },
                                   embedded: true,
@@ -2325,6 +2339,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             setProductTab: stateToUrl,
             setWebVitalsPercentile: stateToUrl,
             setIsPathCleaningEnabled: stateToUrl,
+            setPathExtractionMethod: stateToUrl,
             setDomainFilter: stateToUrl,
             setDeviceTypeFilter: stateToUrl,
             setTileVisualization: stateToUrl,
@@ -2348,6 +2363,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 geography_tab,
                 active_hours_tab,
                 path_cleaning,
+                path_extraction,
                 filter_test_accounts,
                 compare_filter,
                 percentile,
@@ -2414,6 +2430,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
             if (path_cleaning && path_cleaning !== values.isPathCleaningEnabled) {
                 actions.setIsPathCleaningEnabled([true, 'true', 1, '1'].includes(path_cleaning))
+            }
+            if (path_extraction && path_extraction !== values.pathExtractionMethod) {
+                actions.setPathExtractionMethod(path_extraction as WebStatsPathExtractionMethod)
             }
             if (filter_test_accounts && filter_test_accounts !== values.shouldFilterTestAccounts) {
                 actions.setShouldFilterTestAccounts([true, 'true', 1, '1'].includes(filter_test_accounts))

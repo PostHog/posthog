@@ -1,6 +1,11 @@
 from typing import TYPE_CHECKING, Literal, Optional, cast
 
-from posthog.schema import WebAnalyticsOrderByDirection, WebAnalyticsOrderByFields, WebStatsBreakdown
+from posthog.schema import (
+    WebAnalyticsOrderByDirection,
+    WebAnalyticsOrderByFields,
+    WebStatsBreakdown,
+    WebStatsPathExtractionMethod,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import (
@@ -57,6 +62,11 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
 
     def can_use_preaggregated_tables(self) -> bool:
         if not super().can_use_preaggregated_tables():
+            return False
+
+        # Pre-aggregated tables don't support PATH_FULL extraction method
+        # because they store already-extracted paths using path() function
+        if self.runner.query.pathExtractionMethod == WebStatsPathExtractionMethod.PATH_FULL:
             return False
 
         return self.runner.query.breakdownBy in WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS

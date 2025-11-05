@@ -3105,6 +3105,11 @@ class WebStatsBreakdown(StrEnum):
     FRUSTRATION_METRICS = "FrustrationMetrics"
 
 
+class WebStatsPathExtractionMethod(StrEnum):
+    PATH = "Path"
+    PATH_FULL = "PathFull"
+
+
 class Metrics(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11869,6 +11874,7 @@ class WebStatsTableQuery(BaseModel):
     )
     offset: Optional[int] = None
     orderBy: Optional[list[Union[WebAnalyticsOrderByFields, WebAnalyticsOrderByDirection]]] = None
+    pathExtractionMethod: Optional[WebStatsPathExtractionMethod] = None
     properties: list[Union[EventPropertyFilter, PersonPropertyFilter, SessionPropertyFilter]]
     response: Optional[WebStatsTableQueryResponse] = None
     sampling: Optional[WebAnalyticsSampling] = None

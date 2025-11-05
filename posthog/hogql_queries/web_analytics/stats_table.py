@@ -8,6 +8,7 @@ from posthog.schema import (
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
     WebStatsBreakdown,
+    WebStatsPathExtractionMethod,
     WebStatsTableQuery,
     WebStatsTableQueryResponse,
 )
@@ -686,26 +687,48 @@ GROUP BY session_id, breakdown_value
 
         return f"{breakdown_value}-{row[3]}"  # Fourth value is the aggregation value
 
+    def _get_path_field(self, pathname_property: str, url_property: str) -> ast.Expr:
+        use_path_full = self.query.pathExtractionMethod == WebStatsPathExtractionMethod.PATH_FULL
+
+        if use_path_full:
+            return ast.Call(name="pathFull", args=[ast.Field(chain=["events", "properties", url_property])])
+        else:
+            return ast.Field(chain=["events", "properties", pathname_property])
+
+    def _get_session_path_field(self, pathname_property: str, url_property: str) -> ast.Expr:
+        use_path_full = self.query.pathExtractionMethod == WebStatsPathExtractionMethod.PATH_FULL
+
+        if use_path_full:
+            return ast.Call(name="pathFull", args=[ast.Field(chain=["session", url_property])])
+        else:
+            return ast.Field(chain=["session", pathname_property])
+
     def _counts_breakdown_value(self):
         match self.query.breakdownBy:
             case WebStatsBreakdown.PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
+                return self._apply_path_cleaning(self._get_path_field("$pathname", "$current_url"))
             case WebStatsBreakdown.INITIAL_PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["session", "$entry_pathname"]))
+                return self._apply_path_cleaning(self._get_session_path_field("$entry_pathname", "$entry_current_url"))
             case WebStatsBreakdown.EXIT_PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["session", "$end_pathname"]))
+                return self._apply_path_cleaning(self._get_session_path_field("$end_pathname", "$end_current_url"))
             case WebStatsBreakdown.EXIT_CLICK:
                 return ast.Field(chain=["session", "$last_external_click_url"])
             case WebStatsBreakdown.PREVIOUS_PAGE:
+                path_func = (
+                    "pathFull" if self.query.pathExtractionMethod == WebStatsPathExtractionMethod.PATH_FULL else "path"
+                )
+
                 return ast.Call(
                     name="multiIf",
                     args=[
-                        # if it's internal navigation within a SPA, use the previous pageview's pathname
+                        # if it's internal navigation within a SPA, use the previous pageview's pathname/url
                         ast.Call(
                             name="isNotNull",
                             args=[ast.Field(chain=["events", "properties", "$prev_pageview_pathname"])],
                         ),
-                        self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$prev_pageview_pathname"])),
+                        self._apply_path_cleaning(
+                            self._get_path_field("$prev_pageview_pathname", "$prev_pageview_current_url")
+                        ),
                         # if it's internal navigation but not within a SPA, the referrer will be on the same domain, and path cleaning should still be applied
                         ast.Call(
                             name="equals",
@@ -717,7 +740,7 @@ GROUP BY session_id, breakdown_value
                             ],
                         ),
                         self._apply_path_cleaning(
-                            ast.Call(name="path", args=[ast.Field(chain=["events", "properties", "$referrer"])])
+                            ast.Call(name=path_func, args=[ast.Field(chain=["events", "properties", "$referrer"])])
                         ),
                         # a visit from an external domain
                         ast.Field(chain=["events", "properties", "$referrer"]),
@@ -782,7 +805,7 @@ GROUP BY session_id, breakdown_value
                 # the example given is that for UTC+10, -600 will be returned.
                 return parse_expr("-toFloat(properties.$timezone_offset) / 60")
             case WebStatsBreakdown.FRUSTRATION_METRICS:
-                return self._apply_path_cleaning(ast.Field(chain=["events", "properties", "$pathname"]))
+                return self._apply_path_cleaning(self._get_path_field("$pathname", "$current_url"))
             case _:
                 raise NotImplementedError("Breakdown not implemented")
 

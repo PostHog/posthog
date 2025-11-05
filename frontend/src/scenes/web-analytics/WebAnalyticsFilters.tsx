@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
+import { WebStatsPathExtractionMethod } from '~/queries/schema/schema-general'
 import { AvailableFeature, PropertyMathType } from '~/types'
 
 import { TableSortingIndicator } from './TableSortingIndicator'
@@ -59,6 +60,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
 
                     <WebVitalsPercentileToggle />
                     <PathCleaningToggle />
+                    <PathExtractionMethodToggle />
 
                     <WebPropertyFilters />
                 </>
@@ -113,6 +115,37 @@ const PathCleaningToggle = (): JSX.Element | null => {
             >
                 Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" />
             </LemonButton>
+        </Tooltip>
+    )
+}
+
+const PathExtractionMethodToggle = (): JSX.Element | null => {
+    const { pathExtractionMethod } = useValues(webAnalyticsLogic)
+    const { setPathExtractionMethod } = useActions(webAnalyticsLogic)
+
+    return (
+        <Tooltip
+            title={
+                <div className="p-2">
+                    <p className="mb-2">Choose whether to analyze paths with or without query string parameters.</p>
+                    <p className="text-xs text-muted">
+                        <strong>Path only:</strong> Groups /pricing and /pricing?ref=home together
+                        <br />
+                        <strong>Path with query strings:</strong> Treats them as separate pages
+                    </p>
+                </div>
+            }
+            placement="top"
+        >
+            <LemonSelect
+                size="small"
+                value={pathExtractionMethod ?? WebStatsPathExtractionMethod.Path}
+                onChange={(value) => setPathExtractionMethod(value as WebStatsPathExtractionMethod)}
+                options={[
+                    { value: WebStatsPathExtractionMethod.Path, label: 'Path only' },
+                    { value: WebStatsPathExtractionMethod.PathFull, label: 'Path with query strings' },
+                ]}
+            />
         </Tooltip>
     )
 }

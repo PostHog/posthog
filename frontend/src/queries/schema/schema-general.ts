@@ -1951,11 +1951,16 @@ export enum WebStatsBreakdown {
     Language = 'Language',
     FrustrationMetrics = 'FrustrationMetrics',
 }
+export enum WebStatsPathExtractionMethod {
+    Path = 'Path',
+    PathFull = 'PathFull',
+}
 export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQueryResponse> {
     kind: NodeKind.WebStatsTableQuery
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
+    pathExtractionMethod?: WebStatsPathExtractionMethod
     limit?: integer
     offset?: integer
 }
