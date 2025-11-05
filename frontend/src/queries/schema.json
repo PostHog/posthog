@@ -12497,6 +12497,69 @@
             "required": ["id", "name", "description", "filters", "created_by", "created_at", "updated_at"],
             "type": "object"
         },
+        "ExperimentIdType": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "const": "new",
+                    "type": "string"
+                },
+                {
+                    "const": "web",
+                    "type": "string"
+                }
+            ]
+        },
+        "ExperimentMaxBayesianContext": {
+            "additionalProperties": false,
+            "properties": {
+                "chance_to_win": {
+                    "type": "number"
+                },
+                "credible_interval": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "chance_to_win", "credible_interval", "significant"],
+            "type": "object"
+        },
+        "ExperimentMaxFrequentistContext": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence_interval": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "p_value": {
+                    "type": "number"
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "p_value", "confidence_interval", "significant"],
+            "type": "object"
+        },
         "ExperimentMeanMetric": {
             "additionalProperties": false,
             "properties": {
@@ -13035,6 +13098,10 @@
             "required": ["key", "number_of_samples", "sum", "sum_squares"],
             "type": "object"
         },
+        "ExperimentStatsMethod": {
+            "enum": ["bayesian", "frequentist"],
+            "type": "string"
+        },
         "ExperimentStatsValidationFailure": {
             "enum": ["not-enough-exposures", "baseline-mean-is-zero", "not-enough-metric-data"],
             "type": "string"
@@ -13320,6 +13387,7 @@
         },
         "ExternalDataSourceType": {
             "enum": [
+                "CustomerIO",
                 "Github",
                 "Stripe",
                 "Hubspot",
@@ -17585,6 +17653,125 @@
                 }
             },
             "required": ["type", "id"],
+            "type": "object"
+        },
+        "MaxExperimentMetricResult": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "variant_results": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/MaxExperimentVariantResultBayesian"
+                            },
+                            {
+                                "$ref": "#/definitions/MaxExperimentVariantResultFrequentist"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "variant_results"],
+            "type": "object"
+        },
+        "MaxExperimentSummaryContext": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "experiment_id": {
+                    "$ref": "#/definitions/ExperimentIdType"
+                },
+                "experiment_name": {
+                    "type": "string"
+                },
+                "metrics_results": {
+                    "items": {
+                        "$ref": "#/definitions/MaxExperimentMetricResult"
+                    },
+                    "type": "array"
+                },
+                "stats_method": {
+                    "$ref": "#/definitions/ExperimentStatsMethod"
+                },
+                "variants": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "experiment_id",
+                "experiment_name",
+                "description",
+                "variants",
+                "metrics_results",
+                "stats_method"
+            ],
+            "type": "object"
+        },
+        "MaxExperimentVariantResultBayesian": {
+            "additionalProperties": false,
+            "properties": {
+                "chance_to_win": {
+                    "type": ["number", "null"]
+                },
+                "credible_interval": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "key": {
+                    "type": "string"
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "chance_to_win", "credible_interval", "significant"],
+            "type": "object"
+        },
+        "MaxExperimentVariantResultFrequentist": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence_interval": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "key": {
+                    "type": "string"
+                },
+                "p_value": {
+                    "type": ["number", "null"]
+                },
+                "significant": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["key", "p_value", "confidence_interval", "significant"],
             "type": "object"
         },
         "MaxInnerUniversalFiltersGroup": {
@@ -26272,6 +26459,7 @@
                 "revenue_analytics_properties",
                 "resources",
                 "error_tracking_properties",
+                "activity_log_properties",
                 "max_ai_context"
             ],
             "type": "string"

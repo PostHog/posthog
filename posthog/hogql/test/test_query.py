@@ -941,6 +941,26 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ]
         self.assertEqual(response.results, expected)
 
+    def test_between_operators(self):
+        cases = [
+            ("5 between 1 and 10", 1),
+            ("1 between 1 and 10", 1),
+            ("10 between 1 and 10", 1),
+            ("0 between 1 and 10", 0),
+            ("11 between 1 and 10", 0),
+            ("5 not between 1 and 10", 0),
+            ("0 not between 1 and 10", 1),
+            ("11 not between 1 and 10", 1),
+            ("10 not between 1 and 10", 0),
+            ("null between 1 and 10", 0),
+            ("5 between null and 10", 0),
+            ("5 between 1 and null", 0),
+        ]
+        for expr, expected in cases:
+            q = f"select {expr}"
+            response = execute_hogql_query(q, team=self.team)
+            self.assertEqual(response.results, [(expected,)], [q, response.clickhouse])
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_with_pivot_table_1_level(self):
         with freeze_time("2020-01-10"):

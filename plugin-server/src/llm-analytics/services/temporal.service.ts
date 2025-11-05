@@ -93,7 +93,11 @@ export class TemporalService {
         return client
     }
 
-    async startEvaluationRunWorkflow(evaluationId: string, targetEventId: string): Promise<WorkflowHandle> {
+    async startEvaluationRunWorkflow(
+        evaluationId: string,
+        targetEventId: string,
+        timestamp: string
+    ): Promise<WorkflowHandle> {
         const client = await this.ensureConnected()
 
         const workflowId = `${evaluationId}-${targetEventId}-ingestion`
@@ -103,6 +107,7 @@ export class TemporalService {
                 {
                     evaluation_id: evaluationId,
                     target_event_id: targetEventId,
+                    timestamp: timestamp,
                 },
             ],
             taskQueue: EVALUATION_TASK_QUEUE,
@@ -116,6 +121,7 @@ export class TemporalService {
             workflowId,
             evaluationId,
             targetEventId,
+            timestamp,
         })
 
         return handle

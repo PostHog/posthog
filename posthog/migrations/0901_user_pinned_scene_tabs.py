@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0899_add_cohort_type"),
+        ("posthog", "0900_team_receive_org_level_activity_logs"),
     ]
 
     operations = [
