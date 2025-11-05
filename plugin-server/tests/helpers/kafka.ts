@@ -62,6 +62,7 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
         KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES,
         KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
         KAFKA_COHORT_MEMBERSHIP_CHANGED,
+        KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER,
     ])
 }
 
