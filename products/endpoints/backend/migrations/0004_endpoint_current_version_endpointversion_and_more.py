@@ -27,10 +27,6 @@ class Migration(migrations.Migration):
                 ("query", models.JSONField(help_text="Immutable query snapshot")),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
-                    "change_summary",
-                    models.TextField(blank=True, help_text="Description of what changed in this version"),
-                ),
-                (
                     "created_by",
                     models.ForeignKey(
                         null=True,

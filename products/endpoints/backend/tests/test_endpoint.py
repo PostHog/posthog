@@ -120,11 +120,16 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
 
         # Activity log updated with changes
         logs = ActivityLog.objects.filter(
-            team_id=self.team.id, scope="Endpoint", activity="updated", item_id=str(endpoint.id)
+            team_id=self.team.id,
+            scope="Endpoint",
+            activity__in=["updated"],
+            item_id=str(endpoint.id),
         )
         self.assertEqual(logs.count(), 1, list(logs.values("activity", "detail")))
         log = logs.latest("created_at")
         assert log.detail is not None
+
+        self.assertEqual("updated", log.activity)
         changes = log.detail.get("changes", [])
         changed_fields = {c.get("field") for c in changes}
         self.assertIn("description", changed_fields)
