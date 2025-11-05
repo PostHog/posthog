@@ -9,6 +9,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
 import {
+    BillingProductV2Type,
     DataWarehouseActivityRecord,
     DataWarehouseJobStats,
     DataWarehouseJobStatsRequestPayload,
@@ -35,7 +36,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             billingLogic,
-            ['billingPeriodUTC'],
+            ['billingPeriodUTC', 'billing'],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueryMapById'],
         ],
@@ -44,6 +45,8 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             ['loadDatabase'],
             externalDataSourcesLogic,
             ['loadSources', 'loadSourcesSuccess'],
+            billingLogic,
+            ['loadBilling'],
         ],
     })),
     actions({
@@ -206,6 +209,18 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 return databaseLoading || dataWarehouseSourcesLoading
             },
         ],
+        materializedViews: [
+            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
+            (views, dataWarehouseSavedQueryMapById) => {
+                return views.filter((view) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
+            },
+        ],
+        dataWarehouseProduct: [
+            (s) => [s.billing],
+            (billing): BillingProductV2Type | null => {
+                return billing?.products?.find((product) => product.type === 'data_warehouse') || null
+            },
+        ],
     }),
     listeners(({ values, actions, cache }) => ({
         setActivityRunningCurrentPage: () => {
@@ -294,5 +309,6 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         actions.loadCompletedActivityResponse()
         actions.loadTotalRowsStats()
         actions.loadJobStats({ days: 7 })
+        actions.loadBilling()
     }),
 ])

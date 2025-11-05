@@ -1,0 +1,81 @@
+.DataWarehouseTierCard {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 1rem;
+    background-color: var(--bg-light);
+    transition: background-color 150ms ease;
+
+    &:hover {
+        background-color: var(--bg-3000);
+    }
+}
+
+.DataWarehouseTierGauge {
+    position: relative;
+    height: 0.5rem;
+    background-color: var(--border-light);
+    border-radius: 0.25rem;
+    overflow: hidden;
+    margin-bottom: 0.75rem;
+
+    &__bar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        border-radius: 0.25rem;
+        transition: width 800ms cubic-bezier(0.15, 0.15, 0.2, 1);
+
+        &--current {
+            background: var(--brand-blue);
+            z-index: 2;
+        }
+
+        &--projected {
+            background: repeating-linear-gradient(
+                -45deg,
+                var(--data-color-1),
+                var(--data-color-1) 0.5rem,
+                var(--data-color-1-hover) 0.5rem,
+                var(--data-color-1-hover) 1rem
+            );
+            opacity: 0.5;
+            z-index: 1;
+        }
+    }
+
+    &__labels {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        margin-top: 0.5rem;
+        font-size: 0.875rem;
+    }
+
+    &__label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    &__dot {
+        width: 0.625rem;
+        height: 0.625rem;
+        border-radius: 50%;
+        flex-shrink: 0;
+
+        &--current {
+            background: var(--brand-blue);
+        }
+
+        &--projected {
+            background: repeating-linear-gradient(
+                -45deg,
+                var(--data-color-1),
+                var(--data-color-1) 0.125rem,
+                var(--data-color-1-hover) 0.125rem,
+                var(--data-color-1-hover) 0.25rem
+            );
+        }
+    }
+}
