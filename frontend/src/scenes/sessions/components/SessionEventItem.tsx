@@ -102,7 +102,7 @@ export interface SessionEventItemProps {
     index: number
     isExpanded: boolean
     onToggleExpand: (index: number) => void
-    onLoadEventDetails?: (eventId: string) => void
+    onLoadEventDetails?: (eventId: string, eventName: string) => void
 }
 
 export function SessionEventItem({
@@ -120,7 +120,7 @@ export function SessionEventItem({
 
     const handleToggle = (): void => {
         if (!isExpanded && !event.fullyLoaded && onLoadEventDetails) {
-            onLoadEventDetails(event.id)
+            onLoadEventDetails(event.id, event.event)
         }
         onToggleExpand(index)
     }

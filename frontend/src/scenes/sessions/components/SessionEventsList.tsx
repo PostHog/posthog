@@ -17,7 +17,7 @@ export interface SessionEventsListProps {
     isLoading?: boolean
     isLoadingMore?: boolean
     hasMoreEvents?: boolean
-    onLoadEventDetails?: (eventId: string) => void
+    onLoadEventDetails?: (eventId: string, eventName: string) => void
     onLoadMoreEvents?: () => void
     sortOrder: 'asc' | 'desc'
     onSortOrderChange: (sortOrder: 'asc' | 'desc') => void

@@ -7,12 +7,15 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ActivityTab } from '~/types'
 
 import { SessionDetailsCard } from './components/SessionDetailsCard'
 import { SessionEventsList } from './components/SessionEventsList'
@@ -51,22 +54,22 @@ export function SessionProfileScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <div className="flex items-center justify-between">
-                <SceneTitleSection
-                    name="Session Profile"
-                    resourceType={{
-                        type: sceneConfigurations[Scene.SessionProfile].iconType || 'default_icon_type',
-                    }}
-                />
-                <LemonButton
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    onClick={() => loadSessionData()}
-                    loading={isInitialLoading}
-                >
-                    Refresh
-                </LemonButton>
-            </div>
+            <SceneTitleSection
+                name="Session Profile"
+                resourceType={{
+                    type: sceneConfigurations[Scene.SessionProfile].iconType || 'default_icon_type',
+                }}
+                forceBackTo={{
+                    name: sceneConfigurations[Scene.ExploreSessions].name,
+                    path: urls.activity(ActivityTab.ExploreSessions),
+                    key: 'sessions',
+                }}
+                actions={
+                    <LemonButton type="secondary" icon={<IconRefresh />} onClick={() => loadSessionData()}>
+                        Refresh
+                    </LemonButton>
+                }
+            />
             <SceneDivider />
 
             <div className="space-y-4">
@@ -81,11 +84,15 @@ export function SessionProfileScene(): JSX.Element {
                             </div>
                         </div>
                         <div>
-                            <div className="text-xs text-muted-alt">Distinct ID</div>
-                            <div className="font-mono text-sm">
-                                <CopyToClipboardInline description="distinct ID">
-                                    {sessionData.distinct_id}
-                                </CopyToClipboardInline>
+                            <div className="text-xs text-muted-alt">Person</div>
+                            <div className="text-sm">
+                                <PersonDisplay
+                                    person={{
+                                        distinct_id: sessionData.distinct_id,
+                                        properties: sessionData.person_properties || undefined,
+                                    }}
+                                    withIcon
+                                />
                             </div>
                         </div>
                         <div>
