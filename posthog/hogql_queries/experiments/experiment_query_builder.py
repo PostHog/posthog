@@ -1,4 +1,4 @@
-from typing import Optional, Union, cast
+from typing import Optional, TypedDict, Union, cast
 
 from posthog.schema import (
     ActionsNode,
@@ -34,6 +34,15 @@ from posthog.models.team.team import Team
 
 # Constant for representing NULL breakdown values
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+
+
+class TableConfig(TypedDict):
+    """Configuration for a table/source used in queries"""
+
+    table: str
+    entity_field: str
+    timestamp_field: str
+    is_dw: bool
 
 
 def get_exposure_config_params_for_builder(
