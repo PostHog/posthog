@@ -1,3 +1,16 @@
+import { PostHog } from 'posthog-js'
+
+const SHIMMER_EFFECT_CSS = `
+    @keyframes shimmer {
+        0% {
+            background-position: -200% 0;
+        }
+        100% {
+            background-position: 200% 0;
+        }
+    }
+`
+
 interface Color {
     r: number
     g: number
@@ -42,47 +55,76 @@ const getColorPalette = (color: string): [Color, Color, Color, Color, Color] => 
     return [color1, color2, color3, color4, color5]
 }
 
-export const generatePiiMaskingCSS = (baseColor: string): string => {
-    const [color1, color2, color3, color4, color5] = getColorPalette(baseColor).map(colorToHex)
-
+const generatePiiMaskingCSSForSelector = (
+    selector: string,
+    colors: [string, string, string, string, string]
+): string => {
     return `
-        @keyframes shimmer {
-            0% {
-                background-position: -200% 0;
-            }
-            100% {
-                background-position: 200% 0;
-            }
-        }
-        .ph-no-capture {
+        ${selector} {
             position: relative !important;
         }
-        .ph-no-capture::before {
+        ${selector}::before {
             content: '';
             position: absolute;
             inset: 0;
             background: linear-gradient(
                 90deg,
-                ${color1} 0%,
-                ${color2} 20%,
-                ${color3} 40%,
-                ${color4} 60%,
-                ${color5} 80%,
-                ${color1} 100%
+                ${colors[0]} 0%,
+                ${colors[1]} 20%,
+                ${colors[2]} 40%,
+                ${colors[3]} 60%,
+                ${colors[4]} 80%,
+                ${colors[0]} 100%
             );
             background-size: 200% 100%;
             animation: shimmer 6s ease-in-out infinite;
             z-index: 999999;
             pointer-events: none;
         }
-        .ph-no-capture img,
-        .ph-no-capture video {
+        ${selector} img,
+        ${selector} video {
             opacity: 0 !important;
         }
-        .ph-no-capture * {
+        ${selector} * {
             color: transparent !important;
             text-shadow: none !important;
         }
+    `
+}
+
+export const generatePiiMaskingCSS = (baseColor: string, posthog: PostHog | null): string => {
+    const [color1, color2, color3, color4, color5] = getColorPalette(baseColor).map(colorToHex)
+
+    // There's some checks that can be a regexp or even done via JS which means we can't do it CSS based
+    // We're ok with that for now, but we should consider reworking this in the future
+    // to make use of ResizeObserver to detect changes in the DOM and update the CSS accordingly
+    const selectors = new Set<string>(['.ph-no-capture', '.ph-sensitive'])
+    if (posthog) {
+        selectors.add(
+            typeof posthog.config.session_recording?.blockClass === 'string'
+                ? `.${posthog.config.session_recording?.blockClass}`
+                : '.ph-no-capture'
+        )
+        selectors.add(
+            typeof posthog.config.session_recording?.maskTextClass === 'string'
+                ? `.${posthog.config.session_recording?.maskTextClass}`
+                : '.ph-mask'
+        )
+        if (typeof posthog.config.session_recording?.maskTextSelector === 'string') {
+            selectors.add(posthog.config.session_recording?.maskTextSelector)
+        }
+        if (posthog.config.session_recording?.maskAllInputs === true) {
+            selectors.add('input, textarea')
+        }
+    }
+
+    const selectorsCss = Array.from(selectors)
+        .map((selector) => generatePiiMaskingCSSForSelector(selector, [color1, color2, color3, color4, color5]))
+        .join('\n')
+
+    return `
+        ${SHIMMER_EFFECT_CSS}
+        ${selectorsCss}
     `
 }
 
