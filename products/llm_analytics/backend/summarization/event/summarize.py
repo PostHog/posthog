@@ -22,21 +22,15 @@ async def summarize_event(event: dict[str, Any], text_repr: str, mode: str = "mi
     Returns:
         Summary text with line references
     """
-    # Determine event type for context
-    event_type = event.get("event", "unknown")
-    event_name = event.get("properties", {}).get("$ai_span_name", event_type)
-
     # Load prompt templates
     system_prompt = load_summarization_template(
-        f"prompts/event/system_{mode}.djt",
+        f"prompts/system_{mode}.djt",
         {},
     )
 
     user_prompt = load_summarization_template(
-        "prompts/event/user.djt",
+        "prompts/user.djt",
         {
-            "event_type": event_type,
-            "event_name": event_name,
             "text_repr": text_repr,
         },
     )

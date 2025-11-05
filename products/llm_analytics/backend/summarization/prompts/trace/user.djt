@@ -1,6 +1,0 @@
-Please summarize the following LLM trace: {{ trace_name }}
-
-TRACE TEXT REPRESENTATION:
-{{ text_repr|safe }}
-
-Generate a focused summary following the guidelines provided in the system prompt.
