@@ -528,13 +528,20 @@ async function migrateService(serviceName, config, options, checkpoint) {
     console.log(`   Prefix: ${config.prefix}`)
     console.log(`${'='.repeat(80)}\n`)
 
+    // Resolve endpoints and credentials from env (fallback to localhost defaults)
+    const MINIO_ENDPOINT = process.env.OBJECT_STORAGE_ENDPOINT || 'http://localhost:19000'
+    const MINIO_KEY = process.env.OBJECT_STORAGE_ACCESS_KEY_ID || 'object_storage_root_user'
+    const MINIO_SECRET = process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY || 'object_storage_root_password'
+
+    const SW_ENDPOINT =
+        process.env.SESSION_RECORDING_V2_S3_ENDPOINT || process.env.SEAWEEDFS_ENDPOINT || 'http://localhost:8333'
+    const SW_KEY = process.env.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID || process.env.SEAWEEDFS_ACCESS_KEY_ID || 'any'
+    const SW_SECRET =
+        process.env.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY || process.env.SEAWEEDFS_SECRET_ACCESS_KEY || 'any'
+
     // Create S3 clients
-    const minioClient = await createS3Client(
-        'http://localhost:19000',
-        'object_storage_root_user',
-        'object_storage_root_password'
-    )
-    const seaweedfsClient = await createS3Client('http://localhost:8333', 'any', 'any')
+    const minioClient = await createS3Client(MINIO_ENDPOINT, MINIO_KEY, MINIO_SECRET)
+    const seaweedfsClient = await createS3Client(SW_ENDPOINT, SW_KEY, SW_SECRET)
 
     // Determine source and destination based on direction
     const sourceClient = options.revert ? seaweedfsClient : minioClient
@@ -924,7 +931,10 @@ async function main() {
     }
 
     // Safety checks
-    ensureLocalDevelopmentOnly('http://localhost:19000', 'http://localhost:8333')
+    const minioEndpoint = process.env.OBJECT_STORAGE_ENDPOINT || 'http://localhost:19000'
+    const seaweedEndpoint =
+        process.env.SESSION_RECORDING_V2_S3_ENDPOINT || process.env.SEAWEEDFS_ENDPOINT || 'http://localhost:8333'
+    ensureLocalDevelopmentOnly(minioEndpoint, seaweedEndpoint)
 
     // Initialize checkpoint
     const checkpoint = new Checkpoint(options.service)
