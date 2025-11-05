@@ -5,7 +5,7 @@ from typing import Any, TypeVar, cast
 from django.conf import settings
 
 import structlog
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from pydantic import BaseModel, ValidationError
 from rest_framework import serializers
 from rest_framework.exceptions import ParseError
@@ -33,7 +33,7 @@ class PydanticModelMixin:
 def validated_request(
     request_serializer: type[serializers.Serializer] | None = None,
     *,
-    responses: dict[int, Response] | None = None,
+    responses: dict[int, OpenApiResponse | None] | None = None,
     summary: str | None = None,
     description: str | None = None,
     tags: list[str] | None = None,
@@ -163,8 +163,10 @@ def validated_request(
             # Step 5: Validate response matches serializer
 
             if strict_response_validation or settings.DEBUG:
+                if response_config is None:
+                    return result
                 serializer_class = response_config.response
-                context = getattr(self, "get_serializer_context", lambda: {})()
+                context: dict[str, Any] = getattr(self, "get_serializer_context", lambda: {})()
                 serialized = serializer_class(data=data, context=context)
 
                 if not serialized.is_valid(raise_exception=strict_response_validation):
