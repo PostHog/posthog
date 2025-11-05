@@ -432,12 +432,13 @@ jobs:
               id: test-runner
               env:
                   HOME: /root
-                  VARIANT: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && 'update' || 'verify' }}
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
                   for i in 1 2 3; do
                     echo "Attempt $i: Running @storybook/test-runner"
-                    pnpm --filter=@posthog/storybook test:visual:ci:$VARIANT --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} && break
+                    # Always run in update mode to generate snapshot changes on disk
+                    # We decide whether to commit based on mode in later jobs
+                    pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} && break
                     if [ $i -eq 3 ]; then
                       echo "Test runner failed after 3 attempts"
                       exit 1
@@ -498,11 +499,11 @@ jobs:
                   fi
                   echo "All jobs in the visual-regression test matrix passed."
 
-    commit-snapshots:
-        name: Commit aggregated snapshots
+    handle-snapshots:
+        name: Handle snapshot changes
         runs-on: ubuntu-latest
         needs: [visual-regression, detect-snapshot-mode, changes]
-        if: needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
+        if: always() && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         steps:
             - uses: actions/checkout@v4
               with:
@@ -511,11 +512,42 @@ jobs:
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   fetch-depth: 1
 
-            - name: Commit snapshots
+            - name: Download snapshot patches
+              id: download-patches
+              continue-on-error: true
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: snapshot-patch-*
+                  path: /tmp/snapshot-patches/
+                  merge-multiple: true
+
+            - name: Check for snapshot changes
+              id: check-snapshots
+              run: |
+                  # Check if patches were downloaded and have content
+                  if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/snapshot-patches/ ]; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    echo "No snapshot patches found"
+                    exit 0
+                  fi
+
+                  # Check if any patch files have content (>0 bytes)
+                  PATCHES=$(find /tmp/snapshot-patches -name "*.patch" -type f -size +0c)
+                  if [ -z "$PATCHES" ]; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    echo "Patch files empty - no snapshot changes"
+                  else
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                    echo "Snapshot changes detected in patches"
+                  fi
+
+            # UPDATE mode: commit the changes
+            - name: Commit snapshot changes
+              if: steps.check-snapshots.outputs.has-changes == 'true' && needs.detect-snapshot-mode.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: storybook
-                  artifact-pattern: snapshot-patch-*
+                  patch-path: /tmp/snapshot-patches/
                   snapshot-path: frontend/__snapshots__/
                   commit-message: Update UI snapshots (all browsers)
                   pr-number: ${{ github.event.pull_request.number }}
@@ -523,19 +555,9 @@ jobs:
                   commit-sha: ${{ github.event.pull_request.head.sha }}
                   github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
-    check-mode-failure:
-        name: Handle CHECK mode failures
-        runs-on: ubuntu-latest
-        needs: [visual-regression, detect-snapshot-mode, changes]
-        if: failure() && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'check'
-        steps:
-            - uses: actions/checkout@v4
-              with:
-                  ref: ${{ github.event.pull_request.head.ref }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  fetch-depth: 0
-
+            # CHECK mode with failure: post warning if snapshots changed
             - name: Post check-failed comment
+              if: steps.check-snapshots.outputs.has-changes == 'true' && needs.detect-snapshot-mode.outputs.mode == 'check' && needs.visual-regression.result == 'failure'
               env:
                   GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
               run: |

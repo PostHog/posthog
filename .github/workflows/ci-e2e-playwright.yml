@@ -342,14 +342,9 @@ jobs:
               # we can run 10 workers because we have 16 CPU
               # we don't want to run 16 since we need to leave some for everything else
               run: |
-                  # In CHECK mode, fail on snapshot mismatches
-                  # In UPDATE mode, allow snapshot updates
-                  # In VERIFY mode (forks), fail on mismatches
-                  if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" = "update" ]; then
-                    pnpm --filter=@posthog/playwright exec playwright test --workers=10 --update-snapshots
-                  else
-                    pnpm --filter=@posthog/playwright exec playwright test --workers=10
-                  fi
+                  # Always run with --update-snapshots to generate changes on disk
+                  # We decide whether to commit based on mode in later jobs
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=10 --update-snapshots
 
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Run even if tests fail to capture updated snapshots
@@ -448,22 +443,53 @@ jobs:
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
 
     # Aggregate all screenshot artifacts and commit once
-    commit-snapshots:
-        name: Commit aggregated screenshots
+    handle-screenshots:
+        name: Handle screenshot changes
         runs-on: ubuntu-latest
         needs: [playwright, detect-snapshot-mode, changes]
-        if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'update'
+        if: always() && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         steps:
             - uses: actions/checkout@v4
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
-            - name: Commit snapshots
+            - name: Download screenshot patches
+              id: download-patches
+              continue-on-error: true
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: playwright-patch
+                  path: /tmp/screenshot-patches/
+                  merge-multiple: true
+
+            - name: Check for screenshot changes
+              id: check-screenshots
+              run: |
+                  # Check if patches were downloaded and have content
+                  if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/screenshot-patches/ ]; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    echo "No screenshot patches found"
+                    exit 0
+                  fi
+
+                  # Check if any patch files have content (>0 bytes)
+                  PATCHES=$(find /tmp/screenshot-patches -name "*.patch" -type f -size +0c)
+                  if [ -z "$PATCHES" ]; then
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    echo "Patch files empty - no screenshot changes"
+                  else
+                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                    echo "Screenshot changes detected in patches"
+                  fi
+
+            # UPDATE mode: commit the changes
+            - name: Commit screenshot changes
+              if: steps.check-screenshots.outputs.has-changes == 'true' && needs.detect-snapshot-mode.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: playwright
-                  artifact-pattern: playwright-patch
+                  patch-path: /tmp/screenshot-patches/
                   snapshot-path: playwright/
                   commit-message: Update E2E screenshots (Playwright)
                   pr-number: ${{ github.event.pull_request.number }}
@@ -471,19 +497,9 @@ jobs:
                   commit-sha: ${{ github.event.pull_request.head.sha }}
                   github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
-    check-mode-failure:
-        name: Handle CHECK mode failures
-        runs-on: ubuntu-latest
-        needs: [playwright, detect-snapshot-mode, changes]
-        if: failure() && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && needs.detect-snapshot-mode.outputs.mode == 'check'
-        steps:
-            - uses: actions/checkout@v4
-              with:
-                  ref: ${{ github.event.pull_request.head.ref }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  fetch-depth: 0
-
+            # CHECK mode with failure: post warning if screenshots changed
             - name: Post check-failed comment
+              if: steps.check-screenshots.outputs.has-changes == 'true' && needs.detect-snapshot-mode.outputs.mode == 'check' && needs.playwright.result == 'failure'
               env:
                   GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
               run: |

@@ -1,12 +1,12 @@
 name: Commit Aggregated Snapshots
-description: Downloads snapshot artifacts, counts changes, commits, and posts PR comment
+description: Applies snapshot patches, counts changes, commits, and posts PR comment
 
 inputs:
     workflow-type:
         description: 'Workflow type (storybook or playwright)'
         required: true
-    artifact-pattern:
-        description: 'Pattern to match snapshot artifacts (e.g., snapshots-* or playwright-snapshots)'
+    patch-path:
+        description: 'Path where patch artifacts are already downloaded (e.g., /tmp/snapshot-patches/)'
         required: true
     snapshot-path:
         description: 'Path to snapshot directory (e.g., frontend/__snapshots__/ or playwright/)'
@@ -38,40 +38,25 @@ outputs:
 runs:
     using: composite
     steps:
-        - name: Download all snapshot artifacts
-          id: download
-          continue-on-error: true
-          uses: actions/download-artifact@v4
-          with:
-              pattern: ${{ inputs.artifact-pattern }}
-              path: /tmp/snapshot-artifacts/
-              merge-multiple: true
-
         - name: Apply snapshot patches
           shell: bash
           run: |
-              # Check if download succeeded and artifacts exist
-              if [ "${{ steps.download.outcome }}" == "failure" ]; then
-                echo "No artifacts found - all tests passed with no snapshot changes"
-                exit 0
-              fi
-
-              # Apply all patch files from downloaded artifacts
+              # Apply all patch files from the provided patch directory
               # Patches handle A/M/D automatically including binary files
-              if [ -d /tmp/snapshot-artifacts/ ]; then
-                PATCHES=$(find /tmp/snapshot-artifacts -name "*.patch" | sort)
+              if [ -d "${{ inputs.patch-path }}" ]; then
+                PATCHES=$(find "${{ inputs.patch-path }}" -name "*.patch" | sort)
                 if [ -n "$PATCHES" ]; then
-                  echo "Applying patches..."
+                  echo "Applying patches from ${{ inputs.patch-path }}..."
                   for patch in $PATCHES; do
                     echo "Applying $patch"
                     git apply --index "$patch"
                   done
                   echo "Applied all patches successfully"
                 else
-                  echo "No patch files found"
+                  echo "No patch files found in ${{ inputs.patch-path }}"
                 fi
               else
-                echo "No artifacts to process"
+                echo "Patch directory ${{ inputs.patch-path }} does not exist"
               fi
 
         - name: Configure git
