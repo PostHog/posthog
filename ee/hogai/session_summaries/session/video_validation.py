@@ -4,7 +4,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from math import floor
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import yaml
 import structlog
@@ -33,8 +33,11 @@ from ee.hogai.session_summaries.session.output_data import (
 )
 from ee.hogai.session_summaries.utils import load_custom_template
 from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
-from ee.hogai.videos.session_moments import SessionMomentInput, SessionMomentOutput, SessionMomentsLLMAnalyzer
+from ee.hogai.videos.session_moments import SessionMomentInput, SessionMomentsLLMAnalyzer
 from ee.models.session_summaries import SessionSummaryRunMeta, SessionSummaryVisualConfirmationResult
+
+if TYPE_CHECKING:
+    from ee.hogai.videos.session_moments import SessionMomentOutput
 
 logger = structlog.get_logger(__name__)
 
@@ -218,7 +221,7 @@ class SessionSummaryVideoValidator:
 
     def _generate_video_validation_prompts(
         self,
-        description_results: list[SessionMomentOutput],
+        description_results: list["SessionMomentOutput"],
         fields_to_update: list[_SessionSummaryVideoValidationFieldToUpdate],
     ) -> tuple[str, str]:
         """Generate a prompt for validating a video"""
@@ -249,7 +252,7 @@ class SessionSummaryVideoValidator:
 
     async def _generate_updates(
         self,
-        description_results: list[SessionMomentOutput],
+        description_results: list["SessionMomentOutput"],
         fields_to_update: list[_SessionSummaryVideoValidationFieldToUpdate],
         model_to_use: str,
     ) -> list[dict[str, str]] | None:
@@ -298,7 +301,7 @@ class SessionSummaryVideoValidator:
 
     def _generate_updates_run_metadata(
         self,
-        description_results: list[SessionMomentOutput],
+        description_results: list["SessionMomentOutput"],
         events_to_validate: list[tuple[str, EnrichedKeyActionSerializer]],
     ) -> SessionSummaryRunMeta:
         """Store the updates to the summary in the database, together with the validation results"""

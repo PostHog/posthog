@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
@@ -11,7 +11,9 @@ from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
-from ee.hogai.videos.session_moments import SessionMomentOutput
+
+if TYPE_CHECKING:
+    from ee.hogai.videos.session_moments import SessionMomentOutput
 
 
 @dataclass(frozen=True)
@@ -33,7 +35,7 @@ class SessionSummaryVisualConfirmationResult:
 
     @classmethod
     def from_session_moment_output(
-        cls, session_moment_output: SessionMomentOutput, event_uuid: str
+        cls, session_moment_output: "SessionMomentOutput", event_uuid: str
     ) -> "SessionSummaryVisualConfirmationResult":
         return cls(
             event_id=session_moment_output.moment_id,
