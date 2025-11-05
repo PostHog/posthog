@@ -175,7 +175,6 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         expected_personal_tab = {k: v for k, v in payload["personal_tabs"][0].items() if k != "active"}
         expected_personal_tab["pinned"] = True
-        expected_personal_tab["pinnedScope"] = "personal"
         self.assertEqual(
             response.json(),
             {
@@ -189,7 +188,6 @@ class TestUserAPI(APIBaseTest):
         stored_tab = stored.tabs[0]
         self.assertEqual(stored_tab["id"], "tab-1")
         self.assertEqual(stored_tab["pinned"], True)
-        self.assertEqual(stored_tab["pinnedScope"], "personal")
         self.assertNotIn("active", stored_tab)
 
         self.assertFalse(UserPinnedSceneTabs.objects.filter(user=None, team=self.team).exists())

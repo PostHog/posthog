@@ -27,7 +27,6 @@ import {
     SceneExport,
     SceneParams,
     SceneTab,
-    SceneTabPinnedScope,
     sceneToAccessControlResourceType,
 } from 'scenes/sceneTypes'
 import {
@@ -99,13 +98,15 @@ const persistPinnedTabs = (tabs: SceneTab[]): void => {
 }
 
 const normalizeStoredPinnedTabs = (tabs: SceneTab[]): SceneTab[] =>
-    tabs.map((tab) => ({
-        ...tab,
-        id: tab.id || generateTabId(),
-        pinned: true,
-        pinnedScope: 'personal',
-        active: false,
-    }))
+    tabs.map((tab) => {
+        const sanitized: SceneTab = {
+            ...tab,
+            id: tab.id || generateTabId(),
+            pinned: true,
+            active: false,
+        }
+        return sanitized
+    })
 
 const getPersistedPinnedTabs = (): PersistedPinnedTabs | null => {
     const savedTabs = localStorage.getItem(getStorageKey(PINNED_TAB_STATE_KEY))
@@ -139,7 +140,12 @@ const getPinnedTabsForPersistence = (tabs: SceneTab[]): PersistedPinnedTabs => {
             continue
         }
         const { active, ...rest } = tab
-        persisted.push({ ...rest, pinned: true, pinnedScope: 'personal', active: false })
+        const sanitized: SceneTab = {
+            ...rest,
+            pinned: true,
+            active: false,
+        }
+        persisted.push(sanitized)
     }
     return persisted
 }
@@ -149,9 +155,9 @@ const partitionTabs = (tabs: SceneTab[]): { pinned: SceneTab[]; unpinned: SceneT
     const unpinned: SceneTab[] = []
     for (const tab of tabs) {
         if (tab.pinned) {
-            pinned.push({ ...tab, pinned: true, pinnedScope: 'personal' })
+            pinned.push({ ...tab, pinned: true })
         } else {
-            unpinned.push({ ...tab, pinned: false, pinnedScope: undefined })
+            unpinned.push({ ...tab, pinned: false })
         }
     }
     return { pinned, unpinned }
@@ -162,20 +168,17 @@ const sortTabsPinnedFirst = (tabs: SceneTab[]): SceneTab[] => {
     return [...pinned, ...unpinned]
 }
 
-const updateTabPinnedScope = (tabs: SceneTab[], tabId: string, scope: SceneTabPinnedScope | null): SceneTab[] => {
+const updateTabPinnedState = (tabs: SceneTab[], tabId: string, pinned: boolean): SceneTab[] => {
     const index = tabs.findIndex((tab) => tab.id === tabId)
     if (index === -1) {
         return tabs
     }
 
-    const updatedTab: SceneTab = {
-        ...tabs[index],
-        pinned: scope !== null,
-        pinnedScope: scope ?? undefined,
-    }
-
     const newTabs = [...tabs]
-    newTabs[index] = updatedTab
+    newTabs[index] = {
+        ...tabs[index],
+        pinned,
+    }
 
     return ensureActiveTab(sortTabsPinnedFirst(newTabs))
 }
@@ -191,7 +194,7 @@ const ensureActiveTab = (tabs: SceneTab[]): SceneTab[] => {
 
 const mergePinnedTabs = (storedPinned: PersistedPinnedTabs | null, fallbackPinned: SceneTab[]): SceneTab[] => {
     if (!storedPinned || storedPinned.length === 0) {
-        return fallbackPinned.map((tab) => ({ ...tab, pinned: true, pinnedScope: 'personal' }))
+        return fallbackPinned.map((tab) => ({ ...tab, pinned: true }))
     }
 
     const activeById = new Map<string, boolean>()
@@ -205,7 +208,6 @@ const mergePinnedTabs = (storedPinned: PersistedPinnedTabs | null, fallbackPinne
             ...tab,
             id,
             pinned: true,
-            pinnedScope: 'personal',
             active: activeById.get(id) ?? false,
         }
     })
@@ -213,7 +215,7 @@ const mergePinnedTabs = (storedPinned: PersistedPinnedTabs | null, fallbackPinne
     const existingIds = new Set(normalized.map((tab) => tab.id))
     for (const fallbackTab of fallbackPinned) {
         if (!existingIds.has(fallbackTab.id)) {
-            normalized.push({ ...fallbackTab, pinned: true, pinnedScope: 'personal' })
+            normalized.push({ ...fallbackTab, pinned: true })
         }
     }
 
@@ -223,10 +225,7 @@ const mergePinnedTabs = (storedPinned: PersistedPinnedTabs | null, fallbackPinne
 const composeTabsFromStorage = (storedPinned: PersistedPinnedTabs | null, baseTabs: SceneTab[]): SceneTab[] => {
     const { pinned: basePinned, unpinned } = partitionTabs(baseTabs)
     const mergedPinned = mergePinnedTabs(storedPinned, basePinned)
-    return ensureActiveTab([
-        ...mergedPinned,
-        ...unpinned.map((tab) => ({ ...tab, pinned: false, pinnedScope: undefined })),
-    ])
+    return ensureActiveTab([...mergedPinned, ...unpinned.map((tab) => ({ ...tab, pinned: false }))])
 }
 
 export const productUrlMapping: Partial<Record<ProductKey, string[]>> = {
@@ -378,7 +377,6 @@ export const sceneLogic = kea<sceneLogicType>([
         saveTabEdit: (tab: SceneTab, name: string) => ({ tab, name }),
         pinTab: (tabId: string) => ({ tabId }),
         unpinTab: (tabId: string) => ({ tabId }),
-        setTabPinnedScope: (tabId: string, scope: SceneTabPinnedScope | null) => ({ tabId, scope }),
     }),
     reducers({
         // We store all state in "tabs". This allows us to have multiple tabs open, each with its own scene and parameters.
@@ -495,29 +493,34 @@ export const sceneLogic = kea<sceneLogicType>([
                         iconType: source.iconType,
                         active: false,
                         pinned: !!source.pinned,
-                        pinnedScope: source.pinned ? 'personal' : undefined,
                     }
 
                     const { pinned, unpinned } = partitionTabs(state)
 
                     if (cloned.pinned) {
                         const sourceIndex = pinned.findIndex((t) => t.id === source.id)
+                        const sanitizedCloned = { ...cloned, pinned: true }
                         const updated =
                             sourceIndex === -1
-                                ? [...pinned, { ...cloned, pinnedScope: 'personal' }]
+                                ? [...pinned, sanitizedCloned]
                                 : [
                                       ...pinned.slice(0, sourceIndex + 1),
-                                      { ...cloned, pinnedScope: 'personal' },
+                                      sanitizedCloned,
                                       ...pinned.slice(sourceIndex + 1),
                                   ]
                         return [...updated, ...unpinned]
                     }
 
                     const sourceIndex = unpinned.findIndex((t) => t.id === source.id)
+                    const sanitizedCloned = { ...cloned, pinned: false }
                     const newUnpinned =
                         sourceIndex === -1
-                            ? [...unpinned, cloned]
-                            : [...unpinned.slice(0, sourceIndex + 1), cloned, ...unpinned.slice(sourceIndex + 1)]
+                            ? [...unpinned, sanitizedCloned]
+                            : [
+                                  ...unpinned.slice(0, sourceIndex + 1),
+                                  sanitizedCloned,
+                                  ...unpinned.slice(sourceIndex + 1),
+                              ]
                     return [...pinned, ...newUnpinned]
                 },
                 saveTabEdit: (state, { tab, name }) => {
@@ -554,9 +557,8 @@ export const sceneLogic = kea<sceneLogicType>([
                             : tab
                     )
                 },
-                pinTab: (state, { tabId }) => updateTabPinnedScope(state, tabId, 'personal'),
-                unpinTab: (state, { tabId }) => updateTabPinnedScope(state, tabId, null),
-                setTabPinnedScope: (state, { tabId, scope }) => updateTabPinnedScope(state, tabId, scope),
+                pinTab: (state, { tabId }) => updateTabPinnedState(state, tabId, true),
+                unpinTab: (state, { tabId }) => updateTabPinnedState(state, tabId, false),
             },
         ],
         editingTabId: [
@@ -791,7 +793,6 @@ export const sceneLogic = kea<sceneLogicType>([
         },
         pinTab: () => persistTabs(values.tabs),
         unpinTab: () => persistTabs(values.tabs),
-        setTabPinnedScope: () => persistTabs(values.tabs),
         loadPinnedTabsFromBackend: async () => {
             try {
                 const response = await api.get<{
@@ -1397,7 +1398,27 @@ export const sceneLogic = kea<sceneLogicType>([
                     return
                 }
                 const storedPinned = getPersistedPinnedTabs()
-                actions.setTabs(composeTabsFromStorage(storedPinned, values.tabs))
+                const currentTabs = values.tabs
+                const updatedTabs = composeTabsFromStorage(storedPinned, currentTabs)
+
+                const previousActiveTab = currentTabs.find((tab) => tab.active)
+                const nextActiveTab = updatedTabs.find((tab) => tab.active)
+
+                actions.setTabs(updatedTabs)
+
+                if (!nextActiveTab?.pinned) {
+                    return
+                }
+
+                const location = router.values.currentLocation
+                const pathnameChanged = nextActiveTab.pathname !== location?.pathname
+                const searchChanged = (nextActiveTab.search ?? '') !== (location?.search ?? '')
+                const hashChanged = (nextActiveTab.hash ?? '') !== (location?.hash ?? '')
+
+                // When the active pinned tab changes remotely, make sure the local window navigates too.
+                if (previousActiveTab?.id !== nextActiveTab.id || pathnameChanged || searchChanged || hashChanged) {
+                    router.actions.push(nextActiveTab.pathname, nextActiveTab.search, nextActiveTab.hash)
+                }
             }
             window.addEventListener('storage', onStorage)
             return () => window.removeEventListener('storage', onStorage)

@@ -7,7 +7,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
-import { SceneTab, SceneTabPinnedScope } from '~/scenes/sceneTypes'
+import { SceneTab } from '~/scenes/sceneTypes'
 
 export interface ConfigurePinnedTabsModalProps {
     isOpen: boolean
@@ -16,15 +16,12 @@ export interface ConfigurePinnedTabsModalProps {
 
 export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTabsModalProps): JSX.Element {
     const { tabs } = useValues(sceneLogic)
-    const { setTabPinnedScope } = useActions(sceneLogic)
+    const { pinTab, unpinTab } = useActions(sceneLogic)
 
     const personalPinnedTabs = tabs.filter((tab) => tab.pinned)
     const regularTabs = tabs.filter((tab) => !tab.pinned)
 
-    const renderTabRow = (
-        tab: SceneTab,
-        actions: { label: string; scope: SceneTabPinnedScope | null }[]
-    ): JSX.Element => (
+    const renderTabRow = (tab: SceneTab, actions: { label: string; onClick: () => void }[]): JSX.Element => (
         <div
             key={tab.id}
             className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-surface-primary"
@@ -40,13 +37,8 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                 <div className="truncate font-medium text-primary">{tab.customTitle || tab.title}</div>
             </div>
             <div className="flex flex-wrap gap-2">
-                {actions.map(({ label, scope }) => (
-                    <LemonButton
-                        key={label}
-                        size="small"
-                        type="secondary"
-                        onClick={() => setTabPinnedScope(tab.id, scope)}
-                    >
+                {actions.map(({ label, onClick }) => (
+                    <LemonButton key={label} size="small" type="secondary" onClick={onClick}>
                         {label}
                     </LemonButton>
                 ))}
@@ -58,7 +50,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
         title: string,
         description: string,
         sectionTabs: SceneTab[],
-        actions: (tab: SceneTab) => { label: string; scope: SceneTabPinnedScope | null }[],
+        actions: (tab: SceneTab) => { label: string; onClick: () => void }[],
         emptyState: string
     ): JSX.Element => (
         <section className="space-y-3">
@@ -83,14 +75,14 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                     'Your personal pinned tabs',
                     'Pinned tabs are visible only to you and stay available when you come back.',
                     personalPinnedTabs,
-                    () => [{ label: 'Unpin', scope: null }],
+                    (tab) => [{ label: 'Unpin', onClick: () => unpinTab(tab.id) }],
                     'No personal pinned tabs yet.'
                 )}
                 {renderSection(
                     'Regular tabs (unpinned)',
                     'Regular tabs are discarded when you close your browser session.',
                     regularTabs,
-                    () => [{ label: 'Pin', scope: 'personal' }],
+                    (tab) => [{ label: 'Pin', onClick: () => pinTab(tab.id) }],
                     'No regular tabs available to pin.'
                 )}
             </div>

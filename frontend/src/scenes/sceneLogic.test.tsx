@@ -135,7 +135,6 @@ describe('sceneLogic', () => {
                         id: 'tab-2',
                         pathname: '/b',
                         pinned: true,
-                        pinnedScope: 'personal',
                     }),
                 ],
             })

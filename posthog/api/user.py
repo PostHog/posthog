@@ -567,23 +567,32 @@ class UserViewSet(
         pinned_tabs, _ = UserPinnedSceneTabs.objects.get_or_create(user=instance, team=team)
         legacy_project_tabs = UserPinnedSceneTabs.objects.filter(user=None, team=team).first()
 
-        def sanitize_tabs(tabs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+        def sanitize_tabs(tabs: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
             sanitized_tabs: list[dict[str, Any]] = []
+            changed = False
             for tab in tabs:
                 sanitized = {**tab}
-                sanitized.pop("active", None)
-                sanitized["pinned"] = True
-                sanitized["pinnedScope"] = "personal"
+                if "active" in sanitized:
+                    sanitized.pop("active", None)
+                    changed = True
+                if sanitized.get("pinned") is not True:
+                    sanitized["pinned"] = True
+                    changed = True
                 sanitized_tabs.append(sanitized)
-            return sanitized_tabs
+            return sanitized_tabs, changed
 
         if request.method == "GET":
             if legacy_project_tabs and legacy_project_tabs.tabs:
                 if not pinned_tabs.tabs:
-                    pinned_tabs.tabs = sanitize_tabs(legacy_project_tabs.tabs)
+                    sanitized_tabs, _ = sanitize_tabs(legacy_project_tabs.tabs)
+                    pinned_tabs.tabs = sanitized_tabs
                     pinned_tabs.save()
                 legacy_project_tabs.delete()
-            personal_tabs = pinned_tabs.tabs or []
+            personal_tabs_raw = pinned_tabs.tabs or []
+            personal_tabs, changed = sanitize_tabs(personal_tabs_raw)
+            if changed:
+                pinned_tabs.tabs = personal_tabs
+                pinned_tabs.save()
             return Response(
                 {
                     "tabs": personal_tabs,
@@ -601,7 +610,8 @@ class UserViewSet(
             personal_tabs_payload = tabs_payload or []
 
         if personal_tabs_payload is not None:
-            pinned_tabs.tabs = sanitize_tabs(personal_tabs_payload)
+            sanitized_tabs, _ = sanitize_tabs(personal_tabs_payload)
+            pinned_tabs.tabs = sanitized_tabs
             pinned_tabs.save()
 
         if legacy_project_tabs:

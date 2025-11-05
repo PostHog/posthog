@@ -179,8 +179,6 @@ export interface LoadedScene extends SceneExport<SceneProps> {
     sceneParams: SceneParams
 }
 
-export type SceneTabPinnedScope = 'personal'
-
 export interface SceneTab {
     id: string
     pathname: string
@@ -191,7 +189,6 @@ export interface SceneTab {
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
     pinned?: boolean
-    pinnedScope?: SceneTabPinnedScope
 
     sceneId?: string
     sceneKey?: string
