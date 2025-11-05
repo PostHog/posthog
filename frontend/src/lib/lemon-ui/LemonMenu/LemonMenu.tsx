@@ -39,13 +39,13 @@ export interface LemonMenuItemNode extends LemonMenuItemBase {
 }
 
 export interface LemonMenuItemLeafCallback extends LemonMenuItemBase {
-    onClick?: () => void
+    onClick?: (e: React.MouseEvent) => void
     items?: never
     placement?: never
     keyboardShortcut?: KeyboardShortcut
 }
 export interface LemonMenuItemLeafLink extends LemonMenuItemBase {
-    onClick?: () => void
+    onClick?: (e: React.MouseEvent) => void
     to: string
     disableClientSideRouting?: boolean
     targetBlank?: boolean
