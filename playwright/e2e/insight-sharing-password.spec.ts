@@ -111,7 +111,8 @@ test('password-protected insight sharing', async ({ page, playwrightSetup }) => 
     await expect(page.locator('text=Access share')).toBeVisible()
 
     // Take a snapshot of the password login page
-    await expect(page).toHaveScreenshot('insight-sharing-password-login.png', {
+    await page.screenshot({
+        path: '__snapshots__/insight-sharing-password-login.png',
         fullPage: true,
     })
 

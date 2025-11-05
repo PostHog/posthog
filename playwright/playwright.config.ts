@@ -22,9 +22,6 @@ export default defineConfig({
          * For example in `await expect(locator).toHaveText();`
          */
         timeout: process.env.CI ? 40 * 1000 : 10 * 1000,
-        toHaveScreenshot: {
-            maxDiffPixelRatio: 0.01, // 1% threshold
-        },
     },
     /* Run tests in files in parallel */
     fullyParallel: true,
