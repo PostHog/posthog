@@ -4,15 +4,17 @@
  * Provides AI-powered summarization of LLM traces and events with line references.
  */
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { LemonButton, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { StructuredSummary, SummaryMode, summaryTabLogic } from './summaryTabLogic'
+import { StructuredSummary, summaryTabLogic } from './summaryTabLogic'
 
 export interface SummaryTabContentProps {
     trace?: LLMTrace
@@ -22,9 +24,8 @@ export interface SummaryTabContentProps {
 
 export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps): JSX.Element {
     const logic = summaryTabLogic({ trace, event, tree })
-    const { summaryData, summaryDataLoading } = useValues(logic)
-    const { generateSummary } = useActions(logic)
-    const [summaryMode, setSummaryMode] = useState<SummaryMode>('minimal')
+    const { summaryData, summaryDataLoading, summaryMode } = useValues(logic)
+    const { generateSummary, setSummaryMode } = useActions(logic)
 
     const isSummarizable = trace || (event && (event.event === '$ai_generation' || event.event === '$ai_span'))
 
@@ -121,34 +122,35 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
 
             {summaryData && !summaryDataLoading && (
                 <>
-                    <div className="relative group flex-none">
-                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 z-10 bg-bg-light p-1 rounded shadow-md">
-                            <LemonSegmentedButton
-                                value={summaryMode}
-                                onChange={setSummaryMode}
-                                options={[
-                                    {
-                                        value: 'minimal',
-                                        label: 'Minimal',
-                                        tooltip: 'Quick 3-5 bullet point summary with key highlights',
-                                    },
-                                    {
-                                        value: 'detailed',
-                                        label: 'Detailed',
-                                        tooltip: 'Comprehensive 5-10 point summary with full context',
-                                    },
-                                ]}
-                                size="xsmall"
-                            />
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={() => generateSummary(summaryMode)}
-                                data-attr="llm-analytics-regenerate-summary"
-                            >
-                                Regenerate
-                            </LemonButton>
-                        </div>
+                    <div className="flex items-center gap-2 flex-none">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => generateSummary(summaryMode)}
+                            data-attr="llm-analytics-regenerate-summary"
+                        >
+                            Regenerate
+                        </LemonButton>
+                        <LemonSegmentedButton
+                            value={summaryMode}
+                            onChange={setSummaryMode}
+                            options={[
+                                {
+                                    value: 'minimal',
+                                    label: 'Minimal',
+                                    tooltip: 'Quick 3-5 bullet point summary with key highlights',
+                                },
+                                {
+                                    value: 'detailed',
+                                    label: 'Detailed',
+                                    tooltip: 'Comprehensive 5-10 point summary with full context',
+                                },
+                            ]}
+                            size="xsmall"
+                        />
+                    </div>
+
+                    <div className="flex-none">
                         <div className="prose prose-sm max-w-none border rounded p-4 bg-bg-light overflow-x-auto">
                             <SummaryRenderer summary={summaryData.summary} />
                         </div>
@@ -189,15 +191,18 @@ function SummaryRenderer({ summary }: { summary: StructuredSummary }): JSX.Eleme
                 parts.push(text.slice(lastIndex, match.index))
             }
 
-            const displayText = match[0]
+            const matchedText = match[0]
             // Extract all line numbers and ranges from the match
             let lineRangesText: string
-            if (displayText.startsWith('[')) {
+            let displayText: string
+            if (matchedText.startsWith('[')) {
                 // Bracketed format: [L13-19, L553-555]
-                lineRangesText = displayText.slice(2, -1) // Remove [L and ]
+                lineRangesText = matchedText.slice(2, -1) // Remove [L and ]
+                displayText = matchedText // Already has brackets
             } else {
                 // Unbracketed format: L1386-1436, L1940-1946
-                lineRangesText = displayText.slice(1) // Remove leading L
+                lineRangesText = matchedText.slice(1) // Remove leading L
+                displayText = `[${matchedText}]` // Add brackets for display
             }
 
             // Parse individual ranges/lines (e.g., "13-19, 553-555" or "1386-1436, 1940-1946")
@@ -231,7 +236,7 @@ function SummaryRenderer({ summary }: { summary: StructuredSummary }): JSX.Eleme
 
                         // Scroll to the first line in the first range
                         if (lineRanges.length > 0) {
-                            const firstElement = document.getElementById(`line-${lineRanges[0].start}`)
+                            const firstElement = document.getElementById(`summary-line-${lineRanges[0].start}`)
                             if (firstElement) {
                                 firstElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
                             }
@@ -240,7 +245,7 @@ function SummaryRenderer({ summary }: { summary: StructuredSummary }): JSX.Eleme
                         // Highlight all lines in all ranges
                         for (const { start, end } of lineRanges) {
                             for (let i = start; i <= end; i++) {
-                                const element = document.getElementById(`line-${i}`)
+                                const element = document.getElementById(`summary-line-${i}`)
                                 if (element) {
                                     element.classList.add('bg-warning-highlight')
                                     element.classList.add('border-l-4')
@@ -253,7 +258,7 @@ function SummaryRenderer({ summary }: { summary: StructuredSummary }): JSX.Eleme
                         setTimeout(() => {
                             for (const { start, end } of lineRanges) {
                                 for (let i = start; i <= end; i++) {
-                                    const element = document.getElementById(`line-${i}`)
+                                    const element = document.getElementById(`summary-line-${i}`)
                                     if (element) {
                                         element.classList.remove('bg-warning-highlight')
                                         element.classList.remove('border-l-4')
@@ -367,11 +372,27 @@ function SummaryRenderer({ summary }: { summary: StructuredSummary }): JSX.Eleme
 }
 
 /**
- * Displays line-numbered text representation with anchor navigation
+ * Displays line-numbered text representation with clickable line numbers
+ * that link to the Conversation tab's text view
  */
 function TextReprDisplay({ textRepr }: { textRepr: string }): JSX.Element {
     // Parse text repr to add line anchors
     const lines = textRepr.split('\n')
+
+    const handleLineClick = (lineNumber: number): void => {
+        // Update URL with line parameter
+        // This will trigger the URL routing in llmAnalyticsTraceLogic
+        // which will set the lineNumber state and scroll to the line
+        const url = new URL(window.location.href)
+        url.searchParams.set('line', lineNumber.toString())
+
+        // Navigate to the URL, which will be picked up by the Conversation tab's text view
+        router.actions.push(url.pathname + url.search)
+
+        // Note: User will need to manually switch to Conversation tab and TextView mode
+        // to see the highlighted line. We don't auto-switch to avoid disrupting workflow.
+        lemonToast.info('Line reference copied. Switch to Conversation → Text view to see highlighted line.')
+    }
 
     return (
         <div className="p-4 overflow-auto h-full font-mono text-xs whitespace-pre bg-bg-light">
@@ -386,10 +407,22 @@ function TextReprDisplay({ textRepr }: { textRepr: string }): JSX.Element {
                 return (
                     <div
                         key={index}
-                        id={lineNumber ? `line-${lineNumber}` : undefined}
+                        id={lineNumber ? `summary-line-${lineNumber}` : undefined}
                         className="transition-all duration-300 ease-in-out"
                     >
-                        {linePrefix && <span className="text-muted">{linePrefix}</span>}
+                        {linePrefix && lineNumber ? (
+                            <Tooltip title="Click to link to this line in Conversation text view">
+                                <button
+                                    type="button"
+                                    className="text-muted hover:text-link cursor-pointer"
+                                    onClick={() => handleLineClick(lineNumber)}
+                                >
+                                    {linePrefix}
+                                </button>
+                            </Tooltip>
+                        ) : (
+                            linePrefix && <span className="text-muted">{linePrefix}</span>
+                        )}
                         {lineContent}
                     </div>
                 )

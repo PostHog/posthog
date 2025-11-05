@@ -1,65 +1,91 @@
 """
-LLM calling function for summarization.
+LLM calling function for summarization using PostHog's analytics-tracked OpenAI client.
 
-In dev mode, uses direct OpenAI client without PostHog analytics tracking.
-In production, can use PostHog-wrapped client for cost tracking if available.
+Uses posthoganalytics.ai.openai.AsyncOpenAI for automatic cost tracking and observability.
+Follows the same pattern as ee.hogai.session_summaries.llm.call.
 """
 
+from __future__ import annotations
+
 import os
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
-from openai import AsyncOpenAI as DirectAsyncOpenAI
+import structlog
+import posthoganalytics
+from posthoganalytics.ai.openai import AsyncOpenAI
 from rest_framework import exceptions
 
+from posthog.cloud_utils import is_cloud
+from posthog.utils import get_instance_region
+
 from ..constants import SUMMARIZATION_MODEL, SUMMARIZATION_TIMEOUT
-from .schema import SummarizationResponse
+
+if TYPE_CHECKING:
+    from .schema import SummarizationResponse
+
+logger = structlog.get_logger(__name__)
 
 
-def _get_openai_client():
-    """
-    Get OpenAI client for summarization.
+def _get_default_posthog_client():
+    """Return the default analytics client after validating the environment."""
+    if not settings.DEBUG and not is_cloud():
+        raise exceptions.ValidationError("AI features are only available in PostHog Cloud")
 
-    In dev mode, uses direct OpenAI client without analytics tracking.
-    In production, tries PostHog-wrapped client, falls back to direct client.
-    """
     if not os.environ.get("OPENAI_API_KEY"):
         raise exceptions.ValidationError("OpenAI API key is not configured")
 
-    # In dev mode, use direct OpenAI client
-    if settings.DEBUG:
-        return DirectAsyncOpenAI(
-            api_key=os.environ.get("OPENAI_API_KEY"),
-            timeout=SUMMARIZATION_TIMEOUT,
-            base_url=getattr(settings, "OPENAI_BASE_URL", None),
-        )
+    client = posthoganalytics.default_client
+    if not client:
+        raise exceptions.ValidationError("PostHog analytics client is not configured")
 
-    # In production, try to use PostHog-wrapped client for cost tracking
-    try:
-        from ee.hogai.session_summaries.llm.call import get_async_openai_client
-
-        return get_async_openai_client()
-    except Exception:
-        # Fallback to direct client if PostHog client unavailable
-        return DirectAsyncOpenAI(
-            api_key=os.environ.get("OPENAI_API_KEY"),
-            timeout=SUMMARIZATION_TIMEOUT,
-            base_url=getattr(settings, "OPENAI_BASE_URL", None),
-        )
+    return client
 
 
-async def call_summarization_llm(system_prompt: str, user_prompt: str) -> SummarizationResponse:
+def _get_async_openai_client() -> AsyncOpenAI:
+    """Get configured OpenAI client with PostHog analytics tracking."""
+    client = _get_default_posthog_client()
+    return AsyncOpenAI(
+        posthog_client=client,
+        timeout=SUMMARIZATION_TIMEOUT,
+        base_url=getattr(settings, "OPENAI_BASE_URL", None),
+    )
+
+
+def _prepare_user_param(team_id: int) -> str:
+    """Format user identifier for LLM calls."""
+    instance_region = get_instance_region() or "HOBBY"
+    return f"{instance_region}/{team_id}"
+
+
+async def summarize(
+    text_repr: str,
+    team_id: int,
+    trace_id: str | None = None,
+    mode: str = "minimal",
+) -> SummarizationResponse:
     """
-    Call LLM for summarization with structured outputs.
+    Generate AI-powered summary from text representation.
 
     Args:
-        system_prompt: System instructions for the LLM
-        user_prompt: User prompt with content to summarize
+        text_repr: Line-numbered text representation to summarize
+        team_id: Team ID for cost tracking and analytics
+        trace_id: Optional trace ID for linking LLM call to source trace/event
+        mode: Summary detail level ('minimal' or 'detailed')
 
     Returns:
-        Structured summarization response
+        Structured summarization response with flow diagram, bullets, and notes
     """
-    client = _get_openai_client()
+    from ..utils import load_summarization_template
+    from .schema import SummarizationResponse
+
+    # Load prompt templates
+    system_prompt = load_summarization_template(f"prompts/system_{mode}.djt", {})
+    user_prompt = load_summarization_template("prompts/user.djt", {"text_repr": text_repr})
+
+    client = _get_async_openai_client()
+    user_param = _prepare_user_param(team_id)
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -67,9 +93,12 @@ async def call_summarization_llm(system_prompt: str, user_prompt: str) -> Summar
     ]
 
     # Use structured outputs with JSON schema
-    response = await client.chat.completions.create(
+    # Pass posthog_trace_id for linking this LLM call to the source trace
+    response = await client.chat.completions.create(  # type: ignore[call-overload]
         model=SUMMARIZATION_MODEL,
         messages=messages,
+        user=user_param,
+        posthog_trace_id=trace_id,
         response_format={
             "type": "json_schema",
             "json_schema": {

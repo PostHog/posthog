@@ -1,4 +1,4 @@
-import { kea, key, path, props } from 'kea'
+import { actions, kea, key, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { getCookie } from 'lib/api'
@@ -43,6 +43,17 @@ export const summaryTabLogic = kea<summaryTabLogicType>([
             return `event-${props.event.id}`
         }
         return 'unknown'
+    }),
+    actions({
+        setSummaryMode: (mode: SummaryMode) => ({ mode }),
+    }),
+    reducers({
+        summaryMode: [
+            'minimal' as SummaryMode,
+            {
+                setSummaryMode: (_, { mode }) => mode,
+            },
+        ],
     }),
     loaders(({ props }) => ({
         summaryData: {

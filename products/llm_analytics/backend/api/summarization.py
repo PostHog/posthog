@@ -22,8 +22,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.llm_analytics.backend.summarization.constants import SUMMARIZATION_FEATURE_FLAG
-from products.llm_analytics.backend.summarization.event import summarize_event
-from products.llm_analytics.backend.summarization.trace import summarize_trace
+from products.llm_analytics.backend.summarization.llm import summarize
 from products.llm_analytics.backend.text_repr.formatters import format_event_text_repr, format_trace_text_repr
 
 logger = structlog.get_logger(__name__)
@@ -242,11 +241,14 @@ The response includes the summary text and optional metadata.
                 # Generate text representation
                 text_repr = format_trace_text_repr(trace=trace, hierarchy=hierarchy, options=options)
 
-                # Call summarization with mode
-                summary = async_to_sync(summarize_trace)(
-                    trace=trace,
-                    hierarchy=hierarchy,
+                # Extract trace_id for linking LLM call to source trace
+                trace_id = trace.get("properties", {}).get("$ai_trace_id") or trace.get("id")
+
+                # Call summarization
+                summary = async_to_sync(summarize)(
                     text_repr=text_repr,
+                    team_id=self.team_id,
+                    trace_id=trace_id,
                     mode=mode,
                 )
 
@@ -260,10 +262,14 @@ The response includes the summary text and optional metadata.
                 # Generate text representation
                 text_repr = format_event_text_repr(event=event, options=options)
 
-                # Call summarization with mode
-                summary = async_to_sync(summarize_event)(
-                    event=event,
+                # Extract trace_id for linking LLM call to source event
+                trace_id = event.get("properties", {}).get("$ai_trace_id") or event.get("id")
+
+                # Call summarization
+                summary = async_to_sync(summarize)(
                     text_repr=text_repr,
+                    team_id=self.team_id,
+                    trace_id=trace_id,
                     mode=mode,
                 )
 

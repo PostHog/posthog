@@ -608,6 +608,8 @@ const EventContent = React.memo(
 
         const showEvalsTab = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
+        const showSummaryTab = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION]
+
         const handleTryInPlayground = (): void => {
             if (!event) {
                 return
@@ -815,17 +817,21 @@ const EventContent = React.memo(
                                         </div>
                                     ),
                                 },
-                                {
-                                    key: TraceViewMode.Summary,
-                                    label: 'Summary',
-                                    content: (
-                                        <SummaryTabContent
-                                            trace={!isLLMEvent(event) ? event : undefined}
-                                            event={isLLMEvent(event) ? event : undefined}
-                                            tree={tree}
-                                        />
-                                    ),
-                                },
+                                ...(showSummaryTab
+                                    ? [
+                                          {
+                                              key: TraceViewMode.Summary,
+                                              label: 'Summary',
+                                              content: (
+                                                  <SummaryTabContent
+                                                      trace={!isLLMEvent(event) ? event : undefined}
+                                                      event={isLLMEvent(event) ? event : undefined}
+                                                      tree={tree}
+                                                  />
+                                              ),
+                                          },
+                                      ]
+                                    : []),
                                 ...(showEvalsTab
                                     ? [
                                           {
@@ -942,7 +948,7 @@ function DisplayOptionsSelect(): JSX.Element {
                   {
                       value: DisplayOption.TextView,
                       label: 'Text view',
-                      tooltip: 'Simple human readable text view',
+                      tooltip: 'Simple human readable text view, for humans',
                   },
               ]
             : []),
