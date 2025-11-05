@@ -45,6 +45,7 @@ import { SearchHighlight } from './SearchHighlight'
 import { EvalsTabContent } from './components/EvalsTabContent'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
+import { SummaryTabContent } from './components/SummaryTabContent'
 import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
@@ -67,6 +68,7 @@ import {
 enum TraceViewMode {
     Conversation = 'conversation',
     Raw = 'raw',
+    Summary = 'summary',
     Evals = 'evals',
 }
 
@@ -809,6 +811,17 @@ const EventContent = React.memo(
                                         <div className="p-2">
                                             <JSONViewer src={event} collapsed={2} />
                                         </div>
+                                    ),
+                                },
+                                {
+                                    key: TraceViewMode.Summary,
+                                    label: 'Summary',
+                                    content: (
+                                        <SummaryTabContent
+                                            trace={!isLLMEvent(event) ? event : undefined}
+                                            event={isLLMEvent(event) ? event : undefined}
+                                            tree={tree}
+                                        />
                                     ),
                                 },
                                 ...(showEvalsTab
