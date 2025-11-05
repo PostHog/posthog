@@ -25,7 +25,6 @@ STREAMING_NODES: set["MaxNodeName"] = {
 
 VERBOSE_NODES: set["MaxNodeName"] = STREAMING_NODES | {
     DeepResearchNodeName.PLANNER_TOOLS,
-    DeepResearchNodeName.TASK_EXECUTOR,
 }
 
 

@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from langgraph.graph import END, START
 from pydantic import BaseModel, Field
@@ -11,13 +11,19 @@ from ee.hogai.utils.types.base import (
     AssistantMessageUnion,
     BaseStateWithMessages,
     BaseStateWithTasks,
-    TodoItem,
     add_and_merge_messages,
     append,
     replace,
 )
 
 NotebookInfo = DeepResearchNotebook
+
+
+class TodoItem(BaseModel):
+    content: str = Field(..., min_length=1)
+    status: Literal["pending", "in_progress", "completed"]
+    id: str
+    priority: Literal["low", "medium", "high"]
 
 
 class DeepResearchIntermediateResult(BaseModel):

@@ -468,6 +468,8 @@ AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | No
 
 
 class NodePath(BaseModel):
+    """Defines a vertice of the assistant graph path."""
+
     name: str
     message_id: str | None = None
     tool_call_id: str | None = None
@@ -482,10 +484,3 @@ class AssistantDispatcherEvent(BaseModel):
 
 class LangGraphUpdateEvent(BaseModel):
     update: Any
-
-
-class TodoItem(BaseModel):
-    content: str = Field(..., min_length=1)
-    status: Literal["pending", "in_progress", "completed"]
-    id: str
-    priority: Literal["low", "medium", "high"]

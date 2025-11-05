@@ -3,13 +3,12 @@ import pkgutil
 import importlib
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Annotated, Any, Literal, Self
+from typing import Any, Literal, Self
 
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
-from langchain_core.tools import BaseTool, InjectedToolCallId
+from langchain_core.tools import BaseTool
 from pydantic import BaseModel
-from pydantic.json_schema import SkipJsonSchema
 
 from posthog.schema import AssistantTool
 
@@ -51,12 +50,6 @@ class ToolMessagesArtifact(BaseModel):
     """Return messages directly. Use with `artifact`."""
 
     messages: Sequence[AssistantMessageUnion]
-
-
-class MaxToolArgs(BaseModel):
-    """Base arguments schema for all MaxTools that provides an injected tool call id."""
-
-    tool_call_id: Annotated[str, InjectedToolCallId, SkipJsonSchema]
 
 
 class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):

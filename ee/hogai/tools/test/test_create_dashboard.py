@@ -9,6 +9,7 @@ from posthog.schema import AssistantMessage
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.create_dashboard import CreateDashboardTool
 from ee.hogai.utils.types import AssistantState, InsightQuery, PartialAssistantState
+from ee.hogai.utils.types.base import NodePath
 
 
 class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -24,6 +25,7 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
             state=self.state,
             context_manager=self.context_manager,
+            node_path=(NodePath(name="test_node", tool_call_id=self.tool_call_id, message_id="test"),),
         )
 
     async def test_execute_calls_dashboard_creation_node(self):
@@ -46,7 +48,6 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 result, artifact = await self.tool._arun_impl(
                     search_insights_queries=insight_queries,
                     dashboard_name="Marketing Dashboard",
-                    tool_call_id="test-tool-call-id",
                 )
 
                 self.assertEqual(result, "")
@@ -68,7 +69,7 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         async def mock_ainvoke(state):
             self.assertEqual(state.search_insights_queries, insight_queries)
             self.assertEqual(state.dashboard_name, "Executive Summary Q4")
-            self.assertEqual(state.root_tool_call_id, "custom-tool-call-id")
+            self.assertEqual(state.root_tool_call_id, self.tool_call_id)
             return mock_result
 
         mock_chain = MagicMock()
@@ -79,7 +80,6 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 await self.tool._arun_impl(
                     search_insights_queries=insight_queries,
                     dashboard_name="Executive Summary Q4",
-                    tool_call_id="custom-tool-call-id",
                 )
 
     async def test_execute_with_single_insight_query(self):
@@ -102,7 +102,6 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 result, artifact = await self.tool._arun_impl(
                     search_insights_queries=insight_queries,
                     dashboard_name="User Activity Dashboard",
-                    tool_call_id="test-id",
                 )
 
                 self.assertEqual(result, "")
@@ -130,7 +129,6 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 result, artifact = await self.tool._arun_impl(
                     search_insights_queries=insight_queries,
                     dashboard_name="Comprehensive Dashboard",
-                    tool_call_id="test-id",
                 )
 
                 self.assertEqual(result, "")
@@ -148,7 +146,6 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 result, artifact = await self.tool._arun_impl(
                     search_insights_queries=[InsightQuery(name="Test", description="Test insight")],
                     dashboard_name="Test Dashboard",
-                    tool_call_id="test-tool-call-id",
                 )
 
                 self.assertEqual(result, "Dashboard creation failed")
@@ -168,7 +165,6 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 result, artifact = await self.tool._arun_impl(
                     search_insights_queries=[InsightQuery(name="Test", description="Test insight")],
                     dashboard_name="Test Dashboard",
-                    tool_call_id="test-tool-call-id",
                 )
 
                 self.assertEqual(result, "Dashboard creation failed")
@@ -179,7 +175,7 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
         original_queries = [InsightQuery(name="Original", description="Original insight")]
         original_state = AssistantState(
             messages=[],
-            root_tool_call_id="original-id",
+            root_tool_call_id=self.tool_call_id,
             search_insights_queries=original_queries,
             dashboard_name="Original Dashboard",
         )
@@ -189,6 +185,7 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
             state=original_state,
             context_manager=self.context_manager,
+            node_path=(NodePath(name="test_node", tool_call_id=self.tool_call_id, message_id="test"),),
         )
 
         mock_result = PartialAssistantState(messages=[AssistantMessage(content="Test")])
@@ -199,7 +196,6 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
             # Verify the new state has updated values
             self.assertEqual(state.search_insights_queries, new_queries)
             self.assertEqual(state.dashboard_name, "New Dashboard")
-            self.assertEqual(state.root_tool_call_id, "new-id")
             return mock_result
 
         mock_chain = MagicMock()
@@ -210,13 +206,12 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 await tool._arun_impl(
                     search_insights_queries=new_queries,
                     dashboard_name="New Dashboard",
-                    tool_call_id="new-id",
                 )
 
         # Verify original state was not modified
         self.assertEqual(original_state.search_insights_queries, original_queries)
         self.assertEqual(original_state.dashboard_name, "Original Dashboard")
-        self.assertEqual(original_state.root_tool_call_id, "original-id")
+        self.assertEqual(original_state.root_tool_call_id, self.tool_call_id)
 
     async def test_execute_with_complex_insight_descriptions(self):
         """Test that complex insight descriptions with special characters are handled correctly"""
@@ -247,7 +242,6 @@ class TestCreateDashboardTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 result, artifact = await self.tool._arun_impl(
                     search_insights_queries=insight_queries,
                     dashboard_name="Complex Dashboard",
-                    tool_call_id="test-id",
                 )
 
                 self.assertEqual(result, "")

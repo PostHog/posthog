@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
 from ee.hogai.graph.insights.nodes import InsightSearchNode, NoInsightsException
-from ee.hogai.tool import MaxSubtool, MaxTool, MaxToolArgs, ToolMessagesArtifact
+from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
 from ee.hogai.tools.full_text_search.tool import EntitySearchTool, FTSKind
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
@@ -68,7 +68,7 @@ ENTITIES = [f"{entity}" for entity in FTSKind if entity != FTSKind.INSIGHTS]
 SearchKind = Literal["insights", "docs", *ENTITIES]  # type: ignore
 
 
-class SearchToolArgs(MaxToolArgs):
+class SearchToolArgs(BaseModel):
     kind: SearchKind = Field(description="Select the entity you want to find")
     query: str = Field(
         description="Describe what you want to find. Include as much details from the context as possible."
@@ -103,7 +103,7 @@ class SearchTool(MaxTool):
     context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
 
-    async def _arun_impl(self, kind: str, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
+    async def _arun_impl(self, kind: str, query: str) -> tuple[str, ToolMessagesArtifact | None]:
         if kind == "docs":
             if not settings.INKEEP_API_KEY:
                 return "This tool is not available in this environment.", None
@@ -114,7 +114,7 @@ class SearchTool(MaxTool):
                 config=self._config,
                 context_manager=self._context_manager,
             )
-            return await docs_tool.execute(query, tool_call_id)
+            return await docs_tool.execute(query, self.tool_call_id)
 
         if kind == "insights" and not self._has_insights_fts_search_feature_flag():
             insights_tool = InsightSearchTool(
@@ -124,7 +124,7 @@ class SearchTool(MaxTool):
                 config=self._config,
                 context_manager=self._context_manager,
             )
-            return await insights_tool.execute(query, tool_call_id)
+            return await insights_tool.execute(query, self.tool_call_id)
 
         if kind not in self._fts_entities:
             return format_prompt_string(INVALID_ENTITY_KIND_PROMPT, kind=kind), None

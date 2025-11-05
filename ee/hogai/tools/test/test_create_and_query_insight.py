@@ -1,5 +1,4 @@
 from typing import Any
-from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, patch
@@ -21,6 +20,7 @@ from ee.hogai.tools.create_and_query_insight import (
     CreateAndQueryInsightTool,
 )
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import NodePath
 from ee.models.assistant import Conversation
 
 
@@ -30,7 +30,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         self.conversation = Conversation.objects.create(team=self.team, user=self.user)
-        self.tool_call_id = str(uuid4())
+        self.tool_call_id = "test_tool_call_id"
 
     def _create_tool(
         self, state: AssistantState | None = None, contextual_tools: dict[str, dict[str, Any]] | None = None
@@ -50,6 +50,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
             state=state,
             context_manager=context_manager,
+            node_path=(NodePath(name="test_node", tool_call_id=self.tool_call_id, message_id="test"),),
         )
 
     async def test_successful_insight_creation_returns_messages(self):
@@ -67,9 +68,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
 
-            result_text, artifact = await tool._arun_impl(
-                query_description="test description", tool_call_id=self.tool_call_id
-            )
+            result_text, artifact = await tool._arun_impl(query_description="test description")
 
         self.assertEqual(result_text, "")
         self.assertIsNotNone(artifact)
@@ -90,9 +89,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph.ainvoke = AsyncMock(side_effect=exception)
             mock_compile.return_value = mock_graph
 
-            result_text, artifact = await tool._arun_impl(
-                query_description="test description", tool_call_id=self.tool_call_id
-            )
+            result_text, artifact = await tool._arun_impl(query_description="test description")
 
         self.assertIsNone(artifact)
         self.assertIn("Invalid query structure", result_text)
@@ -114,9 +111,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
 
-            result_text, artifact = await tool._arun_impl(
-                query_description="test description", tool_call_id=self.tool_call_id
-            )
+            result_text, artifact = await tool._arun_impl(query_description="test description")
 
         self.assertIsNone(artifact)
         self.assertIn("unknown error", result_text)
@@ -137,9 +132,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
 
-            result_text, artifact = await tool._arun_impl(
-                query_description="test description", tool_call_id=self.tool_call_id
-            )
+            result_text, artifact = await tool._arun_impl(query_description="test description")
 
         self.assertEqual(result_text, "")
         self.assertIsNotNone(artifact)
@@ -163,9 +156,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
 
-            result_text, artifact = await tool._arun_impl(
-                query_description="test description", tool_call_id=self.tool_call_id
-            )
+            result_text, artifact = await tool._arun_impl(query_description="test description")
 
         self.assertEqual(result_text, "")
         self.assertIsNotNone(artifact)
@@ -196,9 +187,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph.ainvoke = AsyncMock(return_value=mock_state.model_dump())
             mock_compile.return_value = mock_graph
 
-            result_text, artifact = await tool._arun_impl(
-                query_description="test description", tool_call_id=self.tool_call_id
-            )
+            result_text, artifact = await tool._arun_impl(query_description="test description")
 
         self.assertEqual(result_text, "")
         self.assertIsNotNone(artifact)
@@ -232,7 +221,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_graph.ainvoke = AsyncMock(side_effect=capture_invoked_state)
             mock_compile.return_value = mock_graph
 
-            await tool._arun_impl(query_description="my test query", tool_call_id=self.tool_call_id)
+            await tool._arun_impl(query_description="my test query")
 
         # Verify the state passed to ainvoke has the correct metadata
         self.assertIsNotNone(invoked_state)

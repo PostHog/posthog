@@ -218,8 +218,10 @@ class AssistantDispatcherMixin(ABC):
     def node_name(self) -> str: ...
 
     @property
-    def tool_call_id(self) -> str | None:
+    def tool_call_id(self) -> str:
         parent_tool_call_id = next((path.tool_call_id for path in reversed(self._node_path) if path.tool_call_id), None)
+        if not parent_tool_call_id:
+            raise ValueError("No tool call ID found")
         return parent_tool_call_id
 
     @property

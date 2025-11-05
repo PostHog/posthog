@@ -4,7 +4,7 @@ from langchain_core.runnables import RunnableLambda
 from pydantic import BaseModel, Field
 
 from ee.hogai.graph.session_summaries.nodes import SessionSummarizationNode
-from ee.hogai.tool import MaxTool, MaxToolArgs, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 
 SESSION_SUMMARIZATION_TOOL_PROMPT = """
@@ -45,7 +45,7 @@ Otherwise:
 """.strip()
 
 
-class SessionSummarizationToolArgs(MaxToolArgs):
+class SessionSummarizationToolArgs(BaseModel):
     session_summarization_query: str = Field(
         description="""
         - The user's complete query for session recordings summarization.
@@ -103,14 +103,14 @@ class SessionSummarizationTool(MaxTool):
     show_tool_call_message: bool = False
 
     async def _arun_impl(
-        self, session_summarization_query: str, should_use_current_filters: bool, summary_title: str, tool_call_id: str
+        self, session_summarization_query: str, should_use_current_filters: bool, summary_title: str
     ) -> tuple[str, ToolMessagesArtifact | None]:
         node = SessionSummarizationNode(self._team, self._user)
         chain: RunnableLambda[AssistantState, PartialAssistantState | None] = RunnableLambda(node)
         copied_state = self._state.model_copy(
             deep=True,
             update={
-                "root_tool_call_id": tool_call_id,
+                "root_tool_call_id": self.tool_call_id,
                 "session_summarization_query": session_summarization_query,
                 "should_use_current_filters": should_use_current_filters,
                 "summary_title": summary_title,

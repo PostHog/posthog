@@ -16,6 +16,7 @@ from ee.hogai.tools import InkeepDocsSearchTool, InsightSearchTool, SearchTool
 from ee.hogai.tools.search import DOC_ITEM_TEMPLATE, DOCS_SEARCH_RESULTS_TEMPLATE, EMPTY_DATABASE_ERROR_MESSAGE
 from ee.hogai.utils.tests import FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import NodePath
 
 
 class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -23,6 +24,7 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def setUp(self):
         super().setUp()
+        self.tool_call_id = "test_tool_call_id"
         self.state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         self.context_manager = AssistantContextManager(self.team, self.user, {})
         self.tool = SearchTool(
@@ -30,14 +32,13 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
             state=self.state,
             context_manager=self.context_manager,
+            node_path=(NodePath(name="test_node", tool_call_id=self.tool_call_id, message_id="test"),),
         )
 
     async def test_run_docs_search_without_api_key(self):
         with patch("ee.hogai.tools.search.settings") as mock_settings:
             mock_settings.INKEEP_API_KEY = None
-            result, artifact = await self.tool._arun_impl(
-                kind="docs", query="How to use feature flags?", tool_call_id="test-id"
-            )
+            result, artifact = await self.tool._arun_impl(kind="docs", query="How to use feature flags?")
             self.assertEqual(result, "This tool is not available in this environment.")
             self.assertIsNone(artifact)
 
@@ -50,11 +51,9 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             patch("ee.hogai.tools.search.InkeepDocsSearchTool", return_value=mock_docs_tool),
         ):
             mock_settings.INKEEP_API_KEY = "test-key"
-            result, artifact = await self.tool._arun_impl(
-                kind="docs", query="How to use feature flags?", tool_call_id="test-id"
-            )
+            result, artifact = await self.tool._arun_impl(kind="docs", query="How to use feature flags?")
 
-            mock_docs_tool.execute.assert_called_once_with("How to use feature flags?", "test-id")
+            mock_docs_tool.execute.assert_called_once_with("How to use feature flags?", self.tool_call_id)
             self.assertEqual(result, "")
             self.assertIsNotNone(artifact)
 
@@ -63,14 +62,14 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_insights_tool.execute = AsyncMock(return_value=("", MagicMock()))
 
         with patch("ee.hogai.tools.search.InsightSearchTool", return_value=mock_insights_tool):
-            result, artifact = await self.tool._arun_impl(kind="insights", query="user signups", tool_call_id="test-id")
+            result, artifact = await self.tool._arun_impl(kind="insights", query="user signups")
 
-            mock_insights_tool.execute.assert_called_once_with("user signups", "test-id")
+            mock_insights_tool.execute.assert_called_once_with("user signups", self.tool_call_id)
             self.assertEqual(result, "")
             self.assertIsNotNone(artifact)
 
     async def test_run_unknown_kind(self):
-        result, artifact = await self.tool._arun_impl(kind="unknown", query="test", tool_call_id="test-id")
+        result, artifact = await self.tool._arun_impl(kind="unknown", query="test")
         self.assertEqual(result, "Invalid entity kind: unknown. Please provide a valid entity kind for the tool.")
         self.assertIsNone(artifact)
 
@@ -79,7 +78,7 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_execute.return_value = "Search results for error tracking issues"
 
         result, artifact = await self.tool._arun_impl(
-            kind="error_tracking_issues", query="test error tracking issue query", tool_call_id="test-id"
+            kind="error_tracking_issues", query="test error tracking issue query"
         )
 
         self.assertEqual(result, "Search results for error tracking issues")
@@ -94,9 +93,7 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_has_insights_fts_search_feature_flag.return_value = False
         mock_execute.return_value = "Search results for insights"
 
-        result, artifact = await self.tool._arun_impl(
-            kind="insights", query="test insight query", tool_call_id="test-id"
-        )
+        result, artifact = await self.tool._arun_impl(kind="insights", query="test insight query")
 
         self.assertEqual(result, "The user doesn't have any insights created yet.")
         self.assertIsNone(artifact)
@@ -110,9 +107,7 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_has_insights_fts_search_feature_flag.return_value = True
         mock_execute.return_value = "Search results for insights"
 
-        result, artifact = await self.tool._arun_impl(
-            kind="insights", query="test insight query", tool_call_id="test-id"
-        )
+        result, artifact = await self.tool._arun_impl(kind="insights", query="test insight query")
 
         self.assertEqual(result, "Search results for insights")
         self.assertIsNone(artifact)
@@ -245,7 +240,7 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
                 mock_chain.ainvoke = AsyncMock(return_value=mock_result)
                 mock_runnable.return_value = mock_chain
 
-                result, artifact = await self.tool.execute("user signups by week", "test-tool-call-id")
+                result, artifact = await self.tool.execute("user signups by week", self.tool_call_id)
 
                 self.assertEqual(result, "")
                 self.assertIsNotNone(artifact)
@@ -259,7 +254,7 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         async def mock_ainvoke(state):
             self.assertEqual(state.search_insights_query, "custom search query")
-            self.assertEqual(state.root_tool_call_id, "custom-tool-call-id")
+            self.assertEqual(state.root_tool_call_id, self.tool_call_id)
             return mock_result
 
         mock_chain = MagicMock()
@@ -267,13 +262,13 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.insights.nodes.InsightSearchNode"):
             with patch("ee.hogai.tools.search.RunnableLambda", return_value=mock_chain):
-                await self.tool.execute("custom search query", "custom-tool-call-id")
+                await self.tool.execute("custom search query", self.tool_call_id)
 
     async def test_execute_handles_no_insights_exception(self):
         from ee.hogai.graph.insights.nodes import NoInsightsException
 
         with patch("ee.hogai.graph.insights.nodes.InsightSearchNode", side_effect=NoInsightsException()):
-            result, artifact = await self.tool.execute("user signups", "test-tool-call-id")
+            result, artifact = await self.tool.execute("user signups", self.tool_call_id)
 
             self.assertEqual(result, EMPTY_DATABASE_ERROR_MESSAGE)
             self.assertIsNone(artifact)
@@ -287,7 +282,7 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.insights.nodes.InsightSearchNode"):
             with patch("ee.hogai.tools.search.RunnableLambda", return_value=mock_chain):
-                result, artifact = await self.tool.execute("test query", "test-tool-call-id")
+                result, artifact = await self.tool.execute("test query", self.tool_call_id)
 
                 self.assertEqual(result, "")
                 self.assertIsNone(artifact)

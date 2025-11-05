@@ -9,6 +9,7 @@ from posthog.schema import AssistantMessage
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.session_summarization import SessionSummarizationTool
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import NodePath
 
 
 class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -24,6 +25,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
             state=self.state,
             context_manager=self.context_manager,
+            node_path=(NodePath(name="test_node", tool_call_id=self.tool_call_id, message_id="test"),),
         )
 
     async def test_execute_calls_session_summarization_node(self):
@@ -42,7 +44,6 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="summarize all sessions from yesterday",
                     should_use_current_filters=False,
                     summary_title="All sessions from yesterday",
-                    tool_call_id="test-tool-call-id",
                 )
 
                 self.assertEqual(result, "")
@@ -59,7 +60,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertEqual(state.session_summarization_query, "analyze mobile user sessions")
             self.assertEqual(state.should_use_current_filters, True)
             self.assertEqual(state.summary_title, "Mobile user sessions")
-            self.assertEqual(state.root_tool_call_id, "custom-tool-call-id")
+            self.assertEqual(state.root_tool_call_id, self.tool_call_id)
             return mock_result
 
         mock_chain = MagicMock()
@@ -71,7 +72,6 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="analyze mobile user sessions",
                     should_use_current_filters=True,
                     summary_title="Mobile user sessions",
-                    tool_call_id="custom-tool-call-id",
                 )
 
     async def test_execute_with_should_use_current_filters_false(self):
@@ -92,7 +92,6 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="watch last 300 session recordings",
                     should_use_current_filters=False,
                     summary_title="Last 300 sessions",
-                    tool_call_id="test-id",
                 )
 
     async def test_execute_returns_failure_message_when_result_is_none(self):
@@ -108,7 +107,6 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="test query",
                     should_use_current_filters=False,
                     summary_title="Test",
-                    tool_call_id="test-tool-call-id",
                 )
 
                 self.assertEqual(result, "Session summarization failed")
@@ -129,7 +127,6 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="test query",
                     should_use_current_filters=False,
                     summary_title="Test",
-                    tool_call_id="test-tool-call-id",
                 )
 
                 self.assertEqual(result, "Session summarization failed")
@@ -151,7 +148,6 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="summarize sessions",
                     should_use_current_filters=False,
                     summary_title="",
-                    tool_call_id="test-id",
                 )
 
                 self.assertEqual(result, "")
@@ -162,7 +158,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         original_query = "original query"
         original_state = AssistantState(
             messages=[],
-            root_tool_call_id="original-id",
+            root_tool_call_id=self.tool_call_id,
             session_summarization_query=original_query,
         )
 
@@ -171,6 +167,7 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
             state=original_state,
             context_manager=self.context_manager,
+            node_path=(NodePath(name="test_node", tool_call_id=self.tool_call_id, message_id="test"),),
         )
 
         mock_result = PartialAssistantState(messages=[AssistantMessage(content="Test")])
@@ -178,7 +175,6 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
         async def mock_ainvoke(state):
             # Verify the new state has updated values
             self.assertEqual(state.session_summarization_query, "new query")
-            self.assertEqual(state.root_tool_call_id, "new-id")
             return mock_result
 
         mock_chain = MagicMock()
@@ -190,9 +186,8 @@ class TestSessionSummarizationTool(ClickhouseTestMixin, NonAtomicBaseTest):
                     session_summarization_query="new query",
                     should_use_current_filters=True,
                     summary_title="New Summary",
-                    tool_call_id="new-id",
                 )
 
         # Verify original state was not modified
         self.assertEqual(original_state.session_summarization_query, original_query)
-        self.assertEqual(original_state.root_tool_call_id, "original-id")
+        self.assertEqual(original_state.root_tool_call_id, self.tool_call_id)
