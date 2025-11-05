@@ -413,16 +413,16 @@ jobs:
             # ── Artifacts on failure / always ─────────────────────────────────────
             - name: Show celery logs
               if: always()
-              run: cat /tmp/celery.log
+              run: cat /tmp/celery.log || echo "No celery log found"
             - name: Show server logs
               if: always()
-              run: cat /tmp/server.log
+              run: cat /tmp/server.log || echo "No server log found"
 
-            - name: Show server logs
+            - name: Show proxy logs
               if: always()
               run: |
                   docker ps
-                  docker logs posthog-proxy-1
+                  docker logs posthog-proxy-1 2>/dev/null || echo "No proxy container found"
 
             - name: Archive Playwright report on failure
               if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
