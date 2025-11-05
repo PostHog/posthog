@@ -23222,6 +23222,17 @@
                 "returningEntity": {
                     "$ref": "#/definitions/RetentionEntity"
                 },
+                "selectedInterval": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The selected interval to display across all cohorts (null = show all intervals for each cohort)"
+                },
                 "showTrendLines": {
                     "type": "boolean"
                 },

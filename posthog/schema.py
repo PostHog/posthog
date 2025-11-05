@@ -11260,6 +11260,10 @@ class RetentionFilter(BaseModel):
     )
     retentionType: Optional[RetentionType] = None
     returningEntity: Optional[RetentionEntity] = None
+    selectedInterval: Optional[int] = Field(
+        default=None,
+        description="The selected interval to display across all cohorts (null = show all intervals for each cohort)",
+    )
     showTrendLines: Optional[bool] = None
     targetEntity: Optional[RetentionEntity] = None
     timeWindowMode: Optional[TimeWindowMode] = Field(
