@@ -76,7 +76,7 @@ class BackfillWeekPartitions(NonAtomicTestMigrations):
         ExternalDataSchema: ExternalDataSchemaModel = apps.get_model("data_warehouse", "ExternalDataSchema")
         DataWarehouseTable: DataWarehouseTableModel = apps.get_model("data_warehouse", "DataWarehouseTable")
 
-        self.organization = Organization.objects.create(name="o1")
+        self.organization = Organization.objects.create(name="o1", default_anonymize_ips=False)
         self.project = Project.objects.create(organization=self.organization, name="p1", id=1000001)
         self.team = Team.objects.create(organization=self.organization, name="t1", project=self.project)
 
