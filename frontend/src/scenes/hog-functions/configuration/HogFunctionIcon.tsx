@@ -151,7 +151,7 @@ export function HogFunctionIcon({
                     'w-10 h-10 text-4xl': size === 'medium',
                     'w-12 h-12 text-6xl': size === 'large',
                 },
-                className
+                className ?? 'rounded overflow-hidden'
             )}
         >
             {!inView && !loaded ? (
@@ -159,10 +159,7 @@ export function HogFunctionIcon({
             ) : src ? (
                 <>
                     <img
-                        className={clsx(
-                            'overflow-hidden w-full h-full rounded transition-opacity',
-                            loaded ? 'opacity-100' : 'opacity-0'
-                        )}
+                        className={clsx('w-full h-full transition-opacity', loaded ? 'opacity-100' : 'opacity-0')}
                         src={src}
                         onLoad={() => setLoaded(true)}
                     />

@@ -41,6 +41,10 @@ class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabas
             name=SchemaExternalDataSourceType.MY_SQL,
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
             iconPath="/static/services/mysql.png",
+            # if p-[2px] is ever removed from the frontend css, it will break this.
+            # tailwind doesnt search py files to compile its styles and this only works
+            # right now because a p-[2px] happens to be in the frontend somewhere
+            iconClassName="dark:bg-white rounded p-[2px]",
             docsUrl="https://posthog.com/docs/cdp/sources/mysql",
             fields=cast(
                 list[FieldType],

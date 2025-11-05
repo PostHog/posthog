@@ -24,6 +24,7 @@ class PolarSource(BaseSource[PolarSourceConfig]):
             name=SchemaExternalDataSourceType.POLAR,
             label="Polar",
             iconPath="/static/services/polar.png",
+            iconClassName="dark:bg-white rounded p-[2px]",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

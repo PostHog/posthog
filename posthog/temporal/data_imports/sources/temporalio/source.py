@@ -57,6 +57,7 @@ class TemporalIOSource(BaseSource[TemporalIOSourceConfig]):
             name=SchemaExternalDataSourceType.TEMPORAL_IO,
             label="Temporal.io",
             iconPath="/static/services/temporal.png",
+            iconClassName="dark:bg-white rounded p-[2px]",
             docsUrl="https://posthog.com/docs/cdp/sources/temporal",
             fields=cast(
                 list[FieldType],
