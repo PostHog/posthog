@@ -1,7 +1,7 @@
 from enum import StrEnum
 from typing import Literal, NotRequired, TypedDict
 
-from posthog.warehouse.types import IncrementalFieldType
+from products.data_warehouse.backend.types import IncrementalFieldType
 
 FLOAT_FIELDS = {"costInUsd"}
 

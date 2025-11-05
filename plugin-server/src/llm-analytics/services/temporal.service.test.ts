@@ -16,7 +16,8 @@ describe('TemporalService', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        hub.TEMPORAL_HOST = 'localhost:7233'
+        hub.TEMPORAL_HOST = 'localhost'
+        hub.TEMPORAL_PORT = '7233'
         hub.TEMPORAL_NAMESPACE = 'test-namespace'
 
         mockWorkflowHandle = {
@@ -46,7 +47,7 @@ describe('TemporalService', () => {
 
     describe('connection management', () => {
         it('creates client with correct config', async () => {
-            await service.startEvaluationRunWorkflow('test', 'test')
+            await service.startEvaluationRunWorkflow('test', 'test', '2024-01-01T00:00:00Z')
 
             expect(Connection.connect).toHaveBeenCalledWith({
                 address: 'localhost:7233',
@@ -60,7 +61,7 @@ describe('TemporalService', () => {
             hub.TEMPORAL_CLIENT_KEY = 'client-key'
 
             const newService = new TemporalService(hub)
-            await newService.startEvaluationRunWorkflow('test', 'test')
+            await newService.startEvaluationRunWorkflow('test', 'test', '2024-01-01T00:00:00Z')
 
             expect(Connection.connect).toHaveBeenCalledWith({
                 address: 'localhost:7233',
@@ -75,7 +76,7 @@ describe('TemporalService', () => {
         })
 
         it('disconnects client properly', async () => {
-            await service.startEvaluationRunWorkflow('test', 'test')
+            await service.startEvaluationRunWorkflow('test', 'test', '2024-01-01T00:00:00Z')
             await service.disconnect()
 
             expect(mockConnection.close).toHaveBeenCalled()
@@ -84,7 +85,7 @@ describe('TemporalService', () => {
 
     describe('workflow triggering', () => {
         it('starts evaluation run workflow with correct parameters', async () => {
-            await service.startEvaluationRunWorkflow('eval-123', 'event-456')
+            await service.startEvaluationRunWorkflow('eval-123', 'event-456', '2024-01-01T00:00:00Z')
 
             expect(mockClient.workflow.start).toHaveBeenCalledWith('run-evaluation', {
                 taskQueue: 'general-purpose-task-queue',
@@ -94,14 +95,15 @@ describe('TemporalService', () => {
                     {
                         evaluation_id: 'eval-123',
                         target_event_id: 'event-456',
+                        timestamp: '2024-01-01T00:00:00Z',
                     },
                 ],
             })
         })
 
         it('generates deterministic workflow IDs', async () => {
-            await service.startEvaluationRunWorkflow('eval-123', 'event-456')
-            await service.startEvaluationRunWorkflow('eval-123', 'event-456')
+            await service.startEvaluationRunWorkflow('eval-123', 'event-456', '2024-01-01T00:00:00Z')
+            await service.startEvaluationRunWorkflow('eval-123', 'event-456', '2024-01-01T00:00:00Z')
 
             const calls = (mockClient.workflow.start as jest.Mock).mock.calls
             const workflowId1 = calls[0][1].workflowId
@@ -112,8 +114,8 @@ describe('TemporalService', () => {
         })
 
         it('generates different workflow IDs for different events', async () => {
-            await service.startEvaluationRunWorkflow('eval-123', 'event-1')
-            await service.startEvaluationRunWorkflow('eval-123', 'event-2')
+            await service.startEvaluationRunWorkflow('eval-123', 'event-1', '2024-01-01T00:00:00Z')
+            await service.startEvaluationRunWorkflow('eval-123', 'event-2', '2024-01-01T00:00:00Z')
 
             const calls = (mockClient.workflow.start as jest.Mock).mock.calls
             const workflowId1 = calls[0][1].workflowId
@@ -125,7 +127,7 @@ describe('TemporalService', () => {
         })
 
         it('returns workflow handle on success', async () => {
-            const handle = await service.startEvaluationRunWorkflow('eval-123', 'event-456')
+            const handle = await service.startEvaluationRunWorkflow('eval-123', 'event-456', '2024-01-01T00:00:00Z')
 
             expect(handle).toBeDefined()
             expect(handle).toBe(mockWorkflowHandle)
@@ -134,9 +136,9 @@ describe('TemporalService', () => {
         it('throws on workflow start failure', async () => {
             ;(mockClient.workflow.start as jest.Mock).mockRejectedValue(new Error('Temporal unavailable'))
 
-            await expect(service.startEvaluationRunWorkflow('eval-123', 'event-456')).rejects.toThrow(
-                'Temporal unavailable'
-            )
+            await expect(
+                service.startEvaluationRunWorkflow('eval-123', 'event-456', '2024-01-01T00:00:00Z')
+            ).rejects.toThrow('Temporal unavailable')
         })
     })
 })

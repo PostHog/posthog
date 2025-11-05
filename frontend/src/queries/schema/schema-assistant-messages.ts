@@ -277,6 +277,7 @@ export type AssistantTool =
     | 'edit_current_insight'
     | 'filter_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
+    | 'experiment_results_summary'
     | 'create_survey'
     | 'analyze_survey_responses'
     | 'session_summarization'
@@ -287,6 +288,7 @@ export type AssistantTool =
     | 'read_data'
     | 'todo_write'
     | 'filter_revenue_analytics'
+    | 'create_feature_flag'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

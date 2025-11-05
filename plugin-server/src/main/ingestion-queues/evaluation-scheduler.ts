@@ -42,13 +42,23 @@ const evaluationSchedulerEventsFiltered = new Counter({
     labelNames: ['passed'],
 })
 
+const evaluationSchedulerHeaderValues = new Counter({
+    name: 'evaluation_scheduler_header_values',
+    help: 'Count of different productTrack header values seen',
+    labelNames: ['header_value'],
+})
+
 // Pure functions for testability
 
 export function filterAndParseMessages(messages: Message[]): RawKafkaEvent[] {
     return messages
         .filter((message) => {
             const headers = message.headers as { productTrack?: Buffer }[] | undefined
-            return headers?.find((h) => h.productTrack)?.productTrack?.toString('utf8') === 'llma'
+            const productTrack = headers?.find((h) => h.productTrack)?.productTrack?.toString('utf8')
+
+            evaluationSchedulerHeaderValues.labels({ header_value: productTrack || 'missing' }).inc()
+
+            return productTrack === 'llma'
         })
         .map((message) => {
             try {
@@ -59,6 +69,7 @@ export function filterAndParseMessages(messages: Message[]): RawKafkaEvent[] {
             }
         })
         .filter((event): event is RawKafkaEvent => event !== null)
+        .filter((event) => event.event === '$ai_generation')
 }
 
 export function groupEventsByTeam(events: RawKafkaEvent[]): Map<number, RawKafkaEvent[]> {
@@ -203,7 +214,7 @@ async function eachBatchEvaluationScheduler(
     evaluationSchedulerEventsFiltered.labels({ passed: 'false' }).inc(messages.length - aiGenerationEvents.length)
     evaluationSchedulerEventsFiltered.labels({ passed: 'true' }).inc(aiGenerationEvents.length)
 
-    logger.info('Filtered batch', {
+    logger.debug('Filtered batch', {
         totalMessages: messages.length,
         aiEventsFound: aiGenerationEvents.length,
         filteredOut: messages.length - aiGenerationEvents.length,
@@ -249,7 +260,7 @@ async function eachBatchEvaluationScheduler(
 
     await Promise.allSettled(tasks)
 
-    logger.info('Batch processing complete', {
+    logger.debug('Batch processing complete', {
         teamsProcessed: eventsByTeam.size,
         totalEvaluationChecks: tasks.length,
     })
@@ -278,6 +289,6 @@ async function processEventEvaluationMatch(
 
     evaluationMatchesCounter.labels({ outcome: 'matched' }).inc()
 
-    await temporalService.startEvaluationRunWorkflow(evaluationDefinition.id, event.uuid)
+    await temporalService.startEvaluationRunWorkflow(evaluationDefinition.id, event.uuid, event.timestamp)
     evaluationSchedulerEventsProcessed.labels({ status: 'success' }).inc()
 }

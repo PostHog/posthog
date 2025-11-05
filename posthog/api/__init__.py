@@ -8,7 +8,16 @@ from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.api.wizard import http as wizard
 from posthog.batch_exports import http as batch_exports
 from posthog.settings import EE_AVAILABLE
-from posthog.warehouse.api import (
+
+import products.logs.backend.api as logs
+import products.links.backend.api as link
+import products.tasks.backend.api as tasks
+import products.endpoints.backend.api as endpoints
+import products.live_debugger.backend.api as live_debugger
+import products.revenue_analytics.backend.api as revenue_analytics
+import products.early_access_features.backend.api as early_access_feature
+import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.data_warehouse.backend.api import (
     data_modeling_job,
     data_warehouse,
     external_data_schema,
@@ -21,15 +30,8 @@ from posthog.warehouse.api import (
     table,
     view_link,
 )
-from posthog.warehouse.api.lineage import LineageViewSet
-
-import products.logs.backend.api as logs
-import products.links.backend.api as link
-import products.tasks.backend.api as tasks
-import products.endpoints.backend.api as endpoints
-import products.revenue_analytics.backend.api as revenue_analytics
-import products.early_access_features.backend.api as early_access_feature
-import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.data_warehouse.backend.api.lineage import LineageViewSet
+from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
@@ -55,7 +57,7 @@ from products.workflows.backend.api import MessageCategoryViewSet, MessagePrefer
 
 from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
 
-from ..heatmaps.heatmaps_api import HeatmapViewSet, LegacyHeatmapViewSet
+from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
 from ..session_recordings.session_recording_playlist_api import SessionRecordingPlaylistViewSet
 from ..taxonomy import property_definition_api
@@ -66,6 +68,7 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
+    cli_auth,
     comments,
     dead_letter_queue,
     debug_ch_queries,
@@ -519,6 +522,7 @@ router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
+router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
@@ -569,6 +573,10 @@ register_grandfathered_environment_nested_viewset(
 )
 
 register_grandfathered_environment_nested_viewset(r"heatmaps", HeatmapViewSet, "environment_heatmaps", ["team_id"])
+register_grandfathered_environment_nested_viewset(
+    r"heatmap_screenshots", HeatmapScreenshotViewSet, "environment_heatmap_screenshots", ["team_id"]
+)
+register_grandfathered_environment_nested_viewset(r"saved", SavedHeatmapViewSet, "environment_saved", ["team_id"])
 register_grandfathered_environment_nested_viewset(r"sessions", SessionViewSet, "environment_sessions", ["team_id"])
 
 if EE_AVAILABLE:
@@ -754,6 +762,13 @@ environments_router.register(
 )
 
 projects_router.register(
+    r"live_debugger_breakpoints",
+    live_debugger.LiveDebuggerBreakpointViewSet,
+    "project_live_debugger_breakpoints",
+    ["project_id"],
+)
+
+projects_router.register(
     r"comments",
     comments.CommentViewSet,
     "project_comments",
@@ -874,6 +889,13 @@ environments_router.register(
     r"user_interviews",
     UserInterviewViewSet,
     "environment_user_interviews",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"desktop_recordings",
+    DesktopRecordingViewSet,
+    "environment_desktop_recordings",
     ["team_id"],
 )
 

@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, TypeAlias
 from uuid import UUID
@@ -6,57 +5,50 @@ from uuid import UUID
 from pydantic import BaseModel, RootModel
 
 
-@dataclass
-class CommonInput:
+class CommonInput(BaseModel):
     redis_ttl: int = 3600 * 24 * 3  # 3 days
     redis_host: str | None = None
     redis_port: int | None = None
-    batch_size: int = 1000
+    batch_size: int = 2500
     django_redis_url: str | None = None
 
 
-@dataclass
-class Digest:
+class Digest(BaseModel):
     key: str
     period_start: datetime
     period_end: datetime
 
 
-@dataclass
-class WeeklyDigestInput:
-    dry_run: bool
-    common: CommonInput = field(default_factory=CommonInput)
+class WeeklyDigestInput(BaseModel):
+    dry_run: bool = False
+    skip_generate: bool = False
+    common: CommonInput = CommonInput()
 
 
-@dataclass
-class GenerateDigestDataInput:
+class GenerateDigestDataInput(BaseModel):
     digest: Digest
     common: CommonInput
 
 
-@dataclass
-class GenerateDigestDataBatchInput:
+class GenerateDigestDataBatchInput(BaseModel):
     batch: tuple[int, int]
     digest: Digest
     common: CommonInput
 
 
-@dataclass
-class GenerateOrganizationDigestInput:
+class GenerateOrganizationDigestInput(BaseModel):
     batch: tuple[int, int]
     digest: Digest
     common: CommonInput
 
 
-@dataclass
-class SendWeeklyDigestInput:
+class SendWeeklyDigestInput(BaseModel):
     dry_run: bool
     digest: Digest
     common: CommonInput
 
 
-@dataclass
-class SendWeeklyDigestBatchInput:
+class SendWeeklyDigestBatchInput(BaseModel):
     batch: tuple[int, int]
     dry_run: bool
     digest: Digest
@@ -92,11 +84,19 @@ class DigestFeatureFlag(BaseModel):
 
 
 class DigestFilter(BaseModel):
-    name: str
+    name: Optional[str]
     short_id: str
     view_count: int
     recording_count: int = 0
     more_available: bool = False
+
+    def render_payload(self) -> dict[str, str | int | bool | None]:
+        return {
+            "name": self.name or "Untitled",
+            "count": self.recording_count,
+            "has_more_available": self.more_available,
+            "url_path": f"/replay/home/?filterId={self.short_id}",
+        }
 
 
 class DigestRecording(BaseModel):
@@ -192,6 +192,21 @@ class TeamDigest(BaseModel):
             == 0
         )
 
+    def render_payload(self) -> dict[str, str | dict[str, list]]:
+        return {
+            "team_name": self.name,
+            "report": {
+                "new_dashboards": self.dashboards.model_dump(),
+                "new_event_definitions": self.event_definitions.model_dump(),
+                "new_external_data_sources": self.external_data_sources.model_dump(),
+                "new_experiments_launched": self.experiments_launched.model_dump(),
+                "new_experiments_completed": self.experiments_completed.model_dump(),
+                "interesting_saved_filters": [f.render_payload() for f in self.filters.root],
+                "new_surveys_launched": self.surveys_launched.model_dump(),
+                "new_feature_flags": self.feature_flags.model_dump(),
+            },
+        }
+
 
 class OrganizationDigest(BaseModel):
     id: UUID
@@ -212,6 +227,14 @@ class OrganizationDigest(BaseModel):
 
     def is_empty(self) -> bool:
         return all(digest.is_empty() for digest in self.team_digests)
+
+    def render_payload(self) -> dict[str, str | list]:
+        return {
+            "organization_name": self.name,
+            "teams": [td.render_payload() for td in self.team_digests],
+            "scope": "user",
+            "template_name": "periodic_digest_report",
+        }
 
 
 class PlaylistCount(BaseModel):

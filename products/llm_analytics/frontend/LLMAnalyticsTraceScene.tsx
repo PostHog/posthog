@@ -84,21 +84,6 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
     )
 }
 
-function getSessionFilterUrl(sessionId: string): string {
-    const filter = [
-        {
-            key: '$ai_session_id',
-            value: [sessionId],
-            operator: 'exact',
-            type: 'event',
-        },
-    ]
-    // Build URL with filters as query params
-    const params = new URLSearchParams()
-    params.set('filters', JSON.stringify(filter))
-    return `${urls.llmAnalyticsTraces()}?${params.toString()}`
-}
-
 function TraceSceneWrapper(): JSX.Element {
     const { eventId } = useValues(llmAnalyticsTraceLogic)
     const {
@@ -188,6 +173,26 @@ function TraceMetadata({
     metricEvents: LLMTraceEvent[]
     feedbackEvents: LLMTraceEvent[]
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const getSessionUrl = (sessionId: string): string => {
+        if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
+            return urls.llmAnalyticsSession(sessionId)
+        }
+        // Fallback to filtering traces by session when feature flag is off
+        const filter = [
+            {
+                key: '$ai_session_id',
+                value: [sessionId],
+                operator: 'exact',
+                type: 'event',
+            },
+        ]
+        const params = new URLSearchParams()
+        params.set('filters', JSON.stringify(filter))
+        return `${urls.llmAnalyticsTraces()}?${params.toString()}`
+    }
+
     return (
         <header className="flex gap-1.5 flex-wrap">
             {'person' in trace && (
@@ -196,8 +201,14 @@ function TraceMetadata({
                 </Chip>
             )}
             {trace.aiSessionId && (
-                <Chip title="AI Session ID - Click to filter traces by this session">
-                    <Link to={getSessionFilterUrl(trace.aiSessionId)} subtle>
+                <Chip
+                    title={
+                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]
+                            ? 'AI Session ID - Click to view session details'
+                            : 'AI Session ID - Click to filter traces by this session'
+                    }
+                >
+                    <Link to={getSessionUrl(trace.aiSessionId)} subtle>
                         <span className="font-mono">{trace.aiSessionId.slice(0, 8)}...</span>
                     </Link>
                 </Chip>
@@ -781,7 +792,12 @@ const EventContent = React.memo(
                                           {
                                               key: TraceViewMode.Evals,
                                               label: 'Evaluations',
-                                              content: <EvalsTabContent generationEventId={event.id} />,
+                                              content: (
+                                                  <EvalsTabContent
+                                                      generationEventId={event.id}
+                                                      timestamp={event.createdAt}
+                                                  />
+                                              ),
                                           },
                                       ]
                                     : []),
