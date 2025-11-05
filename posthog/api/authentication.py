@@ -49,6 +49,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.models import OrganizationDomain, User
+from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, UserPasswordResetThrottle
 from posthog.tasks.email import (
     login_from_new_device_notification,
@@ -262,6 +263,10 @@ class LoginSerializer(serializers.Serializer):
 
         if not self._check_if_2fa_required(user):
             set_two_factor_verified_in_session(request)
+
+        # This is auto-handled for social auth providers, but we need to handle it manually for user/pass logins
+        request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
+        request.session.save()
 
         # Trigger login notification (password, no-2FA) and skip re-auth
         if not was_authenticated_before_login_attempt:
