@@ -7,7 +7,6 @@ import React from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { gradateColor } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
