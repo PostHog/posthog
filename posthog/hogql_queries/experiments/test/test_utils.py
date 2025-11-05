@@ -116,8 +116,11 @@ class TestGetVariantResult:
         metric = self.create_funnel_metric()
         # With step_sessions data
         sessions_data = [
-            [("user1", "session1", "uuid1"), ("user2", "session2", "uuid2")],  # Step 0 sessions
-            [("user1", "session1", "uuid3")],  # Step 1 sessions
+            [
+                ("user1", "session1", "uuid1", "2024-01-01T00:00:00Z"),
+                ("user2", "session2", "uuid2", "2024-01-01T00:00:01Z"),
+            ],  # Step 0 sessions
+            [("user1", "session1", "uuid3", "2024-01-01T00:00:02Z")],  # Step 1 sessions
         ]
         result = ("control", 100, 80.0, 80.0, [100, 80], sessions_data)
 
@@ -306,8 +309,8 @@ class TestGetVariantResult:
             breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
         )
         sessions_data = [
-            [("user1", "session1", "uuid1")],
-            [("user1", "session1", "uuid2")],
+            [("user1", "session1", "uuid1", "2024-01-01T00:00:00Z")],
+            [("user1", "session1", "uuid2", "2024-01-01T00:00:01Z")],
         ]
         # Result: variant, breakdown, samples, sum, sum_squares, step_counts, step_sessions
         result = ("test", "Chrome", 100, 80.0, 80.0, [100, 80], sessions_data)
@@ -338,8 +341,11 @@ class TestGetVariantResult:
             ),
         )
         sessions_data = [
-            [("user1", "session1", "uuid1"), ("user2", "session2", "uuid2")],
-            [("user1", "session1", "uuid3")],
+            [
+                ("user1", "session1", "uuid1", "2024-01-01T00:00:00Z"),
+                ("user2", "session2", "uuid2", "2024-01-01T00:00:01Z"),
+            ],
+            [("user1", "session1", "uuid3", "2024-01-01T00:00:02Z")],
         ]
         # Result: variant, os, browser, samples, sum, sum_squares, step_counts, step_sessions
         result = ("control", "MacOS", "Chrome", 100, 80.0, 80.0, [100, 80], sessions_data)
@@ -638,8 +644,16 @@ class TestAggregateVariantsAcrossBreakdowns:
                     sum_squares=80.0,
                     step_counts=[100, 80],
                     step_sessions=[
-                        [SessionData(person_id="user1", session_id="s1", event_uuid="e1")],
-                        [SessionData(person_id="user1", session_id="s1", event_uuid="e2")],
+                        [
+                            SessionData(
+                                person_id="user1", session_id="s1", event_uuid="e1", timestamp="2024-01-01T00:00:00Z"
+                            )
+                        ],
+                        [
+                            SessionData(
+                                person_id="user1", session_id="s1", event_uuid="e2", timestamp="2024-01-01T00:00:01Z"
+                            )
+                        ],
                     ],
                 ),
             ),
@@ -652,8 +666,16 @@ class TestAggregateVariantsAcrossBreakdowns:
                     sum_squares=60.0,
                     step_counts=[80, 60],
                     step_sessions=[
-                        [SessionData(person_id="user2", session_id="s2", event_uuid="e3")],
-                        [SessionData(person_id="user2", session_id="s2", event_uuid="e4")],
+                        [
+                            SessionData(
+                                person_id="user2", session_id="s2", event_uuid="e3", timestamp="2024-01-01T00:00:02Z"
+                            )
+                        ],
+                        [
+                            SessionData(
+                                person_id="user2", session_id="s2", event_uuid="e4", timestamp="2024-01-01T00:00:03Z"
+                            )
+                        ],
                     ],
                 ),
             ),
