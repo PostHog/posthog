@@ -27,12 +27,12 @@ async def summarize_trace(
     """
     # Load prompt templates with mode variable
     system_prompt = load_summarization_template(
-        "prompts/trace/system-prompt-base.djt",
+        "prompts/trace/system.djt",
         {"mode": mode},
     )
 
     user_prompt = load_summarization_template(
-        "prompts/trace/user-prompt.djt",
+        "prompts/trace/user.djt",
         {
             "trace_name": trace.get("properties", {}).get("$ai_span_name", "Trace"),
             "text_repr": text_repr,

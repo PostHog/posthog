@@ -28,12 +28,12 @@ async def summarize_event(event: dict[str, Any], text_repr: str, mode: str = "mi
 
     # Load prompt templates with mode variable
     system_prompt = load_summarization_template(
-        "prompts/event/system-prompt-base.djt",
+        "prompts/event/system.djt",
         {"mode": mode},
     )
 
     user_prompt = load_summarization_template(
-        "prompts/event/user-prompt.djt",
+        "prompts/event/user.djt",
         {
             "event_type": event_type,
             "event_name": event_name,
