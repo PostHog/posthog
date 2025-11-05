@@ -630,8 +630,10 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-
         oauth_config = self.oauth_config_for_kind(self.integration.kind)
+
+        # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
+        self.integration.errors = ""
 
         # Reddit uses HTTP Basic Auth for token refresh
         if self.integration.kind == "reddit-ads":
@@ -687,6 +689,7 @@ class OauthIntegration:
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+
         self.integration.save()
 
 
@@ -1416,6 +1419,7 @@ class GitHubIntegration:
             self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
             self.integration.sensitive_config["access_token"] = config["token"]
+            self.integration.errors = ""
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
             self.integration.save()

@@ -24,7 +24,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KE
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 
 if TYPE_CHECKING:
-    from posthog.warehouse.models import ExternalDataSchema
+    from products.data_warehouse.backend.models import ExternalDataSchema
 
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),
@@ -169,7 +169,7 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
 
         # Change pa.structs to JSON string
         if pa.types.is_struct(column.type) or pa.types.is_list(column.type):
-            json_column = pa.array([json.dumps(row.as_py()) if row.as_py() is not None else None for row in column])
+            json_column = pa.array([_json_dumps(row.as_py()) if row.as_py() is not None else None for row in column])
             table = table.set_column(table.schema.get_field_index(column_name), column_name, json_column)
             column = table.column(column_name)
         # Change pa.duration to int with total seconds
@@ -380,12 +380,14 @@ def append_partition_key_to_table(
         is_partition_key_int = pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
         are_incrementing_ints = False
         if is_partition_key_int:
-            min_max: dict[str, int] = cast(
-                dict[str, int], pc.min_max(table.column(normalized_partition_keys[0])).as_py()
-            )
-            min_int_val, max_int_val = min_max["min"], min_max["max"]
-            range_size = max_int_val - min_int_val + 1
-            are_incrementing_ints = table.num_rows / range_size >= 0.2
+            partition_column = table.column(normalized_partition_keys[0])
+            # check if the column has any non-null values before calculating min max
+            if partition_column.null_count < table.num_rows:
+                bounds: dict[str, int | None] = cast(dict[str, int | None], pc.min_max(partition_column).as_py())
+                _min, _max = bounds["min"], bounds["max"]
+                if _min is not None and _max is not None:
+                    range_size = _max - _min + 1
+                    are_incrementing_ints = table.num_rows / range_size >= 0.2
 
         if (
             partition_size is not None

@@ -88,8 +88,9 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         updateStage,
         deleteEarlyAccessFeature,
         toggleImplementOptInInstructionsModal,
-        setEarlyAccessFeatureValue,
         showGAPromotionConfirmation,
+        saveEarlyAccessFeature,
+        setEarlyAccessFeatureValue,
     } = useActions(earlyAccessFeatureLogic)
     const { currentTeamId } = useValues(teamLogic)
 
@@ -149,11 +150,20 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         type: 'early_access_feature',
                     }}
                     canEdit
-                    onNameChange={(value) => {
-                        setEarlyAccessFeatureValue('name', value)
+                    renameDebounceMs={isNewEarlyAccessFeature ? undefined : 1000}
+                    onNameChange={(name) => {
+                        if (isNewEarlyAccessFeature) {
+                            setEarlyAccessFeatureValue('name', name)
+                        } else {
+                            saveEarlyAccessFeature({ ...earlyAccessFeature, name })
+                        }
                     }}
-                    onDescriptionChange={(value) => {
-                        setEarlyAccessFeatureValue('description', value)
+                    onDescriptionChange={(description) => {
+                        if (isNewEarlyAccessFeature) {
+                            setEarlyAccessFeatureValue('description', description)
+                        } else {
+                            saveEarlyAccessFeature({ ...earlyAccessFeature, description })
+                        }
                     }}
                     forceEdit={isEditingFeature || isNewEarlyAccessFeature}
                     actions={
@@ -269,7 +279,22 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     <ScenePanelInfoSection>
                         <SceneSelect
                             onSave={(value) => {
-                                setEarlyAccessFeatureValue('stage', value)
+                                // Check if user is promoting to General Availability
+                                const isPromotingToGA = value === EarlyAccessFeatureStage.GeneralAvailability
+
+                                if (isPromotingToGA) {
+                                    showGAPromotionConfirmation(() =>
+                                        saveEarlyAccessFeature({
+                                            ...earlyAccessFeature,
+                                            stage: value as EarlyAccessFeatureStage,
+                                        })
+                                    )
+                                } else {
+                                    saveEarlyAccessFeature({
+                                        ...earlyAccessFeature,
+                                        stage: value as EarlyAccessFeatureStage,
+                                    })
+                                }
                             }}
                             value={earlyAccessFeature.stage}
                             name="stage"

@@ -8,6 +8,7 @@ use crate::flags::flag_models::{
 };
 use common_database::PostgresReader;
 use common_redis::Client as RedisClient;
+use common_types::ProjectId;
 
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
@@ -17,7 +18,7 @@ impl FeatureFlagList {
     /// Returns feature flags from redis given a project_id
     pub async fn from_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
-        project_id: i64,
+        project_id: ProjectId,
     ) -> Result<FeatureFlagList, FlagError> {
         tracing::debug!(
             "Attempting to read flags from Redis at key '{}{}'",
@@ -52,7 +53,7 @@ impl FeatureFlagList {
     /// Returns feature flags from postgres given a project_id
     pub async fn from_pg(
         client: PostgresReader,
-        project_id: i64,
+        project_id: ProjectId,
     ) -> Result<(FeatureFlagList, bool), FlagError> {
         let mut conn = get_connection_with_metrics(&client, "non_persons_reader", "fetch_flags")
             .await
@@ -155,8 +156,9 @@ impl FeatureFlagList {
 
     pub async fn update_flags_in_redis(
         client: Arc<dyn RedisClient + Send + Sync>,
-        project_id: i64,
+        project_id: ProjectId,
         flags: &FeatureFlagList,
+        ttl_seconds: Option<u64>,
     ) -> Result<(), FlagError> {
         let payload = serde_json::to_string(&flags.flags).map_err(|e| {
             tracing::error!(
@@ -168,24 +170,41 @@ impl FeatureFlagList {
             FlagError::RedisDataParsingError
         })?;
 
-        tracing::info!(
-            "Writing flags to Redis at key '{}{}': {} flags",
-            TEAM_FLAGS_CACHE_PREFIX,
-            project_id,
-            flags.flags.len()
-        );
+        let cache_key = format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}");
 
-        client
-            .set(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"), payload)
-            .await
-            .map_err(|e| {
-                tracing::error!(
-                    "Failed to update Redis cache for project {}: {}",
-                    project_id,
-                    e
+        match ttl_seconds {
+            Some(ttl) => {
+                tracing::info!(
+                    "Writing flags to Redis at key '{}' with TTL {} seconds: {} flags",
+                    cache_key,
+                    ttl,
+                    flags.flags.len()
                 );
-                FlagError::CacheUpdateError
-            })?;
+                client.setex(cache_key, payload, ttl).await.map_err(|e| {
+                    tracing::error!(
+                        "Failed to update Redis cache with TTL for project {}: {}",
+                        project_id,
+                        e
+                    );
+                    FlagError::CacheUpdateError
+                })?;
+            }
+            None => {
+                tracing::info!(
+                    "Writing flags to Redis at key '{}' without TTL: {} flags",
+                    cache_key,
+                    flags.flags.len()
+                );
+                client.set(cache_key, payload).await.map_err(|e| {
+                    tracing::error!(
+                        "Failed to update Redis cache for project {}: {}",
+                        project_id,
+                        e
+                    );
+                    FlagError::CacheUpdateError
+                })?;
+            }
+        }
 
         Ok(())
     }
@@ -208,11 +227,11 @@ mod tests {
             .await
             .expect("Failed to insert team");
 
-        insert_flags_for_team_in_redis(redis_client.clone(), team.id, team.project_id, None)
+        insert_flags_for_team_in_redis(redis_client.clone(), team.id, team.project_id(), None)
             .await
             .expect("Failed to insert flags");
 
-        let flags_from_redis = FeatureFlagList::from_redis(redis_client.clone(), team.project_id)
+        let flags_from_redis = FeatureFlagList::from_redis(redis_client.clone(), team.project_id())
             .await
             .expect("Failed to fetch flags from redis");
         assert_eq!(flags_from_redis.flags.len(), 1);
@@ -259,7 +278,7 @@ mod tests {
             .expect("Failed to insert flag");
 
         let (flags_from_pg, _) =
-            FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id)
+            FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from pg");
 
@@ -357,7 +376,7 @@ mod tests {
             .expect("Failed to insert flags");
 
         let (flags_from_pg, _) =
-            FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id)
+            FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from pg");
 
@@ -391,7 +410,7 @@ mod tests {
             .expect("Failed to insert evaluation tags");
 
         let (flags_from_pg, _) =
-            FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id)
+            FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.project_id())
                 .await
                 .expect("Failed to fetch flags from pg");
 

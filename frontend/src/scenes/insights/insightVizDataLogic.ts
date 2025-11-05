@@ -115,6 +115,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
         toggleFormulaMode: true,
+        removeFormulaNode: (formulas: TrendsFormulaNode[]) => ({ formulas }),
         setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
             detailedResultsAggregationType,
         }),
@@ -611,6 +612,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             // Only if formula mode is already open should we trigger a query.
             if (values.hasFormula) {
                 actions.updateInsightFilter({ formula: undefined, formulas: undefined, formulaNodes: [] })
+            }
+        },
+        removeFormulaNode: ({ formulas }) => {
+            if (formulas.length === 0) {
+                actions.toggleFormulaMode()
+                return
+            }
+
+            const filledFormulas = formulas.filter((v) => v.formula.trim() !== '')
+            if (filledFormulas.length > 0) {
+                actions.updateInsightFilter({
+                    formula: undefined,
+                    formulas: undefined,
+                    formulaNodes: filledFormulas,
+                })
             }
         },
     })),

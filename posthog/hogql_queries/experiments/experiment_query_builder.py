@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import cast
 
 from posthog.schema import (
@@ -116,6 +117,8 @@ class ExperimentQueryBuilder:
 
         num_steps = len(self.metric.series) + 1  #  +1 as we are including exposure criteria
 
+        exposure_predicate = self._build_exposure_predicate()
+
         query = parse_select(
             f"""
             WITH metric_events AS (
@@ -136,8 +139,10 @@ class ExperimentQueryBuilder:
                     {{variant_expr}} as variant,
                     argMinIf(uuid, timestamp, step_0 = 1) AS exposure_event_uuid,
                     argMinIf(session_id, timestamp, step_0 = 1) AS exposure_session_id,
+                    argMinIf(timestamp, timestamp, step_0 = 1) AS exposure_timestamp,
                     {{funnel_aggregation}} AS value,
-                    {{uuid_to_session_map}} AS uuid_to_session
+                    {{uuid_to_session_map}} AS uuid_to_session,
+                    {{uuid_to_timestamp_map}} AS uuid_to_timestamp
                 FROM metric_events
                 GROUP BY entity_id
             )
@@ -157,7 +162,7 @@ class ExperimentQueryBuilder:
             GROUP BY entity_metrics.variant
             """,
             placeholders={
-                "exposure_predicate": self._build_exposure_predicate(),
+                "exposure_predicate": deepcopy(exposure_predicate),
                 "variant_property": self._build_variant_property(),
                 "variant_expr": self._build_variant_expr_for_funnel(),
                 "entity_key": parse_expr(self.entity_key),
@@ -165,10 +170,13 @@ class ExperimentQueryBuilder:
                 "funnel_aggregation": self._build_funnel_aggregation_expr(),
                 "num_steps_minus_1": ast.Constant(value=num_steps - 1),
                 "uuid_to_session_map": self._build_uuid_to_session_map(),
+                "uuid_to_timestamp_map": self._build_uuid_to_timestamp_map(),
             },
         )
 
         assert isinstance(query, ast.SelectQuery)
+
+        include_exposure_condition = self.metric.funnel_order_type == StepOrderValue.UNORDERED
 
         # Inject step columns into the metric_events CTE
         # Find the metric_events CTE in the query
@@ -176,19 +184,21 @@ class ExperimentQueryBuilder:
             metric_events_cte = query.ctes["metric_events"]
             if isinstance(metric_events_cte, ast.CTE) and isinstance(metric_events_cte.expr, ast.SelectQuery):
                 # Add step columns to the SELECT
-                step_columns = self._build_funnel_step_columns()
+                step_columns = self._build_funnel_step_columns(
+                    deepcopy(exposure_predicate), include_exposure_condition=include_exposure_condition
+                )
                 metric_events_cte.expr.select.extend(step_columns)
 
                 # For unordered funnels, we need to filter out metric events that occur _before_ the exposure
                 # event. For ordered funnel metrics, the UDF does this for us.
                 # Here, we add the field we need, first_exposure_timestamp
-                if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+                if include_exposure_condition:
                     first_exposure_timestamp_expr = parse_expr(
-                        "minIf(timestamp, step_0 = 1) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
+                        "minIf(timestamp, exposure_condition) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
                     )
                     metric_events_cte.expr.select.extend([first_exposure_timestamp_expr])
 
-        if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+        if include_exposure_condition:
             # For unordered funnels, we need to filter out metric events that occur _before_ the exposure
             # event. For ordered funnel metrics, the UDF does this for us.
             # Here, we add the where condition to filter out those events
@@ -204,17 +214,17 @@ class ExperimentQueryBuilder:
             step_count_exprs.append(f"countIf(entity_metrics.value.1 >= {i})")
         step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
 
-        # For each step in the funnel, get at least 100 pairs of person_id, session_id and event uuid, that have
+        # For each step in the funnel, get at least 100 tuples of person_id, session_id, event uuid, and timestamp, that have
         # that step as their last step in the funnel.
-        # For the users that have 0 matching steps in the funnel (-1), we return the event uuid for the exposure event.
+        # For the users that have 0 matching steps in the funnel (-1), we return the event data for the exposure event.
         event_uuids_exprs = []
         for i in range(1, num_steps + 1):
             event_uuids_expr = f"""
                 groupArraySampleIf(100)(
                     if(
                         entity_metrics.value.2 != '',
-                        tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2),
-                        tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid))
+                        tuple(toString(entity_metrics.entity_id), uuid_to_session[entity_metrics.value.2], entity_metrics.value.2, toString(uuid_to_timestamp[entity_metrics.value.2])),
+                        tuple(toString(entity_metrics.entity_id), toString(entity_metrics.exposure_session_id), toString(entity_metrics.exposure_event_uuid), toString(entity_metrics.exposure_timestamp))
                     ),
                     entity_metrics.value.1 = {i} - 1
                 )
@@ -817,9 +827,9 @@ class ExperimentQueryBuilder:
                 SELECT
                     {entity_key} AS entity_id,
                     {variant_expr} AS variant,
-                    minIf(timestamp, {exposure_predicate}) AS first_exposure_time,
-                    argMinIf(uuid, timestamp, {exposure_predicate}) AS exposure_event_uuid,
-                    argMinIf(`$session_id`, timestamp, {exposure_predicate}) AS exposure_session_id
+                    min(timestamp) AS first_exposure_time,
+                    argMin(uuid, timestamp) AS exposure_event_uuid,
+                    argMin(`$session_id`, timestamp) AS exposure_session_id
                 FROM events
                 WHERE {exposure_predicate}
                 GROUP BY entity_id
@@ -840,36 +850,54 @@ class ExperimentQueryBuilder:
 
         if self.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
             return parse_expr(
-                "argMinIf({variant_property}, timestamp, {exposure_predicate})",
+                "argMin({variant_property}, timestamp)",
                 placeholders={
                     "variant_property": self._build_variant_property(),
-                    "exposure_predicate": self._build_exposure_predicate(),
                 },
             )
         else:
             return parse_expr(
-                "if(uniqExactIf({variant_property}, {exposure_predicate}) > 1, {multiple_key}, anyIf({variant_property}, {exposure_predicate}))",
+                "if(uniqExact({variant_property}) > 1, {multiple_key}, any({variant_property}))",
                 placeholders={
                     "variant_property": self._build_variant_property(),
-                    "exposure_predicate": self._build_exposure_predicate(),
                     "multiple_key": ast.Constant(value=MULTIPLE_VARIANT_KEY),
                 },
             )
 
-    def _build_funnel_step_columns(self) -> list[ast.Alias]:
+    def _build_funnel_step_columns(
+        self, exposure_condition: ast.Expr, include_exposure_condition: bool
+    ) -> list[ast.Alias]:
         """
-        Builds list of step column AST expressions: step_0, step_1, etc.
+        Builds list of step column AST expressions: step_0, exposure_condition, step_1, etc.
         """
         assert isinstance(self.metric, ExperimentFunnelMetric)
-        exposure_criteria = ast.Alias(alias="step_0", expr=self._build_exposure_predicate())
-        step_columns = [exposure_criteria]
+
+        step_columns: list[ast.Alias] = []
+
+        if include_exposure_condition:
+            step_columns.append(ast.Alias(alias="exposure_condition", expr=exposure_condition))
+            step_0_condition: ast.Expr = ast.Field(chain=["exposure_condition"])
+        else:
+            step_0_condition = deepcopy(exposure_condition)
+
+        step_columns.append(
+            ast.Alias(
+                alias="step_0",
+                expr=ast.Call(
+                    name="if",
+                    args=[step_0_condition, ast.Constant(value=1), ast.Constant(value=0)],
+                ),
+            ),
+        )
+
         for i, funnel_step in enumerate(self.metric.series):
             step_filter = event_or_action_to_filter(self.team, funnel_step)
-            step_column = ast.Alias(
-                alias=f"step_{i + 1}",
-                expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
+            step_columns.append(
+                ast.Alias(
+                    alias=f"step_{i + 1}",
+                    expr=ast.Call(name="if", args=[step_filter, ast.Constant(value=1), ast.Constant(value=0)]),
+                )
             )
-            step_columns.append(step_column)
 
         return step_columns
 
@@ -917,6 +945,14 @@ class ExperimentQueryBuilder:
         """
         return parse_expr(
             "mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), '')))"
+        )
+
+    def _build_uuid_to_timestamp_map(self) -> ast.Expr:
+        """
+        Creates a map from event UUID to timestamp for funnel metrics.
+        """
+        return parse_expr(
+            "mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0))))"
         )
 
 

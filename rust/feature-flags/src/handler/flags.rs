@@ -10,6 +10,7 @@ use crate::{
     },
 };
 use axum::extract::State;
+use common_types::ProjectId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -169,7 +170,7 @@ fn filter_flags_by_runtime(
 
 pub async fn fetch_and_filter(
     flag_service: &FlagService,
-    project_id: i64,
+    project_id: ProjectId,
     query_params: &FlagsQueryParams,
     headers: &axum::http::HeaderMap,
     explicit_runtime: Option<EvaluationRuntime>,
@@ -247,7 +248,7 @@ fn filter_flags_by_evaluation_tags(
 pub async fn evaluate_for_request(
     state: &State<router::State>,
     team_id: i32,
-    project_id: i64,
+    project_id: ProjectId,
     distinct_id: String,
     filtered_flags: FeatureFlagList,
     person_property_overrides: Option<HashMap<String, Value>>,

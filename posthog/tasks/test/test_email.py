@@ -743,7 +743,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             login_time=timezone.now(),
             short_user_agent="Chrome 135.0.0 on Mac OS 15.3",
             ip_address="24.114.32.12",  # random ip in Canada
-            backend_name="email_password",
+            backend_name="django.contrib.auth.backends.ModelBackend",
         )
 
         assert len(mocked_email_messages) == 1

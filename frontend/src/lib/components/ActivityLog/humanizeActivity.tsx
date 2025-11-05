@@ -132,6 +132,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
     [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
     [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },
+    [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API Key', plural: 'Personal API Keys' },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {
@@ -151,7 +152,7 @@ export function humanizeScope(scope: ActivityScope | string, singular = false): 
 }
 
 export function humanizeActivity(activity: string): string {
-    activity = activity.replace('_', ' ')
+    activity = activity.replace(/_/g, ' ')
 
     return activity.charAt(0).toUpperCase() + activity.slice(1)
 }

@@ -587,7 +587,9 @@ class DatabricksClient:
         """
         with self.connection.cursor() as cursor:
             try:
-                await asyncio.to_thread(cursor.columns, table_name=table_name)
+                await asyncio.to_thread(
+                    cursor.columns, catalog_name=self.catalog, schema_name=self.schema, table_name=table_name
+                )
                 results = await asyncio.to_thread(cursor.fetchall)
                 try:
                     column_names = [row.name for row in results]
@@ -911,9 +913,7 @@ class DatabricksConsumer(Consumer):
         self.client = client
         self.volume_path = volume_path
 
-        self.logger.bind(
-            volume=self.volume_path,
-        )
+        self.logger = self.logger.bind(volume=self.volume_path)
 
         self.current_file_index = 0
         self.current_buffer = io.BytesIO()

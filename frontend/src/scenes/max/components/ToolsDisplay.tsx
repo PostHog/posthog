@@ -68,7 +68,8 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
                                 // or border-secondary (--color-posthog-3000-400) because the former is almost invisible here, and the latter too distinct
                                 <em className="relative inline-flex items-center gap-1" key={tool.identifier}>
                                     <span className="flex text-sm">{toolDef?.icon || <IconWrench />}</span>
-                                    {toolDef?.name}
+                                    {/* Controls how the create_and_query_insight tool displays its name */}
+                                    {tool.name}
                                 </em>
                             )
                         })}
@@ -173,7 +174,9 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                         if (toolDef?.subtools) {
                             tools.push(...Object.values(toolDef.subtools))
                         } else {
-                            tools.push({ name: toolDef?.name, description: toolDef?.description, icon: toolDef?.icon })
+                            // Taking `tool` name and description from the registered tool, not the tool definition.
+                            // This makes tool substitution correctly work (create_and_query_insight).
+                            tools.push({ name: tool.name, description: tool.description, icon: toolDef?.icon })
                         }
                         return tools
                     },

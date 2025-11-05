@@ -320,6 +320,9 @@ export default {
         options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2023-02-18',
+        testOptions: {
+            waitForSelector: 'text=All levels',
+        },
     }, // scene mode
 } as Meta
 
