@@ -10,8 +10,29 @@ TEST_DOMAIN = "test.posthog.com"
 
 
 class TestSESProvider(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Patch boto3.client for all tests in this class
+        patcher = patch("products.workflows.backend.providers.ses.boto3.client")
+        cls.boto3_client_patcher = patcher
+        cls.mock_boto3_client = patcher.start()
+
+        # Set up a default mock client with safe return values
+        mock_client_instance = cls.mock_boto3_client.return_value
+        mock_client_instance.list_identities.return_value = {"Identities": []}
+        mock_client_instance.delete_identity.return_value = None
+        mock_client_instance.get_identity_verification_attributes.return_value = {"VerificationAttributes": {}}
+        mock_client_instance.get_identity_dkim_attributes.return_value = {"DkimAttributes": {}}
+        mock_client_instance.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
+        mock_client_instance.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
+        mock_client_instance.get_caller_identity.return_value = {"Account": "123456789012"}
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.boto3_client_patcher.stop()
+
     def setUp(self):
-        # Remove all domains from SES
+        # Remove all domains from SES (mocked)
         ses_provider = SESProvider()
         if TEST_DOMAIN in ses_provider.ses_client.list_identities()["Identities"]:
             ses_provider.delete_identity(TEST_DOMAIN)
@@ -31,13 +52,13 @@ class TestSESProvider(TestCase):
     def test_create_email_domain_success(self):
         provider = SESProvider()
 
-        # Mock the client on the provider instance
+        # Mock the SES and SESv2 clients on the provider instance
         with (
-            patch.object(provider, "client") as mock_client,
-            patch.object(provider, "tenant_client") as mock_tenant_client,
+            patch.object(provider, "ses_client") as mock_ses_client,
+            patch.object(provider, "ses_v2_client") as mock_ses_v2_client,
         ):
             # Mock the verification attributes to return a success status
-            mock_client.get_identity_verification_attributes.return_value = {
+            mock_ses_client.get_identity_verification_attributes.return_value = {
                 "VerificationAttributes": {
                     TEST_DOMAIN: {
                         "VerificationStatus": "Success",
@@ -47,18 +68,18 @@ class TestSESProvider(TestCase):
             }
 
             # Mock DKIM attributes to return a success status
-            mock_client.get_identity_dkim_attributes.return_value = {
+            mock_ses_client.get_identity_dkim_attributes.return_value = {
                 "DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}
             }
 
             # Mock the domain verification and DKIM setup calls
-            mock_client.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
-            mock_client.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
+            mock_ses_client.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
+            mock_ses_client.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
 
             # Mock tenant client methods
-            mock_tenant_client.create_tenant.return_value = {}
-            mock_tenant_client.get_caller_identity.return_value = {"Account": "123456789012"}
-            mock_tenant_client.create_tenant_resource_association.return_value = {}
+            mock_ses_v2_client.create_tenant.return_value = {}
+            mock_ses_v2_client.get_caller_identity.return_value = {"Account": "123456789012"}
+            mock_ses_v2_client.create_tenant_resource_association.return_value = {}
 
             provider.create_email_domain(TEST_DOMAIN, team_id=1)
 
@@ -74,10 +95,10 @@ class TestSESProvider(TestCase):
     def test_verify_email_domain_initial_setup(self):
         provider = SESProvider()
 
-        # Mock the client on the provider instance
-        with patch.object(provider, "client") as mock_client:
+        # Mock the SES client on the provider instance
+        with patch.object(provider, "ses_client") as mock_ses_client:
             # Mock the verification attributes to return a non-success status
-            mock_client.get_identity_verification_attributes.return_value = {
+            mock_ses_client.get_identity_verification_attributes.return_value = {
                 "VerificationAttributes": {
                     TEST_DOMAIN: {
                         "VerificationStatus": "Pending",  # Non-success status
@@ -87,7 +108,7 @@ class TestSESProvider(TestCase):
             }
 
             # Mock DKIM attributes to return a non-success status
-            mock_client.get_identity_dkim_attributes.return_value = {
+            mock_ses_client.get_identity_dkim_attributes.return_value = {
                 "DkimAttributes": {
                     TEST_DOMAIN: {
                         "DkimVerificationStatus": "Pending"  # Non-success status
@@ -96,8 +117,8 @@ class TestSESProvider(TestCase):
             }
 
             # Mock the domain verification and DKIM setup calls
-            mock_client.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
-            mock_client.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
+            mock_ses_client.verify_domain_identity.return_value = {"VerificationToken": "test-token-123"}
+            mock_ses_client.verify_domain_dkim.return_value = {"DkimTokens": ["token1", "token2", "token3"]}
 
             result = provider.verify_email_domain(TEST_DOMAIN, team_id=1)
 
@@ -146,6 +167,21 @@ class TestSESProvider(TestCase):
     def test_verify_email_domain_success(self):
         provider = SESProvider()
 
-        result = provider.verify_email_domain(TEST_DOMAIN, team_id=1)
+        # Patch the SES client to return 'Success' for both verification and DKIM
+        with (
+            patch.object(provider.ses_client, "get_identity_verification_attributes") as mock_verif_attrs,
+            patch.object(provider.ses_client, "get_identity_dkim_attributes") as mock_dkim_attrs,
+        ):
+            mock_verif_attrs.return_value = {
+                "VerificationAttributes": {
+                    TEST_DOMAIN: {
+                        "VerificationStatus": "Success",
+                        "VerificationToken": "test-token-123",
+                    }
+                }
+            }
+            mock_dkim_attrs.return_value = {"DkimAttributes": {TEST_DOMAIN: {"DkimVerificationStatus": "Success"}}}
+
+            result = provider.verify_email_domain(TEST_DOMAIN, team_id=1)
         # Should return verified status with no DNS records needed
         assert result == {"status": "success", "dnsRecords": []}
