@@ -53,8 +53,8 @@ pub async fn export_logs_http(
         .split("Bearer ")
         .last()
     {
-        Some(token) => token,
-        None => {
+        Some(token) if !token.is_empty() => token,
+        _ => {
             error!("No token provided");
             return Err((
                 StatusCode::UNAUTHORIZED,
