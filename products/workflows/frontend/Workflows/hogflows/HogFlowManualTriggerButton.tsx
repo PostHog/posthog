@@ -10,24 +10,24 @@ import { CyclotronJobInputSchemaType } from '~/types'
 
 import { workflowLogic } from '../workflowLogic'
 
-const VariableInputsPopover: React.FC = () => {
+const VariableInputsPopover = ({
+    setPopoverVisible,
+}: {
+    setPopoverVisible: (visible: boolean) => void
+}): JSX.Element => {
     const { workflow } = useValues(workflowLogic)
     const { triggerManualWorkflow } = useActions(workflowLogic)
     const [inputs, setInputs] = useState<Record<string, string>>({})
     const [useDefaults, setUseDefaults] = useState(true)
 
-    const handleInputChange = (key: string, value: string) => {
-        setInputs((prev) => ({ ...prev, [key]: value }))
-    }
-
-    // Helper to build the variable values to send
-    const getVariableValues = () => {
-        if (!workflow?.variables) return {}
+    const getVariableValues = (): Record<string, string> => {
+        if (!workflow?.variables) {
+            return {}
+        }
         if (useDefaults) {
             return Object.fromEntries(workflow.variables.map((v: any) => [v.key, v.default ?? '']))
-        } else {
-            return Object.fromEntries(workflow.variables.map((v: any) => [v.key, inputs[v.key] ?? v.default ?? '']))
         }
+        return Object.fromEntries(workflow.variables.map((v: any) => [v.key, inputs[v.key] ?? v.default ?? '']))
     }
 
     const noVariablesMessage = <div className="text-muted">No variables to configure.</div>
@@ -48,7 +48,7 @@ const VariableInputsPopover: React.FC = () => {
                 <div key={variable.key} className="flex flex-col gap-1">
                     <label className="font-semibold">{variable.label || variable.key}</label>
                     <span className="text-xs text-muted">
-                        {variable.default !== undefined ? `Default: ${String(variable.default)}` : 'No default'}
+                        {variable.default ? `Default: ${String(variable.default)}` : 'No default'}
                     </span>
                 </div>
             ))}
@@ -62,11 +62,13 @@ const VariableInputsPopover: React.FC = () => {
                             type="text"
                             value={inputs[variable.key] ?? variable.default ?? ''}
                             placeholder={variable.default ? `Default: ${variable.default}` : ''}
-                            onChange={(value) => handleInputChange(variable.key, value)}
+                            onChange={(value) => setInputs((prev) => ({ ...prev, [variable.key]: value }))}
                             disabled={useDefaults}
                         />
                         {variable.default !== undefined && (
-                            <span className="text-xs text-muted">Default: {String(variable.default)}</span>
+                            <span className="text-xs text-muted">
+                                {variable.default ? `Default: ${String(variable.default)}` : 'No default'}
+                            </span>
                         )}
                     </LemonField.Pure>
                 </div>
@@ -88,7 +90,10 @@ const VariableInputsPopover: React.FC = () => {
                 <LemonButton
                     type="primary"
                     status="alt"
-                    onClick={() => triggerManualWorkflow(getVariableValues())}
+                    onClick={() => {
+                        triggerManualWorkflow(getVariableValues())
+                        setPopoverVisible(false)
+                    }}
                     data-attr="run-workflow-btn"
                     sideIcon={<IconPlayFilled />}
                 >
@@ -126,7 +131,7 @@ export const HogFlowManualTriggerButton = (): JSX.Element => {
             visible={manualTriggerPopoverVisible}
             placement="bottom-start"
             onClickOutside={() => setManualTriggerPopoverVisible(false)}
-            overlay={<VariableInputsPopover />}
+            overlay={<VariableInputsPopover setPopoverVisible={setManualTriggerPopoverVisible} />}
         >
             {triggerButton}
         </Popover>

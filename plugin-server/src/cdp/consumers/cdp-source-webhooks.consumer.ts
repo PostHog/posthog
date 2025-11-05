@@ -163,6 +163,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 query,
                 stringBody: req.rawBody ?? '',
             },
+            variables: req.body.variables || {},
         }
     }
 
