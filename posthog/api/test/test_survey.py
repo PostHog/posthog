@@ -3096,7 +3096,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
 
         with self.settings(SURVEYS_API_USE_HYPERCACHE_TOKENS=[self.team.api_token]):
             # First time builds the remote config which uses a bunch of queries
-            with self.assertNumQueries(7):
+            with self.assertNumQueries(3):
                 response = self._get_surveys(token=self.team.api_token)
                 assert response.status_code == status.HTTP_200_OK
                 surveys = response.json()["surveys"]
