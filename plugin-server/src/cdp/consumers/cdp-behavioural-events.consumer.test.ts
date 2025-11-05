@@ -85,6 +85,68 @@ const TEST_FILTERS = {
         4,
         2,
     ],
+
+    // Billing product activated filter
+    billingProductActivated: [
+        '_H',
+        1,
+        32,
+        'billing product activated',
+        32,
+        'event',
+        1,
+        1,
+        11,
+        32,
+        'platform_and_support',
+        32,
+        'product_key',
+        32,
+        'properties',
+        1,
+        2,
+        11,
+        32,
+        'teams-20240208',
+        32,
+        'plans__platform_and_support',
+        32,
+        'properties',
+        1,
+        2,
+        11,
+        3,
+        2,
+        3,
+        2,
+    ],
+
+    // Product unsubscribed filter
+    productUnsubscribed: [
+        '_H',
+        1,
+        32,
+        'product unsubscribed',
+        32,
+        'event',
+        1,
+        1,
+        11,
+        32,
+        'platform_and_support',
+        32,
+        'product',
+        32,
+        'properties',
+        1,
+        2,
+        11,
+        3,
+        2,
+    ],
+
+    // Person property is_organization_first_user filter
+    isOrgFirstUser: ['_H', 1, 29, 32, 'is_organization_first_user', 32, 'properties', 32, 'person', 1, 3, 11],
 }
 
 describe('CdpBehaviouralEventsConsumer', () => {
@@ -387,6 +449,247 @@ describe('CdpBehaviouralEventsConsumer', () => {
             expect(event2.payload.condition).toBe(conditionHash2)
             expect(event2.payload.source).toBe(`cohort_filter_${conditionHash2}`)
             expect(event2.key).toBe(distinctId)
+        })
+
+        it('should handle complex billing cohort filter with OR/AND structure', async () => {
+            const filters = JSON.stringify({
+                properties: {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: 'billing product activated',
+                                    type: 'behavioral',
+                                    value: 'performed_event',
+                                    bytecode: TEST_FILTERS.billingProductActivated,
+                                    negation: false,
+                                    event_type: 'events',
+                                    conditionHash: '2946b8444e88565c',
+                                    event_filters: [
+                                        {
+                                            key: 'product_key',
+                                            type: 'event',
+                                            value: ['platform_and_support'],
+                                            operator: 'exact',
+                                        },
+                                        {
+                                            key: 'plans__platform_and_support',
+                                            type: 'event',
+                                            value: ['teams-20240208'],
+                                            operator: 'exact',
+                                        },
+                                    ],
+                                    explicit_datetime: '-30d',
+                                },
+                                {
+                                    key: 'product unsubscribed',
+                                    type: 'behavioral',
+                                    value: 'performed_event',
+                                    bytecode: TEST_FILTERS.productUnsubscribed,
+                                    negation: true,
+                                    event_type: 'events',
+                                    conditionHash: '4c6bb89ec315ba80',
+                                    event_filters: [
+                                        {
+                                            key: 'product',
+                                            type: 'event',
+                                            value: ['platform_and_support'],
+                                            operator: 'exact',
+                                        },
+                                    ],
+                                    explicit_datetime: '-30d',
+                                },
+                                {
+                                    key: 'is_organization_first_user',
+                                    type: 'person',
+                                    value: ['true'],
+                                    bytecode: TEST_FILTERS.isOrgFirstUser,
+                                    negation: false,
+                                    operator: 'exact',
+                                    conditionHash: '7937ba56a3e6348a',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            await createCohort(hub.postgres, team.id, 'Billing Product Cohort', filters)
+
+            // Test 1: Event that matches billing product activated filter
+            const personId1 = '950e8400-e29b-41d4-a716-446655440001'
+            const distinctId1 = 'billing-cohort-test-1'
+            const eventUuid1 = 'billing-cohort-uuid-1'
+            const timestamp1 = '2025-03-03T17:00:00.000000-08:00'
+
+            const messages1 = [
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: team.id,
+                            event: 'billing product activated',
+                            person_id: personId1,
+                            distinct_id: distinctId1,
+                            properties: JSON.stringify({
+                                product_key: 'platform_and_support',
+                                plans__platform_and_support: 'teams-20240208',
+                            }),
+                            timestamp: timestamp1,
+                            uuid: eventUuid1,
+                        } as RawClickHouseEvent)
+                    ),
+                } as any,
+            ]
+
+            const events1 = await processor._parseKafkaBatch(messages1)
+
+            expect(events1).toHaveLength(1)
+
+            const preCalculatedEvent1 = events1[0]
+            expect(preCalculatedEvent1.key).toBe(distinctId1)
+            expect(preCalculatedEvent1.payload).toMatchObject({
+                uuid: eventUuid1,
+                team_id: team.id,
+                person_id: personId1,
+                distinct_id: distinctId1,
+                condition: '2946b8444e88565c',
+                source: 'cohort_filter_2946b8444e88565c',
+            })
+        })
+
+        it('should not process person property filters as they are filtered out', async () => {
+            // Create a cohort with person property filter
+            const filters = JSON.stringify({
+                properties: {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: 'is_organization_first_user',
+                                    type: 'person', // This type is filtered out
+                                    value: ['true'],
+                                    bytecode: TEST_FILTERS.isOrgFirstUser,
+                                    negation: false,
+                                    operator: 'exact',
+                                    conditionHash: 'person_prop_test_001',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            await createCohort(hub.postgres, team.id, 'First Org User Cohort', filters)
+
+            const personId = '850e8400-e29b-41d4-a716-446655440002'
+            const distinctId = 'person-cohort-test-1'
+            const eventUuid = 'person-cohort-uuid-1'
+            const timestamp = '2025-03-03T18:00:00.000000-08:00'
+
+            const messages = [
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: team.id,
+                            event: 'any event',
+                            person_id: personId,
+                            distinct_id: distinctId,
+                            properties: JSON.stringify({}),
+                            person_properties: JSON.stringify({
+                                is_organization_first_user: 'true',
+                            }),
+                            timestamp,
+                            uuid: eventUuid,
+                        } as RawClickHouseEvent)
+                    ),
+                } as any,
+            ]
+
+            const events = await processor._parseKafkaBatch(messages)
+
+            // Should NOT create any events since person filters are filtered out
+            expect(events).toHaveLength(0)
+        })
+
+        it('should produce events for negated filters', async () => {
+            // negated events will produce matching events
+            const filters = JSON.stringify({
+                properties: {
+                    type: 'OR',
+                    values: [
+                        {
+                            type: 'AND',
+                            values: [
+                                {
+                                    key: 'product unsubscribed',
+                                    type: 'behavioral',
+                                    value: 'performed_event',
+                                    bytecode: TEST_FILTERS.productUnsubscribed,
+                                    negation: true, // Negation flag is stored but not processed by consumer
+                                    event_type: 'events',
+                                    conditionHash: 'negated_unsub_test',
+                                    event_filters: [
+                                        {
+                                            key: 'product',
+                                            type: 'event',
+                                            value: ['platform_and_support'],
+                                            operator: 'exact',
+                                        },
+                                    ],
+                                    explicit_datetime: '-30d',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            })
+
+            await createCohort(hub.postgres, team.id, 'Not Unsubscribed Cohort', filters)
+
+            const personId = '750e8400-e29b-41d4-a716-446655440003'
+            const distinctId = 'negation-test-1'
+            const eventUuid = 'negation-uuid-1'
+            const timestamp = '2025-03-03T19:00:00.000000-08:00'
+
+            // Send a product unsubscribed event
+            const messages = [
+                {
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: team.id,
+                            event: 'product unsubscribed',
+                            person_id: personId,
+                            distinct_id: distinctId,
+                            properties: JSON.stringify({
+                                product: 'platform_and_support',
+                            }),
+                            timestamp,
+                            uuid: eventUuid,
+                        } as RawClickHouseEvent)
+                    ),
+                } as any,
+            ]
+
+            const events = await processor._parseKafkaBatch(messages)
+
+            // Should create an event because consumer doesn't handle negation
+            // It just evaluates the bytecode which will return true for matching event
+            expect(events).toHaveLength(1)
+
+            const preCalculatedEvent = events[0]
+            expect(preCalculatedEvent.key).toBe(distinctId)
+            expect(preCalculatedEvent.payload).toMatchObject({
+                uuid: eventUuid,
+                team_id: team.id,
+                person_id: personId,
+                distinct_id: distinctId,
+                condition: 'negated_unsub_test',
+                source: 'cohort_filter_negated_unsub_test',
+            })
         })
     })
 })
