@@ -1,82 +1,264 @@
 interfaces = []
-exclude = [".*__pycache__", ".*egg-info", "docs", "tests"]
-source_roots = ["."]
+# Two-tier layer system for products only:
+# Layers listed from highest to lowest
+# - products: NEW products (highest - strictly isolated, can only import from non_isolated)
+# - non_isolated: Existing products (lower - can import from each other)
+# Note: core (posthog/ee/<root>) is NOT in a layer - uses explicit depends_on
+# This allows core to be bidirectionally coupled with products (legacy mess)
+layers = [
+    "products",
+    "non_isolated",
+]
+exclude = [
+    ".*__pycache__",
+    ".*egg-info",
+    "docs",
+    "tests",
+]
+source_roots = [
+    ".",
+]
 
 [[modules]]
 path = "<root>"
-depends_on = ["posthog"]
-
-[[modules]]
-path = "ee"
-depends_on = ["common.hogvm.python", "posthog"]
+depends_on = [
+    "ee",
+    "posthog",
+    "products.data_warehouse",
+    "products.error_tracking",
+    "products.llm_analytics",
+]
+# layer intentionally omitted - core is coupled to everything
 
 [[modules]]
 path = "common.hogql_parser"
 depends_on = []
+# layer intentionally omitted - utility module
+utility = true
 
 [[modules]]
 path = "common.hogvm.python"
-depends_on = ["posthog"]
+depends_on = [
+    "posthog",
+]
+# layer intentionally omitted - utility module
+utility = true
+
+[[modules]]
+path = "ee"
+depends_on = [
+    "<root>",
+    "posthog",
+    "products.dashboards",
+    "products.data_warehouse",
+    "products.error_tracking",
+    "products.notebooks",
+    "products.replay",
+    "products.revenue_analytics",
+    "products.surveys",
+]
+# layer intentionally omitted - core is coupled to everything
 
 [[modules]]
 path = "posthog"
 depends_on = [
     "<root>",
     "ee",
-    "common.hogql_parser",
-    "common.hogvm.python",
-
-    # NOTE: Add new product dependencies here and in settings/web.py PRODUCTS_APPS
+    "products.customer_analytics",
+    "products.data_warehouse",
+    "products.desktop_recordings",
     "products.early_access_features",
-    "products.tasks",
-    "products.links",
-    "products.revenue_analytics",
-    "products.user_interviews",
-    "products.llm_analytics",
-    "products.marketing_analytics",
     "products.endpoints",
     "products.error_tracking",
-    "products.notebooks",
+    "products.experiments",
+    "products.links",
     "products.live_debugger",
-    "products.desktop_recordings",
+    "products.llm_analytics",
+    "products.logs",
+    "products.marketing_analytics",
+    "products.notebooks",
+    "products.revenue_analytics",
+    "products.tasks",
+    "products.user_interviews",
+    "products.workflows",
 ]
+# layer intentionally omitted - core is coupled to everything
 
 [[modules]]
-path = "products.early_access_features"
-depends_on = ["posthog"]
+path = "products.cdp"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
 
 [[modules]]
-path = "products.tasks"
-depends_on = ["posthog"]
+path = "products.customer_analytics"
+depends_on = [
+    "posthog",
+]
+layer = "non_isolated"
 
 [[modules]]
-path = "products.links"
-depends_on = ["posthog"]
+path = "products.dashboards"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
 
 [[modules]]
-path = "products.revenue_analytics"
-depends_on = ["posthog"]
-
-[[modules]]
-path = "products.endpoints"
-depends_on = ["posthog"]
-
-[[modules]]
-path = "products.marketing_analytics"
-depends_on = ["posthog"]
-
-[[modules]]
-path = "products.error_tracking"
-depends_on = ["posthog"]
-
-[[modules]]
-path = "products.notebooks"
-depends_on = ["posthog"]
+path = "products.data_warehouse"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.revenue_analytics",
+]
+layer = "non_isolated"
 
 [[modules]]
 path = "products.desktop_recordings"
-depends_on = ["posthog"]
+depends_on = [
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.early_access_features"
+depends_on = [
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.endpoints"
+depends_on = [
+    "common.hogvm.python",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.error_tracking"
+depends_on = [
+    "common.hogvm.python",
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.experiments"
+depends_on = [
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.links"
+depends_on = [
+    "posthog",
+]
+layer = "non_isolated"
 
 [[modules]]
 path = "products.live_debugger"
-depends_on = ["posthog"]
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.llm_analytics"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.logs"
+depends_on = [
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.managed_migrations"
+depends_on = [
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.marketing_analytics"
+depends_on = [
+    "posthog",
+    "products.data_warehouse",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.notebooks"
+depends_on = [
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.product_analytics"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.replay"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.revenue_analytics"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.data_warehouse",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.surveys"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.tasks"
+depends_on = [
+    "posthog",
+    "products.llm_analytics",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.user_interviews"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.workflows"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "non_isolated"
