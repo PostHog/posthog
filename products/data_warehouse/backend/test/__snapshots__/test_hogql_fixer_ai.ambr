@@ -97,7 +97,7 @@
   
   This is a list of all the available tables in the database:
   ```
-  ['events', 'groups', 'persons', 'sessions', 'query_log', 'system.dashboards', 'system.cohorts', 'system.insights', 'system.experiments', 'system.exports', 'system.data_warehouse_sources', 'system.feature_flags', 'system.groups', 'system.group_type_mappings', 'system.insight_variables', 'system.surveys', 'system.teams']
+  ['events', 'groups', 'persons', 'sessions', 'query_log', 'system.dashboards', 'system.cohorts', 'system.insights', 'system.experiments', 'system.exports', 'system.heatmaps', 'system.data_warehouse_sources', 'system.feature_flags', 'system.groups', 'system.group_type_mappings', 'system.insight_variables', 'system.surveys', 'system.teams']
   ```
   
   `person` or `event` metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.
