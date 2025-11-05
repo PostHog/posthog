@@ -18,8 +18,10 @@ import {
     EventPropertyFilter,
     EventType,
     ExperimentHoldoutType,
+    ExperimentIdType,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
+    ExperimentStatsMethod,
     FileSystemIconColor,
     FilterLogicalOperator,
     FilterType,
@@ -2657,6 +2659,48 @@ export interface ExperimentVariantFunnelsBaseStats {
     key: string
     success_count: number
     failure_count: number
+}
+
+export interface ExperimentMaxBayesianContext {
+    key: string
+    chance_to_win: number
+    credible_interval: [number, number]
+    significant: boolean
+}
+
+export interface ExperimentMaxFrequentistContext {
+    key: string
+    p_value: number
+    confidence_interval: [number, number]
+    significant: boolean
+}
+
+export interface MaxExperimentVariantResultBayesian {
+    key: string
+    chance_to_win: number | null
+    credible_interval: number[] | null
+    significant: boolean
+}
+
+export interface MaxExperimentVariantResultFrequentist {
+    key: string
+    p_value: number | null
+    confidence_interval: number[] | null
+    significant: boolean
+}
+
+export interface MaxExperimentMetricResult {
+    name: string
+    variant_results: (MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist)[]
+}
+
+export interface MaxExperimentSummaryContext {
+    experiment_id: ExperimentIdType
+    experiment_name: string
+    description: string | null
+    variants: string[]
+    metrics_results: MaxExperimentMetricResult[]
+    stats_method: ExperimentStatsMethod
 }
 
 export enum ExperimentSignificanceCode {
