@@ -113,7 +113,7 @@ services:
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.8.11.66}
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:25.6.13.41}
         restart: on-failure
         environment:
             CLICKHOUSE_SKIP_USER_SETUP: 1

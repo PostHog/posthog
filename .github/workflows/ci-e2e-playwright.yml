@@ -5,6 +5,7 @@
 #
 name: E2E CI Playwright
 on:
+    pull_request:
     workflow_dispatch:
 
 env:
@@ -97,7 +98,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               shell: bash
               run: |
-                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.8.11.66
+                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.6.9.98
                   export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
