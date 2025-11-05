@@ -157,7 +157,6 @@ def export_asset_for_opengraph(resource: SharingConfiguration) -> ExportedAsset 
             "insight": resource.insight.pk if resource.insight else None,
             "dashboard": resource.dashboard.pk if resource.dashboard else None,
             "export_format": "image/png",
-            "expires_after": now() + timedelta(hours=3),
         },
         context={"team_id": cast(Team, resource.team).pk},
     )

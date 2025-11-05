@@ -34,7 +34,7 @@ const makeSessionChangeItem = (
         timeInRecording: 12,
         search: 'starting',
         type: 'session-change',
-        key: 'session-cahnge',
+        key: 'session-change',
     }
 }
 
