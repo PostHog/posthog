@@ -48,12 +48,6 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
         <div className="p-4 flex flex-col gap-4 h-full overflow-hidden">
             {!summaryData && !summaryDataLoading && !errorMessage && (
                 <div className="flex flex-col items-center gap-4 py-8">
-                    <div className="text-muted text-center">
-                        <p>Generate an AI-powered summary of this {trace ? 'trace' : 'event'}.</p>
-                        <p className="text-sm mt-2">
-                            The summary will include key insights and line references to the text representation.
-                        </p>
-                    </div>
                     <div className="flex items-center gap-3">
                         <LemonSegmentedButton
                             value={summaryMode}
