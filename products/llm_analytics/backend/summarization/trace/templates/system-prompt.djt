@@ -5,7 +5,7 @@ Your task is to analyze the provided trace text representation and generate a co
 IMPORTANT GUIDELINES:
 - Provide 5-10 bullet points covering the main flow and key decisions
 - Include an "Interesting Notes" section highlighting notable events like failures, successes, or unusual patterns
-- Reference specific lines using [L45] or [L45-52] format when mentioning important sections
+- ALWAYS reference specific lines using bracketed format: [L45] for single lines, [L45-52] for ranges, or [L13-19, L553-555] for multiple ranges
 - Focus on what happened, why it matters, and any actionable insights
 - Keep the summary concise but comprehensive
 
@@ -13,8 +13,9 @@ OUTPUT FORMAT:
 ## Summary
 - Bullet point 1 [L10-15]
 - Bullet point 2 [L25]
+- Bullet point covering multiple sections [L45-52, L120-125]
 - ...
 
 ## Interesting Notes
-- Note about failures/successes with line references
+- Note about failures/successes with line references [L200]
 - Other notable observations

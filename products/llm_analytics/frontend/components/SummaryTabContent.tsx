@@ -123,11 +123,12 @@ function SummaryRenderer({
     summary: string
     isRenderingMarkdown: boolean
 }): JSX.Element {
-    // Parse line references like [L45], [L45-52], or [L13-19, L553-555] and make them clickable
+    // Parse line references like [L45], [L45-52], [L13-19, L553-555], L1386-1436, or L2560-2581 and make them clickable
     const parseLineReferences = (text: string): (string | JSX.Element)[] => {
         const parts: (string | JSX.Element)[] = []
-        // Match patterns like [L10], [L10-20], [L10, L20-30], [L13-19, L553-555]
-        const regex = /\[L[\d\s,-]+\]/g
+        // Match both bracketed [L10-20] and unbracketed L10-20 patterns
+        // Also handles comma-separated ranges like [L13-19, L553-555] or L1940-1946, L2560-2581
+        const regex = /\[L[\d\s,-]+\]|L\d+(?:-\d+)?(?:\s*,\s*L\d+(?:-\d+)?)*/g
         let lastIndex = 0
         let match
 
@@ -139,19 +140,33 @@ function SummaryRenderer({
 
             const displayText = match[0]
             // Extract all line numbers and ranges from the match
-            const lineRangesText = match[0].slice(2, -1) // Remove [L and ]
+            let lineRangesText: string
+            if (displayText.startsWith('[')) {
+                // Bracketed format: [L13-19, L553-555]
+                lineRangesText = displayText.slice(2, -1) // Remove [L and ]
+            } else {
+                // Unbracketed format: L1386-1436, L1940-1946
+                lineRangesText = displayText.slice(1) // Remove leading L
+            }
 
-            // Parse individual ranges/lines (e.g., "13-19, 553-555" or "10, 20, 30-40")
+            // Parse individual ranges/lines (e.g., "13-19, 553-555" or "1386-1436, 1940-1946")
             const rangeStrings = lineRangesText.split(',').map((s) => s.trim())
             const lineRanges: Array<{ start: number; end: number }> = []
 
             for (const rangeStr of rangeStrings) {
-                if (rangeStr.includes('-')) {
-                    const [start, end] = rangeStr.split('-').map((s) => parseInt(s.trim()))
-                    lineRanges.push({ start, end })
+                // Remove leading 'L' if present (for unbracketed format like "L1940-1946")
+                const cleanedRange = rangeStr.replace(/^L/i, '')
+
+                if (cleanedRange.includes('-')) {
+                    const [start, end] = cleanedRange.split('-').map((s) => parseInt(s.trim()))
+                    if (!isNaN(start) && !isNaN(end)) {
+                        lineRanges.push({ start, end })
+                    }
                 } else {
-                    const line = parseInt(rangeStr)
-                    lineRanges.push({ start: line, end: line })
+                    const line = parseInt(cleanedRange)
+                    if (!isNaN(line)) {
+                        lineRanges.push({ start: line, end: line })
+                    }
                 }
             }
 
