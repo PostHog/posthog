@@ -19,6 +19,7 @@ import {
 } from './date'
 import { printHogStringOutput } from './print'
 import { isIPAddressInRange } from './ip'
+import { inCohort, notInCohort } from './cohort'
 
 // TODO: this file should be generated from or mergred with posthog/hogql/compiler/javascript_stl.py
 
@@ -1691,6 +1692,20 @@ export const STL: Record<string, STLFunction> = {
         example: 'today()',
         minArgs: 0,
         maxArgs: 0,
+    },
+    inCohort: {
+        fn: inCohort,
+        description: 'Checks if cohort ID is in list of person cohorts',
+        example: 'inCohort($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
+    },
+    notInCohort: {
+        fn: notInCohort,
+        description: 'Checks if cohort ID is NOT in list of person cohorts',
+        example: 'notInCohort($1, $2)',
+        minArgs: 2,
+        maxArgs: 2,
     },
 }
 

@@ -2610,4 +2610,172 @@ describe('hogvm execute', () => {
         const result = exec(bytecode).result
         expect(result).toEqual("sql(SELECT * FROM events WHERE equals(event, '$pageview'))")
     })
+
+    test('cohort functions', () => {
+        // Test inCohort with integer cohort IDs
+        // Stack order: push cohort_id first, then list (matching Python)
+        let bytecode = [
+            '_H',
+            1,
+            op.INTEGER,
+            123, // cohort ID to check
+            op.INTEGER,
+            45,
+            op.INTEGER,
+            123,
+            op.INTEGER,
+            789,
+            op.ARRAY,
+            3, // person's cohorts: [45, 123, 789]
+            op.CALL_GLOBAL,
+            'inCohort',
+            2,
+        ]
+        expect(exec(bytecode).result).toBe(true)
+
+        // Test inCohort with cohort ID not in list
+        bytecode = [
+            '_H',
+            1,
+            op.INTEGER,
+            999, // cohort ID to check (not in list)
+            op.INTEGER,
+            45,
+            op.INTEGER,
+            123,
+            op.INTEGER,
+            789,
+            op.ARRAY,
+            3, // person's cohorts: [45, 123, 789]
+            op.CALL_GLOBAL,
+            'inCohort',
+            2,
+        ]
+        expect(exec(bytecode).result).toBe(false)
+
+        // Test notInCohort
+        bytecode = [
+            '_H',
+            1,
+            op.INTEGER,
+            999, // cohort ID to check (not in list)
+            op.INTEGER,
+            45,
+            op.INTEGER,
+            123,
+            op.INTEGER,
+            789,
+            op.ARRAY,
+            3, // person's cohorts: [45, 123, 789]
+            op.CALL_GLOBAL,
+            'notInCohort',
+            2,
+        ]
+        expect(exec(bytecode).result).toBe(true)
+
+        // Test with string cohort IDs
+        bytecode = [
+            '_H',
+            1,
+            op.STRING,
+            'cohort_abc', // cohort ID to check
+            op.STRING,
+            'cohort_xyz',
+            op.STRING,
+            'cohort_abc',
+            op.STRING,
+            'cohort_def',
+            op.ARRAY,
+            3, // person's cohorts
+            op.CALL_GLOBAL,
+            'inCohort',
+            2,
+        ]
+        expect(exec(bytecode).result).toBe(true)
+
+        // Test with mixed types (string ID checking against numeric list)
+        bytecode = [
+            '_H',
+            1,
+            op.STRING,
+            '123', // string cohort ID
+            op.INTEGER,
+            45,
+            op.INTEGER,
+            123,
+            op.INTEGER,
+            789,
+            op.ARRAY,
+            3, // person's cohorts: [45, 123, 789]
+            op.CALL_GLOBAL,
+            'inCohort',
+            2,
+        ]
+        expect(exec(bytecode).result).toBe(true)
+
+        // Test with empty cohort list
+        bytecode = [
+            '_H',
+            1,
+            op.INTEGER,
+            123, // cohort ID to check
+            op.ARRAY,
+            0, // empty list
+            op.CALL_GLOBAL,
+            'inCohort',
+            2,
+        ]
+        expect(exec(bytecode).result).toBe(false)
+
+        // Test with null cohort ID
+        bytecode = [
+            '_H',
+            1,
+            op.NULL, // null cohort ID
+            op.INTEGER,
+            45,
+            op.INTEGER,
+            123,
+            op.ARRAY,
+            2,
+            op.CALL_GLOBAL,
+            'inCohort',
+            2,
+        ]
+        expect(exec(bytecode).result).toBe(false)
+
+        // Test with null list
+        bytecode = [
+            '_H',
+            1,
+            op.INTEGER,
+            123, // cohort ID
+            op.NULL, // null list
+            op.CALL_GLOBAL,
+            'inCohort',
+            2,
+        ]
+        expect(exec(bytecode).result).toBe(false)
+
+        // Test with globals providing personCohorts
+        const options = {
+            globals: {
+                personCohorts: [45, 123, 789],
+            },
+        }
+        bytecode = [
+            '_H',
+            1,
+            op.INTEGER,
+            123, // cohort ID to check
+            op.STRING,
+            'personCohorts',
+            op.GET_GLOBAL,
+            1, // Get list from globals
+            op.CALL_GLOBAL,
+            'inCohort',
+            2,
+        ]
+        expect(exec(bytecode, options).result).toBe(true)
+    })
 })

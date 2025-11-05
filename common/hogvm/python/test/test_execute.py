@@ -1033,3 +1033,156 @@ class TestBytecodeExecute:
             }
         )
         assert res.result == "tomato"
+
+    def test_cohort_functions(self):
+        # Test inCohort with integer cohort IDs
+        bytecode = [
+            _H,
+            VERSION,
+            op.INTEGER,
+            123,  # cohort ID to check
+            op.INTEGER,
+            45,
+            op.INTEGER,
+            123,
+            op.INTEGER,
+            789,
+            op.ARRAY,
+            3,  # person's cohorts: [45, 123, 789]
+            op.CALL_GLOBAL,
+            "inCohort",
+            2,
+        ]
+        result = execute_bytecode(bytecode, {})
+        assert result.result is True
+
+        # Test inCohort with cohort ID not in list
+        bytecode = [
+            _H,
+            VERSION,
+            op.INTEGER,
+            999,  # cohort ID to check
+            op.INTEGER,
+            45,
+            op.INTEGER,
+            123,
+            op.INTEGER,
+            789,
+            op.ARRAY,
+            3,  # person's cohorts: [45, 123, 789]
+            op.CALL_GLOBAL,
+            "inCohort",
+            2,
+        ]
+        result = execute_bytecode(bytecode, {})
+        assert result.result is False
+
+        # Test notInCohort
+        bytecode = [
+            _H,
+            VERSION,
+            op.INTEGER,
+            999,  # cohort ID to check
+            op.INTEGER,
+            45,
+            op.INTEGER,
+            123,
+            op.INTEGER,
+            789,
+            op.ARRAY,
+            3,  # person's cohorts: [45, 123, 789]
+            op.CALL_GLOBAL,
+            "notInCohort",
+            2,
+        ]
+        result = execute_bytecode(bytecode, {})
+        assert result.result is True
+
+        # Test with string cohort IDs
+        bytecode = [
+            _H,
+            VERSION,
+            op.STRING,
+            "cohort_abc",  # cohort ID to check
+            op.STRING,
+            "cohort_xyz",
+            op.STRING,
+            "cohort_abc",
+            op.STRING,
+            "cohort_def",
+            op.ARRAY,
+            3,  # person's cohorts
+            op.CALL_GLOBAL,
+            "inCohort",
+            2,
+        ]
+        result = execute_bytecode(bytecode, {})
+        assert result.result is True
+
+        # Test with mixed types (string ID checking against numeric list)
+        bytecode = [
+            _H,
+            VERSION,
+            op.STRING,
+            "123",  # string cohort ID
+            op.INTEGER,
+            45,
+            op.INTEGER,
+            123,
+            op.INTEGER,
+            789,
+            op.ARRAY,
+            3,  # person's cohorts: [45, 123, 789]
+            op.CALL_GLOBAL,
+            "inCohort",
+            2,
+        ]
+        result = execute_bytecode(bytecode, {})
+        assert result.result is True
+
+        # Test with empty cohort list
+        bytecode = [
+            _H,
+            VERSION,
+            op.INTEGER,
+            123,  # cohort ID to check
+            op.ARRAY,
+            0,  # empty list
+            op.CALL_GLOBAL,
+            "inCohort",
+            2,
+        ]
+        result = execute_bytecode(bytecode, {})
+        assert result.result is False
+
+        # Test with null cohort ID
+        bytecode = [
+            _H,
+            VERSION,
+            op.NULL,  # null cohort ID
+            op.INTEGER,
+            45,
+            op.INTEGER,
+            123,
+            op.ARRAY,
+            2,
+            op.CALL_GLOBAL,
+            "inCohort",
+            2,
+        ]
+        result = execute_bytecode(bytecode, {})
+        assert result.result is False
+
+        # Test with null list
+        bytecode = [
+            _H,
+            VERSION,
+            op.INTEGER,
+            123,
+            op.NULL,  # null list
+            op.CALL_GLOBAL,
+            "inCohort",
+            2,
+        ]
+        result = execute_bytecode(bytecode, {})
+        assert result.result is False
