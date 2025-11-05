@@ -5,7 +5,6 @@ import secrets
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
-from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -63,7 +62,7 @@ from posthog.event_usage import (
 from posthog.helpers.session_cache import SessionCache
 from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
-from posthog.models import Dashboard, Team, User, UserPinnedSceneTabs, UserScenePersonalisation
+from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
@@ -403,25 +402,6 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
-class PinnedSceneTabSerializer(serializers.Serializer):
-    id = serializers.CharField(required=False, allow_blank=True)
-    pathname = serializers.CharField(required=False)
-    search = serializers.CharField(required=False, allow_blank=True)
-    hash = serializers.CharField(required=False, allow_blank=True)
-    title = serializers.CharField(required=False, allow_blank=True)
-    customTitle = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    iconType = serializers.CharField(required=False, allow_blank=True)
-    sceneId = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    sceneKey = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    sceneParams = serializers.JSONField(required=False)
-    pinned = serializers.BooleanField(required=False)
-
-
-class PinnedSceneTabsSerializer(serializers.Serializer):
-    tabs = PinnedSceneTabSerializer(many=True, required=False)
-    personal_tabs = PinnedSceneTabSerializer(many=True, required=False)
-
-
 class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -556,75 +536,6 @@ class UserViewSet(
         instance.save()
 
         return Response(self.get_serializer(instance=instance).data)
-
-    @action(methods=["GET", "PATCH"], detail=True)
-    def pinned_scene_tabs(self, request, **kwargs):
-        instance = self.get_object()
-        team = instance.current_team
-        if not team:
-            raise serializers.ValidationError("Current team is required to manage pinned scene tabs.")
-
-        pinned_tabs, _ = UserPinnedSceneTabs.objects.get_or_create(user=instance, team=team)
-        legacy_project_tabs = UserPinnedSceneTabs.objects.filter(user=None, team=team).first()
-
-        def sanitize_tabs(tabs: Iterable[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
-            sanitized_tabs: list[dict[str, Any]] = []
-            changed = False
-            for tab in tabs:
-                sanitized = {**tab}
-                if "active" in sanitized:
-                    sanitized.pop("active", None)
-                    changed = True
-                if sanitized.get("pinned") is not True:
-                    sanitized["pinned"] = True
-                    changed = True
-                sanitized_tabs.append(sanitized)
-            return sanitized_tabs, changed
-
-        if request.method == "GET":
-            if legacy_project_tabs and legacy_project_tabs.tabs:
-                if not pinned_tabs.tabs:
-                    sanitized_tabs, _ = sanitize_tabs(legacy_project_tabs.tabs)
-                    pinned_tabs.tabs = sanitized_tabs
-                    pinned_tabs.save()
-                legacy_project_tabs.delete()
-            personal_tabs_raw = pinned_tabs.tabs or []
-            personal_tabs, changed = sanitize_tabs(personal_tabs_raw)
-            if changed:
-                pinned_tabs.tabs = personal_tabs
-                pinned_tabs.save()
-            return Response(
-                {
-                    "tabs": personal_tabs,
-                    "personal_tabs": personal_tabs,
-                }
-            )
-
-        serializer = PinnedSceneTabsSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        personal_tabs_payload = serializer.validated_data.get("personal_tabs")
-        tabs_payload = serializer.validated_data.get("tabs")
-
-        # Backwards compatibility: if only `tabs` is provided, treat it as personal tabs.
-        if personal_tabs_payload is None:
-            personal_tabs_payload = tabs_payload or []
-
-        if personal_tabs_payload is not None:
-            sanitized_tabs, _ = sanitize_tabs(personal_tabs_payload)
-            pinned_tabs.tabs = sanitized_tabs
-            pinned_tabs.save()
-
-        if legacy_project_tabs:
-            legacy_project_tabs.delete()
-
-        personal_tabs = pinned_tabs.tabs or []
-
-        return Response(
-            {
-                "tabs": personal_tabs,
-                "personal_tabs": personal_tabs,
-            }
-        )
 
     @action(methods=["POST"], detail=True)
     def scene_personalisation(self, request, **kwargs):

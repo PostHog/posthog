@@ -94,7 +94,7 @@ describe('sceneLogic', () => {
         const teamId = teamLogic.values.currentTeamId ?? 'null'
         const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`
 
-        expect(api.get).toHaveBeenCalledWith('api/users/@me/pinned_scene_tabs/')
+        expect(api.get).toHaveBeenCalledWith('api/user_pinned_scene_tabs/@me/')
 
         logic.actions.setTabs([
             {
@@ -128,7 +128,7 @@ describe('sceneLogic', () => {
         await expectLogic(logic).delay(600)
 
         expect(api.update).toHaveBeenLastCalledWith(
-            'api/users/@me/pinned_scene_tabs/',
+            'api/user_pinned_scene_tabs/@me/',
             expect.objectContaining({
                 personal_tabs: [
                     expect.objectContaining({
@@ -153,7 +153,7 @@ describe('sceneLogic', () => {
         })
         await expectLogic(logic).delay(600)
 
-        expect(api.update).toHaveBeenLastCalledWith('api/users/@me/pinned_scene_tabs/', {
+        expect(api.update).toHaveBeenLastCalledWith('api/user_pinned_scene_tabs/@me/', {
             personal_tabs: [],
         })
         expect(localStorage.getItem(pinnedStorageKey)).toBeNull()

@@ -140,7 +140,7 @@ class TestUserAPI(APIBaseTest):
         assert response.json() == {"a bag": "of data"}
 
     def test_pinned_scene_tabs_get_empty(self):
-        response = self.client.get("/api/users/@me/pinned_scene_tabs/")
+        response = self.client.get("/api/user_pinned_scene_tabs/@me/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
@@ -167,7 +167,7 @@ class TestUserAPI(APIBaseTest):
         }
 
         response = self.client.patch(
-            "/api/users/@me/pinned_scene_tabs/",
+            "/api/user_pinned_scene_tabs/@me/",
             payload,
             format="json",
         )

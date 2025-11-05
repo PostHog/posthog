@@ -799,7 +799,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     tabs?: SceneTab[]
                     personal_tabs?: SceneTab[]
                     project_tabs?: SceneTab[]
-                }>('api/users/@me/pinned_scene_tabs/')
+                }>('api/user_pinned_scene_tabs/@me/')
                 const personal = response?.personal_tabs ?? response?.tabs ?? []
                 const project = response?.project_tabs ?? []
                 const combined = [...personal, ...project]
@@ -1371,7 +1371,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
                 cache.persistPinnedTabsTimeout = window.setTimeout(async () => {
                     try {
-                        await api.update('api/users/@me/pinned_scene_tabs/', {
+                        await api.update('api/user_pinned_scene_tabs/@me/', {
                             personal_tabs: pinnedTabsForPersistence,
                         })
                     } catch (error) {
