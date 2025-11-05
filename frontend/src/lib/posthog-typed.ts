@@ -3983,7 +3983,7 @@ const createTypedPostHog = (original: OriginalPostHog): TypedPostHog => {
             }
             return (original as any)[prop]
         },
-        set(target, prop, value) {
+        set(_target, prop, value) {
             ;(original as any)[prop] = value
             return true
         },

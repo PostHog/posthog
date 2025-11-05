@@ -17,8 +17,8 @@ export function PropertyTypeTag({ propertyName, schemaPropertyType }: PropertyTy
     const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
     const propertyDefinition = getPropertyDefinition(propertyName, PropertyDefinitionType.Event)
 
-    // Check for type mismatch
-    // Special case: 'Object' from schema matches 'String' from property definitions (for now)
+    // Special case: 'Object' from schema matches 'String' from property definitions
+    // posthog-js automatically uses JSON.stringify()
     const hasTypeMismatch =
         propertyDefinition &&
         propertyDefinition.property_type &&
