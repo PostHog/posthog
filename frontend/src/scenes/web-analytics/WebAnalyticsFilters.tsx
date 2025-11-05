@@ -8,15 +8,15 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
-import { IconBranch, IconMonitor } from 'lib/lemon-ui/icons/icons'
+import { IconMonitor } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import { AvailableFeature, PropertyMathType } from '~/types'
+import { PropertyMathType } from '~/types'
 
+import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
 import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 import { WebConversionGoal } from './WebConversionGoal'
@@ -28,8 +28,9 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
     const {
         dateFilter: { dateTo, dateFrom },
         preAggregatedEnabled,
+        isPathCleaningEnabled,
     } = useValues(webAnalyticsLogic)
-    const { setDates } = useActions(webAnalyticsLogic)
+    const { setDates, setIsPathCleaningEnabled } = useActions(webAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const dateFilter = <DateFilter allowTimePrecision dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
@@ -63,7 +64,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     <TableSortingIndicator />
 
                     <WebVitalsPercentileToggle />
-                    <PathCleaningToggle />
+                    <PathCleaningToggle value={isPathCleaningEnabled} onChange={setIsPathCleaningEnabled} />
 
                     <WebAnalyticsAIFilters />
                 </>
