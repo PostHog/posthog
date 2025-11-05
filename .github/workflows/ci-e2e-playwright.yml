@@ -440,7 +440,7 @@ jobs:
             - name: Fail workflow if tests failed
               if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
               run: |
-                  echo "❌ Playwright tests failed, but screenshots were processed and committed."
+                  echo "❌ Playwright tests failed. Failure screenshots uploaded to artifacts for debugging."
                   echo "Check the test logs above for details on which tests failed."
                   exit 1
 
