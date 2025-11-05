@@ -122,10 +122,6 @@ class TaxonomyTaskExecutorNode(
     Task executor node specifically for taxonomy operations.
     """
 
-    def __init__(self, team: Team, user: User, parent_tool_call_id: str | None):
-        super().__init__(team, user)
-        self._parent_tool_call_id = parent_tool_call_id
-
     @property
     def node_name(self) -> MaxNodeName:
         return TaxonomyNodeName.TASK_EXECUTOR
@@ -147,8 +143,6 @@ class TaxonomyTaskExecutorNode(
 
 class TaxonomyAgentToolkit:
     """Base toolkit for taxonomy agents that handle tool execution."""
-
-    _parent_tool_call_id: str | None
 
     def __init__(self, team: Team, user: User):
         self._team = team
@@ -391,7 +385,7 @@ class TaxonomyAgentToolkit:
                 )
             )
         message = AssistantMessage(content="", id=str(uuid4()), tool_calls=tool_calls)
-        executor = TaxonomyTaskExecutorNode(self._team, self._user, parent_tool_call_id=self._parent_tool_call_id)
+        executor = TaxonomyTaskExecutorNode(self._team, self._user)
         result = await executor.arun(AssistantState(messages=[message]), RunnableConfig())
 
         final_result = {}
@@ -651,7 +645,7 @@ class TaxonomyAgentToolkit:
             for event_name_or_action_id in event_name_or_action_ids
         ]
         message = AssistantMessage(content="", id=str(uuid4()), tool_calls=tool_calls)
-        executor = TaxonomyTaskExecutorNode(self._team, self._user, parent_tool_call_id=self._parent_tool_call_id)
+        executor = TaxonomyTaskExecutorNode(self._team, self._user)
         result = await executor.arun(AssistantState(messages=[message]), RunnableConfig())
         return {task_result.id: task_result.result for task_result in result.task_results}
 

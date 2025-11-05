@@ -587,7 +587,9 @@ class DatabricksClient:
         """
         with self.connection.cursor() as cursor:
             try:
-                await asyncio.to_thread(cursor.columns, table_name=table_name)
+                await asyncio.to_thread(
+                    cursor.columns, catalog_name=self.catalog, schema_name=self.schema, table_name=table_name
+                )
                 results = await asyncio.to_thread(cursor.fetchall)
                 try:
                     column_names = [row.name for row in results]
