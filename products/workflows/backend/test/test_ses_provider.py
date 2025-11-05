@@ -34,7 +34,8 @@ class TestSESProvider(TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls.boto3_client_patcher.stop()
+        if cls.boto3_client_patcher:
+            cls.boto3_client_patcher.stop()
 
     def setUp(self):
         # Remove all domains from SES (mocked)
