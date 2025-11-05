@@ -13387,6 +13387,7 @@
         },
         "ExternalDataSourceType": {
             "enum": [
+                "CustomerIO",
                 "Github",
                 "Stripe",
                 "Hubspot",
