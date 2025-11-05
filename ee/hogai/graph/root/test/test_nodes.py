@@ -847,7 +847,7 @@ class TestRootNodeTools(BaseTest):
         self.assertEqual(len(result.messages), 1)
         assert isinstance(result.messages[0], AssistantToolCallMessage)
         self.assertEqual(result.messages[0].tool_call_id, "xyz")
-        create_and_query_insight_mock.assert_called_once_with(query_description="test query", tool_call_id="xyz")
+        create_and_query_insight_mock.assert_called_once_with(query_description="test query")
 
     async def test_run_valid_contextual_tool_call(self):
         node = RootNodeTools(self.team, self.user)
