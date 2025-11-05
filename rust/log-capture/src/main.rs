@@ -73,6 +73,7 @@ async fn main() {
 
     let http_router = Router::new()
         .route("/v1/logs", post(export_logs_http))
+        .route("/i/v1/logs", post(export_logs_http))
         .with_state(logs_service)
         .layer(axum::middleware::from_fn(track_metrics));
 
