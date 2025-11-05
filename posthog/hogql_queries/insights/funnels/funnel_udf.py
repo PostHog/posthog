@@ -233,6 +233,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             FROM
                 {{inner_select}}
             GROUP BY breakdown
+            ORDER BY {order_by}
         """,
             {"inner_select": inner_select},
         )
