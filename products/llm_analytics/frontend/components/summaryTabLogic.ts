@@ -3,7 +3,7 @@
  *
  * Manages API calls for trace/event summarization and state.
  */
-import { actions, kea, key, path, props, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { LLMTrace, LLMTraceEvent } from '../types'
@@ -30,74 +30,76 @@ export const summaryTabLogic = kea<summaryTabLogicType>([
     }),
     actions({
         generateSummary: true,
+        setSummaryError: (error: string | null) => ({ error }),
     }),
-    loaders(({ props }) => ({
-        summary: [
+    reducers({
+        summaryError: [
             null as string | null,
             {
-                generateSummary: async () => {
-                    // Determine if we're summarizing a trace or an event
-                    const isTrace = !!props.trace
-
-                    // Build request payload
-                    const payload = isTrace
-                        ? {
-                              summarize_type: 'trace',
-                              data: {
-                                  trace: props.trace,
-                                  hierarchy: props.tree || [],
-                              },
-                          }
-                        : {
-                              summarize_type: 'event',
-                              data: {
-                                  event: props.event,
-                              },
-                          }
-
-                    // Call the summarization API endpoint
-                    const teamId = (window as any).POSTHOG_APP_CONTEXT?.current_team?.id
-                    if (!teamId) {
-                        throw new Error('Team ID not available')
-                    }
-
-                    const url = `/api/projects/${teamId}/llm_analytics/summarize/`
-                    const response = await fetch(url, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify(payload),
-                        credentials: 'include',
-                    })
-
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({}))
-                        throw new Error(errorData.detail || errorData.error || 'Failed to generate summary')
-                    }
-
-                    const data = await response.json()
-                    return data.summary
-                },
-            },
-        ],
-    })),
-    selectors({
-        summaryError: [
-            (s) => [s.summaryFailure],
-            (summaryFailure): string | null => {
-                if (!summaryFailure) {
-                    return null
-                }
-                // Extract error message
-                if (typeof summaryFailure === 'string') {
-                    return summaryFailure
-                }
-                if (summaryFailure?.detail) {
-                    return summaryFailure.detail
-                }
-                return 'An unexpected error occurred'
+                setSummaryError: (_, { error }) => error,
+                generateSummary: () => null, // Clear error when starting new request
             },
         ],
     }),
+    loaders(({ props }) => ({
+        summary: {
+            __default: null as string | null,
+            generateSummary: async () => {
+                // Determine if we're summarizing a trace or an event
+                const isTrace = !!props.trace
+
+                // Build request payload
+                const payload = isTrace
+                    ? {
+                          summarize_type: 'trace',
+                          data: {
+                              trace: props.trace,
+                              hierarchy: props.tree || [],
+                          },
+                      }
+                    : {
+                          summarize_type: 'event',
+                          data: {
+                              event: props.event,
+                          },
+                      }
+
+                // Call the summarization API endpoint
+                const teamId = (window as any).POSTHOG_APP_CONTEXT?.current_team?.id
+                if (!teamId) {
+                    throw new Error('Team ID not available')
+                }
+
+                const url = `/api/projects/${teamId}/llm_analytics/summarize/`
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                    credentials: 'include',
+                })
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}))
+                    throw new Error(errorData.detail || errorData.error || 'Failed to generate summary')
+                }
+
+                const data = await response.json()
+                return data.summary
+            },
+        },
+    })),
+    listeners(({ actions }) => ({
+        generateSummaryFailure: ({ error }) => {
+            // Extract error message
+            const errorMessage =
+                error instanceof Error
+                    ? error.message
+                    : typeof error === 'string'
+                      ? error
+                      : 'An unexpected error occurred'
+            actions.setSummaryError(errorMessage)
+        },
+    })),
 ])
