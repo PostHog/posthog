@@ -4710,6 +4710,7 @@ export enum ActivityScope {
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
     HEATMAP = 'Heatmap',
+    USER = 'User',
 }
 
 export type CommentType = {
@@ -4755,6 +4756,7 @@ export interface DataWarehouseSavedQuery {
     last_run_at?: string
     sync_frequency?: string
     status?: string
+    managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean

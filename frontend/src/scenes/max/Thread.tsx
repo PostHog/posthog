@@ -1022,12 +1022,13 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                       type="ai"
                       className="w-full"
                       wrapperClassName="w-full"
-                      boxClassName={clsx(
-                          'flex flex-col w-full',
-                          isCollapsed ? '' : isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96'
-                      )}
+                      boxClassName="flex flex-col w-full"
                   >
-                      {!isCollapsed && <Query query={query} readOnly embedded />}
+                      {!isCollapsed && (
+                          <div className={clsx('overflow-auto', isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96')}>
+                              <Query query={query} readOnly embedded />
+                          </div>
+                      )}
                       <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
                           <div className="flex items-center gap-1.5">
                               <LemonButton
