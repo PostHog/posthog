@@ -47,7 +47,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
           : null
 
     const projectDefaultDashboardOptions: LemonSelectOptions<number | null> = [
-        { value: null, label: 'No default dashboard (open new tab)' },
+        { value: null, label: 'No default dashboard / show the "new tab" page' },
         ...nameSortedDashboards.map((dashboard) => ({
             value: dashboard.id,
             label: dashboard.name || 'Untitled',

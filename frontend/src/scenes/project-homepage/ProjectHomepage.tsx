@@ -2,12 +2,11 @@ import './ProjectHomepage.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconHome } from '@posthog/icons'
 
-import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
-import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -19,6 +18,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 
+import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -32,10 +32,8 @@ export const scene: SceneExport = {
 function HomePageContent(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
     const { showInviteModal } = useActions(inviteLogic)
-    const { showSceneDashboardChoiceModal } = useActions(
-        sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
-    )
     const { dashboard } = useValues(dashboardLogic(dashboardLogicProps as DashboardLogicProps))
+    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
     // TODO: Remove this after AA test is over
     const { featureFlags } = useValues(featureFlagLogic)
@@ -71,7 +69,7 @@ function HomePageContent(): JSX.Element {
                             type="secondary"
                             size="small"
                             data-attr="project-home-customize-homepage"
-                            onClick={showSceneDashboardChoiceModal}
+                            onClick={() => setIsConfigurePinnedTabsOpen(true)}
                         >
                             Customize homepage
                         </LemonButton>
@@ -95,13 +93,16 @@ function HomePageContent(): JSX.Element {
                 ) : (
                     <SceneDashboardChoiceRequired
                         open={() => {
-                            showSceneDashboardChoiceModal()
+                            setIsConfigurePinnedTabsOpen(true)
                         }}
                         scene={Scene.ProjectHomepage}
                     />
                 )}
             </div>
-            <SceneDashboardChoiceModal scene={Scene.ProjectHomepage} />
+            <ConfigurePinnedTabsModal
+                isOpen={isConfigurePinnedTabsOpen}
+                onClose={() => setIsConfigurePinnedTabsOpen(false)}
+            />
         </SceneContent>
     )
 }
