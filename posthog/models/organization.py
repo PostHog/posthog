@@ -78,6 +78,9 @@ class OrganizationManager(models.Manager):
         from .project import Project  # Avoiding circular import
 
         with transaction.atomic(using=self.db):
+            # Set default_anonymize_ips based on deployment if not explicitly provided
+            if "default_anonymize_ips" not in kwargs:
+                kwargs["default_anonymize_ips"] = default_anonymize_ips()
             organization = Organization.objects.create(**kwargs)
             _, team = Project.objects.create_with_team(
                 initiating_user=user, organization=organization, team_fields=team_fields
