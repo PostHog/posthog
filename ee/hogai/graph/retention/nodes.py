@@ -1,7 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, AssistantRetentionQuery
+from posthog.schema import AssistantRetentionQuery
 
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
@@ -25,7 +25,7 @@ class RetentionGeneratorNode(SchemaGeneratorNode[AssistantRetentionQuery]):
         return AssistantNodeName.RETENTION_GENERATOR
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        self.dispatcher.message(AssistantMessage(content="Creating retention query"))
+        self.dispatcher.update("Creating retention query")
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", RETENTION_SYSTEM_PROMPT),

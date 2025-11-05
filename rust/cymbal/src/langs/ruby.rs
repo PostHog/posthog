@@ -76,7 +76,7 @@ impl RawRubyFrame {
 impl From<&RawRubyFrame> for Frame {
     fn from(raw: &RawRubyFrame) -> Self {
         Frame {
-            raw_id: FrameId::placeholder(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw.function.clone(),
             line: raw.lineno,
             column: None,

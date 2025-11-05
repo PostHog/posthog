@@ -13,7 +13,6 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.shutdown import ShutdownMonitor
-from posthog.temporal.data_imports.deltalake_compaction_job import trigger_compaction_job
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -35,9 +34,10 @@ from posthog.temporal.data_imports.pipelines.pipeline_sync import (
 from posthog.temporal.data_imports.row_tracking import decrement_rows, increment_rows, will_hit_billing_limit
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.warehouse.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
-from posthog.warehouse.models.external_data_schema import process_incremental_value
-from posthog.warehouse.types import ExternalDataSourceType
+
+from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
+from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class PipelineNonDLT:
@@ -342,9 +342,12 @@ class PipelineNonDLT:
             self._logger.debug("No deltalake table, not continuing with post-run ops")
             return
 
-        self._logger.debug("Triggering workflow to compact and vacuum")
-        compaction_job_id = trigger_compaction_job(self._job, self._schema, self._logger)
-        self._logger.debug(f"Compaction workflow id: {compaction_job_id}")
+        self._logger.debug("Triggering compaction and vacuuming on delta table")
+        try:
+            self._delta_table_helper.compact_table()
+        except Exception as e:
+            capture_exception(e)
+            self._logger.exception(f"Compaction failed: {e}", exc_info=e)
 
         file_uris = delta_table.file_uris()
         self._logger.debug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
