@@ -342,9 +342,21 @@ jobs:
               # we can run 10 workers because we have 16 CPU
               # we don't want to run 16 since we need to leave some for everything else
               run: |
-                  # In UPDATE mode: run with --update-snapshots to update snapshots on disk
-                  # In CHECK mode: run without flag to fail when snapshots differ
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=10 ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--update-snapshots' || '' }}
+                  # First attempt: Always verify (fast path when snapshots match)
+                  # Subsequent attempts: mode-specific (update in UPDATE mode, verify in CHECK mode)
+                  for i in 1 2 3; do
+                    echo "Attempt $i: Running Playwright tests"
+                    if [ $i -eq 1 ]; then
+                      FLAG=""
+                    else
+                      FLAG="${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--update-snapshots' || '' }}"
+                    fi
+                    pnpm --filter=@posthog/playwright exec playwright test --workers=10 $FLAG && break
+                    if [ $i -eq 3 ]; then
+                      echo "Playwright tests failed after 3 attempts"
+                      exit 1
+                    fi
+                  done
 
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots

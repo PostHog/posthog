@@ -436,9 +436,14 @@ jobs:
               run: |
                   for i in 1 2 3; do
                     echo "Attempt $i: Running @storybook/test-runner"
-                    # In UPDATE mode: run with -u flag to update snapshots on disk
-                    # In CHECK mode: run with --ci flag to fail when snapshots differ
-                    pnpm --filter=@posthog/storybook test:visual:ci:${{ needs.detect-snapshot-mode.outputs.mode == 'update' && 'update' || 'verify' }} --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} && break
+                    # First attempt: Always verify (fast path when snapshots match)
+                    # Subsequent attempts: mode-specific (update in UPDATE mode, verify in CHECK mode)
+                    if [ $i -eq 1 ]; then
+                      CMD="verify"
+                    else
+                      CMD="${{ needs.detect-snapshot-mode.outputs.mode == 'update' && 'update' || 'verify' }}"
+                    fi
+                    pnpm --filter=@posthog/storybook test:visual:ci:$CMD --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} && break
                     if [ $i -eq 3 ]; then
                       echo "Test runner failed after 3 attempts"
                       exit 1
