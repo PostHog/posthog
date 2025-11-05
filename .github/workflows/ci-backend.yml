@@ -233,9 +233,11 @@ jobs:
                   # Extract comment ID if exists
                   SQL_COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | head -1)
 
-                  # Add timestamp to SQL changes
+                  # Add timestamp and commit SHA to SQL changes
                   TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
-                  COMMENT_BODY+="\n*Last updated: $TIMESTAMP*"
+                  COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+                  COMMIT_SHORT="${COMMIT_SHA:0:7}"
+                  COMMENT_BODY+="\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
 
                   # Convert \n into actual newlines
                   COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
@@ -284,9 +286,11 @@ jobs:
                   COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | head -1)
 
                   if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
-                    # Add timestamp to analysis
+                    # Add timestamp and commit SHA to analysis
                     TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
-                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n*Last updated: $TIMESTAMP*"
+                    COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+                    COMMIT_SHORT="${COMMIT_SHA:0:7}"
+                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
                     RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
                     RISK_COMMENT_JSON=$(jq -n --arg body "$RISK_COMMENT" '{body: $body}')
 
