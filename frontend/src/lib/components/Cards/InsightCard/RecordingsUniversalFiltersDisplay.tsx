@@ -21,7 +21,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     ActionFilter,
-    AnyPropertyFilter,
     DurationType,
     FilterLogicalOperator,
     PropertyFilterBaseValue,
@@ -100,95 +99,90 @@ export function CompactUniversalFiltersDisplay({
                 }
 
                 if (isActionFilter(filterOrGroup)) {
-                    // Action filter
                     return (
-                        <React.Fragment key={index}>
-                            <div className="SeriesDisplay__condition">
-                                <span>
-                                    {embedded && index === 0 ? 'where ' : null}
-                                    {index > 0 ? (filterType === FilterLogicalOperator.Or ? 'or ' : 'and ') : null}
-                                    Performed action
-                                    <Link
-                                        to={urls.action(filterOrGroup.id as number)}
-                                        className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action mx-1"
-                                        title="Action"
-                                    >
-                                        {filterOrGroup.name || `Action ${filterOrGroup.id}`}
-                                    </Link>
-                                </span>
-                            </div>
-                        </React.Fragment>
+                        <div key={index} className="SeriesDisplay__condition">
+                            <span>
+                                {embedded && index === 0 ? 'where ' : null}
+                                {index > 0 ? (filterType === FilterLogicalOperator.Or ? 'or ' : 'and ') : null}
+                                Performed action
+                                <Link
+                                    to={urls.action(filterOrGroup.id as number)}
+                                    className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action mx-1"
+                                    title="Action"
+                                >
+                                    {filterOrGroup.name || `Action ${filterOrGroup.id}`}
+                                </Link>
+                            </span>
+                        </div>
                     )
                 }
 
                 // Property filter
-                const leafFilter = filterOrGroup as AnyPropertyFilter
                 const isFirstFilterOverall = index === 0
 
                 return (
-                    <React.Fragment key={index}>
-                        <div className="SeriesDisplay__condition">
-                            <span>
-                                {isFirstFilterOverall && embedded ? 'where ' : null}
-                                {index > 0 ? (
-                                    <strong>{filterType === FilterLogicalOperator.Or ? <em>or </em> : 'and '}</strong>
-                                ) : null}
-                                {isCohortPropertyFilter(leafFilter) ? (
-                                    <>
-                                        {isFirstFilterOverall && !embedded ? 'Person' : 'person'} belongs to cohort
-                                        <span className="SeriesDisplay__raw-name">
-                                            {formatPropertyLabel(
-                                                leafFilter,
-                                                cohortsById,
-                                                (s) =>
-                                                    formatPropertyValueForDisplay(leafFilter.key, s)?.toString() || '?'
-                                            )}
-                                        </span>
-                                    </>
-                                ) : (
-                                    <>
-                                        {isFirstFilterOverall && !embedded
-                                            ? capitalizeFirstLetter(leafFilter.type || 'event')
-                                            : leafFilter.type || 'event'}
-                                        's
-                                        <span className="SeriesDisplay__raw-name">
-                                            {isAnyPropertyfilter(leafFilter) && leafFilter.key && (
-                                                <PropertyKeyInfo
-                                                    value={leafFilter.key}
-                                                    type={
-                                                        PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[
-                                                            leafFilter.type
-                                                        ]
-                                                    }
-                                                />
-                                            )}
-                                        </span>
-                                        <em>
-                                            {
-                                                allOperatorsMapping[
-                                                    (isPropertyFilterWithOperator(leafFilter) && leafFilter.operator) ||
-                                                        'exact'
-                                                ]
-                                            }
-                                        </em>{' '}
-                                        {isAnyPropertyfilter(leafFilter) &&
-                                            (Array.isArray(leafFilter.value) ? (
-                                                leafFilter.value.map((subValue, index) => (
-                                                    <React.Fragment key={index}>
-                                                        <code className="SeriesDisplay__value">{subValue}</code>
-                                                        {index <
-                                                            (leafFilter.value as PropertyFilterBaseValue[]).length -
-                                                                1 && ' or '}
-                                                    </React.Fragment>
-                                                ))
-                                            ) : leafFilter.value != undefined ? (
-                                                <code className="SeriesDisplay__value">{leafFilter.value}</code>
-                                            ) : null)}
-                                    </>
-                                )}
-                            </span>
-                        </div>
-                    </React.Fragment>
+                    <div key={index} className="SeriesDisplay__condition">
+                        <span>
+                            {isFirstFilterOverall && embedded ? 'where ' : null}
+                            {index > 0 ? (
+                                <strong>{filterType === FilterLogicalOperator.Or ? <em>or </em> : 'and '}</strong>
+                            ) : null}
+                            {isCohortPropertyFilter(filterOrGroup) ? (
+                                <>
+                                    {isFirstFilterOverall && !embedded ? 'Person' : 'person'} belongs to cohort
+                                    <span className="SeriesDisplay__raw-name">
+                                        {formatPropertyLabel(
+                                            filterOrGroup,
+                                            cohortsById,
+                                            (s) =>
+                                                formatPropertyValueForDisplay(filterOrGroup.key, s)?.toString() || '?'
+                                        )}
+                                    </span>
+                                </>
+                            ) : (
+                                <>
+                                    {isFirstFilterOverall && !embedded
+                                        ? capitalizeFirstLetter(filterOrGroup.type || 'event')
+                                        : filterOrGroup.type || 'event'}
+                                    's
+                                    <span className="SeriesDisplay__raw-name">
+                                        {isAnyPropertyfilter(filterOrGroup) && filterOrGroup.key && (
+                                            <PropertyKeyInfo
+                                                value={filterOrGroup.key}
+                                                type={
+                                                    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[
+                                                        filterOrGroup.type
+                                                    ]
+                                                }
+                                            />
+                                        )}
+                                    </span>
+                                    <em>
+                                        {
+                                            allOperatorsMapping[
+                                                (isPropertyFilterWithOperator(filterOrGroup) &&
+                                                    filterOrGroup.operator) ||
+                                                    'exact'
+                                            ]
+                                        }
+                                    </em>{' '}
+                                    {isAnyPropertyfilter(filterOrGroup) &&
+                                        (Array.isArray(filterOrGroup.value) ? (
+                                            filterOrGroup.value.map((subValue, index) => (
+                                                <React.Fragment key={index}>
+                                                    <code className="SeriesDisplay__value">{subValue}</code>
+                                                    {index <
+                                                        (filterOrGroup.value as PropertyFilterBaseValue[]).length - 1 &&
+                                                        ' or '}
+                                                </React.Fragment>
+                                            ))
+                                        ) : filterOrGroup.value != undefined ? (
+                                            <code className="SeriesDisplay__value">{filterOrGroup.value}</code>
+                                        ) : null)}
+                                </>
+                            )}
+                        </span>
+                    </div>
                 )
             })}
         </>
@@ -233,22 +227,22 @@ function FiltersSummary({ filters }: { filters: RecordingUniversalFilters }): JS
     )
 }
 
+const ORDERABLE_FIELD_LABELS: Record<string, string> = {
+    start_time: 'Start time',
+    console_error_count: 'Console errors',
+    click_count: 'Clicks',
+    keypress_count: 'Key presses',
+    mouse_activity_count: 'Mouse activity',
+    activity_score: 'Activity score',
+    recording_ttl: 'Recording TTL',
+}
+
 function OrderingSummary({ filters }: { filters: RecordingUniversalFilters }): JSX.Element | null {
     if (!filters.order && !filters.order_direction) {
         return null
     }
 
-    const orderLabels: Record<string, string> = {
-        start_time: 'Start time',
-        console_error_count: 'Console errors',
-        click_count: 'Clicks',
-        keypress_count: 'Key presses',
-        mouse_activity_count: 'Mouse activity',
-        activity_score: 'Activity score',
-        recording_ttl: 'Recording TTL',
-    }
-
-    const orderLabel = filters.order ? orderLabels[filters.order] || filters.order : 'Start time'
+    const orderLabel = filters.order ? ORDERABLE_FIELD_LABELS[filters.order] || filters.order : 'Start time'
     const direction = filters.order_direction === 'ASC' ? 'ascending' : 'descending'
 
     return (

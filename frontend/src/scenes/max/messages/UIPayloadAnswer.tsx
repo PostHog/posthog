@@ -19,9 +19,7 @@ export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = ['search_session_rec
 
 export function UIPayloadAnswer({ toolName, toolPayload }: { toolName: string; toolPayload: any }): JSX.Element | null {
     if (toolName === 'search_session_recordings') {
-        // toolPayload is a RecordingUniversalFilters shape
         const filters = toolPayload as RecordingUniversalFilters
-
         return <RecordingsWidget filters={filters} />
     }
     // It's not expected to hit the null branch below, because such a case SHOULD have already been filtered out
@@ -31,7 +29,7 @@ export function UIPayloadAnswer({ toolName, toolPayload }: { toolName: string; t
 
 function RecordingsWidget({ filters }: { filters: RecordingUniversalFilters }): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
-        logicKey: 'max-recordings-widget',
+        logicKey: 'ai-recordings-widget',
         filters,
         updateSearchParams: false,
         autoPlay: false,
