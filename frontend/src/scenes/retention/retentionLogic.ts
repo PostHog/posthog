@@ -43,7 +43,10 @@ export const retentionLogic = kea<retentionLogicType>([
             cohortsModel,
             ['cohortsById'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateDateRange', 'updateBreakdownFilter']],
+        actions: [
+            insightVizDataLogic(props),
+            ['updateInsightFilter', 'updateDateRange', 'updateBreakdownFilter', 'updateQuerySource'],
+        ],
     })),
     actions({
         setSelectedBreakdownValue: (value: string | number | boolean | null) => ({ value }),
@@ -107,6 +110,21 @@ export const retentionLogic = kea<retentionLogicType>([
                             : result.breakdown_value,
                     values: result.values.filter((value) => !value.isFuture),
                 }))
+            },
+        ],
+
+        filteredResults: [
+            (s) => [s.results, s.selectedBreakdownValue],
+            (results, selectedBreakdownValue) => {
+                if (!results || results.length === 0) {
+                    return []
+                }
+                if (selectedBreakdownValue === null) {
+                    return results
+                }
+
+                // Return only results for the selected breakdown
+                return results.filter((result) => result.breakdown_value === selectedBreakdownValue)
             },
         ],
 
