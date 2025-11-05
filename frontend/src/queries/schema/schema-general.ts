@@ -2567,6 +2567,7 @@ export type FileSystemIconType =
     | 'data_warehouse'
     | 'task'
     | 'link'
+    | 'arrow_right'
     | 'live_debugger'
     | 'logs'
     | 'workflows'
@@ -2594,6 +2595,8 @@ export type FileSystemIconType =
     | 'apps'
     | 'live'
     | 'chat'
+    | 'toolbar'
+    | 'gear'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string

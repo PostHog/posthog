@@ -1,5 +1,7 @@
 import { actions, connect, kea, listeners, path } from 'kea'
 
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
 import { projectTreeDataLogic } from '../ProjectTree/projectTreeDataLogic'
 import { pinnedFolderLogic } from './pinnedFolderLogic'
 import type { shortcutDropLogicType } from './shortcutDropLogicType'
@@ -13,11 +15,11 @@ export const shortcutDropLogic = kea<shortcutDropLogicType>([
     })),
 
     actions({
-        handleShortcutDrop: (href: string, title?: string) => ({ href, title }),
+        handleShortcutDrop: (href: string, title?: string, iconType?: string) => ({ href, title, iconType }),
     }),
 
     listeners(({ actions, values }) => ({
-        handleShortcutDrop: ({ href, title }) => {
+        handleShortcutDrop: ({ href, title, iconType }) => {
             const name = title || href.split('/').pop() || 'Untitled'
 
             // Create a shortcut item
@@ -27,6 +29,7 @@ export const shortcutDropLogic = kea<shortcutDropLogicType>([
                 type: 'link' as const,
                 href: href,
                 ref: href,
+                iconType: (iconType as FileSystemIconType) || 'arrow_right',
             }
 
             actions.addShortcutItem(shortcutItem)

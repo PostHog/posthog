@@ -3,6 +3,7 @@ import React, { CSSProperties } from 'react'
 import {
     IconApp,
     IconApps,
+    IconArrowRight,
     IconBook,
     IconBug,
     IconCircleDashed,
@@ -15,6 +16,7 @@ import {
     IconFeatures,
     IconFlask,
     IconFunnels,
+    IconGear,
     IconGraph,
     IconHogQL,
     IconHome,
@@ -36,6 +38,7 @@ import {
     IconStickiness,
     IconToggle,
     IconToggleOff,
+    IconToolbar,
     IconTrends,
     IconUser,
     IconUserPaths,
@@ -160,6 +163,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconExternal />,
         iconColor: ['var(--color-product-links-light)', 'var(--color-product-links-dark)'],
     },
+    arrow_right: {
+        icon: <IconArrowRight />,
+        iconColor: ['currentColor', 'currentColor'],
+    },
     workflows: {
         icon: <IconDecisionTree />,
         iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
@@ -243,6 +250,12 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     chat: {
         icon: <IconFeatures />,
+    },
+    toolbar: {
+        icon: <IconToolbar />,
+    },
+    gear: {
+        icon: <IconGear />,
     },
 }
 

@@ -44,9 +44,10 @@ function ShortcutDropZone({ children }: { children: React.ReactNode }): JSX.Elem
 
         const href = e.dataTransfer.getData('text/href')
         const title = e.dataTransfer.getData('text/title')
+        const iconType = e.dataTransfer.getData('text/iconType')
 
         if (href) {
-            handleShortcutDrop(href, title)
+            handleShortcutDrop(href, title, iconType)
         }
     }
 

@@ -2,6 +2,7 @@ import { useActions } from 'kea'
 import { useState } from 'react'
 
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
+import { getIconTypeFromUrl } from 'lib/utils/iconTypeFromUrl'
 
 import { useNotebookNode } from '~/scenes/notebooks/Nodes/NotebookNodeContext'
 
@@ -45,11 +46,14 @@ export function useDraggableLink({ href, properties, onlyWithModifierKey }: Drag
                 startDropMode()
                 if (href) {
                     const url = window.location.origin + href
+                    const iconType = getIconTypeFromUrl(href)
                     e.dataTransfer.setData('text/uri-list', url)
                     e.dataTransfer.setData('text/plain', url)
                     // Add data for shortcuts and other potential targets
                     e.dataTransfer.setData('text/href', href)
                     e.dataTransfer.setData('text/title', e.currentTarget?.textContent || '')
+                    // Detect icon type from URL during drag
+                    e.dataTransfer.setData('text/iconType', iconType)
                 }
                 properties && e.dataTransfer.setData('properties', JSON.stringify(properties))
             },

@@ -11,6 +11,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { getIconTypeFromUrl } from 'lib/utils/iconTypeFromUrl'
 import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -256,7 +257,19 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     }
 
                     const response = await api.fileSystemShortcuts.list()
-                    return response.results
+
+                    // Ensure all shortcuts have appropriate iconType set
+                    return response.results.map((shortcut) => {
+                        // If iconType is missing, derive it from the href
+                        if (!('iconType' in shortcut) || !shortcut.iconType) {
+                            if (shortcut.href) {
+                                ;(shortcut as any).iconType = getIconTypeFromUrl(shortcut.href)
+                            } else {
+                                ;(shortcut as any).iconType = 'arrow_right'
+                            }
+                        }
+                        return shortcut
+                    })
                 },
                 addShortcutItem: async ({ item }) => {
                     const shortcutItem =
@@ -271,8 +284,19 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                   type: item.type,
                                   ref: item.ref,
                                   href: item.href,
+                                  iconType: (item as any).iconType,
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
+
+                    // Ensure the response has iconType if it's missing
+                    if (!('iconType' in response) || !response.iconType) {
+                        if (response.href) {
+                            ;(response as any).iconType = getIconTypeFromUrl(response.href)
+                        } else {
+                            ;(response as any).iconType = 'arrow_right'
+                        }
+                    }
+
                     lemonToast.success('Shortcut created successfully', {
                         button: {
                             label: 'View',
