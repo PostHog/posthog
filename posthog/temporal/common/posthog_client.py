@@ -65,7 +65,11 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         try:
             return await super().execute_workflow(input)
         except Exception as e:
-            # we don't want to capture cancelled errors
+            # Temporal raises a temporalio.exceptions.CancelledError within
+            # an activity as part of the worfklow cancellation procedure usually
+            # started by calling handle.cancel(). This is part of the
+            # normal lifecycle of a workflow and thus not an exception we want
+            # to track as an error.
             if isinstance(e, temporalio.exceptions.ActivityError) and isinstance(
                 e.cause, temporalio.exceptions.CancelledError
             ):
