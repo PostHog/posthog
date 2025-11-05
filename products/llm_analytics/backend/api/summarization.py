@@ -72,7 +72,13 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
 
-        # Check feature flag at team level
+        # In development/debug mode, allow access by default
+        from django.conf import settings
+
+        if settings.DEBUG:
+            return
+
+        # Check feature flag at team level in production
         if not posthoganalytics.feature_enabled(
             SUMMARIZATION_FEATURE_FLAG,
             str(self.team.uuid),
