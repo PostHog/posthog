@@ -8,7 +8,7 @@ Displays span metadata, input/output state, and timing information with truncati
 import json
 from typing import Any
 
-from .message_formatter import FormatterOptions, truncate_content
+from .message_formatter import FormatterOptions, add_line_numbers, truncate_content
 
 
 def _format_state(state: Any, label: str, options: FormatterOptions | None = None) -> list[str]:
@@ -81,4 +81,10 @@ def format_span_text_repr(event: dict[str, Any], options: FormatterOptions | Non
         lines.append("-" * 80)
         lines.extend(output_lines)
 
-    return "\n".join(lines)
+    formatted_text = "\n".join(lines)
+
+    # Add line numbers if requested
+    if options and options.get("include_line_numbers", False):
+        formatted_text = add_line_numbers(formatted_text)
+
+    return formatted_text

@@ -13,7 +13,13 @@ from urllib.parse import quote
 
 from .constants import MAX_TREE_DEPTH, SEPARATOR
 from .event_formatter import format_event_text_repr
-from .message_formatter import FormatterOptions, format_input_messages, format_output_messages, truncate_content
+from .message_formatter import (
+    FormatterOptions,
+    add_line_numbers,
+    format_input_messages,
+    format_output_messages,
+    truncate_content,
+)
 
 
 def _format_latency(latency: float) -> str:
@@ -265,6 +271,7 @@ def format_trace_text_repr(
         - include_markers: If True, use <<<MARKERS>>> for frontend, else plain text
         - truncated: Whether to truncate long content within events
         - truncate_buffer: Chars to show at start/end when truncating
+        - include_line_numbers: If True, prefix each line with line number (L1:, L2:, etc.)
 
     Args:
         trace: The trace metadata with properties
@@ -322,4 +329,10 @@ def format_trace_text_repr(
         lines.append("")
         lines.extend(_render_tree(hierarchy, options=options))
 
-    return "\n".join(lines)
+    formatted_text = "\n".join(lines)
+
+    # Add line numbers if requested
+    if options and options.get("include_line_numbers", False):
+        formatted_text = add_line_numbers(formatted_text)
+
+    return formatted_text

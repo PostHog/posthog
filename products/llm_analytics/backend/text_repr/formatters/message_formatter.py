@@ -21,6 +21,7 @@ class FormatterOptions(TypedDict, total=False):
     truncate_buffer: int  # Chars to show at start/end (default: 1000)
     include_markers: bool  # Use interactive markers vs plain text (default: True)
     collapsed: bool  # Show full hierarchy vs summary (default: False)
+    include_line_numbers: bool  # Prefix each line with line number (default: False)
 
 
 class ToolCall(TypedDict, total=False):
@@ -29,6 +30,29 @@ class ToolCall(TypedDict, total=False):
     function: dict[str, Any]  # OpenAI format: {name, arguments}
     name: str  # LangChain format
     args: Any  # LangChain format
+
+
+def add_line_numbers(text: str) -> str:
+    """
+    Add line numbers to each line of text in format: L1: content
+
+    Args:
+        text: Multi-line text string
+
+    Returns:
+        Text with line numbers prefixed to each line
+    """
+    lines = text.split("\n")
+    # Calculate padding for line numbers (e.g., L1:, L10:, L100:)
+    max_line_num = len(lines)
+    padding = len(str(max_line_num))
+
+    numbered_lines = []
+    for i, line in enumerate(lines, start=1):
+        line_num = str(i).rjust(padding)
+        numbered_lines.append(f"L{line_num}: {line}")
+
+    return "\n".join(numbered_lines)
 
 
 def truncate_content(content: str, options: FormatterOptions | None = None) -> tuple[list[str], bool]:

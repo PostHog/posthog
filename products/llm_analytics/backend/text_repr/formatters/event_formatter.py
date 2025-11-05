@@ -11,7 +11,7 @@ import json
 from typing import Any
 
 from .constants import SEPARATOR
-from .message_formatter import FormatterOptions, format_input_messages, format_output_messages
+from .message_formatter import FormatterOptions, add_line_numbers, format_input_messages, format_output_messages
 from .tool_formatter import format_tools
 
 
@@ -128,7 +128,13 @@ def format_generation_text_repr(event: dict[str, Any], options: FormatterOptions
             lines.append("")
         lines.extend(error_lines)
 
-    return "\n".join(lines)
+    formatted_text = "\n".join(lines)
+
+    # Add line numbers if requested
+    if options and options.get("include_line_numbers", False):
+        formatted_text = add_line_numbers(formatted_text)
+
+    return formatted_text
 
 
 def format_embedding_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
@@ -161,7 +167,13 @@ def format_embedding_text_repr(event: dict[str, Any], options: FormatterOptions 
         lines.append("")
         lines.extend(error_lines)
 
-    return "\n".join(lines)
+    formatted_text = "\n".join(lines)
+
+    # Add line numbers if requested
+    if options and options.get("include_line_numbers", False):
+        formatted_text = add_line_numbers(formatted_text)
+
+    return formatted_text
 
 
 def format_event_text_repr(event: dict[str, Any], options: FormatterOptions | None = None) -> str:
