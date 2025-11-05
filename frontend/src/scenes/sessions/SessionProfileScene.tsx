@@ -69,7 +69,13 @@ export function SessionProfileScene(): JSX.Element {
                         <div>
                             <div className="text-xs text-muted-alt">Person</div>
                             <div className="text-sm">
-                                <PersonDisplay person={{ distinct_id: sessionData.distinct_id }} withIcon />
+                                <PersonDisplay
+                                    person={{
+                                        distinct_id: sessionData.distinct_id,
+                                        properties: sessionData.person_properties || undefined,
+                                    }}
+                                    withIcon
+                                />
                             </div>
                         </div>
                         <div>

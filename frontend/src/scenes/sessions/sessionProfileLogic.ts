@@ -15,6 +15,7 @@ export interface SessionProfileLogicProps {
 export interface SessionData {
     session_id: string
     distinct_id: string
+    person_properties: Record<string, any> | null
     start_timestamp: string
     end_timestamp: string
     entry_current_url: string | null
@@ -52,29 +53,32 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                 loadSessionData: async () => {
                     const sessionQuery = hogql`
                         SELECT
-                            session_id,
-                            distinct_id,
-                            $start_timestamp,
-                            $end_timestamp,
-                            $entry_current_url,
-                            $end_current_url,
-                            $urls,
-                            $num_uniq_urls,
-                            $pageview_count,
-                            $autocapture_count,
-                            $screen_count,
-                            $session_duration,
-                            $channel_type,
-                            $is_bounce,
-                            $entry_hostname,
-                            $entry_pathname,
-                            $entry_utm_source,
-                            $entry_utm_campaign,
-                            $entry_utm_medium,
-                            $entry_referring_domain,
-                            $last_external_click_url
+                            sessions.session_id,
+                            sessions.distinct_id,
+                            persons.properties,
+                            sessions.$start_timestamp,
+                            sessions.$end_timestamp,
+                            sessions.$entry_current_url,
+                            sessions.$end_current_url,
+                            sessions.$urls,
+                            sessions.$num_uniq_urls,
+                            sessions.$pageview_count,
+                            sessions.$autocapture_count,
+                            sessions.$screen_count,
+                            sessions.$session_duration,
+                            sessions.$channel_type,
+                            sessions.$is_bounce,
+                            sessions.$entry_hostname,
+                            sessions.$entry_pathname,
+                            sessions.$entry_utm_source,
+                            sessions.$entry_utm_campaign,
+                            sessions.$entry_utm_medium,
+                            sessions.$entry_referring_domain,
+                            sessions.$last_external_click_url
                         FROM sessions
-                        WHERE session_id = ${props.sessionId}
+                        LEFT JOIN person_distinct_ids ON person_distinct_ids.distinct_id = sessions.distinct_id
+                        LEFT JOIN persons ON persons.id = person_distinct_ids.person_id
+                        WHERE sessions.session_id = ${props.sessionId}
                         LIMIT 1
                     `
 
@@ -88,25 +92,26 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                     return {
                         session_id: row[0],
                         distinct_id: row[1],
-                        start_timestamp: row[2],
-                        end_timestamp: row[3],
-                        entry_current_url: row[4],
-                        end_current_url: row[5],
-                        urls: row[6] || [],
-                        num_uniq_urls: row[7] || 0,
-                        pageview_count: row[8] || 0,
-                        autocapture_count: row[9] || 0,
-                        screen_count: row[10] || 0,
-                        session_duration: row[11] || 0,
-                        channel_type: row[12],
-                        is_bounce: row[13] || false,
-                        entry_hostname: row[14],
-                        entry_pathname: row[15],
-                        entry_utm_source: row[16],
-                        entry_utm_campaign: row[17],
-                        entry_utm_medium: row[18],
-                        entry_referring_domain: row[19],
-                        last_external_click_url: row[20],
+                        person_properties: row[2] ? JSON.parse(row[2]) : null,
+                        start_timestamp: row[3],
+                        end_timestamp: row[4],
+                        entry_current_url: row[5],
+                        end_current_url: row[6],
+                        urls: row[7] || [],
+                        num_uniq_urls: row[8] || 0,
+                        pageview_count: row[9] || 0,
+                        autocapture_count: row[10] || 0,
+                        screen_count: row[11] || 0,
+                        session_duration: row[12] || 0,
+                        channel_type: row[13],
+                        is_bounce: row[14] || false,
+                        entry_hostname: row[15],
+                        entry_pathname: row[16],
+                        entry_utm_source: row[17],
+                        entry_utm_campaign: row[18],
+                        entry_utm_medium: row[19],
+                        entry_referring_domain: row[20],
+                        last_external_click_url: row[21],
                     }
                 },
             },
