@@ -5,6 +5,8 @@ from uuid import uuid4
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import patch
 
+from langchain_core.runnables import RunnableConfig
+
 from posthog.schema import (
     BillingSpendResponseBreakdownType,
     BillingUsageResponseBreakdownType,
@@ -31,10 +33,11 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
     def setUp(self):
         super().setUp()
         self.tool = ReadBillingTool(
-            self.team,
-            self.user,
-            AssistantState(messages=[], root_tool_call_id=str(uuid4())),
-            AssistantContextManager(self.team, self.user, {}),
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[], root_tool_call_id=str(uuid4())),
+            config=RunnableConfig(configurable={}),
+            context_manager=AssistantContextManager(self.team, self.user, {}),
         )
 
     async def test_run_with_no_billing_context(self):

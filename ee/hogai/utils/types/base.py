@@ -412,6 +412,13 @@ class AssistantNodeName(StrEnum):
     REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS = "revenue_analytics_filter_options_tools"
 
 
+class AssistantGraphName(StrEnum):
+    ASSISTANT = "assistant_graph"
+    INSIGHTS = "insights_graph"
+    TAXONOMY = "taxonomy_graph"
+    DEEP_RESEARCH = "deep_research_graph"
+
+
 class AssistantMode(StrEnum):
     ASSISTANT = "assistant"
     INSIGHTS_TOOL = "insights_tool"
@@ -442,12 +449,34 @@ class NodeStartAction(BaseModel):
     type: Literal["NODE_START"] = "NODE_START"
 
 
-AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction
+class NodeEndAction(BaseModel, Generic[PartialStateType]):
+    type: Literal["NODE_END"] = "NODE_END"
+    state: PartialStateType | None = None
+
+
+class UpdateAction(BaseModel):
+    type: Literal["UPDATE"] = "UPDATE"
+    content: str
+
+
+AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction
+
+
+class NodePath(BaseModel):
+    name: str
+    message_id: str | None = None
+    tool_call_id: str | None = None
 
 
 class AssistantDispatcherEvent(BaseModel):
     action: AssistantActionUnion = Field(discriminator="type")
+    node_path: tuple[NodePath, ...] | None = None
     node_name: str
+    node_run_id: str
+
+
+class LangGraphUpdateEvent(BaseModel):
+    update: Any
 
 
 class TodoItem(BaseModel):

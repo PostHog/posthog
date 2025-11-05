@@ -32,10 +32,11 @@ from ee.hogai.tool import ToolMessagesArtifact
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types import (
+from ee.hogai.utils.types.base import (
     AssistantMessageUnion,
     AssistantNodeName,
     AssistantState,
+    NodePath,
     PartialAssistantState,
     ReplaceMessages,
 )
@@ -67,14 +68,6 @@ if TYPE_CHECKING:
 SLASH_COMMAND_INIT = "/init"
 SLASH_COMMAND_REMEMBER = "/remember"
 
-RouteName = Literal[
-    "root",
-    "end",
-    "memory_onboarding",
-    "session_summarization",
-    "create_dashboard",
-]
-
 
 RootMessageUnion = HumanMessage | AssistantMessage | FailureMessage | AssistantToolCallMessage | ContextMessage
 T = TypeVar("T", RootMessageUnion, BaseMessage)
@@ -94,8 +87,8 @@ class RootNode(AssistantNode):
     Determines the thinking configuration for the model.
     """
 
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user)
+    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
+        super().__init__(team, user, node_path)
         self._window_manager = AnthropicConversationCompactionManager()
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
@@ -383,7 +376,7 @@ class RootNodeTools(AssistantNode):
 
         reset_state = PartialAssistantState(root_tool_call_id=None)
         # Should never happen, but just in case.
-        if not isinstance(last_message, AssistantMessage) or not state.root_tool_call_id:
+        if not isinstance(last_message, AssistantMessage) or not last_message.id or not state.root_tool_call_id:
             return reset_state
 
         # Find the current tool call in the last message.
@@ -413,10 +406,16 @@ class RootNodeTools(AssistantNode):
         tool_class = await ToolClass.create_tool_class(
             team=self._team,
             user=self._user,
+            # Tricky: set the node path to associated with the tool call
+            node_path=(
+                *self.node_path[:-1],
+                NodePath(name=AssistantNodeName.ROOT_TOOLS, message_id=last_message.id, tool_call_id=tool_call.id),
+            ),
             state=state,
             config=config,
             context_manager=self.context_manager,
         )
+
         try:
             result = await tool_class.ainvoke(
                 ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id), config=config
@@ -454,7 +453,6 @@ class RootNodeTools(AssistantNode):
                 id=str(uuid4()),
                 tool_call_id=tool_call.id,
             )
-            self.dispatcher.message(navigate_message)
             # Raising a `NodeInterrupt` ensures the assistant graph stops here and
             # surfaces the navigation confirmation to the client. The next user
             # interaction will resume the graph with potentially different
@@ -472,7 +470,8 @@ class RootNodeTools(AssistantNode):
             messages=[tool_message],
         )
 
-    def router(self, state: AssistantState) -> RouteName:
+    # This is only for the Inkeep node. Remove when inkeep_docs is removed.
+    def router(self, state: AssistantState) -> Literal["root", "end"]:
         last_message = state.messages[-1]
         if isinstance(last_message, AssistantToolCallMessage):
             return "root"  # Let the root either proceed or finish, since it now can see the tool call result

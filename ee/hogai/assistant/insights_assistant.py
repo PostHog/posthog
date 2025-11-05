@@ -1,35 +1,31 @@
 from collections.abc import AsyncGenerator
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-from posthog.schema import (
-    AssistantGenerationStatusEvent,
-    AssistantGenerationStatusType,
-    AssistantMessage,
-    HumanMessage,
-    MaxBillingContext,
-    VisualizationMessage,
-)
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
 
 from posthog.models import Team, User
 
 from ee.hogai.assistant.base import BaseAssistant
-from ee.hogai.graph import FunnelGeneratorNode, RetentionGeneratorNode, SQLGeneratorNode, TrendsGeneratorNode
-from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
-from ee.hogai.graph.query_executor.nodes import QueryExecutorNode
-from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
-from ee.hogai.utils.state import GraphValueUpdateTuple, validate_value_update
-from ee.hogai.utils.types import (
-    AssistantMode,
-    AssistantNodeName,
-    AssistantOutput,
-    AssistantState,
-    PartialAssistantState,
-)
-from ee.hogai.utils.types.base import AssistantResultUnion
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.stream_processor import AssistantStreamProcessor
+from ee.hogai.utils.types import AssistantMode, AssistantOutput, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
 from ee.models import Conversation
+
+if TYPE_CHECKING:
+    from ee.hogai.utils.types.composed import MaxNodeName
+
+
+VERBOSE_NODES: set["MaxNodeName"] = {
+    AssistantNodeName.QUERY_EXECUTOR,
+    AssistantNodeName.FUNNEL_GENERATOR,
+    AssistantNodeName.RETENTION_GENERATOR,
+    AssistantNodeName.SQL_GENERATOR,
+    AssistantNodeName.TRENDS_GENERATOR,
+    AssistantNodeName.ROOT,
+    AssistantNodeName.ROOT_TOOLS,
+}
 
 
 class InsightsAssistant(BaseAssistant):
@@ -65,23 +61,10 @@ class InsightsAssistant(BaseAssistant):
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
+            stream_processor=AssistantStreamProcessor(
+                verbose_nodes=VERBOSE_NODES, streaming_nodes=set(), state_type=AssistantState
+            ),
         )
-
-    @property
-    def VISUALIZATION_NODES(self) -> dict[MaxNodeName, type[BaseAssistantNode]]:
-        return {
-            AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
-            AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
-            AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
-            AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
-            AssistantNodeName.QUERY_EXECUTOR: QueryExecutorNode,
-        }
-
-    @property
-    def STREAMING_NODES(self) -> set[MaxNodeName]:
-        return {
-            TaxonomyNodeName.LOOP_NODE,
-        }
 
     def get_initial_state(self) -> AssistantState:
         return AssistantState(messages=[])
@@ -127,13 +110,3 @@ class InsightsAssistant(BaseAssistant):
                 "is_new_conversation": False,
             },
         )
-
-    async def _aprocess_value_update(self, update: GraphValueUpdateTuple) -> AssistantResultUnion | None:
-        _, maybe_state_update = update
-        state_update = validate_value_update(maybe_state_update)
-        if intersected_nodes := state_update.keys() & self.VISUALIZATION_NODES.keys():
-            node_name: MaxNodeName = intersected_nodes.pop()
-            node_val = state_update[node_name]
-            if isinstance(node_val, PartialAssistantState) and node_val.intermediate_steps:
-                return AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-        return await super()._aprocess_value_update(update)

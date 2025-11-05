@@ -16,7 +16,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, VisualizationMessage
+from posthog.schema import AssistantToolCallMessage, VisualizationMessage
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
@@ -140,7 +140,7 @@ class InsightSearchNode(AssistantNode):
 
     @timing_logger("InsightSearchNode.arun")
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        self._dispatch_update_message("Searching for insights")
+        self.dispatcher.update("Searching for insights")
         search_query = state.search_insights_query
         self._current_iteration = 0
 
@@ -154,19 +154,15 @@ class InsightSearchNode(AssistantNode):
         )
 
         if selected_insights:
-            self._dispatch_update_message(f"Evaluating {len(selected_insights)} insights to find the best match")
+            self.dispatcher.update(f"Evaluating {len(selected_insights)} insights to find the best match")
         else:
-            self._dispatch_update_message("No existing insights found, creating a new one")
+            self.dispatcher.update("No existing insights found, creating a new one")
 
         evaluation_result = await self._evaluate_insights_with_tools(
             selected_insights, search_query or "", max_selections=1
         )
 
         return self._handle_evaluation_result(evaluation_result, state)
-
-    def _dispatch_update_message(self, content: str) -> None:
-        """Dispatch an update message to the assistant."""
-        self.dispatcher.message(AssistantMessage(content=content))
 
     def _create_page_reader_tool(self):
         """Create tool for reading insights pages during agentic RAG loop."""
@@ -411,7 +407,7 @@ class InsightSearchNode(AssistantNode):
         selected_insights = []
 
         for step in ["Searching through existing insights", "Analyzing available insights"]:
-            self._dispatch_update_message(step)
+            self.dispatcher.update(step)
         logger.warning(f"{TIMING_LOG_PREFIX} Starting iterative search, max_iterations={self._max_iterations}")
 
         while self._current_iteration < self._max_iterations:
@@ -433,7 +429,7 @@ class InsightSearchNode(AssistantNode):
                             logger.warning(
                                 f"{TIMING_LOG_PREFIX} STALL POINT(?): Streamed 'Finding the most relevant insights' - about to fetch page content"
                             )
-                            self._dispatch_update_message("Finding the most relevant insights")
+                            self.dispatcher.update("Finding the most relevant insights")
 
                             logger.warning(f"{TIMING_LOG_PREFIX} Fetching page content for page {page_num}")
                             tool_response = await self._get_page_content_for_tool(page_num)
@@ -452,15 +448,15 @@ class InsightSearchNode(AssistantNode):
                 content = response.content if isinstance(response.content, str) else str(response.content)
                 selected_insights = self._parse_insight_ids(content)
                 if selected_insights:
-                    self._dispatch_update_message(f"Found {len(selected_insights)} relevant insights")
+                    self.dispatcher.update(f"Found {len(selected_insights)} relevant insights")
                 else:
-                    self._dispatch_update_message("No matching insights found")
+                    self.dispatcher.update("No matching insights found")
                 break
 
             except Exception as e:
                 capture_exception(e)
                 error_message = f"Error during search"
-                self._dispatch_update_message(error_message)
+                self.dispatcher.update(error_message)
                 break
 
         return selected_insights
@@ -679,7 +675,7 @@ class InsightSearchNode(AssistantNode):
         """Create a VisualizationMessage to render the insight UI."""
         try:
             for step in ["Executing insight query...", "Processing query parameters", "Running data analysis"]:
-                self._dispatch_update_message(step)
+                self.dispatcher.update(step)
 
             query_obj, _ = await self._process_insight_query(insight)
 
@@ -773,7 +769,7 @@ class InsightSearchNode(AssistantNode):
     async def _run_evaluation_loop(self, user_query: str, insights_summary: list[str], max_selections: int) -> None:
         """Run the evaluation loop with LLM."""
         for step in ["Analyzing insights to match your request", "Comparing insights for best fit"]:
-            self._dispatch_update_message(step)
+            self.dispatcher.update(step)
 
         tools = self._create_insight_evaluation_tools()
         llm_with_tools = self._model.bind_tools(tools)
@@ -787,7 +783,7 @@ class InsightSearchNode(AssistantNode):
             if getattr(response, "tool_calls", None):
                 # Only stream on first iteration to avoid noise
                 if iteration == 0:
-                    self._dispatch_update_message("Making evaluation decisions")
+                    self.dispatcher.update("Making evaluation decisions")
                 self._process_evaluation_tool_calls(response, messages, tools)
             else:
                 break
@@ -828,7 +824,7 @@ class InsightSearchNode(AssistantNode):
         num_insights = len(self._evaluation_selections)
         insight_word = "insight" if num_insights == 1 else "insights"
 
-        self._dispatch_update_message(f"Perfect! Found {num_insights} suitable {insight_word}")
+        self.dispatcher.update(f"Perfect! Found {num_insights} suitable {insight_word}")
 
         for _, selection in self._evaluation_selections.items():
             insight = selection["insight"]
@@ -858,7 +854,7 @@ class InsightSearchNode(AssistantNode):
 
     async def _create_rejection_result(self) -> dict:
         """Create result for when all insights are rejected."""
-        self._dispatch_update_message("Will create a custom insight tailored to your request")
+        self.dispatcher.update("Will create a custom insight tailored to your request")
 
         return {
             "should_use_existing": False,

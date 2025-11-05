@@ -9,7 +9,7 @@ from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import AssistantState
+from ee.hogai.utils.types.base import AssistantState, NodePath
 
 from .read_billing_tool.tool import ReadBillingTool
 
@@ -64,6 +64,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         *,
         team: Team,
         user: User,
+        node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
@@ -85,6 +86,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             team=team,
             user=user,
             state=state,
+            node_path=node_path,
             config=config,
             args_schema=args,
             description=description,
@@ -98,7 +100,13 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 if not has_access:
                     return BILLING_INSUFFICIENT_ACCESS_PROMPT, None
                 # used for routing
-                billing_tool = ReadBillingTool(self._team, self._user, self._state, self._context_manager)
+                billing_tool = ReadBillingTool(
+                    team=self._team,
+                    user=self._user,
+                    state=self._state,
+                    config=self._config,
+                    context_manager=self._context_manager,
+                )
                 result = await billing_tool.execute()
                 return result, None
             case "datawarehouse_schema":

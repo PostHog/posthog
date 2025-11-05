@@ -18,8 +18,9 @@ from posthog.models import Team, User
 import products
 
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState
+from ee.hogai.graph.base.context import get_node_path, set_node_path
+from ee.hogai.graph.mixins import AssistantContextMixin, AssistantDispatcherMixin
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 
 CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
 
@@ -58,7 +59,7 @@ class MaxToolArgs(BaseModel):
     tool_call_id: Annotated[str, InjectedToolCallId, SkipJsonSchema]
 
 
-class MaxTool(AssistantContextMixin, BaseTool):
+class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     # LangChain's default is just "content", but we always want to return the tool call artifact too
     # - it becomes the `ui_payload`
     response_format: Literal["content_and_artifact"] = "content_and_artifact"
@@ -73,7 +74,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
     _config: RunnableConfig
     _state: AssistantState
     _context_manager: AssistantContextManager
-    _tool_call_id: str
+    _node_path: tuple[NodePath, ...]
 
     # DEPRECATED: Use `_arun_impl` instead
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
@@ -89,6 +90,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
         *,
         team: Team,
         user: User,
+        node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         name: str | None = None,
@@ -108,6 +110,10 @@ class MaxTool(AssistantContextMixin, BaseTool):
         super().__init__(**tool_kwargs, **kwargs)
         self._team = team
         self._user = user
+        if node_path is None:
+            self._node_path = (*(get_node_path() or ()), NodePath(name=self.node_name))
+        else:
+            self._node_path = node_path
         self._state = state if state else AssistantState(messages=[])
         self._config = config if config else RunnableConfig(configurable={})
         self._context_manager = context_manager or AssistantContextManager(team, user, self._config)
@@ -125,18 +131,34 @@ class MaxTool(AssistantContextMixin, BaseTool):
         CONTEXTUAL_TOOL_NAME_TO_TOOL[accepted_name] = cls
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
+        """LangChain default runner."""
         try:
-            return self._run_impl(*args, **kwargs)
+            return self._run_with_context(*args, **kwargs)
         except NotImplementedError:
             pass
-        return async_to_sync(self._arun_impl)(*args, **kwargs)
+        return async_to_sync(self._arun_with_context)(*args, **kwargs)
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
+        """LangChain default runner."""
         try:
-            return await self._arun_impl(*args, **kwargs)
+            return await self._arun_with_context(*args, **kwargs)
         except NotImplementedError:
             pass
         return await super()._arun(*args, config=config, **kwargs)
+
+    def _run_with_context(self, *args, **kwargs):
+        """Sets the context for the tool."""
+        with set_node_path(self.node_path):
+            return self._run_impl(*args, **kwargs)
+
+    async def _arun_with_context(self, *args, **kwargs):
+        """Sets the context for the tool."""
+        with set_node_path(self.node_path):
+            return await self._arun_impl(*args, **kwargs)
+
+    @property
+    def node_name(self) -> str:
+        return f"max_tool.{self.get_name()}"
 
     @property
     def context(self) -> dict:
@@ -154,6 +176,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
         *,
         team: Team,
         user: User,
+        node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
@@ -163,11 +186,23 @@ class MaxTool(AssistantContextMixin, BaseTool):
 
         Override this factory to dynamically modify the tool name, description, args schema, etc.
         """
-        return cls(team=team, user=user, state=state, config=config, context_manager=context_manager)
+        return cls(
+            team=team, user=user, node_path=node_path, state=state, config=config, context_manager=context_manager
+        )
 
 
-class MaxSubtool(ABC):
-    def __init__(self, team: Team, user: User, state: AssistantState, context_manager: AssistantContextManager):
+class MaxSubtool(AssistantDispatcherMixin, ABC):
+    _config: RunnableConfig
+
+    def __init__(
+        self,
+        *,
+        team: Team,
+        user: User,
+        state: AssistantState,
+        config: RunnableConfig,
+        context_manager: AssistantContextManager,
+    ):
         self._team = team
         self._user = user
         self._state = state
@@ -176,3 +211,7 @@ class MaxSubtool(ABC):
     @abstractmethod
     async def execute(self, *args, **kwargs) -> Any:
         pass
+
+    @property
+    def node_name(self) -> str:
+        return f"max_subtool.{self.__class__.__name__}"

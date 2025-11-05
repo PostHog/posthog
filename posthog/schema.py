@@ -267,7 +267,6 @@ class AssistantTool(StrEnum):
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
     CREATE_MESSAGE_TEMPLATE = "create_message_template"
     NAVIGATE = "navigate"
-    EDIT_CURRENT_INSIGHT = "edit_current_insight"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"

@@ -1,13 +1,10 @@
 from collections.abc import Callable
 from typing import cast
 
-from posthog.models.team.team import Team
-from posthog.models.user import User
-
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
-from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState, PartialAssistantState
 
 from .memory.nodes import (
     MemoryCollectorNode,
@@ -22,9 +19,14 @@ from .memory.nodes import (
 from .root.nodes import RootNode, RootNodeTools
 
 
-class AssistantGraph(BaseAssistantGraph[AssistantState]):
-    def __init__(self, team: Team, user: User):
-        super().__init__(team, user, AssistantState)
+class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
+    @property
+    def graph_name(self) -> AssistantGraphName:
+        return AssistantGraphName.ASSISTANT
+
+    @property
+    def state_type(self) -> type[AssistantState]:
+        return AssistantState
 
     def add_title_generator(self, end_node: AssistantNodeName = AssistantNodeName.END):
         self._has_start_node = True
@@ -43,7 +45,11 @@ class AssistantGraph(BaseAssistantGraph[AssistantState]):
         self._graph.add_conditional_edges(
             AssistantNodeName.ROOT, router or cast(Callable[[AssistantState], AssistantNodeName], root_node.router)
         )
-        self._graph.add_edge(AssistantNodeName.ROOT_TOOLS, AssistantNodeName.ROOT)
+        self._graph.add_conditional_edges(
+            AssistantNodeName.ROOT_TOOLS,
+            root_node_tools.router,
+            path_map={"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END},
+        )
         return self
 
     def add_memory_onboarding(

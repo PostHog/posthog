@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import override_settings
 
 from langchain_core import messages
+from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage
 
@@ -35,7 +36,6 @@ class TestSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
             state=self.state,
             context_manager=self.context_manager,
-            tool_call_id="test-tool-call-id",
         )
 
     async def test_run_docs_search_without_api_key(self):
@@ -137,6 +137,7 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             team=self.team,
             user=self.user,
             state=self.state,
+            config=RunnableConfig(configurable={}),
             context_manager=self.context_manager,
         )
 
@@ -175,7 +176,8 @@ class TestInkeepDocsSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @override_settings(INKEEP_API_KEY="test-inkeep-key")
     @patch("ee.hogai.graph.root.tools.search.ChatOpenAI")
-    async def test_search_docs_with_successful_results(self, mock_llm_class):
+    @patch("ee.hogai.graph.root.tools.search.InkeepDocsSearchTool._has_rag_docs_search_feature_flag", return_value=True)
+    async def test_search_docs_with_successful_results(self, mock_has_rag_docs_search_feature_flag, mock_llm_class):
         response_json = """{
             "content": [
                 {
@@ -235,6 +237,7 @@ class TestInsightSearchTool(ClickhouseTestMixin, NonAtomicBaseTest):
             team=self.team,
             user=self.user,
             state=self.state,
+            config=RunnableConfig(configurable={}),
             context_manager=self.context_manager,
         )
 

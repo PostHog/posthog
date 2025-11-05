@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import MagicMock, patch
 
 from braintrust import EvalCase
 from langchain_core.runnables import RunnableConfig
@@ -7,8 +6,8 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph import AssistantGraph
 from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 
@@ -161,9 +160,7 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
     )
 
 
-@pytest.mark.django_db
-@patch("ee.hogai.graph.base.node.get_stream_writer", return_value=MagicMock())
-async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfig, demo_org_team_user):
+async def eval_tool_call_dashboard_creation(pytestconfig, demo_org_team_user):
     conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
     dashboard_creation_node = DashboardCreationNode(demo_org_team_user[1], demo_org_team_user[2])
 

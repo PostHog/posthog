@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 
 from django.conf import settings
 
+from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from ee.hogai.context import AssistantContextManager
@@ -21,7 +22,11 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
         self.team.organization.id = 789
         self.user = Mock()
         self.toolkit = EntitySearchTool(
-            self.team, self.user, AssistantState(), AssistantContextManager(self.team, self.user)
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[]),
+            config=RunnableConfig(configurable={}),
+            context_manager=AssistantContextManager(self.team, self.user, {}),
         )
 
     @parameterized.expand(

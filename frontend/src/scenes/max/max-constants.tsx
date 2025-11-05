@@ -25,7 +25,10 @@ export interface ToolDefinition<N extends string = string> {
         ToolDefinition
     >
     icon: JSX.Element
-    displayFormatter?: (toolCall: EnhancedToolCall) => string
+    displayFormatter?: (
+        toolCall: EnhancedToolCall,
+        { registeredToolMap }: { registeredToolMap: Record<string, ToolRegistration> }
+    ) => string
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -160,14 +163,18 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         },
     },
     create_and_query_insight: {
-        name: 'Query data',
-        description: 'Query data by creating insights and SQL queries',
+        name: 'Edit the insight',
+        description: "Edit the insight you're viewing",
         icon: iconForType('product_analytics'),
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Created an insight'
+        product: Scene.Insight,
+        displayFormatter: (toolCall, { registeredToolMap }) => {
+            const isEditing = registeredToolMap.create_and_query_insight
+            if (isEditing) {
+                return toolCall.status === 'completed'
+                    ? 'Edited the insight you are viewing'
+                    : 'Editing the insight you are viewing...'
             }
-            return 'Creating an insight...'
+            return toolCall.status === 'completed' ? 'Created an insight' : 'Creating an insight...'
         },
     },
     search_session_recordings: {
@@ -325,18 +332,6 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                 return 'Fixed SQL'
             }
             return 'Fixing SQL...'
-        },
-    },
-    edit_current_insight: {
-        name: 'Edit the insight',
-        description: "Edit the insight you're viewing",
-        icon: iconForType('product_analytics'),
-        product: Scene.Insight,
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Edited the insight you are viewing'
-            }
-            return 'Editing the insight you are viewing...'
         },
     },
     filter_revenue_analytics: {

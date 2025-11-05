@@ -10,7 +10,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
-    AssistantMessage,
     AssistantToolCallMessage,
     MaxRecordingUniversalFilters,
     NotebookUpdateMessage,
@@ -69,11 +68,7 @@ class SessionSummarizationNode(AssistantNode):
         """Push summarization progress as reasoning messages"""
         content = prepare_reasoning_progress_message(progress_message)
         if content:
-            self.dispatcher.message(
-                AssistantMessage(
-                    content=content,
-                )
-            )
+            self.dispatcher.update(content)
 
     async def _stream_notebook_content(self, content: dict, state: AssistantState, partial: bool = True) -> None:
         """Stream TipTap content directly to a notebook if notebook_id is present in state."""
@@ -189,13 +184,14 @@ class _SessionSearch:
         tool = await SearchSessionRecordingsTool.create_tool_class(
             team=self._node._team,
             user=self._node._user,
+            node_path=self._node.node_path,
             state=state,
             config=config,
             context_manager=self._node.context_manager,
         )
         try:
             # Call the tool's graph directly to use the same implementation as in the tool (avoid duplication)
-            result = await tool._invoke_graph(change=filter_query, tool_call_id=self._node._parent_tool_call_id or "")
+            result = await tool._invoke_graph(change=filter_query)
             if not result.get("output"):
                 self._node._log_failure(
                     f"SearchSessionRecordingsTool returned no output for session summarization (query: {filter_query})",

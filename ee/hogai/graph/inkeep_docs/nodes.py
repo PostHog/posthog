@@ -34,33 +34,24 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
-        self.dispatcher.message(AssistantMessage(content="Checking PostHog documentation...", id=str(uuid4())))
+        self.dispatcher.update("Checking PostHog documentation...")
+
         messages = self._construct_messages(
             state.messages, state.root_conversation_start_id, state.root_tool_calls_count
         )
 
         message: LangchainAIMessage = await self._get_model().ainvoke(messages, config)
-        # NOTE: This is a hacky way to send these messages as part of the root tool call
-        # Can't think of a better interface for this at the moment.
-        self.dispatcher.set_as_root()
-
         should_continue = INKEEP_DATA_CONTINUATION_PHRASE in message.content
 
         tool_prompt = "Checking PostHog documentation..."
         if should_continue:
             tool_prompt = "The documentation search results are provided in the next Assistant message.\n<system_reminder>Continue with the user's data request.</system_reminder>"
 
-        new_messages = [
-            AssistantToolCallMessage(content=tool_prompt, tool_call_id=state.root_tool_call_id, id=str(uuid4())),
-            AssistantMessage(content=message.content, id=str(uuid4())),
-        ]
-        # TRICKY: If the node generates a continuation phrase, we swap the order.
-        # This way the root node will continue the generation.
-        if should_continue:
-            new_messages.reverse()
-
         return PartialAssistantState(
-            messages=new_messages,
+            messages=[
+                AssistantToolCallMessage(content=tool_prompt, tool_call_id=state.root_tool_call_id, id=str(uuid4())),
+                AssistantMessage(content=message.content, id=str(uuid4())),
+            ],
             root_tool_call_id=None,
         )
 
