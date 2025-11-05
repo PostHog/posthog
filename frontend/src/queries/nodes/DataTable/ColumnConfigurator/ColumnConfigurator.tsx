@@ -130,11 +130,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
               TaxonomicFilterGroupType.HogQLExpression,
           ]
         : isSessionsQuery(query.source)
-          ? [
-                TaxonomicFilterGroupType.SessionProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.HogQLExpression,
-            ]
+          ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
           : [
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.EventFeatureFlags,
