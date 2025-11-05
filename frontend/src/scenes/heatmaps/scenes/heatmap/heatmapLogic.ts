@@ -191,8 +191,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 return
             }
             actions.startHeatmapExport({
-                heatmap_url: values.type === 'screenshot' ? values.screenshotUrl : values.displayUrl,
-                heatmap_data_url: values.dataUrl,
+                heatmap_url: values.type === 'screenshot' ? (values.screenshotUrl ?? '') : (values.displayUrl ?? ''),
+                heatmap_data_url: values.dataUrl ?? '',
                 heatmap_type: values.type,
                 width: values.widthOverride ?? 1024,
                 heatmap_color_palette: values.heatmapColorPalette,
