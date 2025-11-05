@@ -12,9 +12,11 @@ import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
 
+import { generatePiiMaskingCSS } from './piiMaskingStyles'
 import type { toolbarLogicType } from './toolbarLogicType'
 
 const MARGIN = 2
+const PII_MASKING_STYLESHEET_ID = 'posthog-pii-masking-styles'
 
 export type MenuState =
     | 'none'
@@ -91,6 +93,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
         setFixedPosition: (position: ToolbarPositionType) => ({ position }),
         setCurrentPathname: (pathname: string) => ({ pathname }),
         maybeSendNavigationMessage: true,
+        togglePiiMasking: (enabled?: boolean) => ({ enabled }),
+        setPiiMaskingColor: (color: string) => ({ color }),
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
@@ -187,6 +191,20 @@ export const toolbarLogic = kea<toolbarLogicType>([
             '',
             {
                 setCurrentPathname: (_, { pathname }) => pathname,
+            },
+        ],
+        piiMaskingEnabled: [
+            false,
+            { persist: true },
+            {
+                togglePiiMasking: (state, { enabled }) => enabled ?? !state,
+            },
+        ],
+        piiMaskingColor: [
+            '#888888' as string,
+            { persist: true },
+            {
+                setPiiMaskingColor: (_, { color }) => color,
             },
         ],
     })),
@@ -428,6 +446,31 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 )
             }
         },
+        togglePiiMasking: () => {
+            const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
+
+            if (values.piiMaskingEnabled) {
+                if (!styleElement) {
+                    const newStyleElement = document.createElement('style')
+                    newStyleElement.id = PII_MASKING_STYLESHEET_ID
+                    document.head.appendChild(newStyleElement)
+                    newStyleElement.textContent = generatePiiMaskingCSS(values.piiMaskingColor)
+                } else {
+                    styleElement.textContent = generatePiiMaskingCSS(values.piiMaskingColor)
+                }
+            } else {
+                if (styleElement) {
+                    styleElement.remove()
+                }
+            }
+        },
+        setPiiMaskingColor: async ({ color }) => {
+            const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
+
+            if (styleElement && values.piiMaskingEnabled) {
+                styleElement.textContent = generatePiiMaskingCSS(color)
+            }
+        },
     })),
     afterMount(({ actions, values, cache }) => {
         // Add window event listeners using disposables
@@ -453,6 +496,27 @@ export const toolbarLogic = kea<toolbarLogicType>([
             makeNavigateWrapper(actions.maybeSendNavigationMessage, '__ph_toolbar_logic_wrapped__'),
             'historyProxy'
         )
+
+        // Initialize PII masking if already enabled
+        // Remove stylesheet on unmount
+        cache.disposables.add(() => {
+            if (values.piiMaskingEnabled) {
+                let styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID) as HTMLStyleElement | null
+                if (!styleElement) {
+                    styleElement = document.createElement('style')
+                    styleElement.id = PII_MASKING_STYLESHEET_ID
+                    document.head.appendChild(styleElement)
+                }
+                styleElement.textContent = generatePiiMaskingCSS(values.piiMaskingColor)
+            }
+
+            return () => {
+                const styleElement = document.getElementById(PII_MASKING_STYLESHEET_ID)
+                if (styleElement) {
+                    styleElement.remove()
+                }
+            }
+        }, 'piiMasking')
 
         // the toolbar can be run within the posthog parent app
         // if it is then it listens to parent messages
