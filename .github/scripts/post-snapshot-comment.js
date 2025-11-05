@@ -71,30 +71,28 @@ All snapshots match exactly - no rendering instability detected
 Ready to merge!`;
 
 } else if (mode === 'check-failed') {
-    // CHECK mode failed: snapshots differ (flapping)
-    comment = `### Visual regression: ${config.label} ${config.type} failed verification ✗
+    // CHECK mode failed: snapshots don't match current rendering
+    comment = `### Visual regression: ${config.label} ${config.type} verification failed ✗
 
 **Mode:** \`CHECK\` (triggered by bot commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
 
-**Problem:** Snapshots differ from previous run - indicates flapping/instability
+**Problem:** Current rendering doesn't match committed snapshots
 
 **What this means:**
-- Snapshots are non-deterministic (timing issues, animations, etc.)
-- This prevents reliable verification and blocks merge
-- Human intervention required
+- The verification run produced different output than what was committed in UPDATE mode
+- This could indicate non-deterministic rendering (timing, animations, randomness)
+- OR the UPDATE run may have missed some rendering changes
+- Manual review required to determine cause
 
 **How to fix:**
-1. Run ${config.localCmd} locally
-2. Investigate flaky stories/tests (check CI logs for failures)
-3. Fix underlying issues:
-   - Add proper waits for async operations
-   - Stabilize animations (disable or wait for completion)
-   - Check for race conditions in rendering
-4. Push your fix (resets to UPDATE mode)
+1. Check CI logs to see which snapshots failed verification
+2. Run ${config.localCmd} locally to reproduce
+3. Determine if it's flapping (run multiple times) or a missed change
+4. If flapping: Fix the root cause (waits, animations, race conditions)
+5. If missed change: Push any code fix to trigger UPDATE mode again
+6. If uncertain: Push an empty commit to re-run UPDATE mode: \`git commit --allow-empty -m "chore: re-run visual regression"\`
 
-**Do NOT just re-run CI** - fix the root cause first if you can
-
-Workflow blocked until fixed.`;
+Workflow blocked until resolved.`;
 
 } else {
     console.error(`Error: Unknown mode: ${mode}`);
