@@ -32,13 +32,7 @@ function ExportHeatmap(): JSX.Element {
         <div className="flex justify-center h-screen w-screen overflow-scroll heatmap-exporter relative">
             <HeatmapCanvas positioning="absolute" widthOverride={null} context="in-app" exportToken={exportToken} />
             {exportedData.heatmap_context?.heatmap_type === 'screenshot' ? (
-                <>
-                    {isLoading ? (
-                        <div className="flex justify-center items-center h-screen w-screen">loading</div>
-                    ) : (
-                        <img src={screenshotUrl ?? ''} alt="Heatmap" />
-                    )}
-                </>
+                <>{isLoading ? null : <img src={screenshotUrl ?? ''} alt="Heatmap" />}</>
             ) : (
                 <iframe
                     id="heatmap-iframe"
