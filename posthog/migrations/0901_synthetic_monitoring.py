@@ -117,12 +117,6 @@ class Migration(migrations.Migration):
                 to=settings.AUTH_USER_MODEL,
             ),
         ),
-        migrations.AddConstraint(
-            model_name="syntheticmonitor",
-            constraint=models.CheckConstraint(
-                condition=models.Q(("frequency_minutes__in", [1, 5, 15, 30, 60])), name="valid_frequency_minutes"
-            ),
-        ),
         migrations.AddIndex(
             model_name="syntheticmonitor",
             index=models.Index(fields=["team", "enabled"], name="posthog_syn_team_en_idx"),

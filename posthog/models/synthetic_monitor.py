@@ -70,12 +70,6 @@ class SyntheticMonitor(CreatedMetaFields, UUIDTModel):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
-        constraints = [
-            models.CheckConstraint(
-                condition=models.Q(frequency_minutes__in=[1, 5, 15, 30, 60]),
-                name="valid_frequency_minutes",
-            )
-        ]
         indexes = [
             models.Index(fields=["team", "enabled"]),
             models.Index(fields=["next_check_at"]),
