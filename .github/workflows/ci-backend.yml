@@ -225,32 +225,41 @@ jobs:
                     fi
                   done
 
-                  # Delete previous comments from this workflow
+                  # Get existing comments
                   COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                     -H "Accept: application/vnd.github.v3+json" \
                     "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
 
-                  echo "Output from listing comments: $COMMENTS"
-                  echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | while read -r comment_id; do
-                    echo "Deleting comment $comment_id"
-                    curl -X DELETE \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
-                  done
+                  # Extract comment ID if exists
+                  SQL_COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | head -1)
+
+                  # Add timestamp and commit SHA to SQL changes
+                  TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+                  COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+                  COMMIT_SHORT="${COMMIT_SHA:0:7}"
+                  COMMENT_BODY+="\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
 
                   # Convert \n into actual newlines
                   COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
                   COMMENT_BODY_JSON=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
 
-                  # Post SQL comment to PR
-                  echo "Posting SQL comment to PR"
-                  echo "$COMMENT_BODY_JSON"
-                  curl -X POST \
-                    -H "Authorization: token $GITHUB_TOKEN" \
-                    -H "Accept: application/vnd.github.v3+json" \
-                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                    -d "$COMMENT_BODY_JSON"
+                  if [ -n "$SQL_COMMENT_ID" ]; then
+                    # Update existing comment
+                    echo "Updating existing SQL comment $SQL_COMMENT_ID"
+                    curl -X PATCH \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$SQL_COMMENT_ID" \
+                      -d "$COMMENT_BODY_JSON"
+                  else
+                    # Post new SQL comment to PR
+                    echo "Posting new SQL comment to PR"
+                    curl -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                      -d "$COMMENT_BODY_JSON"
+                  fi
 
             - name: Run migration risk analysis and post comment
               if: github.event_name == 'pull_request'
@@ -263,40 +272,68 @@ jobs:
                   EXIT_CODE=$?
                   set -e  # Re-enable exit on error
 
+                  # Save analysis to file for artifact upload
+                  if [ -n "$RISK_ANALYSIS" ]; then
+                    echo "$RISK_ANALYSIS" > migration_analysis.md
+                  fi
+
                   # Get existing comments
                   COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                     -H "Accept: application/vnd.github.v3+json" \
                     "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
 
-                  # Delete previous risk analysis comments
-                  echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
-                    echo "Deleting risk analysis comment $comment_id"
-                    curl -X DELETE \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
-                  done
+                  # Extract comment ID if exists
+                  COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | head -1)
 
                   if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
-                    # Post risk analysis comment (output already contains markdown formatting with legend)
-                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS"
+                    # Add timestamp and commit SHA to analysis
+                    TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+                    COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+                    COMMIT_SHORT="${COMMIT_SHA:0:7}"
+                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n*Last updated: $TIMESTAMP ([${COMMIT_SHORT}](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA}))*"
                     RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
                     RISK_COMMENT_JSON=$(jq -n --arg body "$RISK_COMMENT" '{body: $body}')
 
-                    echo "Posting risk analysis comment to PR"
-                    curl -X POST \
+                    if [ -n "$COMMENT_ID" ]; then
+                      # Update existing comment
+                      echo "Updating existing risk analysis comment $COMMENT_ID"
+                      curl -X PATCH \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
+                        -d "$RISK_COMMENT_JSON"
+                    else
+                      # Create new comment if none exists
+                      echo "Posting new risk analysis comment to PR"
+                      curl -X POST \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                        -d "$RISK_COMMENT_JSON"
+                    fi
+                  elif [ -n "$COMMENT_ID" ]; then
+                    # No migrations to analyze but comment exists - delete it
+                    echo "Deleting risk analysis comment (no migrations to analyze)"
+                    curl -X DELETE \
                       -H "Authorization: token $GITHUB_TOKEN" \
                       -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                      -d "$RISK_COMMENT_JSON"
+                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$COMMENT_ID"
                   else
-                    echo "No migrations to analyze or risk analysis output empty - previous comments cleaned up"
+                    echo "No migrations to analyze and no existing comment"
                   fi
 
                   # Fail the job if there were blocked migrations
                   if [ $EXIT_CODE -ne 0 ]; then
                     exit $EXIT_CODE
                   fi
+
+            - name: Upload migration analysis artifact
+              if: always() && github.event_name == 'pull_request'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: migration-analysis
+                  path: migration_analysis.md
+                  if-no-files-found: ignore
 
             - name: Run migrations for this PR
               run: |
