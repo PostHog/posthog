@@ -451,7 +451,7 @@ class ParquetStreamTransformer:
 
     @schema.setter
     def schema(self, schema: pa.Schema) -> None:
-        if self._schema:
+        if self._schema is not None:
             return
 
         if not self.include_inserted_at:

@@ -1491,7 +1491,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
 
                     await redshift_client.acopy_from_s3_bucket(
                         table_name=redshift_stage_table,
-                        parquet_fields=[field.name for field in record_batch_schema],
+                        parquet_fields=[field.name for field in transformer.schema],
                         schema_name=inputs.table.schema_name,
                         s3_bucket=inputs.copy.s3_bucket.name,
                         manifest_key=manifest_key,
