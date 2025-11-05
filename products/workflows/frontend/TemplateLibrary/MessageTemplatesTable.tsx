@@ -13,7 +13,7 @@ import { MessageTemplate, messageTemplatesLogic } from './messageTemplatesLogic'
 export function MessageTemplatesTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)
     const { templates, templatesLoading } = useValues(messageTemplatesLogic)
-    const { deleteTemplate, createTemplate } = useActions(messageTemplatesLogic)
+    const { deleteTemplate, createTemplate, duplicateTemplate } = useActions(messageTemplatesLogic)
 
     const columns: LemonTableColumns<MessageTemplate> = [
         {
@@ -37,6 +37,13 @@ export function MessageTemplatesTable(): JSX.Element {
                     <More
                         overlay={
                             <>
+                                <LemonButton
+                                    data-attr="message-template-duplicate"
+                                    fullWidth
+                                    onClick={() => duplicateTemplate(message)}
+                                >
+                                    Duplicate
+                                </LemonButton>
                                 <LemonButton
                                     data-attr="message-template-delete"
                                     fullWidth
