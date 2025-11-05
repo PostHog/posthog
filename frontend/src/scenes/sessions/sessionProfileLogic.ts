@@ -43,7 +43,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
     actions({
         loadSessionData: true,
         loadSessionEvents: true,
-        loadEventDetails: (eventId: string) => ({ eventId }),
+        loadEventDetails: (eventId: string, eventName: string) => ({ eventId, eventName }),
     }),
     loaders(({ props }) => ({
         sessionData: [
@@ -198,12 +198,17 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
         eventDetails: [
             {} as Record<string, Record<string, any>>,
             {
-                loadEventDetails: async ({ eventId }) => {
+                loadEventDetails: async ({ eventId, eventName }) => {
                     // Fetch full properties for the specific event
+                    // Use timestamp filtering based on session_id to enable partition pruning
+                    // Also filter by event name to improve query performance
                     const detailsQuery = hogql`
                         SELECT properties, uuid
                         FROM events
-                        WHERE uuid = ${eventId}
+                        WHERE event = ${eventName}
+                        AND timestamp >= UUIDv7ToDateTime(toUUID(${props.sessionId}))
+                        AND timestamp <= UUIDv7ToDateTime(toUUID(${props.sessionId})) + INTERVAL 1 DAY
+                        AND uuid = ${eventId}
                         LIMIT 1
                     `
 
