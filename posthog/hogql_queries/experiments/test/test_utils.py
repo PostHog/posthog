@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 
 from posthog.schema import (
@@ -444,7 +446,7 @@ class TestGetVariantResult:
     def test_funnel_with_empty_step_counts(self):
         """Test funnel metric with empty step counts."""
         metric = self.create_funnel_metric()
-        result = ("control", 0, 0.0, 0.0, [])
+        result: tuple[str, int, float, float, list[int]] = ("control", 0, 0.0, 0.0, [])
 
         breakdown_tuple, stats = get_variant_result(result, metric)
 
@@ -568,7 +570,7 @@ class TestGetVariantResults:
         metric = ExperimentMeanMetric(
             source=EventsNode(event="$pageview", math=ExperimentMetricMathType.TOTAL),
         )
-        results = []
+        results: list[tuple] = []
 
         variant_results = get_variant_results(results, metric)
 
@@ -587,7 +589,9 @@ class TestAggregateVariantsAcrossBreakdowns:
             (("Safari",), ExperimentStatsBase(key="test", number_of_samples=90, sum=220.0, sum_squares=700.0)),
         ]
 
-        aggregated = aggregate_variants_across_breakdowns(variants)
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
 
         # Should have 2 variants: control and test
         assert len(aggregated) == 2
@@ -621,7 +625,9 @@ class TestAggregateVariantsAcrossBreakdowns:
             ),
         ]
 
-        aggregated = aggregate_variants_across_breakdowns(variants)
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
 
         assert len(aggregated) == 1
         control = aggregated[0]
@@ -681,7 +687,9 @@ class TestAggregateVariantsAcrossBreakdowns:
             ),
         ]
 
-        aggregated = aggregate_variants_across_breakdowns(variants)
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
 
         assert len(aggregated) == 1
         control = aggregated[0]
@@ -723,7 +731,9 @@ class TestAggregateVariantsAcrossBreakdowns:
             ),
         ]
 
-        aggregated = aggregate_variants_across_breakdowns(variants)
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
 
         assert len(aggregated) == 1
         control = aggregated[0]
@@ -746,7 +756,9 @@ class TestAggregateVariantsAcrossBreakdowns:
             (("Safari",), ExperimentStatsBase(key="test-2", number_of_samples=85, sum=210.0, sum_squares=650.0)),
         ]
 
-        aggregated = aggregate_variants_across_breakdowns(variants)
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
 
         # Should have 3 variants
         assert len(aggregated) == 3
@@ -771,7 +783,9 @@ class TestAggregateVariantsAcrossBreakdowns:
             (("Chrome",), ExperimentStatsBase(key="test", number_of_samples=120, sum=300.0, sum_squares=900.0)),
         ]
 
-        aggregated = aggregate_variants_across_breakdowns(variants)
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
 
         assert len(aggregated) == 2
         control = next(v for v in aggregated if v.key == "control")
@@ -780,7 +794,7 @@ class TestAggregateVariantsAcrossBreakdowns:
 
     def test_empty_variants_list(self):
         """Test that empty variants list returns empty aggregation."""
-        variants = []
+        variants: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]] = []
 
         aggregated = aggregate_variants_across_breakdowns(variants)
 
@@ -793,7 +807,9 @@ class TestAggregateVariantsAcrossBreakdowns:
             (None, ExperimentStatsBase(key="test", number_of_samples=120, sum=300.0, sum_squares=900.0)),
         ]
 
-        aggregated = aggregate_variants_across_breakdowns(variants)
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
 
         # Should still aggregate by variant key
         assert len(aggregated) == 2
@@ -809,7 +825,9 @@ class TestAggregateVariantsAcrossBreakdowns:
             (("Firefox",), ExperimentStatsBase(key="control", number_of_samples=50, sum=100.0, sum_squares=200.0)),
         ]
 
-        aggregated = aggregate_variants_across_breakdowns(variants)
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
 
         # Should have only 1 variant (all have key="control")
         assert len(aggregated) == 1
@@ -839,7 +857,9 @@ class TestAggregateVariantsAcrossBreakdowns:
             ),
         ]
 
-        aggregated = aggregate_variants_across_breakdowns(variants)
+        aggregated = aggregate_variants_across_breakdowns(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
+        )
 
         # All have same variant key, should aggregate into one
         assert len(aggregated) == 1
