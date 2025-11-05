@@ -1,22 +1,19 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconFilter, IconGear } from '@posthog/icons'
-import { LemonButton, LemonSwitch, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconFilter } from '@posthog/icons'
+import { LemonButton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { FilterBar } from 'lib/components/FilterBar'
-import { IconBranch } from 'lib/lemon-ui/icons/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
+import { PathCleaningToggle } from 'scenes/web-analytics/PathCleaningToggle'
 import { WebConversionGoal } from 'scenes/web-analytics/WebConversionGoal'
 import { WebPropertyFilters } from 'scenes/web-analytics/WebPropertyFilters'
 
 import { WebOverviewQuery, WebStatsBreakdown, WebStatsTableQuery } from '~/queries/schema/schema-general'
 import { isWebStatsTableQuery } from '~/queries/utils'
-import { AvailableFeature } from '~/types'
 
 export interface WebAnalyticsEditorFiltersProps {
     query: WebStatsTableQuery | WebOverviewQuery
@@ -53,7 +50,12 @@ export function WebAnalyticsEditorFilters({ query, embedded }: WebAnalyticsEdito
                                 value={query.conversionGoal ?? null}
                                 onChange={(conversionGoal) => updateQuerySource({ conversionGoal } as any)}
                             />
-                            {isPathBased && <PathCleaningToggle query={query} updateQuerySource={updateQuerySource} />}
+                            {isPathBased && (
+                                <PathCleaningToggle
+                                    value={query.doPathCleaning ?? false}
+                                    onChange={(doPathCleaning) => updateQuerySource({ doPathCleaning })}
+                                />
+                            )}
                             <FilterTestAccountsToggle query={query} updateQuerySource={updateQuerySource} />
                             <WebPropertyFilters
                                 webAnalyticsFilters={query.properties ?? []}
@@ -64,61 +66,6 @@ export function WebAnalyticsEditorFilters({ query, embedded }: WebAnalyticsEdito
                 />
             </div>
         </div>
-    )
-}
-
-function PathCleaningToggle({
-    query,
-    updateQuerySource,
-}: {
-    query: WebStatsTableQuery | WebOverviewQuery
-    updateQuerySource: (updates: Partial<WebStatsTableQuery | WebOverviewQuery>) => void
-}): JSX.Element | null {
-    const { hasAvailableFeature } = useValues(userLogic)
-    const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
-
-    if (!hasAdvancedPaths) {
-        return null
-    }
-
-    const isPathCleaningEnabled = query.doPathCleaning ?? false
-
-    return (
-        <Tooltip
-            title={
-                <div className="p-2">
-                    <p className="mb-2">
-                        Path cleaning helps standardize URLs by removing unnecessary parameters and fragments.
-                    </p>
-                    <div className="mb-2">
-                        <Link to="https://posthog.com/docs/product-analytics/paths#path-cleaning-rules">
-                            Learn more about path cleaning rules
-                        </Link>
-                    </div>
-                    <LemonButton
-                        icon={<IconGear />}
-                        type="primary"
-                        size="small"
-                        to={urls.settings('project-product-analytics', 'path-cleaning')}
-                        targetBlank
-                        className="w-full"
-                    >
-                        Edit path cleaning settings
-                    </LemonButton>
-                </div>
-            }
-            placement="top"
-            interactive={true}
-        >
-            <LemonButton
-                icon={<IconBranch />}
-                onClick={() => updateQuerySource({ doPathCleaning: !isPathCleaningEnabled })}
-                type="secondary"
-                size="small"
-            >
-                Path cleaning: <LemonSwitch checked={isPathCleaningEnabled} className="ml-1" />
-            </LemonButton>
-        </Tooltip>
     )
 }
 
