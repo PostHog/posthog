@@ -6,6 +6,8 @@
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { getCookie } from 'lib/api'
+
 import { LLMTrace, LLMTraceEvent } from '../types'
 import type { summaryTabLogicType } from './summaryTabLogicType'
 
@@ -75,6 +77,7 @@ export const summaryTabLogic = kea<summaryTabLogicType>([
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('posthog_csrftoken') || '',
                     },
                     body: JSON.stringify(payload),
                     credentials: 'include',
