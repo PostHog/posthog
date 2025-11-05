@@ -22,9 +22,9 @@ env:
     SITE_URL: http://localhost:8000
     NO_RESTART_LOOP: 1
     OBJECT_STORAGE_ENABLED: 1
-    OBJECT_STORAGE_ENDPOINT: http://localhost:19000
-    OBJECT_STORAGE_ACCESS_KEY_ID: object_storage_root_user
-    OBJECT_STORAGE_SECRET_ACCESS_KEY: object_storage_root_password
+    OBJECT_STORAGE_ENDPOINT: http://localhost:8333
+    OBJECT_STORAGE_ACCESS_KEY_ID: any
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: any
     GITHUB_ACTION_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     CELERY_METRICS_PORT: 8999
     CLOUD_DEPLOYMENT: E2E

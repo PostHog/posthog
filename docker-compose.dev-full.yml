@@ -117,7 +117,7 @@ services:
             - .:/app/posthog
         environment:
             - DEBUG=1
-            - OBJECT_STORAGE_ENDPOINT=http://objectstorage:19000
+            - OBJECT_STORAGE_ENDPOINT=http://seaweedfs:8333
             - POSTHOG_SKIP_MIGRATION_CHECKS=true
             - JS_URL=http://localhost:8000
         depends_on:
@@ -125,8 +125,9 @@ services:
             - redis
             - clickhouse
             - kafka
+            - seaweedfs
         links:
-            - objectstorage:objectstorage
+            - seaweedfs:seaweedfs
 
     capture:
         extends:
