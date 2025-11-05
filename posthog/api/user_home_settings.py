@@ -142,9 +142,6 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
         if tab is None:
             return None, False
 
-        if not isinstance(tab, dict):
-            return None, True
-
         if not tab:
             return None, False
 
