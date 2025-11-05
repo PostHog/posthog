@@ -112,7 +112,7 @@ export function EventsTable({ query, queryKey, selectedEvent, onEventSelect }: E
                 onRowClick={undefined}
                 className="overflow-auto"
             >
-                <DataSourceTableColumn<ErrorEventType> title="Exeption" cellRenderer={renderTitle} />
+                <DataSourceTableColumn<ErrorEventType> title="Exception" cellRenderer={renderTitle} />
                 <DataSourceTableColumn<ErrorEventType> title="Labels" align="right" cellRenderer={renderAttributes} />
                 <DataSourceTableColumn<ErrorEventType> title="Actions" align="right" cellRenderer={Actions} />
             </DataSourceTable>
