@@ -1,30 +1,62 @@
 # Synthetic Monitoring MVP - Implementation Summary
 
 ## Overview
-This PR implements the MVP for PostHog Synthetic Monitoring, allowing users to monitor uptime, latency, and web performance directly within PostHog, with all results stored as events for unified analytics and alerting.
+
+This PR implements the MVP for PostHog Synthetic Monitoring with AWS Lambda execution. Users can monitor HTTP endpoint uptime and latency from multiple AWS regions, with all results stored as events in ClickHouse for unified analytics and alerting.
+
+## Architecture
+
+**Simplified Event-Only Pattern:**
+
+- Monitor configurations stored in PostgreSQL (Django model)
+- Check results stored as events in ClickHouse (no separate check table)
+- AWS Lambda functions deployed per region for true multi-region monitoring
+- Celery tasks invoke Lambda and wait for results (15s timeout)
 
 ## What's Implemented (Backend Complete)
 
 ### 1. Data Models (`posthog/models/synthetic_monitor.py`)
-- `SyntheticMonitor`: Main model for monitor configuration
-  - Supports HTTP checks and Web Performance checks
-  - Configurable frequency (1-60 minutes)
-  - Regional monitoring support (multi-region ready)
-  - Integrated alert configuration
-  - State management (healthy, failing, error, disabled)
 
-- `SyntheticMonitorCheck`: Historical check records
-  - HTTP check results (response time, status code, errors)
-  - Web Performance metrics (Lighthouse scores, Core Web Vitals)
-  - Per-region tracking
+- `SyntheticMonitor`: Main model for monitor configuration
+  - **HTTP checks only** (web performance removed for MVP)
+  - Configurable frequency (1-60 minutes)
+  - Multi-region support via `regions` field (list of AWS regions)
+  - Integrated alert configuration (email + Slack)
+  - State management (healthy, failing, error, disabled)
+  - No CheckConstraint for Django compatibility
 
 ### 2. Database Migration (`posthog/migrations/0901_synthetic_monitoring.py`)
-- Creates `SyntheticMonitor` and `SyntheticMonitorCheck` tables
-- Proper indexes for performance
-- Foreign key constraints
 
-### 3. REST API (`posthog/api/synthetic_monitor.py`)
+- Creates `SyntheticMonitor` table only
+- Indexes for performance: `(team, enabled)`, `(next_check_at)`
+- No check table (results stored as events)
+
+### 3. AWS Lambda Function (`lambda/synthetic-monitor/`)
+
+**Lambda Function** (`lambda_function.py`):
+
+- Executes HTTP checks using Python's `urllib` (no dependencies)
+- Returns structured results with timing and error information
+- Deployed to multiple AWS regions for true multi-region monitoring
+- Runtime: Python 3.12
+- Timeout: 30 seconds
+- Memory: 256MB
+
+**Deployment Script** (`deploy.sh`):
+
+- Automated deployment to multiple regions
+- Creates IAM role with CloudWatch Logs permission
+- Default regions: us-east-1, us-west-2, eu-west-1, ap-southeast-1
+
+**Documentation:**
+
+- `README.md`: Deployment guide and cost estimation
+- `SETTINGS.md`: PostHog configuration and AWS credentials setup
+
+### 4. REST API (`posthog/api/synthetic_monitor.py`)
+
 **Endpoints:**
+
 - `GET /api/projects/:id/synthetic_monitors/` - List monitors
 - `POST /api/projects/:id/synthetic_monitors/` - Create monitor
 - `GET /api/projects/:id/synthetic_monitors/:monitor_id/` - Get monitor details
@@ -33,50 +65,51 @@ This PR implements the MVP for PostHog Synthetic Monitoring, allowing users to m
 - `POST /api/projects/:id/synthetic_monitors/:monitor_id/test/` - Trigger test check
 - `POST /api/projects/:id/synthetic_monitors/:monitor_id/pause/` - Pause monitoring
 - `POST /api/projects/:id/synthetic_monitors/:monitor_id/resume/` - Resume monitoring
-- `GET /api/projects/:id/synthetic_monitors/:monitor_id/checks/` - Get check history
 
 **Features:**
-- Search and filtering by state, type, enabled status
-- Recent checks included in monitor details
+
+- Search and filtering by state, enabled status
 - Full CRUD operations with validation
 - User action tracking for analytics
-
-### 4. Webhook Endpoint (`posthog/api/synthetic_monitor_webhook.py`)
-- `POST /api/synthetic_monitor_webhook` - Receives check results from external service
-- Validates payload and creates check records
-- Updates monitor state (success/failure tracking)
-- Emits PostHog events (`synthetic_http_check`, `synthetic_web_score`)
-- Triggers alerts when thresholds are exceeded
+- Check history queried from events (not included in API response)
 
 ### 5. Celery Tasks (`posthog/tasks/alerts/synthetic_monitoring.py`)
+
 **Scheduled Tasks:**
+
 - `schedule_synthetic_checks()` - Runs every minute to trigger due checks
-- `cleanup_old_synthetic_checks()` - Daily cleanup of old check records (30-day retention)
+  - Spawns `execute_http_check` task for each monitor × region combination
 
-**Background Tasks:**
-- `trigger_external_check()` - Calls external service API to execute checks
-- `send_synthetic_monitor_alert()` - Sends email and Slack notifications
+**Execution Tasks:**
 
-**Alert Features:**
-- Email notifications to configured recipients
-- Slack integration support
-- Alert cooldown (max once per hour)
-- Configurable failure threshold
+- `execute_http_check(monitor_id, region)` - Invokes AWS Lambda synchronously
+  - Creates boto3 Lambda client for specified region
+  - Invocation type: RequestResponse (waits for result)
+  - 15-second timeout for Lambda response
+  - Parses Lambda response payload
+  - Updates monitor state (success/failure tracking)
+  - Emits `synthetic_http_check` event to ClickHouse
+  - Triggers alert task if threshold exceeded
 
-### 6. Email Template (`posthog/templates/email/synthetic_monitor_alert.html`)
-- Professional alert email design
-- Monitor details and failure information
-- Direct link to monitor dashboard
-- Error details and diagnostics
+**Alert Tasks:**
 
-### 7. Periodic Task Setup (`posthog/tasks/scheduled.py`)
+- `send_synthetic_monitor_alert()` - Sends notifications when monitors fail
+  - 1-hour cooldown between alerts
+  - Email notifications to configured recipients
+  - Slack notifications via Integration model
+  - Configurable failure threshold
+
+### 6. Periodic Task Setup (`posthog/tasks/scheduled.py`)
+
 - Integrated with PostHog's Celery scheduler
-- Checks run every minute
-- Automatic cleanup daily at 2 AM
+- `schedule_synthetic_checks` runs every 60 seconds
 
 ## Event Schema
 
 ### HTTP Check Event (`synthetic_http_check`)
+
+All check results are stored as events in ClickHouse:
+
 ```json
 {
   "event": "synthetic_http_check",
@@ -84,57 +117,40 @@ This PR implements the MVP for PostHog Synthetic Monitoring, allowing users to m
   "properties": {
     "monitor_id": "uuid",
     "monitor_name": "My Monitor",
-    "monitor_type": "http",
     "url": "https://example.com",
+    "method": "GET",
     "region": "us-east-1",
     "success": true,
-    "response_time_ms": 150,
     "status_code": 200,
-    "error_message": null
+    "response_time_ms": 150,
+    "error_message": null,
+    "expected_status_code": 200,
+    "consecutive_failures": 0
   }
 }
 ```
 
-### Web Performance Event (`synthetic_web_score`)
-```json
-{
-  "event": "synthetic_web_score",
-  "distinct_id": "monitor_<uuid>",
-  "properties": {
-    "monitor_id": "uuid",
-    "monitor_name": "My Monitor",
-    "monitor_type": "web_performance",
-    "url": "https://example.com",
-    "region": "us-east-1",
-    "success": true,
-    "performance_score": 95,
-    "accessibility_score": 100,
-    "best_practices_score": 92,
-    "seo_score": 90,
-    "lcp": 1200.5,
-    "inp": 50.2,
-    "cls": 0.05,
-    "fcp": 800.3,
-    "ttfb": 100.1
-  }
-}
-```
+## AWS Lambda Integration
 
-## External Service Integration
+### Architecture
 
-The system is designed to work with an external Lambda/Cloudflare Workers service:
-
-1. **PostHog triggers check** via `trigger_external_check()` task
-2. **External service executes** HTTP/web performance check
-3. **Results posted back** to `/api/synthetic_monitor_webhook`
+1. **PostHog Celery task** invokes AWS Lambda function in specified region
+2. **Lambda executes** HTTP check using Python `urllib`
+3. **Lambda returns** results synchronously (15s timeout)
 4. **PostHog processes** results, updates state, emits events, triggers alerts
 
-### Configuration Required
+### Required Configuration
+
 ```python
-# settings.py
-SYNTHETIC_MONITORING_EXTERNAL_SERVICE_URL = "https://your-service.com/check"
-SYNTHETIC_MONITORING_API_KEY = "your-api-key"
+# settings.py or environment variables
+SYNTHETIC_MONITOR_LAMBDA_FUNCTION_NAME = "posthog-synthetic-monitor"  # default
+AWS_ACCESS_KEY_ID = "your-access-key"  # IAM user with lambda:InvokeFunction
+AWS_SECRET_ACCESS_KEY = "your-secret-key"
 ```
+
+### Deployment
+
+See `lambda/synthetic-monitor/README.md` and `lambda/synthetic-monitor/SETTINGS.md` for detailed instructions.
 
 ## Alert Flow
 
@@ -149,6 +165,7 @@ SYNTHETIC_MONITORING_API_KEY = "your-api-key"
 ## What's Next (Frontend + Tests)
 
 ### Frontend Implementation Needed:
+
 1. **Scene structure** (`frontend/src/scenes/synthetic-monitoring/`)
    - Monitor list view with status indicators
    - Create/edit monitor form
@@ -166,6 +183,7 @@ SYNTHETIC_MONITORING_API_KEY = "your-api-key"
    - Region selector
 
 ### Testing Needed:
+
 1. **Backend Tests** (`posthog/models/test/`)
    - Model validation tests
    - API endpoint tests
@@ -181,6 +199,7 @@ SYNTHETIC_MONITORING_API_KEY = "your-api-key"
 ## Files Modified/Created
 
 ### Created:
+
 - `posthog/models/synthetic_monitor.py`
 - `posthog/migrations/0901_synthetic_monitoring.py`
 - `posthog/api/synthetic_monitor.py`
@@ -189,6 +208,7 @@ SYNTHETIC_MONITORING_API_KEY = "your-api-key"
 - `posthog/templates/email/synthetic_monitor_alert.html`
 
 ### Modified:
+
 - `posthog/models/__init__.py` - Added model exports
 - `posthog/api/__init__.py` - Registered API viewset
 - `posthog/urls.py` - Added webhook endpoint

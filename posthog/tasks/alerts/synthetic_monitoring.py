@@ -2,14 +2,17 @@
 Celery tasks for synthetic monitoring alerting and check scheduling.
 """
 
+import json
 import time
 from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
 
+import boto3
 import requests
 import structlog
+from botocore.config import Config
 from celery import shared_task
 
 from posthog.api.capture import capture_internal
@@ -19,6 +22,10 @@ from posthog.models import SyntheticMonitor
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
+
+# Lambda configuration
+LAMBDA_FUNCTION_NAME = getattr(settings, "SYNTHETIC_MONITOR_LAMBDA_FUNCTION_NAME", "posthog-synthetic-monitor")
+LAMBDA_TIMEOUT = 15  # seconds to wait for Lambda response
 
 
 @shared_task(
@@ -44,14 +51,19 @@ def schedule_synthetic_checks() -> None:
     logger.info("Scheduling synthetic checks", count=due_monitors.count())
 
     for monitor in due_monitors:
-        try:
-            execute_http_check.delay(monitor_id=str(monitor.id))
-        except Exception as e:
-            logger.exception(
-                "Failed to trigger check",
-                monitor_id=str(monitor.id),
-                error=str(e),
-            )
+        # If monitor has specific regions configured, run check in each region
+        regions = monitor.regions if monitor.regions else ["us-east-1"]
+
+        for region in regions:
+            try:
+                execute_http_check.delay(monitor_id=str(monitor.id), region=region)
+            except Exception as e:
+                logger.exception(
+                    "Failed to trigger check",
+                    monitor_id=str(monitor.id),
+                    region=region,
+                    error=str(e),
+                )
 
 
 @shared_task(
@@ -61,10 +73,10 @@ def schedule_synthetic_checks() -> None:
     retry_backoff=30,
     max_retries=3,
 )
-def execute_http_check(monitor_id: str, region: str = "default") -> None:
+def execute_http_check(monitor_id: str, region: str = "us-east-1") -> None:
     """
-    Execute an HTTP check for a synthetic monitor.
-    Makes the HTTP request, records the result, and emits event to PostHog.
+    Execute an HTTP check for a synthetic monitor by invoking AWS Lambda.
+    Waits for the Lambda response with a 15-second timeout.
     """
     try:
         monitor = SyntheticMonitor.objects.select_related("team").get(id=monitor_id)
@@ -72,61 +84,76 @@ def execute_http_check(monitor_id: str, region: str = "default") -> None:
         logger.exception("Monitor not found", monitor_id=monitor_id)
         return
 
-    # Execute the HTTP check
-    start_time = time.time()
+    # Prepare Lambda payload
+    payload = {
+        "url": monitor.url,
+        "method": monitor.method,
+        "headers": monitor.headers or {},
+        "body": monitor.body,
+        "expected_status_code": monitor.expected_status_code,
+        "timeout_seconds": monitor.timeout_seconds,
+        "monitor_id": str(monitor.id),
+        "monitor_name": monitor.name,
+    }
+
+    # Invoke Lambda function
     success = False
     status_code = None
     error_message = None
     response_time_ms = None
 
     try:
-        # Prepare request
-        headers = monitor.headers or {}
-        timeout = monitor.timeout_seconds
-
-        # Make HTTP request
-        response = requests.request(
-            method=monitor.method,
-            url=monitor.url,
-            headers=headers,
-            data=monitor.body if monitor.body else None,
-            timeout=timeout,
-            allow_redirects=True,
+        # Create Lambda client for the specified region
+        lambda_config = Config(
+            region_name=region,
+            read_timeout=LAMBDA_TIMEOUT,
+            connect_timeout=5,
         )
+        lambda_client = boto3.client("lambda", config=lambda_config)
 
-        # Calculate response time
-        response_time_ms = int((time.time() - start_time) * 1000)
-        status_code = response.status_code
+        # Invoke Lambda function synchronously
+        start_time = time.time()
+        lambda_response = lambda_client.invoke(
+            FunctionName=LAMBDA_FUNCTION_NAME,
+            InvocationType="RequestResponse",  # Synchronous invocation
+            Payload=json.dumps(payload),
+        )
+        invocation_time_ms = int((time.time() - start_time) * 1000)
 
-        # Check if status code matches expected
-        success = status_code == monitor.expected_status_code
+        # Parse Lambda response
+        response_payload = json.loads(lambda_response["Payload"].read())
 
-        if not success:
-            error_message = f"Expected status code {monitor.expected_status_code}, got {status_code}"
+        # Extract check results from Lambda response
+        success = response_payload.get("success", False)
+        status_code = response_payload.get("status_code")
+        response_time_ms = response_payload.get("response_time_ms", 0)
+        error_message = response_payload.get("error_message")
 
         logger.info(
-            "HTTP check completed",
+            "HTTP check completed via Lambda",
             monitor_id=str(monitor.id),
             url=monitor.url,
+            region=region,
             success=success,
             status_code=status_code,
             response_time_ms=response_time_ms,
+            lambda_invocation_ms=invocation_time_ms,
         )
 
-    except requests.exceptions.Timeout:
-        response_time_ms = monitor.timeout_seconds * 1000
-        error_message = f"Request timed out after {monitor.timeout_seconds} seconds"
-        logger.warning("HTTP check timeout", monitor_id=str(monitor.id), url=monitor.url)
+    except lambda_client.exceptions.ResourceNotFoundException:
+        error_message = f"Lambda function '{LAMBDA_FUNCTION_NAME}' not found in region '{region}'"
+        response_time_ms = 0
+        logger.exception("Lambda function not found", monitor_id=str(monitor.id), region=region)
 
-    except requests.exceptions.RequestException as e:
-        response_time_ms = int((time.time() - start_time) * 1000)
-        error_message = str(e)
-        logger.warning("HTTP check failed", monitor_id=str(monitor.id), url=monitor.url, error=str(e))
+    except lambda_client.exceptions.TooManyRequestsException:
+        error_message = f"Lambda throttled in region '{region}'"
+        response_time_ms = 0
+        logger.warning("Lambda throttled", monitor_id=str(monitor.id), region=region)
 
     except Exception as e:
-        response_time_ms = int((time.time() - start_time) * 1000)
-        error_message = f"Unexpected error: {str(e)}"
-        logger.exception("HTTP check error", monitor_id=str(monitor.id), url=monitor.url, error=str(e))
+        error_message = f"Lambda invocation failed: {str(e)}"
+        response_time_ms = 0
+        logger.exception("Lambda invocation error", monitor_id=str(monitor.id), region=region, error=str(e))
 
     # Update monitor state
     if success:
