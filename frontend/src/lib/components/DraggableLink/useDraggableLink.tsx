@@ -55,6 +55,11 @@ export function useDraggableLink({ href, properties, onlyWithModifierKey }: Drag
                     e.dataTransfer.setData('text/title', title)
                     // Detect icon type from URL during drag
                     e.dataTransfer.setData('text/iconType', iconType)
+
+                    // Extract node from properties if present for NotebookPanelDropzone (backward compatibility)
+                    if (properties?.node) {
+                        e.dataTransfer.setData('node', properties.node)
+                    }
                 }
                 properties && e.dataTransfer.setData('properties', JSON.stringify(properties))
             },

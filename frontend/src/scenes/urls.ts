@@ -221,14 +221,8 @@ export function getIconTypeFromUrl(href: string): FileSystemIconType {
     if (cleanPath.includes('/feature_flags')) {
         return 'feature_flag'
     }
-    if (cleanPath.includes('/early_access_features')) {
-        return 'early_access_feature'
-    }
     if (cleanPath.includes('/surveys')) {
         return 'survey'
-    }
-    if (cleanPath.includes('/session-recordings')) {
-        return 'session_replay'
     }
     if (cleanPath.includes('/replay/')) {
         return 'session_replay'
@@ -250,6 +244,9 @@ export function getIconTypeFromUrl(href: string): FileSystemIconType {
     }
     if (cleanPath.includes('/error_tracking')) {
         return 'error_tracking'
+    }
+    if (cleanPath.includes('/data-management/comments')) {
+        return 'comment'
     }
     if (cleanPath.includes('/data-management/properties')) {
         return 'property_definition'
@@ -287,12 +284,6 @@ export function getIconTypeFromUrl(href: string): FileSystemIconType {
     if (cleanPath.includes('/actions')) {
         return 'action'
     }
-    if (cleanPath.includes('/comments')) {
-        return 'comment'
-    }
-    if (cleanPath.includes('/annotations')) {
-        return 'annotation'
-    }
     if (cleanPath.includes('/events')) {
         return 'event'
     }
@@ -301,18 +292,6 @@ export function getIconTypeFromUrl(href: string): FileSystemIconType {
     }
     if (cleanPath.includes('/property_definitions')) {
         return 'property_definition'
-    }
-    if (cleanPath.includes('/persons')) {
-        return 'persons'
-    }
-    if (cleanPath.includes('/person/')) {
-        return 'user'
-    }
-    if (cleanPath.includes('/cohorts')) {
-        return 'cohort'
-    }
-    if (cleanPath.includes('/feature_flags')) {
-        return 'feature_flag'
     }
     if (cleanPath.includes('/early_access_features')) {
         return 'early_access_feature'
