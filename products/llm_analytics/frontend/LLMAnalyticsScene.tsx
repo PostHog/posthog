@@ -75,20 +75,15 @@ const Filters = (): JSX.Element => {
 
     return (
         <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b">
-            <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} data-attr="llm-analytics-date-filter" />
+            <DateFilter dateFrom={dateFrom} dateTo={dateTo} onChange={setDates} />
             <PropertyFilters
                 propertyFilters={propertyFilters}
                 taxonomicGroupTypes={generationsQuery.showPropertyFilter as TaxonomicFilterGroupType[]}
                 onChange={setPropertyFilters}
                 pageKey="llm-analytics"
-                data-attr="llm-analytics-property-filters"
             />
             <div className="flex-1" />
-            <TestAccountFilterSwitch
-                checked={shouldFilterTestAccounts}
-                onChange={setShouldFilterTestAccounts}
-                data-attr="llm-analytics-test-account-filter"
-            />
+            <TestAccountFilterSwitch checked={shouldFilterTestAccounts} onChange={setShouldFilterTestAccounts} />
             <LLMAnalyticsReloadAction />
         </div>
     )
