@@ -12,6 +12,22 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 export type SummaryMode = 'minimal' | 'detailed'
 
+export interface SummaryBullet {
+    text: string
+    line_refs: string
+}
+
+export interface InterestingNote {
+    text: string
+    line_refs: string // Can be empty string if no line refs
+}
+
+export interface StructuredSummary {
+    flow_diagram: string
+    summary_bullets: SummaryBullet[]
+    interesting_notes: InterestingNote[] // Empty array if none
+}
+
 export interface SummaryTabLogicProps {
     trace?: LLMTrace
     event?: LLMTraceEvent
@@ -33,7 +49,7 @@ export const summaryTabLogic = kea([
     }),
     loaders(({ props }) => ({
         summaryData: {
-            __default: null as { summary: string; text_repr: string } | null,
+            __default: null as { summary: StructuredSummary; text_repr: string } | null,
             generateSummary: async (mode: SummaryMode = 'minimal') => {
                 // Determine if we're summarizing a trace or an event
                 const isTrace = !!props.trace

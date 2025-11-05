@@ -7,12 +7,13 @@ Generates AI-powered summaries of individual events (generations, spans, embeddi
 from typing import Any
 
 from ..llm.call import call_summarization_llm
+from ..llm.schema import SummarizationResponse
 from ..utils import load_summarization_template
 
 
-async def summarize_event(event: dict[str, Any], text_repr: str, mode: str = "minimal") -> str:
+async def summarize_event(event: dict[str, Any], text_repr: str, mode: str = "minimal") -> SummarizationResponse:
     """
-    Generate a summary of an event using LLM.
+    Generate a structured summary of an event using LLM.
 
     Args:
         event: Event dictionary with properties
@@ -20,7 +21,7 @@ async def summarize_event(event: dict[str, Any], text_repr: str, mode: str = "mi
         mode: Summary detail level ('minimal' or 'detailed')
 
     Returns:
-        Summary text with line references
+        Structured summarization response with flow, bullets, and optional notes
     """
     # Load prompt templates
     system_prompt = load_summarization_template(
@@ -35,7 +36,7 @@ async def summarize_event(event: dict[str, Any], text_repr: str, mode: str = "mi
         },
     )
 
-    # Call LLM for summary
+    # Call LLM for structured summary
     summary = await call_summarization_llm(system_prompt, user_prompt)
 
     return summary

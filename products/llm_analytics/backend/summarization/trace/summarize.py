@@ -7,14 +7,15 @@ Generates AI-powered summaries of full LLM traces using text representation.
 from typing import Any
 
 from ..llm.call import call_summarization_llm
+from ..llm.schema import SummarizationResponse
 from ..utils import load_summarization_template
 
 
 async def summarize_trace(
     trace: dict[str, Any], hierarchy: list[dict[str, Any]], text_repr: str, mode: str = "minimal"
-) -> str:
+) -> SummarizationResponse:
     """
-    Generate a summary of a trace using LLM.
+    Generate a structured summary of a trace using LLM.
 
     Args:
         trace: Trace metadata dictionary
@@ -23,7 +24,7 @@ async def summarize_trace(
         mode: Summary detail level ('minimal' or 'detailed')
 
     Returns:
-        Summary text with line references
+        Structured summarization response with flow, bullets, and optional notes
     """
     # Load prompt templates
     system_prompt = load_summarization_template(
@@ -38,7 +39,7 @@ async def summarize_trace(
         },
     )
 
-    # Call LLM for summary
+    # Call LLM for structured summary
     summary = await call_summarization_llm(system_prompt, user_prompt)
 
     return summary

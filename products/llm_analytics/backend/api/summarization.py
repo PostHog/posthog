@@ -45,9 +45,27 @@ class SummarizeRequestSerializer(serializers.Serializer):
     )
 
 
+class SummaryBulletSerializer(serializers.Serializer):
+    text = serializers.CharField()
+    line_refs = serializers.CharField()
+
+
+class InterestingNoteSerializer(serializers.Serializer):
+    text = serializers.CharField()
+    line_refs = serializers.CharField()  # Can be empty string if no line refs
+
+
+class StructuredSummarySerializer(serializers.Serializer):
+    flow_diagram = serializers.CharField(help_text="Mermaid flowchart code showing the main flow")
+    summary_bullets = SummaryBulletSerializer(many=True, help_text="Main summary bullets")
+    interesting_notes = InterestingNoteSerializer(
+        many=True, help_text="Interesting notes (0-2 for minimal, more for detailed)"
+    )
+
+
 class SummarizeResponseSerializer(serializers.Serializer):
-    summary = serializers.CharField(
-        help_text="AI-generated summary with line references",
+    summary = StructuredSummarySerializer(
+        help_text="Structured AI-generated summary with flow, bullets, and optional notes",
     )
     text_repr = serializers.CharField(
         help_text="Line-numbered text representation that the summary references",
@@ -252,9 +270,9 @@ The response includes the summary text and optional metadata.
             else:
                 raise exceptions.ValidationError(f"Invalid summarize_type: {summarize_type}")
 
-            # Build response
+            # Build response - convert Pydantic model to dict
             result = {
-                "summary": summary,
+                "summary": summary.model_dump(),  # Convert Pydantic model to dict
                 "text_repr": text_repr,  # Include line-numbered text for navigation
                 "metadata": {
                     "text_repr_length": len(text_repr),

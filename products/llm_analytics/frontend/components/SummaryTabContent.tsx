@@ -6,15 +6,13 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { SummaryMode, summaryTabLogic } from './summaryTabLogic'
+import { StructuredSummary, SummaryMode, summaryTabLogic } from './summaryTabLogic'
 
 export interface SummaryTabContentProps {
     trace?: LLMTrace
@@ -26,7 +24,6 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
     const logic = summaryTabLogic({ trace, event, tree })
     const { summaryData, summaryDataLoading } = useValues(logic)
     const { generateSummary } = useActions(logic)
-    const [isRenderingMarkdown, setIsRenderingMarkdown] = useState(true)
     const [summaryMode, setSummaryMode] = useState<SummaryMode>('minimal')
 
     const isSummarizable = trace || (event && (event.event === '$ai_generation' || event.event === '$ai_span'))
@@ -124,13 +121,6 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
                                 size="xsmall"
                             />
                             <LemonButton
-                                size="small"
-                                noPadding
-                                icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
-                                tooltip="Toggle markdown rendering"
-                                onClick={() => setIsRenderingMarkdown(!isRenderingMarkdown)}
-                            />
-                            <LemonButton
                                 type="secondary"
                                 size="small"
                                 onClick={() => generateSummary(summaryMode)}
@@ -140,7 +130,7 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
                             </LemonButton>
                         </div>
                         <div className="prose prose-sm max-w-none border rounded p-4 bg-bg-light overflow-x-auto">
-                            <SummaryRenderer summary={summaryData.summary} isRenderingMarkdown={isRenderingMarkdown} />
+                            <SummaryRenderer summary={summaryData.summary} />
                         </div>
                     </div>
 
@@ -157,16 +147,14 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
 }
 
 /**
- * Renders summary text with interactive line references
+ * Renders structured summary with collapsible sections
  */
-function SummaryRenderer({
-    summary,
-    isRenderingMarkdown,
-}: {
-    summary: string
-    isRenderingMarkdown: boolean
-}): JSX.Element {
-    // Parse line references like [L45], [L45-52], [L13-19, L553-555], L1386-1436, or L2560-2581 and make them clickable
+function SummaryRenderer({ summary }: { summary: StructuredSummary }): JSX.Element {
+    const [isFlowExpanded, setIsFlowExpanded] = useState(false)
+    const [isSummaryExpanded, setIsSummaryExpanded] = useState(true)
+    const [isNotesExpanded, setIsNotesExpanded] = useState(true)
+
+    // Parse line references like L45, L45-52, L13-19, L553-555 and make them clickable
     const parseLineReferences = (text: string): (string | JSX.Element)[] => {
         const parts: (string | JSX.Element)[] = []
         // Match both bracketed [L10-20] and unbracketed L10-20 patterns
@@ -271,21 +259,89 @@ function SummaryRenderer({
         return parts
     }
 
-    if (isRenderingMarkdown) {
-        // For markdown mode, render as-is without processing line references
-        // This preserves markdown structure (line references visible but not interactive)
-        return (
-            <div>
-                <LemonMarkdown>{summary}</LemonMarkdown>
-            </div>
-        )
+    const renderLineRefs = (lineRefs: string): JSX.Element | null => {
+        if (!lineRefs || lineRefs.trim() === '') {
+            return null
+        }
+        return <span className="ml-2">{parseLineReferences(lineRefs)}</span>
     }
 
-    // For plain text mode, process and display
-    const processedSummary = parseLineReferences(summary)
     return (
-        <div className="whitespace-pre font-mono">
-            {processedSummary.map((part, index) => (typeof part === 'string' ? part : <span key={index}>{part}</span>))}
+        <div className="space-y-4">
+            {/* Flow Diagram - Collapsible ASCII */}
+            <div className="border border-border rounded">
+                <Tooltip title="ASCII diagram showing the main steps and flow of execution">
+                    <button
+                        type="button"
+                        className="w-full text-left px-3 py-2 font-medium flex items-center gap-2 hover:bg-accent text-sm"
+                        onClick={() => setIsFlowExpanded(!isFlowExpanded)}
+                    >
+                        <span className="text-xs">{isFlowExpanded ? '▼' : '▶'}</span>
+                        Flow Diagram
+                    </button>
+                </Tooltip>
+                {isFlowExpanded && (
+                    <div className="px-3 py-2 border-t border-border bg-bg-light">
+                        <pre className="font-mono text-sm whitespace-pre overflow-x-auto m-0">
+                            {summary.flow_diagram}
+                        </pre>
+                    </div>
+                )}
+            </div>
+
+            {/* Summary Bullets - Collapsible */}
+            <div className="border border-border rounded">
+                <Tooltip title="Key highlights and main actions from this trace or event">
+                    <button
+                        type="button"
+                        className="w-full text-left px-3 py-2 font-medium flex items-center gap-2 hover:bg-accent text-sm"
+                        onClick={() => setIsSummaryExpanded(!isSummaryExpanded)}
+                    >
+                        <span className="text-xs">{isSummaryExpanded ? '▼' : '▶'}</span>
+                        Summary Points
+                    </button>
+                </Tooltip>
+                {isSummaryExpanded && (
+                    <div className="px-3 py-2 border-t border-border bg-bg-light">
+                        <ul className="list-disc list-inside space-y-1">
+                            {summary.summary_bullets.map((bullet, idx) => (
+                                <li key={idx} className="text-sm">
+                                    {bullet.text}
+                                    {renderLineRefs(bullet.line_refs)}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+            </div>
+
+            {/* Interesting Notes - Collapsible (if present) */}
+            {summary.interesting_notes.length > 0 && (
+                <div className="border border-border rounded">
+                    <Tooltip title="Notable observations like errors, unusual patterns, or important details">
+                        <button
+                            type="button"
+                            className="w-full text-left px-3 py-2 font-medium flex items-center gap-2 hover:bg-accent text-sm"
+                            onClick={() => setIsNotesExpanded(!isNotesExpanded)}
+                        >
+                            <span className="text-xs">{isNotesExpanded ? '▼' : '▶'}</span>
+                            Interesting Notes
+                        </button>
+                    </Tooltip>
+                    {isNotesExpanded && (
+                        <div className="px-3 py-2 border-t border-border bg-bg-light">
+                            <ul className="list-disc list-inside space-y-1">
+                                {summary.interesting_notes.map((note, idx) => (
+                                    <li key={idx} className="text-sm">
+                                        {note.text}
+                                        {renderLineRefs(note.line_refs)}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
@@ -302,7 +358,8 @@ function TextReprDisplay({ textRepr }: { textRepr: string }): JSX.Element {
             {lines.map((line, index) => {
                 // Extract line number from zero-padded format "L001:", "L010:", "L100:"
                 const match = line.match(/^L(\d+):/)
-                const lineNumber = match ? match[1] : null
+                // Parse to int to remove leading zeros so ID matches what click handlers expect
+                const lineNumber = match ? parseInt(match[1], 10) : null
 
                 return (
                     <div

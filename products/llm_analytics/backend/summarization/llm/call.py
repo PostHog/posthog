@@ -13,6 +13,7 @@ from openai import AsyncOpenAI as DirectAsyncOpenAI
 from rest_framework import exceptions
 
 from ..constants import SUMMARIZATION_MODEL, SUMMARIZATION_TIMEOUT
+from .schema import SummarizationResponse
 
 
 def _get_openai_client():
@@ -47,16 +48,16 @@ def _get_openai_client():
         )
 
 
-async def call_summarization_llm(system_prompt: str, user_prompt: str) -> str:
+async def call_summarization_llm(system_prompt: str, user_prompt: str) -> SummarizationResponse:
     """
-    Call LLM for summarization with configured parameters.
+    Call LLM for summarization with structured outputs.
 
     Args:
         system_prompt: System instructions for the LLM
         user_prompt: User prompt with content to summarize
 
     Returns:
-        Summary text from the LLM
+        Structured summarization response
     """
     client = _get_openai_client()
 
@@ -65,10 +66,20 @@ async def call_summarization_llm(system_prompt: str, user_prompt: str) -> str:
         {"role": "user", "content": user_prompt},
     ]
 
-    # Non-streaming call for simplicity
+    # Use structured outputs with JSON schema
     response = await client.chat.completions.create(
         model=SUMMARIZATION_MODEL,
         messages=messages,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "summarization_response",
+                "strict": True,
+                "schema": SummarizationResponse.model_json_schema(),
+            },
+        },
     )
 
-    return response.choices[0].message.content or ""
+    # Parse the JSON response into our Pydantic model
+    content = response.choices[0].message.content or "{}"
+    return SummarizationResponse.model_validate_json(content)
