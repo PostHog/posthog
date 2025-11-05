@@ -84,6 +84,25 @@ def add_query_params(url: str, params: dict[str, str]) -> str:
     return urlunparse(parsed)
 
 
+def _get_breakdown_info(item: dict, breakdown_filter: Optional[dict]) -> tuple[list, list, bool]:
+    breakdown_values = []
+    breakdowns = []
+
+    if "breakdown_value" in item:
+        breakdown_value = item.get("breakdown_value")
+        breakdown_values = breakdown_value if isinstance(breakdown_value, list) else [breakdown_value]
+
+        breakdowns = breakdown_filter.get("breakdowns", []) if breakdown_filter else []
+        if not breakdowns and breakdown_filter and "breakdown" in breakdown_filter:
+            breakdowns = [{"property": breakdown_filter.get("breakdown")}]
+
+    has_breakdown_columns = any(
+        breakdowns[idx].get("property") if idx < len(breakdowns) else None for idx in range(len(breakdown_values))
+    )
+
+    return breakdown_values, breakdowns, has_breakdown_columns
+
+
 def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = None) -> Generator[Any, None, None]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
@@ -187,7 +206,9 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
                 compare_label = item.get("compare_label", "")
                 action = item.get("action")
 
-                if isinstance(action, dict) and action.get("name"):
+                breakdown_values, breakdowns, has_breakdown_columns = _get_breakdown_info(item, breakdown_filter)
+
+                if has_breakdown_columns and isinstance(action, dict) and action.get("name"):
                     series_name = action["name"]
                 else:
                     series_name = label
@@ -202,28 +223,16 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
                 if isinstance(action, dict) and action.get("custom_name"):
                     line["custom name"] = action.get("custom_name")
 
-                if "breakdown_value" in item:
-                    breakdown_value = item.get("breakdown_value")
-                    breakdown_values = breakdown_value if isinstance(breakdown_value, list) else [breakdown_value]
-
-                    # Get breakdown property names from filter
-                    breakdowns = breakdown_filter.get("breakdowns", []) if breakdown_filter else []
-                    # For single breakdown, check legacy "breakdown" field
-                    if not breakdowns and breakdown_filter and "breakdown" in breakdown_filter:
-                        breakdowns = [{"property": breakdown_filter.get("breakdown")}]
-
-                    for idx, val in enumerate(breakdown_values):
-                        # Get the property name from the breakdown filter
-                        prop_name = breakdowns[idx].get("property") if idx < len(breakdowns) else None
-                        if not prop_name:
-                            continue
-                        # Format special breakdown values for display
-                        formatted_val = str(val) if val is not None else ""
-                        if formatted_val == BREAKDOWN_OTHER_STRING_LABEL:
-                            formatted_val = BREAKDOWN_OTHER_DISPLAY
-                        elif formatted_val == BREAKDOWN_NULL_STRING_LABEL:
-                            formatted_val = BREAKDOWN_NULL_DISPLAY
-                        line[prop_name] = formatted_val
+                for idx, val in enumerate(breakdown_values):
+                    prop_name = breakdowns[idx].get("property") if idx < len(breakdowns) else None
+                    if not prop_name:
+                        continue
+                    formatted_val = str(val) if val is not None else ""
+                    if formatted_val == BREAKDOWN_OTHER_STRING_LABEL:
+                        formatted_val = BREAKDOWN_OTHER_DISPLAY
+                    elif formatted_val == BREAKDOWN_NULL_STRING_LABEL:
+                        formatted_val = BREAKDOWN_NULL_DISPLAY
+                    line[prop_name] = formatted_val
 
                 if item.get("aggregated_value") is not None:
                     line["Total Sum"] = item.get("aggregated_value")
