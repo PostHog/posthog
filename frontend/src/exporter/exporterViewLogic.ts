@@ -43,17 +43,22 @@ export const exporterViewLogic = kea<exporterViewLogicType>([
                 return
             }
             actions.setIsLoading(true)
-            const response = await fetch(props.heatmap_url ?? '', {
-                headers: { Authorization: `Bearer ${props.exportToken}` },
-            })
-            if (response.ok) {
-                const blob = await response.blob()
-                const objectUrl = URL.createObjectURL(blob)
-                actions.setScreenshotUrl(objectUrl)
-            } else {
-                console.error('Failed to fetch screenshot:', response.status)
+            try {
+                const response = await fetch(props.heatmap_url ?? '', {
+                    headers: { Authorization: `Bearer ${props.exportToken}` },
+                })
+                if (response.ok) {
+                    const blob = await response.blob()
+                    const objectUrl = URL.createObjectURL(blob)
+                    actions.setScreenshotUrl(objectUrl)
+                } else {
+                    console.error('Failed to fetch screenshot:', response.status)
+                }
+            } catch (error) {
+                console.error('Failed to fetch screenshot:', error)
+            } finally {
+                actions.setIsLoading(false)
             }
-            actions.setIsLoading(false)
         },
     })),
     afterMount(({ actions, props }) => {
