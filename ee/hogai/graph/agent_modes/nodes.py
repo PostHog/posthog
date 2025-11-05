@@ -149,8 +149,10 @@ class AgentToolkit:
 
 
 class BaseAgentNode(AssistantNode):
-    def __init__(self, team: Team, user: User, toolkit_class: type[AgentToolkit]):
-        super().__init__(team, user)
+    def __init__(
+        self, team: Team, user: User, toolkit_class: type[AgentToolkit], node_path: tuple[NodePath, ...] | None = None
+    ):
+        super().__init__(team, user, node_path=node_path)
         self._toolkit_class = toolkit_class
 
 
@@ -164,8 +166,10 @@ class AgentNode(BaseAgentNode):
     Determines the thinking configuration for the model.
     """
 
-    def __init__(self, team: Team, user: User, toolkit_class: type[AgentToolkit]):
-        super().__init__(team, user, toolkit_class)
+    def __init__(
+        self, team: Team, user: User, toolkit_class: type[AgentToolkit], node_path: tuple[NodePath, ...] | None = None
+    ):
+        super().__init__(team, user, toolkit_class, node_path=node_path)
         self._window_manager = AnthropicConversationCompactionManager()
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
