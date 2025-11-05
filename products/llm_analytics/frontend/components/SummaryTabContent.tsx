@@ -96,7 +96,7 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
                                 Regenerate
                             </LemonButton>
                         </div>
-                        <div className="prose prose-sm max-w-none border rounded p-4 bg-bg-light">
+                        <div className="prose prose-sm max-w-none border rounded p-4 bg-bg-light overflow-x-auto">
                             <SummaryRenderer summary={summaryData.summary} isRenderingMarkdown={isRenderingMarkdown} />
                         </div>
                     </div>
@@ -232,7 +232,7 @@ function SummaryRenderer({
         // For markdown mode, we need to process the text before rendering
         const processedSummary = parseLineReferences(summary)
         return (
-            <div className="whitespace-pre-wrap">
+            <div className="whitespace-pre">
                 {processedSummary.map((part, index) => {
                     if (typeof part === 'string') {
                         return <LemonMarkdown key={index}>{part}</LemonMarkdown>
@@ -246,7 +246,7 @@ function SummaryRenderer({
     // For plain text mode, process and display
     const processedSummary = parseLineReferences(summary)
     return (
-        <div className="whitespace-pre-wrap font-mono">
+        <div className="whitespace-pre font-mono">
             {processedSummary.map((part, index) => (typeof part === 'string' ? part : <span key={index}>{part}</span>))}
         </div>
     )
