@@ -11,7 +11,27 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # First add the field as nullable
         migrations.AddField(
+            model_name="organization",
+            name="default_anonymize_ips",
+            field=models.BooleanField(
+                default=posthog.models.organization.default_anonymize_ips,
+                null=True,
+                blank=True,
+                help_text="Default setting for 'Discard client IP data' for new projects in this organization.",
+            ),
+        ),
+        # Set default values for existing rows and add database-level default
+        migrations.RunSQL(
+            sql="""
+                UPDATE posthog_organization SET default_anonymize_ips = FALSE WHERE default_anonymize_ips IS NULL;
+                ALTER TABLE posthog_organization ALTER COLUMN default_anonymize_ips SET DEFAULT FALSE;
+            """,
+            reverse_sql="ALTER TABLE posthog_organization ALTER COLUMN default_anonymize_ips DROP DEFAULT;",
+        ),
+        # Make the field non-nullable
+        migrations.AlterField(
             model_name="organization",
             name="default_anonymize_ips",
             field=models.BooleanField(
