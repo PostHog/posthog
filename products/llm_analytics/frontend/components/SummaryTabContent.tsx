@@ -11,6 +11,7 @@ import { LemonButton, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
@@ -381,17 +382,19 @@ function TextReprDisplay({ textRepr }: { textRepr: string }): JSX.Element {
 
     const handleLineClick = (lineNumber: number): void => {
         // Update URL with line parameter
-        // This will trigger the URL routing in llmAnalyticsTraceLogic
-        // which will set the lineNumber state and scroll to the line
         const url = new URL(window.location.href)
         url.searchParams.set('line', lineNumber.toString())
+        const fullUrl = url.toString()
+
+        // Copy URL to clipboard
+        void copyToClipboard(fullUrl, 'line reference URL')
 
         // Navigate to the URL, which will be picked up by the Conversation tab's text view
         router.actions.push(url.pathname + url.search)
 
         // Note: User will need to manually switch to Conversation tab and TextView mode
         // to see the highlighted line. We don't auto-switch to avoid disrupting workflow.
-        lemonToast.info('Line reference copied. Switch to Conversation → Text view to see highlighted line.')
+        lemonToast.info('Line reference URL copied. Switch to Conversation → Text view to see highlighted line.')
     }
 
     return (
