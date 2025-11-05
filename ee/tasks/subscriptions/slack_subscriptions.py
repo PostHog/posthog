@@ -274,9 +274,12 @@ async def send_slack_message_with_integration_async(
                 except Exception as e:
                     # Thread message failed, continue with others
                     logger.error(
-                        "send_slack_message_with_integration_async.thread_message_failed",
+                        "send_slack_message_with_integration_async.slack_thread_message_failed_after_retries",
                         subscription_id=subscription.id,
-                        thread_message_index=idx,
+                        channel=message_data.channel,
+                        thread_index=idx,
+                        total_thread_messages=len(message_data.thread_messages),
+                        thread_ts=thread_ts,
                         error=str(e),
                         exc_info=True,
                     )
