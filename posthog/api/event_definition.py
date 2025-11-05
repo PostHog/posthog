@@ -182,7 +182,24 @@ class EventDefinitionViewSet(
             conditions=search_query,
             order_expressions=order_expressions,
         )
-        return event_definition_object_manager.raw(sql, params=params)
+        queryset = event_definition_object_manager.raw(sql, params=params)
+
+        # Apply tags filter if provided
+        tags = self.request.GET.get("tags")
+        if tags:
+            try:
+                tags_list = json.loads(tags)
+                if tags_list:
+                    # Convert raw queryset to regular queryset for filtering
+                    ids = [obj.id for obj in queryset]
+                    queryset = event_definition_object_manager.filter(
+                        id__in=ids, tagged_items__tag__name__in=tags_list
+                    ).distinct()
+            except (json.JSONDecodeError, TypeError):
+                # If the JSON is invalid, ignore the filter
+                pass
+
+        return queryset
 
     def _ordering_params_from_request(
         self,

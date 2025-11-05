@@ -5,7 +5,7 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { objectsEqual } from 'lib/utils'
+import { parseTagsFilter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
@@ -29,16 +29,15 @@ export interface Filters {
     properties: AnyPropertyFilter[]
     event_type: EventDefinitionType
     ordering?: string
+    tags?: string[]
 }
 
-function cleanFilters(filter: Partial<Filters>): Filters {
-    return {
-        event: '',
-        properties: [],
-        event_type: EventDefinitionType.Event,
-        ordering: 'event',
-        ...filter,
-    }
+const DEFAULT_FILTERS: Filters = {
+    event: '',
+    properties: [],
+    event_type: EventDefinitionType.Event,
+    ordering: 'event',
+    tags: undefined,
 }
 
 export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
@@ -104,7 +103,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     }),
     reducers({
         filters: [
-            cleanFilters({}),
+            DEFAULT_FILTERS,
             {
                 setFilters: (state, { filters }) => ({
                     ...state,
@@ -131,19 +130,16 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             } as EventDefinitionsPaginatedResponse,
             {
                 loadEventDefinitions: async ({ url: _url }, breakpoint) => {
-                    let url = normalizeEventDefinitionEndpointUrl({
-                        url: _url,
-                        eventTypeFilter: values.filters.event_type,
-                    })
+                    let url = _url
+
+                    if (!url) {
+                        url = api.eventDefinitions.determineListEndpoint(values.paramsFromFilters)
+                    }
+
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
 
-                    if (!url) {
-                        url = api.eventDefinitions.determineListEndpoint({
-                            event_type: values.filters.event_type,
-                        })
-                    }
                     await breakpoint(200)
                     cache.eventsStartTime = performance.now()
                     const response = await api.get(url)
@@ -280,17 +276,24 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     selectors(({ cache }) => ({
         // Expose for testing
         apiCache: [() => [], () => cache.apiCache],
+        paramsFromFilters: [
+            (s) => [s.filters],
+            (filters: Filters) => {
+                const params: Record<string, any> = {
+                    search: filters.event,
+                    ordering: filters.ordering,
+                    event_type: filters.event_type,
+                }
+                if (filters.tags && filters.tags.length > 0) {
+                    params.tags = JSON.stringify(filters.tags)
+                }
+                return params
+            },
+        ],
     })),
     listeners(({ actions, values, cache }) => ({
         setFilters: async () => {
-            actions.loadEventDefinitions(
-                normalizeEventDefinitionEndpointUrl({
-                    url: values.eventDefinitions.current,
-                    searchParams: { search: values.filters.event, ordering: values.filters.ordering },
-                    full: true,
-                    eventTypeFilter: values.filters.event_type,
-                })
-            )
+            actions.loadEventDefinitions()
         },
         loadEventDefinitionsSuccess: () => {
             if (cache.eventsStartTime !== undefined) {
@@ -336,22 +339,22 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             }
         },
     })),
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions }) => ({
         '/data-management/events': (_, searchParams) => {
-            if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
-                actions.setFilters(searchParams as Filters)
-            } else if (!values.eventDefinitions.results.length && !values.eventDefinitionsLoading) {
-                actions.loadEventDefinitions()
+            const { event, event_type, ordering, tags } = searchParams
+
+            const filtersFromUrl: Filters = {
+                ...DEFAULT_FILTERS,
+                ...(event !== undefined && { event }),
+                ...(event_type !== undefined && { event_type }),
+                ...(ordering !== undefined && { ordering }),
+                ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
             }
+
+            actions.setFilters(filtersFromUrl)
         },
     })),
     actionToUrl(({ values }) => ({
-        setFilters: () => {
-            const nextValues = cleanFilters(values.filters)
-            const urlValues = cleanFilters(router.values.searchParams)
-            if (!objectsEqual(nextValues, urlValues)) {
-                return [router.values.location.pathname, nextValues]
-            }
-        },
+        setFilters: () => [router.values.location.pathname, values.filters],
     })),
 ])

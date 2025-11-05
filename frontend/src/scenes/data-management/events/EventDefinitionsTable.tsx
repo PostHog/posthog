@@ -5,6 +5,7 @@ import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions, Link } from '
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TagSelect } from 'lib/components/TagSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -176,6 +177,20 @@ export function EventDefinitionsTable(): JSX.Element {
                     value={filters.event}
                 />
                 <div className="flex items-center gap-2">
+                    {hasTagging && (
+                        <>
+                            <span>Tags:</span>
+                            <TagSelect
+                                defaultLabel="Any tags"
+                                value={filters.tags || []}
+                                onChange={(tags) => {
+                                    setFilters({ tags })
+                                }}
+                                data-attr="event-tags-filter"
+                                size="small"
+                            />
+                        </>
+                    )}
                     <span>Type:</span>
                     <LemonSelect
                         value={filters.event_type}
