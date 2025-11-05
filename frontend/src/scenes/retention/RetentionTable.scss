@@ -1,18 +1,24 @@
 .RetentionTable {
     width: 100%;
     font-weight: 500;
+    border-collapse: separate;
+    border-spacing: 0;
 
     th {
         padding: 0 0.5rem;
         font-weight: 500;
         text-align: left;
         white-space: nowrap;
-        border-top: 10px solid transparent;
-        border-bottom: 10px solid transparent;
+        padding-top: 10px;
+        padding-bottom: 10px;
 
         &:nth-of-type(-n + 2) {
             padding-left: 1px solid var(--color-border-primary);
         }
+    }
+
+    td {
+        padding: 0 0.15rem;
     }
 
     tr {
@@ -89,6 +95,26 @@
         .RetentionTable__Tab {
             padding: 0.5rem 0.25rem;
             margin: 0;
+        }
+    }
+
+    .RetentionTable__SelectedInterval {
+        background-color: var(--color-slate-200);
+
+        &--header {
+            font-weight: 600;
+            border-radius: var(--radius) var(--radius) 0 0;
+        }
+    }
+
+    .RetentionTable__HoveredColumn {
+        &--header {
+            background-color: var(--color-slate-100);
+            border-radius: var(--radius) var(--radius) 0 0;
+        }
+
+        &--cell {
+            background-color: var(--color-slate-100);
         }
     }
 }
