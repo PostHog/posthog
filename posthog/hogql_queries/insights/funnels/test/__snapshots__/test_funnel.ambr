@@ -335,7 +335,7 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_events_with_person_on_events_v2
   '''
-
+  
   SELECT DISTINCT person_id
   FROM events
   WHERE team_id = 99999
@@ -465,7 +465,7 @@
 # ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.1
   '''
-
+  
   SELECT count(DISTINCT person_id)
   FROM cohortpeople
   WHERE team_id = 99999
