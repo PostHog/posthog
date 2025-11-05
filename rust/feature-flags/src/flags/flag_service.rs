@@ -191,8 +191,9 @@ mod tests {
     use serde_json::json;
 
     use crate::{
-        flags::flag_models::{
-            FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
+        flags::{
+            flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX},
+            test_helpers::get_flags_from_redis,
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
@@ -471,8 +472,7 @@ mod tests {
             .await;
         assert!(result.is_ok());
         // Verify that the flags were re-added to Redis
-        let redis_flags =
-            FeatureFlagList::from_redis(redis_client.clone(), team.project_id()).await;
+        let redis_flags = get_flags_from_redis(redis_client.clone(), team.project_id()).await;
         assert!(redis_flags.is_ok());
         assert_eq!(redis_flags.unwrap().flags.len(), mock_flags.flags.len());
     }

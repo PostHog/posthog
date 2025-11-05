@@ -111,44 +111,6 @@ impl FeatureFlagList {
         }))
     }
 
-    /// Returns feature flags from redis given a project_id
-    ///
-    /// DEPRECATED: Use `get_with_cache()` instead for automatic cache management.
-    /// This method is kept for backward compatibility with existing code.
-    pub async fn from_redis(
-        client: Arc<dyn RedisClient + Send + Sync>,
-        project_id: ProjectId,
-    ) -> Result<FeatureFlagList, FlagError> {
-        tracing::debug!(
-            "Attempting to read flags from Redis at key '{}{}'",
-            TEAM_FLAGS_CACHE_PREFIX,
-            project_id
-        );
-
-        let serialized_flags = client
-            .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"))
-            .await?;
-
-        let flags_list: Vec<FeatureFlag> =
-            serde_json::from_str(&serialized_flags).map_err(|e| {
-                tracing::error!(
-                    "failed to parse data to flags list for project {}: {}",
-                    project_id,
-                    e
-                );
-                FlagError::RedisDataParsingError
-            })?;
-
-        tracing::debug!(
-            "Successfully read {} flags from Redis at key '{}{}'",
-            flags_list.len(),
-            TEAM_FLAGS_CACHE_PREFIX,
-            project_id
-        );
-
-        Ok(FeatureFlagList { flags: flags_list })
-    }
-
     /// Returns feature flags from postgres given a project_id
     pub async fn from_pg(
         client: PostgresReader,
@@ -312,9 +274,12 @@ impl FeatureFlagList {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::test_utils::{
-        insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_invalid_pg_client,
-        setup_redis_client, TestContext,
+    use crate::{
+        flags::test_helpers::get_flags_from_redis,
+        utils::test_utils::{
+            insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_invalid_pg_client,
+            setup_redis_client, TestContext,
+        },
     };
     use rand::Rng;
 
@@ -330,7 +295,7 @@ mod tests {
             .await
             .expect("Failed to insert flags");
 
-        let flags_from_redis = FeatureFlagList::from_redis(redis_client.clone(), team.project_id())
+        let flags_from_redis = get_flags_from_redis(redis_client.clone(), team.project_id())
             .await
             .expect("Failed to fetch flags from redis");
         assert_eq!(flags_from_redis.flags.len(), 1);
@@ -348,7 +313,7 @@ mod tests {
     async fn test_fetch_invalid_team_from_redis() {
         let redis_client = setup_redis_client(None).await;
 
-        match FeatureFlagList::from_redis(redis_client.clone(), 1234).await {
+        match get_flags_from_redis(redis_client.clone(), 1234).await {
             Err(FlagError::TokenValidationError) => {
                 // Expected error
             }

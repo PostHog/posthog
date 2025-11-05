@@ -87,7 +87,9 @@ mod tests {
     use crate::{
         flags::{
             flag_models::*,
-            test_helpers::{create_simple_flag, create_simple_property_filter},
+            test_helpers::{
+                create_simple_flag, create_simple_property_filter, get_flags_from_redis,
+            },
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
     };
@@ -477,7 +479,7 @@ mod tests {
             .expect("Failed to insert flag in Postgres");
 
         // Fetch and verify from Redis
-        let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id())
+        let redis_flags = get_flags_from_redis(redis_client, team.project_id())
             .await
             .expect("Failed to fetch flags from Redis");
 
@@ -579,7 +581,7 @@ mod tests {
             .expect("Failed to insert flag in Postgres");
 
         // Fetch and verify from Redis
-        let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id())
+        let redis_flags = get_flags_from_redis(redis_client, team.project_id())
             .await
             .expect("Failed to fetch flags from Redis");
 
@@ -712,7 +714,7 @@ mod tests {
             .expect("Failed to insert flag in Postgres");
 
         // Fetch and verify from Redis
-        let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id())
+        let redis_flags = get_flags_from_redis(redis_client, team.project_id())
             .await
             .expect("Failed to fetch flags from Redis");
 
@@ -812,7 +814,7 @@ mod tests {
             .expect("Failed to insert flag in Postgres");
 
         // Fetch and verify from Redis
-        let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id())
+        let redis_flags = get_flags_from_redis(redis_client, team.project_id())
             .await
             .expect("Failed to fetch flags from Redis");
 
@@ -921,7 +923,7 @@ mod tests {
             .expect("Failed to insert inactive flag in Postgres");
 
         // Fetch and verify from Redis
-        let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id())
+        let redis_flags = get_flags_from_redis(redis_client, team.project_id())
             .await
             .expect("Failed to fetch flags from Redis");
 
@@ -961,7 +963,7 @@ mod tests {
             .await
             .expect("Failed to set malformed JSON in Redis");
 
-        let result = FeatureFlagList::from_redis(redis_client, team.project_id()).await;
+        let result = get_flags_from_redis(redis_client, team.project_id()).await;
         assert!(matches!(result, Err(FlagError::RedisDataParsingError)));
 
         // Test database query error (using a non-existent table)
@@ -1026,7 +1028,7 @@ mod tests {
             let project_id = team.project_id();
 
             let handle = task::spawn(async move {
-                let redis_flags = FeatureFlagList::from_redis(redis_client, project_id)
+                let redis_flags = get_flags_from_redis(redis_client, project_id)
                     .await
                     .unwrap();
                 let (pg_flags, _) = FeatureFlagList::from_pg(reader, project_id).await.unwrap();
@@ -1103,7 +1105,7 @@ mod tests {
         }
 
         let start = Instant::now();
-        let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id())
+        let redis_flags = get_flags_from_redis(redis_client, team.project_id())
             .await
             .expect("Failed to fetch flags from Redis");
         let redis_duration = start.elapsed();
@@ -1196,7 +1198,7 @@ mod tests {
         }
 
         // Fetch and verify edge case flags
-        let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id())
+        let redis_flags = get_flags_from_redis(redis_client, team.project_id())
             .await
             .expect("Failed to fetch flags from Redis");
         let (pg_flags, _) =
@@ -1284,7 +1286,7 @@ mod tests {
         }
 
         // Fetch flags from both sources
-        let mut redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id())
+        let mut redis_flags = get_flags_from_redis(redis_client, team.project_id())
             .await
             .expect("Failed to fetch flags from Redis");
         let (mut pg_flags, _) =
@@ -1404,7 +1406,7 @@ mod tests {
         }
 
         // Fetch flags from both sources
-        let redis_flags = FeatureFlagList::from_redis(redis_client, team.project_id())
+        let redis_flags = get_flags_from_redis(redis_client, team.project_id())
             .await
             .expect("Failed to fetch flags from Redis");
         let (pg_flags, _) =

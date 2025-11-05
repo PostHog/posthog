@@ -1,11 +1,17 @@
 /* Test Helpers specifically for the flags module */
 
 use serde_json::Value;
+use std::sync::Arc;
 
 use crate::{
-    flags::flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup},
+    api::errors::FlagError,
+    flags::flag_models::{
+        FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
+    },
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
 };
+use common_redis::Client as RedisClient;
+use common_types::ProjectId;
 
 pub fn create_simple_property_filter(
     key: &str,
@@ -61,4 +67,41 @@ pub fn create_simple_flag(properties: Vec<PropertyFilter>, rollout_percentage: f
         evaluation_runtime: Some("all".to_string()),
         evaluation_tags: None,
     }
+}
+
+/// Test-only helper to read feature flags directly from Redis
+///
+/// This bypasses the ReadThroughCache and directly reads from Redis,
+/// useful for testing cache behavior and verifying cache contents.
+pub async fn get_flags_from_redis(
+    client: Arc<dyn RedisClient + Send + Sync>,
+    project_id: ProjectId,
+) -> Result<FeatureFlagList, FlagError> {
+    tracing::debug!(
+        "Attempting to read flags from Redis at key '{}{}'",
+        TEAM_FLAGS_CACHE_PREFIX,
+        project_id
+    );
+
+    let serialized_flags = client
+        .get(format!("{TEAM_FLAGS_CACHE_PREFIX}{project_id}"))
+        .await?;
+
+    let flags_list: Vec<FeatureFlag> = serde_json::from_str(&serialized_flags).map_err(|e| {
+        tracing::error!(
+            "failed to parse data to flags list for project {}: {}",
+            project_id,
+            e
+        );
+        FlagError::RedisDataParsingError
+    })?;
+
+    tracing::debug!(
+        "Successfully read {} flags from Redis at key '{}{}'",
+        flags_list.len(),
+        TEAM_FLAGS_CACHE_PREFIX,
+        project_id
+    );
+
+    Ok(FeatureFlagList { flags: flags_list })
 }
