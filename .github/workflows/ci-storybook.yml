@@ -430,10 +430,12 @@ jobs:
 
             - name: Run @storybook/test-runner (up to 3 attempts)
               id: test-runner
+              shell: bash
               env:
                   HOME: /root
                   STORYBOOK_SKIP_TAGS: 'test-skip,test-skip-${{ matrix.browser }}'
               run: |
+                  set +e  # Disable immediate exit on error for retry loop
                   for i in 1 2 3; do
                     echo "Attempt $i: Running @storybook/test-runner"
                     # First attempt: Always verify (fast path when snapshots match)
@@ -452,8 +454,10 @@ jobs:
                     fi
 
                     # Run tests and capture output
+                    set -o pipefail  # Ensure pipeline failures are captured
                     pnpm --filter=@posthog/storybook test:visual:ci:$CMD --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}.log
-                    EXIT_CODE=${PIPESTATUS[0]}
+                    EXIT_CODE=$?
+                    set +o pipefail
 
                     if [ $EXIT_CODE -eq 0 ]; then
                       break
