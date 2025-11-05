@@ -272,7 +272,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         name: 'Summarize experiment results',
         description: 'Summarize experiment results for a comprehensive rundown',
         product: Scene.Experiment,
-        flag: 'experiments-ai-summary',
+        flag: 'experiment-ai-summary',
         icon: iconForType('experiment'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {

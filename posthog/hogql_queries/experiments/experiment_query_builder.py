@@ -186,8 +186,12 @@ class ExperimentQueryBuilder:
                 # event. For ordered funnel metrics, the UDF does this for us.
                 # Here, we add the field we need, first_exposure_timestamp
                 if self.metric.funnel_order_type == StepOrderValue.UNORDERED:
+                    exposure_condition_for_window = self._build_exposure_predicate()
                     first_exposure_timestamp_expr = parse_expr(
-                        "minIf(timestamp, step_0 = 1) OVER (PARTITION BY entity_id) AS first_exposure_timestamp"
+                        "minIf(timestamp, {exposure_condition}) OVER (PARTITION BY entity_id) AS first_exposure_timestamp",
+                        placeholders={
+                            "exposure_condition": exposure_condition_for_window,
+                        },
                     )
                     metric_events_cte.expr.select.extend([first_exposure_timestamp_expr])
 
