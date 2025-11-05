@@ -2873,6 +2873,7 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-cache",
  "common-compression",
  "common-cookieless",
  "common-database",
