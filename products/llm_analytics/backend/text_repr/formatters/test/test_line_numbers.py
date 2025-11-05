@@ -24,14 +24,14 @@ class TestAddLineNumbers:
         assert lines[2] == "L3: Line 3"
 
     def test_add_line_numbers_padding(self):
-        """Should pad line numbers consistently."""
+        """Should pad line numbers consistently with zero padding."""
         text = "\n".join([f"Line {i}" for i in range(1, 101)])
         result = add_line_numbers(text)
         lines = result.split("\n")
-        # First line should be padded: "L  1: Line 1"
-        assert lines[0].startswith("L  1:")
-        # Line 10 should be: "L 10: Line 10"
-        assert lines[9].startswith("L 10:")
+        # First line should be zero-padded: "L001: Line 1"
+        assert lines[0].startswith("L001:")
+        # Line 10 should be: "L010: Line 10"
+        assert lines[9].startswith("L010:")
         # Line 100 should be: "L100: Line 100"
         assert lines[99].startswith("L100:")
 
