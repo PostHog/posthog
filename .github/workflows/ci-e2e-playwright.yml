@@ -97,8 +97,8 @@ jobs:
               id: detect
               run: |
                   if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
-                    echo "mode=verify" >> $GITHUB_OUTPUT
-                    echo "Fork detected - running in VERIFY mode only"
+                    echo "mode=check" >> $GITHUB_OUTPUT
+                    echo "Fork detected - running in CHECK mode (no commits allowed)"
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
