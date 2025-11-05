@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
@@ -66,8 +67,10 @@ export function SessionProfileScene(): JSX.Element {
                             <div className="font-mono text-sm">{sessionData.session_id}</div>
                         </div>
                         <div>
-                            <div className="text-xs text-muted-alt">Distinct ID</div>
-                            <div className="font-mono text-sm">{sessionData.distinct_id}</div>
+                            <div className="text-xs text-muted-alt">Person</div>
+                            <div className="text-sm">
+                                <PersonDisplay person={{ distinct_id: sessionData.distinct_id }} withIcon />
+                            </div>
                         </div>
                         <div>
                             <div className="text-xs text-muted-alt">Start time</div>
