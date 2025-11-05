@@ -1,5 +1,5 @@
 import pytest
-from unittest import TestCase
+from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.runnables import RunnableConfig
@@ -21,7 +21,7 @@ from ee.hogai.utils.types.base import (
 )
 
 
-class TestQueryMetadata(TestCase):
+class TestQueryMetadata(BaseTest):
     def test_query_metadata_initialization(self):
         """Test QueryMetadata initialization with all fields."""
         query = InsightQuery(name="Test Query", description="Test Description")
@@ -40,9 +40,9 @@ class TestQueryMetadata(TestCase):
         self.assertEqual(metadata.query, query)
 
 
-class TestDashboardCreationExecutorNode:
-    @pytest.fixture(autouse=True)
-    def setup_method(self):
+class TestDashboardCreationExecutorNode(BaseTest):
+    def setUp(self):
+        super().setUp()
         self.mock_team = MagicMock(spec=Team)
         self.mock_team.id = 1
         self.mock_user = MagicMock(spec=User)
@@ -108,9 +108,9 @@ class TestDashboardCreationExecutorNode:
         assert len(input_tuples) == 0
 
 
-class TestDashboardCreationNode:
-    @pytest.fixture(autouse=True)
-    def setup_method(self):
+class TestDashboardCreationNode(BaseTest):
+    def setUp(self):
+        super().setUp()
         self.mock_team = MagicMock(spec=Team)
         self.mock_team.id = 1
         self.mock_user = MagicMock(spec=User)
@@ -350,14 +350,18 @@ class TestDashboardCreationNode:
             mock_capture.assert_called_once()
 
 
-class TestDashboardCreationNodeAsyncMethods:
-    @pytest.fixture(autouse=True)
-    def setup_method(self):
+class TestDashboardCreationNodeAsyncMethods(BaseTest):
+    def setUp(self):
+        super().setUp()
         self.mock_team = MagicMock(spec=Team)
         self.mock_team.id = 1
         self.mock_user = MagicMock(spec=User)
         self.mock_user.id = 1
-        self.node = DashboardCreationNode(self.mock_team, self.mock_user)
+        self.node = DashboardCreationNode(
+            self.mock_team,
+            self.mock_user,
+            node_path=(NodePath(name="test_node", message_id="test-id", tool_call_id="test_tool_call_id"),),
+        )
 
     @patch("ee.hogai.graph.dashboards.nodes.DashboardCreationExecutorNode")
     async def test_create_insights(self, mock_executor_node_class):
