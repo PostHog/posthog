@@ -535,6 +535,61 @@ describe('the feature flag release conditions logic', () => {
         })
     })
 
+    describe('rollout percentage validation', () => {
+        it('validates rollout percentage is defined', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: undefined, variant: null, sort_key: 'A' },
+            ])
+            logic.actions.setFilters(filters)
+
+            expect(logic.values.propertySelectErrors[0].rollout_percentage).toBe('You need to set a rollout % value')
+        })
+
+        it('validates rollout percentage is a valid number', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: NaN, variant: null, sort_key: 'A' },
+            ])
+            logic.actions.setFilters(filters)
+
+            expect(logic.values.propertySelectErrors[0].rollout_percentage).toBe(
+                'Rollout percentage must be a valid number'
+            )
+        })
+
+        it('validates rollout percentage is within 0-100 range', () => {
+            let filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: -10, variant: null, sort_key: 'A' },
+            ])
+            logic.actions.setFilters(filters)
+
+            expect(logic.values.propertySelectErrors[0].rollout_percentage).toBe(
+                'Rollout percentage must be between 0 and 100'
+            )
+
+            filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 150, variant: null, sort_key: 'A' },
+            ])
+            logic.actions.setFilters(filters)
+
+            expect(logic.values.propertySelectErrors[0].rollout_percentage).toBe(
+                'Rollout percentage must be between 0 and 100'
+            )
+        })
+
+        it('accepts valid rollout percentages', () => {
+            const filters = generateFeatureFlagFilters([
+                { properties: [], rollout_percentage: 0, variant: null, sort_key: 'A' },
+                { properties: [], rollout_percentage: 50, variant: null, sort_key: 'B' },
+                { properties: [], rollout_percentage: 100, variant: null, sort_key: 'C' },
+            ])
+            logic.actions.setFilters(filters)
+
+            expect(logic.values.propertySelectErrors[0].rollout_percentage).toBeUndefined()
+            expect(logic.values.propertySelectErrors[1].rollout_percentage).toBeUndefined()
+            expect(logic.values.propertySelectErrors[2].rollout_percentage).toBeUndefined()
+        })
+    })
+
     describe('condition set descriptions', () => {
         it('updates description for a condition set', () => {
             const filters = generateFeatureFlagFilters([

@@ -13,7 +13,7 @@ import {
     WatermarkOffsets,
 } from 'node-rdkafka'
 import { hostname } from 'os'
-import { Gauge, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import {
     EventHeaders,
@@ -21,6 +21,7 @@ import {
     HealthCheckResultDegraded,
     HealthCheckResultError,
     HealthCheckResultOk,
+    LogLevel,
 } from '~/types'
 import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
@@ -83,6 +84,24 @@ const histogramKafkaConsumeInterval = new Histogram({
     buckets: [0, 20, 100, 200, 500, 1000, 2500, 5000, 10000, 20000, 30000, 60000, Infinity],
 })
 
+const gaugeOldestBackgroundTaskAge = new Gauge({
+    name: 'consumer_oldest_background_task_age_ms',
+    help: 'Age of the oldest background task in queue - if this grows unbounded, pod is stuck',
+    labelNames: ['pod', 'groupId'],
+})
+
+const gaugeTimeSinceLastProgress = new Gauge({
+    name: 'consumer_time_since_last_progress_ms',
+    help: 'Time since any background task completed - shows if pod is making any progress',
+    labelNames: ['pod', 'groupId'],
+})
+
+const counterBackgroundTaskNotFound = new Counter({
+    name: 'consumer_background_task_not_found_total',
+    help: 'Background task attempted cleanup but was not found in array - indicates serious system integrity issue',
+    labelNames: ['pod', 'groupId'],
+})
+
 export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
     // We only need to commit the highest offset for a batch of messages
     const messagesByTopicPartition = messages.reduce(
@@ -110,7 +129,8 @@ export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPart
             return {
                 topic,
                 partition: parseInt(partition),
-                offset: highestOffset,
+                // When committing to Kafka you commit the offset of the next message you want to consume
+                offset: highestOffset + 1,
             }
         })
     })
@@ -150,8 +170,9 @@ export class KafkaConsumer {
     private maxHealthHeartbeatIntervalMs: number
     private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
-    private backgroundTask: Promise<void>[]
+    private backgroundTask: { promise: Promise<void>; createdAt: number }[]
     private podName: string
+    private lastBackgroundTaskCompletionTime: number
     private consumerId: string
     // New health monitoring state
     private consumerLoopStallThresholdMs: number
@@ -163,6 +184,7 @@ export class KafkaConsumer {
         rebalanceTimeoutMs: 20000,
         rebalanceStartTime: 0,
     }
+    private consumerLogStatsLevel: LogLevel
 
     constructor(
         private config: KafkaConsumerConfig,
@@ -170,6 +192,7 @@ export class KafkaConsumer {
     ) {
         this.backgroundTask = []
         this.podName = process.env.HOSTNAME || hostname()
+        this.lastBackgroundTaskCompletionTime = Date.now()
         // Generate unique consumer ID: pod + group + timestamp + random number (need timestamp/random number because multiple consumers per pod)
         this.consumerId = `${this.podName}-${this.config.groupId}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
 
@@ -182,6 +205,7 @@ export class KafkaConsumer {
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
         this.consumerLoopStallThresholdMs = defaultConfig.CONSUMER_LOOP_STALL_THRESHOLD_MS
+        this.consumerLogStatsLevel = defaultConfig.CONSUMER_LOG_STATS_LEVEL
 
         const rebalancecb: RebalanceCallback = this.config.waitForBackgroundTasksOnRebalance
             ? this.rebalanceCallback.bind(this)
@@ -422,7 +446,7 @@ export class KafkaConsumer {
             // Handle background task coordination asynchronously
             if (this.config.waitForBackgroundTasksOnRebalance && this.backgroundTask.length > 0) {
                 // Don't block the rebalance callback, but coordinate in the background
-                Promise.all(this.backgroundTask)
+                Promise.all(this.backgroundTask.map((t) => t.promise))
                     .then(() => {
                         logger.info('🔁', 'background_tasks_completed_before_partition_revocation')
                         if (this.rdKafkaConsumer.rebalanceProtocol() === 'COOPERATIVE') {
@@ -431,7 +455,15 @@ export class KafkaConsumer {
                             this.rdKafkaConsumer.unassign()
                         }
                         this.updateMetricsAfterRevocation(assignments)
-                        if (this.assignments().length === 0) {
+                        try {
+                            if (this.assignments().length === 0) {
+                                this.resetRebalanceCoordination()
+                            }
+                        } catch (error) {
+                            // Consumer might be in an erroneous state, reset anyway to be safe
+                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
+                                error: String(error),
+                            })
                             this.resetRebalanceCoordination()
                         }
                     })
@@ -444,7 +476,15 @@ export class KafkaConsumer {
                             this.rdKafkaConsumer.unassign()
                         }
                         this.updateMetricsAfterRevocation(assignments)
-                        if (this.assignments().length === 0) {
+                        try {
+                            if (this.assignments().length === 0) {
+                                this.resetRebalanceCoordination()
+                            }
+                        } catch (error) {
+                            // Consumer might be in an erroneous state, reset anyway to be safe
+                            logger.debug('🔁', 'assignments_check_failed_resetting_rebalance_coordination', {
+                                error: String(error),
+                            })
                             this.resetRebalanceCoordination()
                         }
                     })
@@ -523,11 +563,8 @@ export class KafkaConsumer {
                     topics: Object.keys(parsedStats.topics || {}),
                     broker_count: brokerStats.size,
                     brokers: Array.from(brokerStats.entries()).map(([name, stats]) => ({
+                        ...stats,
                         name,
-                        state: stats.state,
-                        rtt_avg: stats.rtt?.avg,
-                        connects: stats.connects,
-                        disconnects: stats.disconnects,
                     })),
                 }
 
@@ -540,7 +577,7 @@ export class KafkaConsumer {
                     logData.assignment_size = parsedStats.cgrp.assignment_size
                 }
 
-                logger.debug('📊', 'Kafka consumer statistics', logData)
+                logger[this.consumerLogStatsLevel]('📊', 'Kafka consumer statistics', logData)
             } catch (error) {
                 logger.error('📊', 'Failed to parse consumer statistics', {
                     error: error instanceof Error ? error.message : String(error),
@@ -568,26 +605,25 @@ export class KafkaConsumer {
         return consumer
     }
 
-    private storeOffsetsForMessages = (messages: Message[]): void => {
-        const topicPartitionOffsets = findOffsetsToCommit(messages).map((message) => {
-            return {
-                ...message,
-                // When committing to Kafka you commit the offset of the next message you want to consume
-                offset: message.offset + 1,
-            }
-        })
-
-        if (topicPartitionOffsets.length > 0) {
-            logger.debug('📝', 'Storing offsets', { topicPartitionOffsets })
+    private storeOffsetsForMessages = (topicPartitionOffsetsToCommit: TopicPartitionOffset[]): void => {
+        if (topicPartitionOffsetsToCommit.length > 0) {
+            logger.debug('📝', 'Storing offsets', { topicPartitionOffsetsToCommit })
             try {
-                this.rdKafkaConsumer.offsetsStore(topicPartitionOffsets)
+                this.rdKafkaConsumer.offsetsStore(topicPartitionOffsetsToCommit)
             } catch (e) {
                 // NOTE: We don't throw here - this can happen if we were re-assigned partitions
                 // and the offsets are no longer valid whilst processing a batch
+                let assignedPartitions: Assignment[] | string = []
+                try {
+                    assignedPartitions = this.assignments()
+                } catch (assignmentError) {
+                    // Consumer might be in an erroneous state during rebalancing
+                    assignedPartitions = `Error getting assignments: ${String(assignmentError)}`
+                }
                 logger.error('📝', 'Failed to store offsets', {
                     error: String(e),
-                    assignedPartitions: this.assignments(),
-                    topicPartitionOffsets,
+                    assignedPartitions,
+                    topicPartitionOffsetsToCommit,
                 })
                 captureException(e)
             }
@@ -696,23 +732,37 @@ export class KafkaConsumer {
                     // it would be hard to mix background work with non-background work.
                     // So we just create pretend work to simplify the rest of the logic
                     const backgroundTask = result?.backgroundTask ?? Promise.resolve()
-
                     const backgroundTaskStart = performance.now()
+                    const taskCreatedAt = Date.now()
+                    // Pull out the offsets to commit from the messages so we can release the messages reference
+                    const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
 
                     void backgroundTask.finally(async () => {
-                        // Only when we are fully done with the background work we store the offsets
-                        // TODO: Test if this fully works as expected - like what if backgroundBatches[1] finishes after backgroundBatches[0]
-                        // Remove the background work from the queue when it is finished
+                        // Track that we made progress
+                        this.lastBackgroundTaskCompletionTime = Date.now()
 
                         // First of all clear ourselves from the queue
-                        const index = this.backgroundTask.indexOf(backgroundTask)
-                        void this.backgroundTask.splice(index, 1)
+                        const index = this.backgroundTask.findIndex((t) => t.promise === backgroundTask)
+
+                        // CRITICAL: If task not found, this indicates some bigger problem
+                        if (index < 0) {
+                            captureException(new Error('Background task not found in array during cleanup'))
+                            counterBackgroundTaskNotFound
+                                .labels({ pod: this.podName, groupId: this.config.groupId })
+                                .inc()
+                        }
 
                         // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
-                        await Promise.all(this.backgroundTask.slice(0, index))
+                        // Important: capture the promises BEFORE removing the task, as the array changes after splice
+                        if (index >= 0) {
+                            // Task found - capture promises to wait for, then remove the task
+                            const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
+                            this.backgroundTask.splice(index, 1)
+                            await Promise.all(promisesToWait)
+                        }
 
                         if (this.config.autoCommit && this.config.autoOffsetStore) {
-                            this.storeOffsetsForMessages(messages)
+                            this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
                         }
 
                         if (result?.backgroundTask) {
@@ -726,8 +776,22 @@ export class KafkaConsumer {
                         }
                     })
 
-                    // At first we just add the background work to the queue
-                    this.backgroundTask.push(backgroundTask)
+                    // At first we just add the background work to the queue with metadata
+                    this.backgroundTask.push({
+                        promise: backgroundTask,
+                        createdAt: taskCreatedAt,
+                    })
+
+                    // Update metrics
+                    if (this.backgroundTask.length > 0) {
+                        const oldestAge = Date.now() - this.backgroundTask[0].createdAt
+                        gaugeOldestBackgroundTaskAge.labels({ pod: this.podName, groupId }).set(oldestAge)
+                    } else {
+                        gaugeOldestBackgroundTaskAge.labels({ pod: this.podName, groupId }).set(0)
+                    }
+
+                    const timeSinceProgress = Date.now() - this.lastBackgroundTaskCompletionTime
+                    gaugeTimeSinceLastProgress.labels({ pod: this.podName, groupId }).set(timeSinceProgress)
 
                     // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
 
@@ -737,13 +801,13 @@ export class KafkaConsumer {
                             groupId: this.config.groupId,
                         })
                         // If we have more than the max, we need to await one
-                        await this.backgroundTask[0]
+                        await this.backgroundTask[0].promise
                         stopTimer()
                     }
                 }
 
                 // Once we are stopping, make sure that we wait for all background work to finish
-                await Promise.all(this.backgroundTask)
+                await Promise.all(this.backgroundTask.map((t) => t.promise))
             } catch (error) {
                 throw error
             } finally {
@@ -779,7 +843,7 @@ export class KafkaConsumer {
         logger.info('🔁', 'waiting_for_background_tasks_before_disconnect', {
             backgroundTaskCount: this.backgroundTask.length,
         })
-        await Promise.all(this.backgroundTask)
+        await Promise.all(this.backgroundTask.map((t) => t.promise))
 
         logger.info('🔁', 'background_tasks_completed_proceeding_with_disconnect')
 

@@ -1,5 +1,6 @@
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -20,6 +21,24 @@ export type HogFlowFiltersProps = {
  * Standard components wherever we do conditional matching to support whatever we know the hogflow engine supports
  */
 export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }: HogFlowFiltersProps): JSX.Element {
+    const shouldShowInternalEvents = useFeatureFlag('WORKFLOWS_INTERNAL_EVENT_FILTERS')
+
+    const actionsTaxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
+    if (shouldShowInternalEvents) {
+        actionsTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEvents)
+    }
+
+    const propertyTaxonomicGroupTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
+        TaxonomicFilterGroupType.Elements,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.HogQLExpression,
+    ]
+    if (shouldShowInternalEvents) {
+        propertyTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEventProperties)
+    }
+
     return (
         <ActionFilter
             filters={filters ?? {}}
@@ -32,14 +51,8 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
             hideRename
             hideDuplicate
             showNestedArrow={false}
-            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-            propertiesTaxonomicGroupTypes={[
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.EventFeatureFlags,
-                TaxonomicFilterGroupType.Elements,
-                TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.HogQLExpression,
-            ]}
+            actionsTaxonomicGroupTypes={actionsTaxonomicGroupTypes}
+            propertiesTaxonomicGroupTypes={propertyTaxonomicGroupTypes}
             propertyFiltersPopover
             addFilterDefaultOptions={{
                 id: '$pageview',

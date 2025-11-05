@@ -14,6 +14,7 @@ import { HogFlowEditorPanelBuild } from './HogFlowEditorPanelBuild'
 import { HogFlowEditorPanelBuildDetail } from './HogFlowEditorPanelBuildDetail'
 import { HogFlowEditorPanelLogs } from './HogFlowEditorPanelLogs'
 import { HogFlowEditorPanelMetrics } from './HogFlowEditorPanelMetrics'
+import { HogFlowEditorPanelVariables } from './HogFlowEditorPanelVariables'
 import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 
 export function HogFlowEditorPanel(): JSX.Element | null {
@@ -26,7 +27,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
         key: mode,
     }))
 
-    const width = mode !== 'build' ? '36rem' : selectedNode ? '36rem' : '22rem'
+    const width = mode !== 'build' ? '37rem' : selectedNode ? '37rem' : '24rem'
 
     const Step = useHogFlowStep(selectedNode?.data)
     const { actionValidationErrorsById } = useValues(workflowLogic)
@@ -100,6 +101,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                 {mode === 'build' && (
                     <>{!selectedNode ? <HogFlowEditorPanelBuild /> : <HogFlowEditorPanelBuildDetail />}</>
                 )}
+                {mode === 'variables' && <HogFlowEditorPanelVariables />}
                 {mode === 'test' && <HogFlowEditorPanelTest />}
                 {mode === 'metrics' && <HogFlowEditorPanelMetrics />}
                 {mode === 'logs' && <HogFlowEditorPanelLogs />}

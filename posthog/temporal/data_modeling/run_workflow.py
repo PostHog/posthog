@@ -27,7 +27,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -44,10 +44,16 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
-from posthog.warehouse.data_load.create_table import create_table_from_saved_query
-from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable, get_s3_client
-from posthog.warehouse.models.data_modeling_job import DataModelingJob
-from posthog.warehouse.s3 import ensure_bucket_exists
+
+from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
+from products.data_warehouse.backend.models import (
+    DataWarehouseModelPath,
+    DataWarehouseSavedQuery,
+    DataWarehouseTable,
+    get_s3_client,
+)
+from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
 LOGGER = get_logger(__name__)
 
@@ -571,13 +577,18 @@ async def materialize_model(
 
     file_uris = delta_table.file_uris()
 
+    saved_query_table: DataWarehouseTable | None = None
+    if saved_query.table_id:
+        saved_query_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
+
     await logger.adebug("Copying query files in S3")
     folder_path = prepare_s3_files_for_querying(
         folder_path=saved_query.folder_path,
         table_name=saved_query.normalized_name,
         file_uris=file_uris,
         preserve_table_name_casing=True,
-        use_timestamped_folders=True,
+        existing_queryable_folder=saved_query_table.queryable_folder if saved_query_table else None,
+        logger=logger,
     )
 
     saved_query.is_materialized = True
@@ -587,7 +598,7 @@ async def materialize_model(
     dwh_table = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, folder_path)
 
     await database_sync_to_async(saved_query.refresh_from_db)()
-    saved_query.table = dwh_table
+    saved_query.table_id = dwh_table.id
     await database_sync_to_async(saved_query.save)()
 
     await update_table_row_count(saved_query, row_count, logger)
@@ -670,7 +681,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
         limit_top_select=False,
     )
     context.output_format = "TabSeparated"
-    context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
+    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
@@ -713,7 +724,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = await database_sync_to_async(create_hogql_database)(team=team, modifiers=context.modifiers)
+    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
@@ -1080,7 +1091,7 @@ async def build_dag_from_selectors(selector_paths: SelectorPaths, team_id: int) 
     ever does happen, some solution involving another level of indirection by storing
     indexes to a list of nodes could be implemented. Good luck!
     """
-    posthog_tables = await get_posthog_tables(team_id)
+    posthog_table_names = await get_posthog_table_names(team_id)
     dag = {}
 
     for selector, paths in selector_paths.items():
@@ -1114,7 +1125,7 @@ async def build_dag_from_selectors(selector_paths: SelectorPaths, team_id: int) 
 
                 if (
                     (index == label_index or end >= index >= start)
-                    and label not in posthog_tables
+                    and label not in posthog_table_names
                     and node.selected is False
                 ):
                     node = dag[label] = node.as_selected(True)
@@ -1130,11 +1141,11 @@ async def build_dag_from_selectors(selector_paths: SelectorPaths, team_id: int) 
     return dag
 
 
-async def get_posthog_tables(team_id: int) -> list[str]:
+async def get_posthog_table_names(team_id: int) -> list[str]:
     team = await database_sync_to_async(Team.objects.get)(id=team_id)
-    hogql_db = await database_sync_to_async(create_hogql_database)(team=team)
-    posthog_tables = hogql_db.get_posthog_tables()
-    return posthog_tables
+    hogql_db = await database_sync_to_async(Database.create_for)(team=team)
+    posthog_table_names = hogql_db.get_posthog_table_names()
+    return posthog_table_names
 
 
 @dataclasses.dataclass

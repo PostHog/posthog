@@ -75,7 +75,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                 containerClassName,
                 !isSticky && !isThreadVisible
                     ? 'px-3 w-[min(40rem,100%)]'
-                    : 'sticky bottom-0 z-10 w-full max-w-[45.25rem] self-center'
+                    : 'sticky bottom-0 z-10 w-full max-w-180 self-center'
             )}
             ref={ref}
         >
@@ -137,6 +137,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 minRows={1}
                                 maxRows={10}
                                 className="!border-none !bg-transparent min-h-0 py-2.5 pl-2.5 pr-12"
+                                autoFocus
                             />
                         </SlashCommandAutocomplete>
                     </div>
@@ -209,7 +210,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             disabled={threadLoading}
                             onChange={(checked) => setDeepResearchMode(checked)}
                             size="xxsmall"
-                            tooltip="This will make Max think harder about your question"
+                            tooltip="This will make PostHog AI think harder about your question"
                         />
                     </div>
                 )}

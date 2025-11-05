@@ -2154,6 +2154,14 @@ export function KeaDevtools({
                 >
                     {windowed ? 'Full screen' : 'Windowed'}
                 </button>
+                <button
+                    type="button"
+                    onClick={() => setWindowed((value) => !value)}
+                    style={simpleBtnStyle}
+                    title={windowed ? 'Return to full-screen mode' : 'Switch to windowed mode'}
+                >
+                    {windowed ? 'Full screen' : 'Windowed'}
+                </button>
                 <button type="button" onClick={() => setOpen(false)} style={simpleBtnStyle}>
                     Close
                 </button>

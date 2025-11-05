@@ -47,13 +47,15 @@ def call_root_for_insight_generation(demo_org_team_user):
         .add_root(
             path_map={
                 "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
-                "root": AssistantNodeName.END,
+                "insights_search": AssistantNodeName.INSIGHTS_SEARCH,
+                "root": AssistantNodeName.ROOT,
                 "search_documentation": AssistantNodeName.END,
                 "end": AssistantNodeName.END,
             }
         )
         .add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, insights_subgraph)
         .add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, AssistantNodeName.END)
+        .add_insights_search()
         # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
         .compile(checkpointer=DjangoCheckpointer())
     )

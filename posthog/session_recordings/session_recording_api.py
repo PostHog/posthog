@@ -4,7 +4,7 @@ import json
 import asyncio
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from json import JSONDecodeError
 from typing import Any, Literal, Optional, cast
 from urllib.parse import urlparse
@@ -38,7 +38,15 @@ from rest_framework.response import Response
 from rest_framework.utils.encoders import JSONEncoder
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
-from posthog.schema import PropertyFilterType, PropertyOperator, QueryTiming, RecordingPropertyFilter, RecordingsQuery
+from posthog.schema import (
+    MatchedRecordingEvent,
+    MatchingEventsResponse,
+    PropertyFilterType,
+    PropertyOperator,
+    QueryTiming,
+    RecordingPropertyFilter,
+    RecordingsQuery,
+)
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -63,7 +71,6 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.realtime_snapshots import get_realtime_snapshots, publish_subscription
 from posthog.session_recordings.session_recording_v2_service import list_blocks
 from posthog.session_recordings.utils import clean_prompt_whitespace
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
@@ -94,11 +101,6 @@ SNAPSHOT_SOURCE_REQUESTED = Counter(
 GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
     "session_snapshots_generate_pre_signed_url_histogram",
     "Time taken to generate a pre-signed URL for a session snapshot",
-)
-
-GET_REALTIME_SNAPSHOTS_FROM_REDIS = Histogram(
-    "session_snapshots_get_realtime_snapshots_from_redis_histogram",
-    "Time taken to get realtime snapshots from Redis",
 )
 
 GATHER_RECORDING_SOURCES_HISTOGRAM = Histogram(
@@ -649,7 +651,11 @@ class SessionRecordingViewSet(
 
         results, _, timings = ReplayFiltersEventsSubQuery(query=query, team=self.team).get_event_ids_for_session()
 
-        response = JsonResponse(data={"results": results})
+        response = JsonResponse(
+            data=MatchingEventsResponse(
+                results=[MatchedRecordingEvent(uuid=str(row[0]), timestamp=row[1].isoformat()) for row in results]
+            ).model_dump()
+        )
 
         response.headers["Server-Timing"] = ServerTimingsGathered().to_header_string(timings)
         return response
@@ -1028,13 +1034,6 @@ class SessionRecordingViewSet(
             response: Response | HttpResponse
             if not source:
                 response = self._gather_session_recording_sources(recording, timer, is_v2_enabled, is_v2_lts_enabled)
-            elif source == "realtime":
-                if not blob_v1_sources_are_allowed:
-                    raise exceptions.ValidationError(
-                        "Realtime snapshots are not available for teams created after v1 of the API was deprecated. See https://posthog.com/docs/session-replay/snapshot-api"
-                    )
-                with timer("send_realtime_snapshots_to_client"):
-                    response = self._send_realtime_snapshots_to_client(recording)
             elif source == "blob":
                 is_likely_v1_lts = recording.object_storage_path and not recording.full_recording_v2_path
                 if not blob_v1_sources_are_allowed and not is_likely_v1_lts:
@@ -1136,8 +1135,6 @@ class SessionRecordingViewSet(
         is_v2_enabled: bool = False,
         is_v2_lts_enabled: bool = False,
     ) -> Response:
-        might_have_realtime = True
-        newest_timestamp = None
         response_data = {}
         sources: list[dict] = []
         blob_keys: list[str] | None = None
@@ -1185,7 +1182,6 @@ class SessionRecordingViewSet(
                         # session_recordings_lts is a prefix in a fixed bucket that all v1 playback files are stored in
                         blob_prefix = recording.object_storage_path
                         blob_keys = object_storage.list_objects(cast(str, blob_prefix))
-                        might_have_realtime = False
                     else:
                         blob_prefix = recording.build_blob_ingestion_storage_path()
                         blob_keys = object_storage.list_objects(blob_prefix)
@@ -1208,28 +1204,6 @@ class SessionRecordingViewSet(
                         )
                 if sources:
                     sources = sorted(sources, key=lambda x: x.get("start_timestamp", -1))
-
-                    if might_have_realtime and not is_v2_enabled:
-                        oldest_timestamp = min(sources, key=lambda k: k["start_timestamp"])["start_timestamp"]
-                        newest_timestamp = min(sources, key=lambda k: k["end_timestamp"])["end_timestamp"]
-                        # if the oldest timestamp is more than 24 hours ago, we don't expect realtime snapshots
-                        # so set this to False even if though it was True before
-                        might_have_realtime = oldest_timestamp + timedelta(hours=24) > datetime.now(UTC)
-
-                        if might_have_realtime:
-                            sources.append(
-                                {
-                                    "source": "realtime",
-                                    "start_timestamp": newest_timestamp,
-                                    "end_timestamp": None,
-                                }
-                            )
-
-                            # the UI will use this to try to load realtime snapshots
-                            # so, we can publish the request for Mr. Blobby to start syncing to Redis now
-                            # it takes a short while for the subscription to be sync'd into redis
-                            # let's use the network round trip time to get started
-                            publish_subscription(team_id=str(self.team.pk), session_id=str(recording.session_id))
 
                 response_data["sources"] = sources
 
@@ -1549,25 +1523,6 @@ class SessionRecordingViewSet(
         decompress: bool = True,
     ) -> HttpResponse:
         return asyncio.run(self._stream_lts_blob_v2_to_client_async(blob_key, decompress))
-
-    def _send_realtime_snapshots_to_client(self, recording: SessionRecording) -> HttpResponse | Response:
-        with GET_REALTIME_SNAPSHOTS_FROM_REDIS.time():
-            snapshot_lines = (
-                get_realtime_snapshots(
-                    team_id=str(self.team.pk),
-                    session_id=str(recording.session_id),
-                )
-                or []
-            )
-
-        response = HttpResponse(
-            # convert list to a jsonl response
-            content=("\n".join(snapshot_lines)),
-            content_type="application/json",
-        )
-        # the browser is not allowed to cache this at all
-        response["Cache-Control"] = "no-store"
-        return response
 
     @extend_schema(
         exclude=True,

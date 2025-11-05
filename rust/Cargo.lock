@@ -1518,16 +1518,15 @@ dependencies = [
  "common-alloc",
  "common-redis",
  "common-types",
- "dateparser",
  "envconfig",
  "flate2",
  "futures",
  "health",
- "jiff",
  "limiters",
  "lz-str",
  "metrics",
  "metrics-exporter-prometheus",
+ "multer",
  "once_cell",
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",
@@ -1535,7 +1534,6 @@ dependencies = [
  "rand 0.8.5",
  "rdkafka",
  "redis",
- "regex",
  "reqwest 0.12.15",
  "serde",
  "serde_json",
@@ -1793,6 +1791,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-cache"
+version = "0.1.0"
+dependencies = [
+ "common-redis",
+ "moka",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "common-compression"
 version = "0.1.0"
 dependencies = [
@@ -1926,6 +1936,8 @@ dependencies = [
  "serde-pickle",
  "thiserror 2.0.16",
  "tokio",
+ "tracing",
+ "zstd",
 ]
 
 [[package]]
@@ -1946,7 +1958,10 @@ name = "common-types"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "dateparser",
+ "jiff",
  "rdkafka",
+ "regex",
  "serde",
  "serde_json",
  "sqlx",
@@ -2251,7 +2266,8 @@ dependencies = [
  "moka",
  "once_cell",
  "posthog-rs",
- "posthog-symbol-data 0.2.0",
+ "posthog-symbol-data 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proguard",
  "rdkafka",
  "regex",
  "reqwest 0.12.15",
@@ -2826,21 +2842,26 @@ dependencies = [
  "common-cookieless",
  "common-database",
  "common-geoip",
+ "common-hypercache",
  "common-metrics",
  "common-redis",
  "common-types",
  "dateparser",
  "envconfig",
  "futures",
+ "governor",
  "health",
+ "hex",
  "json5",
  "limiters",
  "md5",
+ "metrics",
  "moka",
  "once_cell",
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.22.1",
+ "pbkdf2",
  "percent-encoding",
  "petgraph",
  "rand 0.8.5",
@@ -2853,6 +2874,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "sha2",
  "sqlx",
  "strum 0.26.3",
  "test-case",
@@ -4286,6 +4308,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serve-metrics",
+ "sha2",
  "strum 0.27.2",
  "strum_macros 0.27.2",
  "tempfile",
@@ -4546,6 +4569,7 @@ dependencies = [
  "apache-avro",
  "axum 0.7.5",
  "base64 0.22.1",
+ "bytes",
  "capture",
  "chrono",
  "clickhouse",
@@ -4556,6 +4580,7 @@ dependencies = [
  "jsonwebtoken",
  "metrics",
  "opentelemetry-proto 0.29.0",
+ "prost 0.13.5",
  "rdkafka",
  "serde",
  "serde_derive",
@@ -4564,8 +4589,6 @@ dependencies = [
  "thiserror 2.0.16",
  "tokio",
  "tonic 0.12.3",
- "tonic-web",
- "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -4842,6 +4865,23 @@ dependencies = [
  "tagptr",
  "thiserror 1.0.69",
  "uuid",
+]
+
+[[package]]
+name = "multer"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83e87776546dc87511aa5ee218730c92b666d7264ab6ed41f9d215af9cd5224b"
+dependencies = [
+ "bytes",
+ "encoding_rs",
+ "futures-util",
+ "http 1.1.0",
+ "httparse",
+ "memchr",
+ "mime",
+ "spin 0.9.8",
+ "version_check",
 ]
 
 [[package]]
@@ -5368,6 +5408,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "password-hash"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "346f04948ba92c43e8469c1ee6736c7563d71012b17d40745260fe106aac2166"
+dependencies = [
+ "base64ct",
+ "rand_core 0.6.4",
+ "subtle",
+]
+
+[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5381,6 +5432,8 @@ checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
 dependencies = [
  "digest",
  "hmac",
+ "password-hash",
+ "sha2",
 ]
 
 [[package]]
@@ -5693,17 +5746,17 @@ dependencies = [
 
 [[package]]
 name = "posthog-symbol-data"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed6c8edcab40fb71e1eb6b6af8961b3d0d04fbcaa841331036c964868d5dcb22"
+version = "0.3.0"
 dependencies = [
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
 ]
 
 [[package]]
 name = "posthog-symbol-data"
 version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe5471c1aad2514de61c8cbfd0c52fb3eb7efa03229737178442c2277d700330"
 dependencies = [
  "serde",
  "thiserror 2.0.16",
@@ -5818,6 +5871,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "307e3004becf10f5a6e0d59d20f3cd28231b0e0827a96cd3e0ce6d14bc1e4bb3"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "proguard"
+version = "5.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e40a6553b04a87f8efa9b559356dc9d6342b255307c8cf052ea09e93cd53a1bb"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "watto",
 ]
 
 [[package]]
@@ -6206,24 +6271,25 @@ dependencies = [
 
 [[package]]
 name = "redis"
-version = "0.23.3"
+version = "0.32.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f49cdc0bb3f412bf8e7d1bd90fe1d9eb10bc5c399ba90973c14662a27b3f8ba"
+checksum = "014cc767fefab6a3e798ca45112bccad9c6e0e218fbd49720042716c73cfef44"
 dependencies = [
- "async-trait",
  "bytes",
+ "cfg-if",
  "combine",
  "crc16",
- "futures",
+ "futures-sink",
  "futures-util",
  "itoa",
  "log",
+ "num-bigint",
  "percent-encoding",
  "pin-project-lite",
- "rand 0.8.5",
+ "rand 0.9.1",
  "ryu",
  "sha1_smol",
- "socket2 0.4.10",
+ "socket2 0.6.0",
  "tokio",
  "tokio-util",
  "url",
@@ -6387,6 +6453,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "native-tls",
  "once_cell",
  "percent-encoding",
@@ -7059,9 +7126,9 @@ checksum = "ae1a47186c03a32177042e55dbc5fd5aee900b8e0069a8d70fba96a9375cd012"
 
 [[package]]
 name = "sha2"
-version = "0.10.8"
+version = "0.10.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "793db75ad2bcafc3ffa7c68b215fee268f537982cd901d132f89c6343f3a3dc8"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures",
@@ -8391,26 +8458,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tower 0.4.13",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
-name = "tonic-web"
-version = "0.12.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5299dd20801ad736dccb4a5ea0da7376e59cd98f213bf1c3d478cf53f4834b58"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "http 1.1.0",
- "http-body 1.0.0",
- "http-body-util",
- "pin-project",
- "tokio-stream",
- "tonic 0.12.3",
- "tower-http",
  "tower-layer",
  "tower-service",
  "tracing",

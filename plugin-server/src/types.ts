@@ -50,12 +50,7 @@ export { Element } from '@posthog/plugin-scaffold' // Re-export Element from sca
 
 type Brand<K, T> = K & { __brand: T }
 
-export enum LogLevel {
-    Debug = 'debug',
-    Info = 'info',
-    Warn = 'warn',
-    Error = 'error',
-}
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
 export enum KafkaSecurityProtocol {
     Plaintext = 'PLAINTEXT',
@@ -86,6 +81,8 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
+    evaluation_scheduler = 'evaluation-scheduler',
+    ingestion_logs = 'ingestion-logs',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -232,6 +229,14 @@ export type IngestionConsumerConfig = {
     INGESTION_CONSUMER_TESTING_TOPIC: string
 }
 
+export type LogsIngestionConsumerConfig = {
+    LOGS_INGESTION_CONSUMER_GROUP_ID: string
+    LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: string
+    LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: string
+    LOGS_INGESTION_CONSUMER_DLQ_TOPIC: string
+    LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: string
+}
+
 /**
  * The mode of db batch writes to use for person batch writing
  * NO_ASSERT: No assertions are made, we write the latest value in memory to the DB (no locks)
@@ -240,7 +245,7 @@ export type IngestionConsumerConfig = {
 export type PersonBatchWritingDbWriteMode = 'NO_ASSERT' | 'ASSERT_VERSION'
 export type PersonBatchWritingMode = 'BATCH' | 'SHADOW' | 'NONE'
 
-export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig {
+export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig, LogsIngestionConsumerConfig {
     INSTRUMENT_THREAD_PERFORMANCE: boolean
     OTEL_EXPORTER_OTLP_ENDPOINT: string
     OTEL_SDK_DISABLED: boolean
@@ -312,6 +317,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
     CONSUMER_LOOP_STALL_THRESHOLD_MS: number // Threshold in ms after which the consumer loop is considered stalled
+    CONSUMER_LOG_STATS_LEVEL: LogLevel // Log level for consumer statistics
     CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean // Use consumer loop monitoring for health checks instead of heartbeats
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
@@ -345,6 +351,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     EVENT_PROPERTY_LRU_SIZE: number // size of the event property tracker's LRU cache (keyed by [team.id, event])
     HEALTHCHECK_MAX_STALE_SECONDS: number // maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails
     SITE_URL: string
+    TEMPORAL_HOST: string
+    TEMPORAL_PORT: string | undefined
+    TEMPORAL_NAMESPACE: string
+    TEMPORAL_CLIENT_ROOT_CA: string | undefined
+    TEMPORAL_CLIENT_CERT: string | undefined
+    TEMPORAL_CLIENT_KEY: string | undefined
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
@@ -538,6 +550,7 @@ export interface PluginServerCapabilities {
     // and the shouldSetupPluginInServer() test accordingly.
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
+    logsIngestion?: boolean
     processAsyncWebhooksHandlers?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
@@ -552,6 +565,7 @@ export interface PluginServerCapabilities {
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
+    evaluationScheduler?: boolean
 }
 
 export interface EnqueuedPluginJob {

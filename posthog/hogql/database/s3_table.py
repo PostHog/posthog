@@ -96,6 +96,8 @@ def build_function_call(
 
             expr += f", {escaped_access_key}, {escaped_access_secret}"
 
+        expr += ", 'Parquet'"
+
         if structure:
             expr += f", {escaped_structure}"
 

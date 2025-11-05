@@ -142,7 +142,7 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
 }
 
 const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
-    const { logicProps, isMuted } = useValues(sessionRecordingPlayerLogic)
+    const { logicProps, isMuted, hasReachedExportFullVideoLimit } = useValues(sessionRecordingPlayerLogic)
     const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile, setMuted } =
         useActions(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -214,11 +214,14 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                               </LemonTag>
                           </div>
                       ),
-                      status: 'default',
+                      status: hasReachedExportFullVideoLimit ? 'danger' : 'default',
                       icon: <IconDownload />,
                       onClick: () => exportRecordingToVideoFile(),
-                      tooltip: 'Export PostHog recording data to MP4 video file.',
+                      tooltip: hasReachedExportFullVideoLimit
+                          ? 'You have reached your export limit.'
+                          : 'Export PostHog recording data to MP4 video file.',
                       'data-attr': 'replay-export-mp4',
+                      className: hasReachedExportFullVideoLimit ? 'replay-export-limit-reached-button' : '',
                   }
                 : null,
         ]
@@ -240,7 +243,16 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         }
         return itemsArray
         // oxlint-disable-next-line exhaustive-deps
-    }, [logicProps.playerKey, onDelete, exportRecordingToFile, size, skipInactivitySetting, isMuted, setMuted])
+    }, [
+        logicProps.playerKey,
+        onDelete,
+        exportRecordingToFile,
+        size,
+        skipInactivitySetting,
+        isMuted,
+        setMuted,
+        hasReachedExportFullVideoLimit,
+    ])
 
     return (
         <LemonMenu items={items} buttonSize="xsmall">

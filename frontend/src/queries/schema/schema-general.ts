@@ -18,8 +18,10 @@ import {
     EventPropertyFilter,
     EventType,
     ExperimentHoldoutType,
+    ExperimentIdType,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
+    ExperimentStatsMethod,
     FileSystemIconColor,
     FilterLogicalOperator,
     FilterType,
@@ -35,6 +37,7 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     LogEntryPropertyFilter,
+    MatchedRecordingEvent,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -91,6 +94,7 @@ export enum NodeKind {
     RevenueExampleEventsQuery = 'RevenueExampleEventsQuery',
     RevenueExampleDataWarehouseTablesQuery = 'RevenueExampleDataWarehouseTablesQuery',
     ErrorTrackingQuery = 'ErrorTrackingQuery',
+    ErrorTrackingSimilarIssuesQuery = 'ErrorTrackingSimilarIssuesQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
     LogsQuery = 'LogsQuery',
     SessionBatchEventsQuery = 'SessionBatchEventsQuery',
@@ -195,6 +199,7 @@ export type AnyDataNode =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingSimilarIssuesQuery
     | ErrorTrackingIssueCorrelationQuery
     | LogsQuery
     | ExperimentFunnelsQuery
@@ -230,6 +235,7 @@ export type QuerySchema =
     | RevenueExampleEventsQuery
     | RevenueExampleDataWarehouseTablesQuery
     | ErrorTrackingQuery
+    | ErrorTrackingSimilarIssuesQuery
     | ErrorTrackingIssueCorrelationQuery
     | ExperimentFunnelsQuery
     | ExperimentTrendsQuery
@@ -366,6 +372,7 @@ export interface HogQLQueryModifiers {
     convertToProjectTimezone?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
+    optimizeProjections?: boolean
 }
 
 export interface DataWarehouseEventsModifier {
@@ -447,18 +454,25 @@ export interface RecordingsQueryResponse {
     has_next: boolean
 }
 
-export type RecordingOrder =
-    | 'duration'
-    | 'recording_duration'
-    | 'inactive_seconds'
-    | 'active_seconds'
-    | 'start_time'
-    | 'console_error_count'
-    | 'click_count'
-    | 'keypress_count'
-    | 'mouse_activity_count'
-    | 'activity_score'
-    | 'recording_ttl'
+export const VALID_RECORDING_ORDERS = [
+    'duration',
+    'recording_duration',
+    'inactive_seconds',
+    'active_seconds',
+    'start_time',
+    'console_error_count',
+    'click_count',
+    'keypress_count',
+    'mouse_activity_count',
+    'activity_score',
+    'recording_ttl',
+] as const
+
+export interface MatchingEventsResponse {
+    results: MatchedRecordingEvent[]
+}
+
+export type RecordingOrder = (typeof VALID_RECORDING_ORDERS)[number]
 
 export type RecordingOrderDirection = 'ASC' | 'DESC'
 
@@ -527,6 +541,7 @@ export interface HogQLMetadataResponse {
     notices: HogQLNotice[]
     query_status?: never
     table_names?: string[]
+    ch_table_names?: string[]
 }
 
 export type AutocompleteCompletionItemKind =
@@ -1002,6 +1017,8 @@ interface DataTableNodeViewProps {
     embedded?: boolean
     /** Context for the table, used by components like ColumnConfigurator */
     context?: DataTableNodeViewPropsContext
+    /** Default columns to use when resetting column configuration */
+    defaultColumns?: string[]
 }
 
 // Saved insight node
@@ -1247,6 +1264,11 @@ export interface CompareFilter {
      * The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.
      */
     compare_to?: string
+}
+
+export interface IntegrationFilter {
+    /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
+    integrationSourceIds?: string[]
 }
 
 /** `FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params */
@@ -1543,6 +1565,7 @@ export interface EndpointRequest {
     description?: string
     query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
+    cache_age_seconds?: number
 }
 
 export interface EndpointRunRequest {
@@ -2206,6 +2229,19 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     limit?: integer
     offset?: integer
     personId?: string
+    groupKey?: string
+    groupTypeIndex?: integer
+}
+
+export interface ErrorTrackingSimilarIssuesQuery extends DataNode<ErrorTrackingSimilarIssuesQueryResponse> {
+    kind: NodeKind.ErrorTrackingSimilarIssuesQuery
+    issueId: ErrorTrackingIssue['id']
+    modelName?: EmbeddingModelName
+    rendering?: string
+    maxDistance?: number
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
 }
 
 export interface ErrorTrackingIssueCorrelationQuery extends DataNode<ErrorTrackingIssueCorrelationQueryResponse> {
@@ -2258,6 +2294,11 @@ export interface ErrorTrackingExternalReference {
     integration: ErrorTrackingExternalReferenceIntegration
 }
 
+export interface ErrorTrackingIssueCohort {
+    id: number
+    name: string
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -2267,6 +2308,7 @@ export interface ErrorTrackingRelationalIssue {
     /**  @format date-time */
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
+    cohort?: ErrorTrackingIssueCohort
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
@@ -2309,6 +2351,23 @@ export interface ErrorTrackingQueryResponse extends AnalyticsQueryResponseBase {
     columns?: string[]
 }
 export type CachedErrorTrackingQueryResponse = CachedQueryResponse<ErrorTrackingQueryResponse>
+
+export type SimilarIssue = {
+    id: string
+    name: string
+    description: string
+    library: string | null
+    status: string
+    first_seen: string
+}
+
+export interface ErrorTrackingSimilarIssuesQueryResponse extends AnalyticsQueryResponseBase {
+    results: SimilarIssue[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+}
+export type CachedErrorTrackingSimilarIssuesQueryResponse = CachedQueryResponse<ErrorTrackingSimilarIssuesQueryResponse>
 
 export type EmbeddingModelName = 'text-embedding-3-small-1536' | 'text-embedding-3-large-3072'
 
@@ -2470,6 +2529,8 @@ export interface FileSystemEntry {
     meta?: Record<string, any>
     /** Timestamp when file was added. Used to check persistence */
     created_at?: string
+    /** Timestamp when the file system entry was last viewed */
+    last_viewed_at?: string | null
     /** Whether this is a shortcut or the actual item */
     shortcut?: boolean
     /** Used to indicate pending actions, frontend only */
@@ -2488,6 +2549,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
+    | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
     | 'web_analytics'
@@ -2499,17 +2561,20 @@ export type FileSystemIconType =
     | 'early_access_feature'
     | 'experiment'
     | 'feature_flag'
+    | 'feature_flag_off'
     | 'data_pipeline'
     | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
     | 'link'
+    | 'live_debugger'
     | 'logs'
     | 'workflows'
     | 'notebook'
     | 'action'
     | 'comment'
     | 'annotation'
+    | 'event'
     | 'event_definition'
     | 'property_definition'
     | 'ingestion_warning'
@@ -2528,6 +2593,8 @@ export type FileSystemIconType =
     | 'home'
     | 'apps'
     | 'live'
+    | 'chat'
+
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2542,6 +2609,16 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     category?: string
     /** Color of the icon */
     iconColor?: FileSystemIconColor
+    /** Match this with the a base scene key or a specific one */
+    sceneKey?: string
+    /** List of all scenes exported by the app */
+    sceneKeys?: string[]
+}
+
+export interface FileSystemViewLogEntry {
+    type: string
+    ref: string
+    viewed_at: string
 }
 
 export interface PersistedFolder {
@@ -2552,6 +2629,8 @@ export interface PersistedFolder {
     created_at: string
     updated_at: string
 }
+
+export type DataWarehouseManagedViewsetKind = 'revenue_analytics'
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -2572,6 +2651,48 @@ export interface ExperimentVariantFunnelsBaseStats {
     key: string
     success_count: number
     failure_count: number
+}
+
+export interface ExperimentMaxBayesianContext {
+    key: string
+    chance_to_win: number
+    credible_interval: [number, number]
+    significant: boolean
+}
+
+export interface ExperimentMaxFrequentistContext {
+    key: string
+    p_value: number
+    confidence_interval: [number, number]
+    significant: boolean
+}
+
+export interface MaxExperimentVariantResultBayesian {
+    key: string
+    chance_to_win: number | null
+    credible_interval: number[] | null
+    significant: boolean
+}
+
+export interface MaxExperimentVariantResultFrequentist {
+    key: string
+    p_value: number | null
+    confidence_interval: number[] | null
+    significant: boolean
+}
+
+export interface MaxExperimentMetricResult {
+    name: string
+    variant_results: (MaxExperimentVariantResultBayesian | MaxExperimentVariantResultFrequentist)[]
+}
+
+export interface MaxExperimentSummaryContext {
+    experiment_id: ExperimentIdType
+    experiment_name: string
+    description: string | null
+    variants: string[]
+    metrics_results: MaxExperimentMetricResult[]
+    stats_method: ExperimentStatsMethod
 }
 
 export enum ExperimentSignificanceCode {
@@ -2662,6 +2783,8 @@ export interface ExperimentMetricBaseProperties extends Node {
     conversion_window?: integer
     conversion_window_unit?: FunnelConversionWindowTimeUnit
     goal?: ExperimentMetricGoal
+    isSharedMetric?: boolean
+    sharedMetricId?: number
 }
 
 export type ExperimentMetricOutlierHandling = {
@@ -2774,6 +2897,7 @@ export interface SessionData {
     person_id: string
     session_id: string
     event_uuid: string
+    timestamp: string
 }
 
 export interface ExperimentStatsBase {
@@ -2845,6 +2969,8 @@ export interface ExperimentMetricTimeseries {
     computed_at: string | null
     created_at: string
     updated_at: string
+    recalculation_status?: string | null
+    recalculation_created_at?: string | null
 }
 
 /**
@@ -3434,6 +3560,7 @@ export interface LLMTracePerson {
 
 export interface LLMTrace {
     id: string
+    aiSessionId?: string
     createdAt: string
     person: LLMTracePerson
     totalLatency?: number
@@ -3445,6 +3572,7 @@ export interface LLMTrace {
     inputState?: any
     outputState?: any
     traceName?: string
+    errorCount?: number
     events: LLMTraceEvent[]
 }
 
@@ -3467,6 +3595,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     properties?: AnyPropertyFilter[]
     /** Person who performed the event */
     personId?: string
+    groupKey?: string
+    groupTypeIndex?: integer
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -3827,6 +3957,8 @@ export interface MarketingAnalyticsTableQuery
     compareFilter?: CompareFilter
     /** Include conversion goal rows even when they don't match campaign costs table */
     includeAllConversions?: boolean
+    /** Filter by integration type */
+    integrationFilter?: IntegrationFilter
 }
 
 export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {
@@ -3862,6 +3994,8 @@ export interface MarketingAnalyticsAggregatedQuery
     select?: HogQLExpression[]
     /** Draft conversion goal that can be set in the UI without saving */
     draftConversionGoal?: ConversionGoalFilter
+    /** Filter by integration IDs */
+    integrationFilter?: IntegrationFilter
 }
 
 export interface WebAnalyticsExternalSummaryRequest {
@@ -3994,6 +4128,7 @@ export interface MarketingAnalyticsConfig {
     conversion_goals?: ConversionGoalFilter[]
     attribution_window_days?: number
     attribution_mode?: AttributionMode
+    campaign_name_mappings?: Record<string, Record<string, string[]>>
 }
 
 export enum MarketingAnalyticsBaseColumns {
@@ -4098,9 +4233,12 @@ export interface SourceConfig {
     betaSource?: boolean
     iconPath: string
     featureFlag?: string
+    iconClassName?: string
 }
 
 export const externalDataSources = [
+    'CustomerIO',
+    'Github',
     'Stripe',
     'Hubspot',
     'Postgres',

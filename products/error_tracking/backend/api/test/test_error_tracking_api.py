@@ -23,6 +23,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingRelease,
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
@@ -99,6 +100,7 @@ class TestErrorTracking(APIBaseTest):
         assert response.json() == {
             "id": str(issue.id),
             "name": None,
+            "cohort": None,
             "description": None,
             "status": "active",
             "assignee": None,
@@ -119,6 +121,7 @@ class TestErrorTracking(APIBaseTest):
         assert response.json() == {
             "id": str(issue.id),
             "name": None,
+            "cohort": None,
             "description": None,
             "status": "resolved",
             "assignee": None,
@@ -428,6 +431,276 @@ class TestErrorTracking(APIBaseTest):
         assert str(symbol_set.id) == symbol_set_upload_response["symbol_set_id"]
         assert symbol_set_upload_response["presigned_url"]["fields"]["key"] == symbol_set.storage_ptr
 
+    def test_bulk_start_upload_skips_uploaded_symbol_sets(self) -> None:
+        release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="test-release",
+            version="1.0.0",
+            project="test",
+        )
+        existing_chunk_id = str(uuid7())
+        existing_symbol_set = ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=existing_chunk_id,
+            storage_ptr="existing",
+            content_hash="already_uploaded",
+            release=release,
+        )
+
+        new_chunk_id = str(uuid7())
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [
+                    {
+                        "chunk_id": existing_chunk_id,
+                        "release_id": str(release.id),
+                        "content_hash": existing_symbol_set.content_hash,
+                    },
+                    {
+                        "chunk_id": new_chunk_id,
+                        "release_id": str(release.id),
+                        "content_hash": "new_hash",
+                    },
+                ]
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        id_map = response.json()["id_map"]
+
+        assert str(new_chunk_id) in id_map
+        assert existing_chunk_id not in id_map
+
+        existing_symbol_set.refresh_from_db()
+        assert existing_symbol_set.storage_ptr == "existing"
+        assert existing_symbol_set.release_id == release.id
+
+        new_symbol_set = ErrorTrackingSymbolSet.objects.get(ref=new_chunk_id)
+        assert new_symbol_set.release_id == release.id
+        assert id_map[str(new_chunk_id)]["symbol_set_id"] == str(new_symbol_set.id)
+
+    def test_bulk_start_upload_fail_restart_with_no_content_hash(self) -> None:
+        existing_chunk_id = str(uuid7())
+        _ = ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=existing_chunk_id,
+            storage_ptr="existing",
+            content_hash="already_uploaded",
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"chunk_ids": [existing_chunk_id]},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_bulk_start_upload_rejects_unknown_release(self) -> None:
+        chunk_id = str(uuid7())
+        missing_release_id = str(uuid7())
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [
+                    {
+                        "chunk_id": chunk_id,
+                        "release_id": missing_release_id,
+                        "content_hash": "hash",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not ErrorTrackingSymbolSet.objects.filter(ref=chunk_id).exists()
+
+    def test_bulk_start_upload_allows_no_release(self) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [
+                    {
+                        "chunk_id": str(uuid7()),
+                        "release_id": None,
+                        "content_hash": "hash",
+                    },
+                    {
+                        "chunk_id": str(uuid7()),
+                        "content_hash": "hash",
+                    },
+                    {
+                        "chunk_id": str(uuid7()),
+                        "content_hash": None,
+                    },
+                    {
+                        "chunk_id": str(uuid7()),
+                    },
+                ]
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+
+    def test_bulk_start_upload_updates_release_for_pending_symbol_set(self) -> None:
+        chunk_id = str(uuid7())
+
+        initial_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"chunk_ids": [chunk_id]},
+            format="json",
+        )
+
+        assert initial_response.status_code == status.HTTP_201_CREATED
+
+        symbol_set = ErrorTrackingSymbolSet.objects.get(ref=chunk_id)
+        initial_storage_ptr = symbol_set.storage_ptr
+
+        release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="later-release",
+            version="1.0.1",
+            project="test",
+        )
+
+        updated_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [
+                    {
+                        "chunk_id": str(chunk_id),
+                        "release_id": str(release.id),
+                        "content_hash": "pending_hash",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        assert updated_response.status_code == status.HTTP_201_CREATED
+        id_map = updated_response.json()["id_map"]
+
+        symbol_set.refresh_from_db()
+        assert symbol_set.release_id == release.id
+        assert symbol_set.storage_ptr != initial_storage_ptr
+        assert id_map[str(chunk_id)]["symbol_set_id"] == str(symbol_set.id)
+
+    def test_bulk_start_upload_updates_release_for_uploaded_symbol_set(self) -> None:
+        chunk_id = str(uuid7())
+        storage_ptr = "uploaded_ptr"
+        content_hash = "uploaded_hash"
+
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=chunk_id,
+            storage_ptr=storage_ptr,
+            content_hash=content_hash,
+        )
+
+        release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="retro-release",
+            version="1.0.2",
+            project="test",
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [
+                    {
+                        "chunk_id": chunk_id,
+                        "release_id": str(release.id),
+                        "content_hash": content_hash,
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        id_map = response.json()["id_map"]
+
+        symbol_set.refresh_from_db()
+        assert symbol_set.release_id == release.id
+        assert symbol_set.storage_ptr == storage_ptr
+        assert chunk_id not in id_map
+
+    def test_bulk_start_upload_restarts_pending_upload(self) -> None:
+        chunk_id = str(uuid7())
+
+        first_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"chunk_ids": [chunk_id]},
+            format="json",
+        )
+
+        assert first_response.status_code == status.HTTP_201_CREATED
+
+        symbol_set = ErrorTrackingSymbolSet.objects.get(ref=chunk_id)
+        initial_storage_ptr = symbol_set.storage_ptr
+
+        second_response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={"chunk_ids": [chunk_id]},
+            format="json",
+        )
+
+        assert second_response.status_code == status.HTTP_201_CREATED
+        id_map = second_response.json()["id_map"]
+
+        symbol_set.refresh_from_db()
+        assert symbol_set.storage_ptr != initial_storage_ptr
+        assert id_map[str(chunk_id)]["symbol_set_id"] == str(symbol_set.id)
+
+    def test_bulk_start_upload_rejects_release_change(self) -> None:
+        chunk_id = str(uuid7())
+
+        first_release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="first-release",
+            version="1.0.0",
+            project="test",
+        )
+        second_release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="second-release",
+            version="1.0.1",
+            project="test",
+        )
+
+        symbol_set = ErrorTrackingSymbolSet.objects.create(
+            team=self.team,
+            ref=chunk_id,
+            storage_ptr="stored",
+            content_hash="hash",
+            release=first_release,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_start_upload",
+            data={
+                "symbol_sets": [
+                    {
+                        "chunk_id": chunk_id,
+                        "release_id": str(second_release.id),
+                        "content_hash": symbol_set.content_hash,
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        symbol_set.refresh_from_db()
+        assert symbol_set.release_id == first_release.id
+
     @patch("posthog.storage.object_storage.head_object")
     def test_can_finish_bulk_symbol_set_upload(self, patched_object_storage) -> None:
         symbol_set_one = ErrorTrackingSymbolSet.objects.create(
@@ -460,3 +733,26 @@ class TestErrorTracking(APIBaseTest):
         activity = self.client.get(url)
         self.assertEqual(activity.status_code, expected_status)
         return activity.json()
+
+    def test_fetch_release_by_hash_id(self) -> None:
+        release = ErrorTrackingRelease.objects.create(
+            team=self.team,
+            hash_id="test-hash-123",
+            version="1.0.0",
+            project="my-project",
+            metadata={"commit": "abc123"},
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/releases/hash/{release.hash_id}")
+        assert response.status_code == status.HTTP_200_OK
+
+        response_json = response.json()
+        assert response_json["id"] == str(release.id)
+        assert response_json["hash_id"] == "test-hash-123"
+        assert response_json["version"] == "1.0.0"
+        assert response_json["project"] == "my-project"
+        assert response_json["metadata"] == {"commit": "abc123"}
+
+    def test_fetch_release_by_hash_id_not_found(self) -> None:
+        response = self.client.get(f"/api/environments/{self.team.id}/error_tracking/releases/hash/nonexistent-hash")
+        assert response.status_code == status.HTTP_404_NOT_FOUND

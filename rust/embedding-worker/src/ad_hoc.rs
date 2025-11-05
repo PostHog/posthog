@@ -4,7 +4,10 @@ use anyhow::Result;
 use common_types::embedding::EmbeddingModel;
 use serde::{Deserialize, Serialize};
 
-use crate::{app_context::AppContext, generate_embedding, organization::apply_ai_opt_in};
+use crate::{
+    app_context::AppContext, generate_embedding, metrics_utils::RequestLabels,
+    organization::apply_ai_opt_in,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdHocEmbeddingRequest {
@@ -38,8 +41,13 @@ pub async fn handle_ad_hoc_request(
         return Err(anyhow::anyhow!("Content too long"));
     }
 
-    let (embedding, token_count) =
-        generate_embedding(context.clone(), request.model, &request.content).await?;
+    let (embedding, token_count) = generate_embedding(
+        context.clone(),
+        request.model,
+        &request.content,
+        &RequestLabels::from(&request),
+    )
+    .await?;
 
     Ok(AdHocEmbeddingResponse {
         embedding,

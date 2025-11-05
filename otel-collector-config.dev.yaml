@@ -1,4 +1,20 @@
 receivers:
+    filelog:
+        include:
+            - /var/lib/docker/containers/*/*.log
+        include_file_name: true
+        include_file_path: true
+        operators:
+            - id: container-parser
+              max_log_size: 102400
+              type: container
+              format: docker
+              on_error: send_quiet
+              add_metadata_from_filepath: false
+            - type: json_parser
+              parse_from: body
+              on_error: send_quiet
+              if: "hasPrefix(body, '{')"
     otlp:
         protocols:
             grpc:
@@ -11,6 +27,14 @@ exporters:
         endpoint: 'jaeger-local:4317' # Sending OTLP gRPC to Jaeger
         tls:
             insecure: true # For local communication to Jaeger
+    otlphttp/logs:
+        endpoint: 'http://log-capture:4318'
+        compression: none
+        tls:
+            insecure: true
+        headers:
+            # special "local" token is automatically mapped to team_id 1 in dev environments
+            authorization: Bearer phc_local
 
 extensions: # Declaring the extensions
     health_check: # Default configuration is usually fine
@@ -25,4 +49,12 @@ service:
             receivers: [otlp]
             processors: [batch]
             exporters: [otlp]
+        logs:
+            exporters:
+                - otlphttp/logs
+            processors:
+                - batch
+            receivers:
+                - otlp
+                - filelog
     extensions: [health_check, zpages] # Enabling the declared extensions

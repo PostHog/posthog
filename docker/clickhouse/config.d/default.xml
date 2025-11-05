@@ -26,7 +26,21 @@
                 </replica>
             </shard>
         </posthog_migrations>
+        <posthog_batch_exports>
+            <shard>
+                <replica>
+                    <host>clickhouse</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </posthog_batch_exports>
     </remote_servers>
+
+    <named_collections>
+        <msk_cluster>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </msk_cluster>
+    </named_collections>
 
     <macros>
         <shard>01</shard>

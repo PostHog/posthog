@@ -26,7 +26,11 @@ import { ErrorTrackingIssueImpactTool } from '../../components/IssueImpactTool'
 import { issueQueryOptionsLogic } from '../../components/IssueQueryOptions/issueQueryOptionsLogic'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { exceptionIngestionLogic } from '../../components/SetupPrompt/exceptionIngestionLogic'
-import { ERROR_TRACKING_SCENE_LOGIC_KEY, errorTrackingSceneLogic } from './errorTrackingSceneLogic'
+import {
+    ERROR_TRACKING_SCENE_LOGIC_KEY,
+    ErrorTrackingSceneActiveTab,
+    errorTrackingSceneLogic,
+} from './errorTrackingSceneLogic'
 import { ImpactFilters } from './tabs/impact/ImpactFilters'
 import { ImpactList } from './tabs/impact/ImpactList'
 import { IssuesFilters } from './tabs/issues/IssuesFilters'
@@ -58,7 +62,7 @@ export function ErrorTrackingScene(): JSX.Element {
                             <div>
                                 <TabsPrimitive
                                     value={activeTab}
-                                    onValueChange={setActiveTab}
+                                    onValueChange={(value) => setActiveTab(value as ErrorTrackingSceneActiveTab)}
                                     className="border rounded bg-surface-primary"
                                 >
                                     <TabsPrimitiveList className="border-b">
@@ -106,6 +110,7 @@ const Header = (): JSX.Element => {
         <>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.ErrorTracking].name}
+                description={null}
                 resourceType={{
                     type: sceneConfigurations[Scene.ErrorTracking].iconType || 'default_icon_type',
                 }}

@@ -23,9 +23,9 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.rbac.user_access_control import UserAccessControl
-from posthog.warehouse.models import ExternalDataSchema
-from posthog.warehouse.types import ExternalDataSourceType
 
+from products.data_warehouse.backend.models import ExternalDataSchema
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.revenue_analytics.backend.views import (
     RevenueAnalyticsBaseView,
     RevenueAnalyticsChargeView,
@@ -307,7 +307,7 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         ViewKind: Optional[type[RevenueAnalyticsBaseView]] = None,
         union: bool = False,
     ) -> Iterable[RevenueAnalyticsBaseView]:
-        for view_name in self.database.get_views():
+        for view_name in self.database.get_view_names():
             view = self.database.get_table(view_name)
             if isinstance(view, RevenueAnalyticsBaseView):
                 if ViewKind is None:

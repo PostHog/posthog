@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Literal, Optional
+from urllib.parse import quote
 
 from django.conf import settings
 from django.db.models import OuterRef, Subquery
@@ -14,7 +15,7 @@ from celery import shared_task
 from posthog.batch_exports.models import BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
-from posthog.constants import INVITE_DAYS_VALIDITY, SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES
+from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
@@ -238,6 +239,34 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
     posthoganalytics.capture(
         distinct_id=str(user.distinct_id),
         event="verification email sent",
+        groups={"organization": str(user.current_organization.id)},  # type: ignore
+    )
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+def send_email_mfa_link(user_id: int, token: str) -> None:
+    """Send email MFA verification link"""
+    user: User = User.objects.get(pk=user_id)
+
+    verification_link = f"{settings.SITE_URL}/login/verify?email={quote(user.email)}&token={token}"
+
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"email_mfa_{user.uuid}-{timezone.now().timestamp()}",
+        subject="Verify your PostHog login",
+        template_name="email_mfa_link",
+        template_context={
+            "preheader": "Please follow the link inside to verify your login.",
+            "url": verification_link,
+            "expiration_minutes": 10,
+            "site_url": settings.SITE_URL,
+        },
+    )
+    message.add_recipient(user.email)
+    message.send(send_async=False)
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="email mfa link sent",
         groups={"organization": str(user.current_organization.id)},  # type: ignore
     )
 
@@ -495,10 +524,7 @@ def login_from_new_device_notification(
     country = geoip_properties.get("$geoip_country_name", "Unknown")
     city = geoip_properties.get("$geoip_city_name", "Unknown")
 
-    if backend_name == "email_password":
-        login_method = "Email/password"
-    else:
-        login_method = SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES.get(backend_name, "SSO")
+    login_method = AUTH_BACKEND_DISPLAY_NAMES.get(backend_name, "SSO")
 
     is_new_device = check_and_cache_login_device(user_id, country, short_user_agent)
     if not is_new_device:

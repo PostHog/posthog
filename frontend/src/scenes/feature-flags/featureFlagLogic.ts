@@ -79,6 +79,10 @@ export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & 
     payloads?: Record<string, any>
 }
 
+export type VariantError = {
+    key: string | undefined
+}
+
 const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     operator: 'gt',
     threshold_type: RolloutConditionType.Sentry,
@@ -1340,7 +1344,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 {
                     key: [Scene.FeatureFlag, featureFlag.id || 'unknown'],
                     name: featureFlag.key || (!featureFlag.id ? 'New feature flag' : 'Unnamed'),
-                    iconType: 'feature_flag',
+                    iconType: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                 },
             ],
         ],
@@ -1453,12 +1457,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return featureFlag?.filters?.groups?.flatMap((g) => g.properties ?? []) ?? []
             },
         ],
+        variantErrors: [
+            (s) => [s.variants],
+            (variants) => {
+                const errors: VariantError[] = variants.map(({ key: variantKey }: MultivariateFlagVariant) => ({
+                    key: validateFeatureFlagKey(variantKey),
+                }))
+                return errors
+            },
+        ],
     }),
     urlToAction(({ actions, props, values }) => ({
         [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
+                // Reset editing state when navigating to prevent it from persisting across flags
+                actions.editFeatureFlag(false)
+
                 if (props.id) {
                     // When there is sourceId, we load the feature flag
                     if (props.id === 'new' && searchParams.sourceId != null) {

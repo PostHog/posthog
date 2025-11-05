@@ -1,11 +1,12 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { PropsWithChildren, useState } from 'react'
 import { match } from 'ts-pattern'
 
+import { IconChevronRight } from '@posthog/icons'
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
@@ -29,7 +30,7 @@ type SelectedDataType =
       }
     | null
 
-export const Metadata = ({ children }: { children: React.ReactNode }): JSX.Element => {
+export const Metadata = ({ children, className }: PropsWithChildren<{ className?: string }>): JSX.Element => {
     const { aggregations, summaryLoading, issueLoading, firstSeen, lastSeen } = useValues(errorTrackingIssueSceneLogic)
     const [hoveredDatum, setHoveredDatum] = useState<SelectedDataType>(null)
     const sparklineData = useSparklineDataIssueScene()
@@ -53,7 +54,7 @@ export const Metadata = ({ children }: { children: React.ReactNode }): JSX.Eleme
     )
 
     return (
-        <LemonCard className="p-0" hoverEffect={false}>
+        <LemonCard className={clsx('p-0', className)} hoverEffect={false}>
             <div className="flex justify-between items-center h-[40px] px-2">
                 <div className="flex justify-end items-center h-full">
                     {match(hoveredDatum)

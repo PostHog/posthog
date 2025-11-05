@@ -5,7 +5,6 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from posthog.api.test.test_team import create_team
 from posthog.models.integration import PRIVATE_CHANNEL_WITHOUT_ACCESS, EmailIntegration, Integration, SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -366,20 +365,10 @@ class TestEmailIntegration:
             self.team.id,
             self.user,
         )
-        other_team = create_team(organization=self.organization)
-        integrationOtherTeam = EmailIntegration.create_native_integration(
-            {
-                "email": "me@otherdomain.com",
-                "name": "Me",
-            },
-            other_team.id,
-            self.user,
-        )
 
         assert not integration1.config["verified"]
         assert not integration2.config["verified"]
         assert not integrationOtherDomain.config["verified"]
-        assert not integrationOtherTeam.config["verified"]
 
         email_integration = EmailIntegration(integration1)
         verification_result = email_integration.verify()
@@ -388,12 +377,10 @@ class TestEmailIntegration:
         integration1.refresh_from_db()
         integration2.refresh_from_db()
         integrationOtherDomain.refresh_from_db()
-        integrationOtherTeam.refresh_from_db()
 
         assert integration1.config["verified"]
         assert integration2.config["verified"]
         assert not integrationOtherDomain.config["verified"]
-        assert not integrationOtherTeam.config["verified"]
 
 
 class TestDatabricksIntegration:

@@ -1,5 +1,7 @@
 import csv
+import json
 import uuid
+import hashlib
 from collections import defaultdict
 from collections.abc import Iterator
 from datetime import datetime
@@ -28,8 +30,10 @@ from rest_framework_csv import renderers as csvrenderers
 
 from posthog.schema import ActorsQuery, HogQLQuery
 
+from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.property import property_to_expr
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import capture_legacy_api_call
@@ -37,6 +41,7 @@ from posthog.api.person import get_funnel_actor_class
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_target_entity
+from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import (
     INSIGHT_FUNNELS,
@@ -88,6 +93,92 @@ from posthog.renderers import SafeJSONRenderer
 from posthog.utils import format_query_params_absolute_url
 
 
+def validate_filters_and_compute_realtime_support(
+    filters_dict: dict, team: Team, current_cohort_type: str | None = None
+) -> tuple[dict, str | None, list | None]:
+    from posthog.models.cohort.cohort import CohortType
+
+    try:
+        if not filters_dict:
+            return filters_dict, current_cohort_type, None
+
+        validated_filters = CohortFilters.model_validate(
+            {"properties": filters_dict["properties"]}, context={"team": team}
+        )
+
+        clean_filters = validated_filters.model_dump(exclude_none=True)
+
+        cohort_type = (
+            CohortType.REALTIME if _calculate_realtime_support(cast(Group, validated_filters.properties)) else None
+        )
+
+        return clean_filters, cohort_type, None
+
+    except Exception as e:
+        logger.warning(f"Failed to validate cohort filters: {e}")
+        return filters_dict, current_cohort_type, None
+
+
+def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list[Any] | None, str | None, str | None]:
+    """
+    Generate HogQL bytecode for cohort filter data.
+    Similar to generate_template_bytecode in validation.py but for cohort-specific filters.
+    Returns tuple of (bytecode, error, conditionHash)
+    """
+    try:
+        # Only treat behavioral as event matcher + optional event properties; unsupported values return None
+        if filter_data.get("type") == "behavioral":
+            expr = build_behavioral_event_expr(filter_data, team)
+            # Unsupported behavioral filters return None → skip bytecode
+            if expr is None:
+                return None, "Unsupported behavioral filter for realtime bytecode", None
+            bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
+            condition_hash = None
+            if bytecode:
+                bytecode_str = json.dumps(bytecode, sort_keys=True)
+                condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
+            return bytecode, None, condition_hash
+
+        property_obj = Property(**filter_data)
+        expr = property_to_expr(property_obj, team)
+        bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
+
+        # Generate conditionHash from bytecode
+        condition_hash = None
+        if bytecode:
+            # Create a stable hash of the bytecode by converting to JSON string
+            bytecode_str = json.dumps(bytecode, sort_keys=True)
+            condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
+
+        return bytecode, None, condition_hash
+    except Exception as e:
+        logger.warning(f"Failed to generate bytecode for cohort filter: {e}")
+        return None, str(e), None
+
+
+class FilterBytecodeMixin(BaseModel):
+    bytecode: list[Any] | None = None
+    bytecode_error: str | None = None
+    conditionHash: str | None = None
+
+    @model_validator(mode="after")
+    def _generate_bytecode(self, info):
+        """Generate bytecode for the filter if team context is available."""
+        if info and info.context:
+            team = info.context.get("team")
+            if team:
+                bytecode, error, condition_hash = generate_cohort_filter_bytecode(
+                    self.model_dump(exclude_none=True), team
+                )
+                if bytecode:
+                    self.bytecode = bytecode
+                if condition_hash:
+                    self.conditionHash = condition_hash
+                if error:
+                    self.bytecode_error = error
+        return self
+
+
 class EventPropFilter(BaseModel, extra="forbid"):
     type: Literal["event", "element"]
     key: str
@@ -101,7 +192,7 @@ class HogQLFilter(BaseModel, extra="forbid"):
     value: Any | None = None
 
 
-class BehavioralFilter(BaseModel, extra="forbid"):
+class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["behavioral"]
     key: Union[str, int]  # action IDs can be ints
     value: str
@@ -121,14 +212,14 @@ class BehavioralFilter(BaseModel, extra="forbid"):
     explicit_datetime: str | None = None
 
 
-class CohortFilter(BaseModel, extra="forbid"):
+class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["cohort"]
     key: Literal["id"]
     value: int
     negation: bool = False
 
 
-class PersonFilter(BaseModel, extra="forbid"):
+class PersonFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["person"]
     key: str
     operator: str | None = None  # accept any legacy operator
@@ -168,6 +259,23 @@ class Group(BaseModel, extra="forbid"):
 
 
 Group.model_rebuild()
+
+
+def _calculate_realtime_support(group: Group) -> bool:
+    """Check if all filters in the group have valid bytecode to determine realtime support."""
+    for value in group.values:
+        if hasattr(value, "values"):  # It's another group
+            if not _calculate_realtime_support(cast(Group, value)):
+                return False
+        else:  # It's a filter
+            # Check if filter has FilterBytecodeMixin and valid bytecode
+            if hasattr(value, "bytecode") and hasattr(value, "bytecode_error"):
+                if value.bytecode is None or value.bytecode_error is not None:
+                    return False
+            else:
+                # Filter doesn't support bytecode generation
+                return False
+    return True
 
 
 class CohortFilters(BaseModel, extra="forbid"):
@@ -348,6 +456,16 @@ class CohortSerializer(serializers.ModelSerializer):
             validated_data["is_calculating"] = True
         if validated_data.get("query") and validated_data.get("filters"):
             raise ValidationError("Cannot set both query and filters at the same time.")
+
+        # Process bytecode for filters if present
+        if validated_data.get("filters"):
+            team = Team.objects.get(id=self.context["team_id"])
+            clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
+                validated_data["filters"], team, current_cohort_type=validated_data.get("cohort_type")
+            )
+            validated_data["filters"] = clean_filters
+            validated_data["cohort_type"] = computed_cohort_type
+
         person_ids = validated_data.pop("_create_static_person_ids", None)
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
@@ -544,6 +662,7 @@ class CohortSerializer(serializers.ModelSerializer):
         """
         1. structural/schema check → pydantic
         2. domain rules (feature-flag gotchas) → bespoke fn
+        3. bytecode generation → add bytecode fields to filters
         """
         # Skip validation for static cohorts
         if self.initial_data.get("is_static") or getattr(self.instance, "is_static", False):
@@ -553,7 +672,11 @@ class CohortSerializer(serializers.ModelSerializer):
                 {"detail": "Must contain a 'properties' key with type and values", "type": "validation_error"}
             )
         try:
-            CohortFilters.model_validate(raw)  # raises if malformed
+            # Validate structure
+            team = self.context.get("get_team", lambda: None)()
+            validated = CohortFilters.model_validate(raw, context={"team": team})
+            raw = validated.model_dump(exclude_none=True)
+
         except PydanticValidationError as exc:
             # pydantic → drf error shape
             raise ValidationError(detail=self._cohort_error_message(exc))
@@ -627,13 +750,38 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.description = validated_data.get("description", cohort.description)
         cohort.groups = validated_data.get("groups", cohort.groups)
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
-        cohort.filters = validated_data.get("filters", cohort.filters)
         cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
+        cohort.query = validated_data.get("query", cohort.query)
+
+        # Process bytecode for filters if they're being updated
+        if "filters" in validated_data:
+            filters = validated_data["filters"]
+            if filters:
+                clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
+                    filters, cohort.team, current_cohort_type=cohort.cohort_type
+                )
+                cohort.filters = clean_filters
+                # Always compute cohort_type from filters; ignore any client-provided value
+                cohort.cohort_type = computed_cohort_type
+            else:
+                cohort.filters = filters
 
         deleted_state = validated_data.get("deleted", None)
 
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
+            if deleted_state:
+                flags_using_cohort = FeatureFlag.objects.filter(
+                    team__project_id=cohort.team.project_id, active=True, deleted=False
+                )
+                flags_with_cohort = [flag for flag in flags_using_cohort if cohort.id in flag.get_cohort_ids()]
+                if flags_with_cohort:
+                    flag_names = [flag.name or flag.key for flag in flags_with_cohort]
+                    raise ValidationError(
+                        f"This cohort is used in {len(flags_with_cohort)} active feature flag(s): {', '.join(flag_names)}. "
+                        "Please remove the cohort from these feature flags before deleting it."
+                    )
+
             relevant_team_ids = Team.objects.filter(project_id=cohort.team.project_id).values_list("id", flat=True)
             cohort.deleted = deleted_state
             if deleted_state:
@@ -667,9 +815,13 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
+            from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
             if cohort.is_static and request.FILES.get("csv"):
                 # You can't update a static cohort using the trend/stickiness thing
                 self._calculate_static_by_csv(request.FILES["csv"], cohort)
+            elif cohort.is_static and validated_data.get("query"):
+                insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
             else:
                 cohort.enqueue_calculation(initiating_user=request.user)
 
@@ -789,28 +941,33 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         return graph, behavioral_cohorts
 
-    @extend_schema(summary="Duplicate as static cohort", description="Create a static copy of a dynamic cohort")
+    @extend_schema(summary="Duplicate as static cohort", description="Create a static copy of a cohort")
     @action(methods=["GET"], detail=True, required_scopes=["cohort:write"])
     def duplicate_as_static_cohort(self, request: Request, **kwargs) -> Response:
         cohort: Cohort = self.get_object()
         team = self.team
 
+        serializer_data = {
+            "name": f"{cohort.name} (static copy)",
+            "is_static": True,
+        }
+        serializer_context = {
+            "request": request,
+            "team_id": team.pk,
+            "get_team": lambda: team,
+        }
+
+        # For static cohorts, copy people directly instead of using the insight filter path
         if cohort.is_static:
-            raise ValidationError("Cannot duplicate a static cohort as a static cohort.")
+            from posthog.models.cohort.cohort import CohortPeople
 
-        cohort_serializer = CohortSerializer(
-            data={
-                "name": f"{cohort.name} (static copy)",
-                "is_static": True,
-            },
-            context={
-                "request": request,
-                "from_cohort_id": cohort.pk,
-                "team_id": team.pk,
-                "get_team": lambda: team,
-            },
-        )
+            person_uuids = CohortPeople.objects.filter(cohort_id=cohort.pk).values_list("person__uuid", flat=True)
+            serializer_data["_create_static_person_ids"] = [str(uuid) for uuid in person_uuids]
+        else:
+            # For dynamic cohorts, use the existing insight filter path
+            serializer_context["from_cohort_id"] = cohort.pk
 
+        cohort_serializer = CohortSerializer(data=serializer_data, context=serializer_context)
         cohort_serializer.is_valid(raise_exception=True)
         cohort_serializer.save()
 

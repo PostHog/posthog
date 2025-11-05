@@ -3,9 +3,9 @@ from typing import cast
 from posthog.hogql import ast
 
 from posthog.temporal.data_imports.sources.stripe.constants import PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
-from posthog.warehouse.models.table import DataWarehouseTable
 
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
 from products.revenue_analytics.backend.views.schemas.product import SCHEMA
 
@@ -23,13 +23,19 @@ def build(handle: SourceHandle) -> BuiltQuery:
     product_schema = next((schema for schema in schemas if schema.name == STRIPE_PRODUCT_RESOURCE_NAME), None)
     if product_schema is None:
         return BuiltQuery(
-            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+            key=str(source.id),  # Using source rather than table because table hasn't been found yet
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_schema",
         )
 
     product_schema = cast(ExternalDataSchema, product_schema)
     if product_schema.table is None:
         return BuiltQuery(
-            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+            key=str(source.id),  # Using source rather than table because table hasn't been found
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_table",
         )
 
     table = cast(DataWarehouseTable, product_schema.table)

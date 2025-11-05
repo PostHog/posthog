@@ -15,6 +15,7 @@ import datetime as dt
 import pytest
 import unittest.mock
 
+from django.conf import settings
 from django.test import override_settings
 
 from temporalio import activity
@@ -29,7 +30,6 @@ from posthog.batch_exports.service import (
     BatchExportSchema,
     BigQueryBatchExportInputs,
 )
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
@@ -46,7 +46,7 @@ from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils i
     TEST_TIME,
     assert_clickhouse_records_in_bigquery,
 )
-from products.batch_exports.backend.tests.temporal.utils import mocked_start_batch_export_run
+from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_start_batch_export_run
 
 pytestmark = [
     SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
@@ -153,7 +153,7 @@ async def test_bigquery_export_workflow(
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[BigQueryBatchExportWorkflow],
                 activities=[
                     start_batch_export_run,
@@ -168,7 +168,7 @@ async def test_bigquery_export_workflow(
                     BigQueryBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=60),
                 )
@@ -249,7 +249,7 @@ async def test_bigquery_export_workflow_without_events(
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[BigQueryBatchExportWorkflow],
                 activities=[
                     start_batch_export_run,
@@ -264,7 +264,7 @@ async def test_bigquery_export_workflow_without_events(
                     BigQueryBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(seconds=10),
                 )
@@ -334,7 +334,7 @@ async def test_bigquery_export_workflow_backfill_earliest_persons(
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[BigQueryBatchExportWorkflow],
                 activities=[
                     start_batch_export_run,
@@ -349,7 +349,7 @@ async def test_bigquery_export_workflow_backfill_earliest_persons(
                     BigQueryBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                     execution_timeout=dt.timedelta(minutes=10),
                 )
@@ -401,7 +401,7 @@ async def test_bigquery_export_workflow_handles_unexpected_insert_activity_error
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[BigQueryBatchExportWorkflow],
                 activities=[
                     mocked_start_batch_export_run,
@@ -427,7 +427,7 @@ async def test_bigquery_export_workflow_handles_unexpected_insert_activity_error
                             BigQueryBatchExportWorkflow.run,
                             inputs,
                             id=workflow_id,
-                            task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                             retry_policy=RetryPolicy(maximum_attempts=1),
                             execution_timeout=dt.timedelta(seconds=20),
                         )
@@ -470,7 +470,7 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[BigQueryBatchExportWorkflow],
                 activities=[
                     mocked_start_batch_export_run,
@@ -495,7 +495,7 @@ async def test_bigquery_export_workflow_handles_insert_activity_non_retryable_er
                         BigQueryBatchExportWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
@@ -537,7 +537,7 @@ async def test_bigquery_export_workflow_handles_cancellation(
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 workflows=[BigQueryBatchExportWorkflow],
                 activities=[
                     mocked_start_batch_export_run,
@@ -551,7 +551,7 @@ async def test_bigquery_export_workflow_handles_cancellation(
                     BigQueryBatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=BATCH_EXPORTS_TASK_QUEUE,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 

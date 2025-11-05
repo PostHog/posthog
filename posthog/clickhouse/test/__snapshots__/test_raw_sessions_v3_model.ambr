@@ -71,6 +71,24 @@
     AND team_id = 99999
   '''
 # ---
+# name: TestRawSessionsModel.test_has_replay_events
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_has_replay_events.1
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
 # name: TestRawSessionsModel.test_it_creates_session_when_creating_event
   '''
   

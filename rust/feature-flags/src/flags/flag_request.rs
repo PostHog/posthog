@@ -28,7 +28,7 @@ where
 #[derive(Debug, Clone, Copy)]
 pub enum FlagRequestType {
     Decide,
-    LocalEvaluation,
+    FlagDefinitions,
 }
 
 #[derive(Default, Debug, Deserialize, Serialize)]
@@ -198,6 +198,9 @@ mod tests {
     };
     use bytes::Bytes;
     use serde_json::json;
+
+    // Default cache TTL for tests: 5 days in seconds
+    const DEFAULT_CACHE_TTL_SECONDS: u64 = 432000;
 
     #[test]
     fn empty_distinct_id_is_accepted() {
@@ -479,6 +482,8 @@ mod tests {
             redis_client.clone(),
             redis_client.clone(),
             pg_client.clone(),
+            DEFAULT_CACHE_TTL_SECONDS,
+            DEFAULT_CACHE_TTL_SECONDS,
         );
 
         match flag_service.verify_token(&token).await {
@@ -506,6 +511,8 @@ mod tests {
             redis_reader_client.clone(),
             redis_writer_client.clone(),
             pg_client.clone(),
+            DEFAULT_CACHE_TTL_SECONDS,
+            DEFAULT_CACHE_TTL_SECONDS,
         );
         assert!(matches!(
             flag_service.verify_token(&result).await,

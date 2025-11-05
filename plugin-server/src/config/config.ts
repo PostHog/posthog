@@ -1,4 +1,4 @@
-import { LogLevel, PluginLogLevel, PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
+import { PluginLogLevel, PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
@@ -8,6 +8,10 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+    KAFKA_LOGS_CLICKHOUSE,
+    KAFKA_LOGS_INGESTION,
+    KAFKA_LOGS_INGESTION_DLQ,
+    KAFKA_LOGS_INGESTION_OVERFLOW,
     KAFKA_LOG_ENTRIES,
 } from './kafka-topics'
 
@@ -75,6 +79,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_AUTO_CREATE_TOPICS: true,
+        CONSUMER_LOG_STATS_LEVEL: 'debug',
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: undefined,
         KAFKA_CLIENT_CERT_KEY_B64: undefined,
@@ -103,7 +108,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID: '',
         INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY: false,
         PLUGINS_DEFAULT_LOG_LEVEL: isTestEnv() ? PluginLogLevel.Full : PluginLogLevel.Log,
-        LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
+        LOG_LEVEL: isTestEnv() ? 'warn' : 'info',
         HTTP_SERVER_PORT: DEFAULT_HTTP_SERVER_PORT,
         SCHEDULE_LOCK_TTL: 60,
         REDIS_POOL_MIN_SIZE: 1,
@@ -113,6 +118,12 @@ export function getDefaultConfig(): PluginsServerConfig {
         EVENT_PROPERTY_LRU_SIZE: 10000,
         HEALTHCHECK_MAX_STALE_SECONDS: 2 * 60 * 60, // 2 hours
         SITE_URL: isDevEnv() ? 'http://localhost:8000' : '',
+        TEMPORAL_HOST: 'localhost',
+        TEMPORAL_PORT: '7233',
+        TEMPORAL_NAMESPACE: 'default',
+        TEMPORAL_CLIENT_ROOT_CA: undefined,
+        TEMPORAL_CLIENT_CERT: undefined,
+        TEMPORAL_CLIENT_KEY: undefined,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
@@ -346,6 +357,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         POD_TERMINATION_ENABLED: false,
         POD_TERMINATION_BASE_TIMEOUT_MINUTES: 30, // Default: 30 minutes
         POD_TERMINATION_JITTER_MINUTES: 45, // Default: 45 hour, so timeout is between 30 minutes and 1h15m
+
+        // Logs ingestion
+        LOGS_INGESTION_CONSUMER_GROUP_ID: 'ingestion-logs',
+        LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_LOGS_INGESTION,
+        LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_LOGS_INGESTION_OVERFLOW,
+        LOGS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_LOGS_INGESTION_DLQ,
+        LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_LOGS_CLICKHOUSE,
     }
 }
 

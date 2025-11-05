@@ -105,7 +105,7 @@ jobs:
     check-migrations:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
-        timeout-minutes: 10
+        timeout-minutes: 20
 
         name: Validate Django and CH migrations
         runs-on: ubuntu-latest
@@ -126,7 +126,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
                   version: 0.8.19
@@ -141,6 +141,9 @@ jobs:
               with:
                   toolchain: 1.88.0
                   components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
 
             - name: Install sqlx-cli
               run: |
@@ -260,21 +263,21 @@ jobs:
                   EXIT_CODE=$?
                   set -e  # Re-enable exit on error
 
-                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
-                    # Get existing comments
-                    COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                  # Get existing comments
+                  COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+
+                  # Delete previous risk analysis comments
+                  echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
+                    echo "Deleting risk analysis comment $comment_id"
+                    curl -X DELETE \
+                      -H "Authorization: token $GITHUB_TOKEN" \
                       -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
+                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
+                  done
 
-                    # Delete previous risk analysis comments
-                    echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
-                      echo "Deleting risk analysis comment $comment_id"
-                      curl -X DELETE \
-                        -H "Authorization: token $GITHUB_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
-                    done
-
+                  if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
                     # Post risk analysis comment (output already contains markdown formatting with legend)
                     RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS"
                     RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
@@ -286,6 +289,8 @@ jobs:
                       -H "Accept: application/vnd.github.v3+json" \
                       "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
                       -d "$RISK_COMMENT_JSON"
+                  else
+                    echo "No migrations to analyze or risk analysis output empty - previous comments cleaned up"
                   fi
 
                   # Fail the job if there were blocked migrations
@@ -571,7 +576,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv-tests
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
                   version: 0.8.19
@@ -799,7 +804,7 @@ jobs:
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     django_tests:
-        needs: [django]
+        needs: [django, check-migrations, async-migrations]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -812,7 +817,20 @@ jobs:
                     echo "One or more jobs in the Django test matrix failed."
                     exit 1
                   fi
-                  echo "All jobs in the Django test matrix passed."
+
+                  # Check migration validation - must pass for Django Tests to be green
+                  if [[ "${{ needs.check-migrations.result }}" != "success" && "${{ needs.check-migrations.result }}" != "skipped" ]]; then
+                    echo "Migration checks failed."
+                    exit 1
+                  fi
+
+                  # Check async migrations - must pass for Django Tests to be green
+                  if [[ "${{ needs.async-migrations.result }}" != "success" && "${{ needs.async-migrations.result }}" != "skipped" ]]; then
+                    echo "Async migrations tests failed."
+                    exit 1
+                  fi
+
+                  echo "All checks passed."
 
     async-migrations:
         name: Async migrations tests -  ${{ matrix.clickhouse-server-image }}
@@ -842,7 +860,7 @@ jobs:
 
             - name: Install uv
               id: setup-uv-async
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
                   version: 0.8.19

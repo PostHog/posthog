@@ -362,6 +362,24 @@ const getFieldDescription = (description: string) => {
     return description.replaceAll(/\[([^\]]+)\]\(https?:\/\/[^\/]*segment\.com[^)]*\)(\s*\{:.*?\})?/g, '$1') // Remove segment.com links completely, keeping only the link text
 }
 
+const SECRET_FIELD_NAMES = [
+    'oauth',
+    'oauth2',
+    'accesstoken',
+    'access-token',
+    'acccess_token',
+    'refresh-token',
+    'refresh_token',
+    'token_type',
+    'apikey',
+    'apisecret',
+    'clientsecret',
+    'password',
+    'secretkey',
+    'secret',
+    'securitytoken',
+]
+
 const translateInputsSchema = (
     inputs_schema: Record<string, any> | undefined,
     mapping?: Record<string, any> | undefined
@@ -378,7 +396,7 @@ const translateInputsSchema = (
             description: getFieldDescription(field.description),
             default: getDefaultValue(key, field, mapping),
             required: field.required ?? false,
-            secret: field.type === 'password' ? true : false,
+            secret: field.type === 'password' || SECRET_FIELD_NAMES.includes(key.toLowerCase()) ? true : false,
             ...(field.choices ? { choices: field.choices } : {}),
         })) as HogFunctionInputSchemaType[]
 }

@@ -22,8 +22,8 @@ const getCodeName = (name: string): string => {
     return (
         name
             .trim()
-            //  Filter out all characters that is not a letter, number or space
-            .replace(/[^a-zA-Z0-9\s]/g, '')
+            //  Filter out all characters that is not a letter, number or space or underscore
+            .replace(/[^a-zA-Z0-9\s_]/g, '')
             .replace(/\s/g, '_')
             .toLowerCase()
     )
@@ -181,7 +181,11 @@ export const NewVariableModal = (): JSX.Element => {
             }
         >
             <div className="gap-4 flex flex-col">
-                <LemonField.Pure label="Name" className="gap-1">
+                <LemonField.Pure
+                    label="Name"
+                    className="gap-1"
+                    info="Variable name must be alphanumeric and can only contain spaces and underscores"
+                >
                     <LemonInput
                         placeholder="Name"
                         value={variable.name}

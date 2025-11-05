@@ -65,6 +65,9 @@ class SandboxEnvironmentConfig(BaseModel):
     snapshot_id: Optional[str] = None
     ttl_seconds: int = 60 * 30  # 30 minutes
     metadata: Optional[dict[str, str]] = None
+    memory_gb: int = 16
+    cpu_cores: int = 8
+    disk_size_gb: int = 64
 
 
 def get_runloop_client() -> AsyncRunloop:
@@ -126,6 +129,10 @@ class SandboxEnvironment:
                 "metadata": config.metadata or {},
                 "launch_parameters": {
                     "keep_alive_time_seconds": config.ttl_seconds,
+                    "resource_size_request": "CUSTOM_SIZE",
+                    "custom_cpu_cores": config.cpu_cores,
+                    "custom_gb_memory": config.memory_gb,
+                    "custom_disk_size": config.disk_size_gb,
                 },
             }
             if snapshot_external_id:

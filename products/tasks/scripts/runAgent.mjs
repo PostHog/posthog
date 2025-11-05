@@ -14,11 +14,12 @@ function parseArgs() {
     return parsed
 }
 
-export async function runAgent(taskId, workflowId, repositoryPath, posthogApiUrl, posthogApiKey) {
+export async function runAgent(taskId, repositoryPath, posthogApiUrl, posthogApiKey, prompt, maxTurns) {
     const agent = new Agent({
         workingDirectory: repositoryPath,
         posthogApiUrl,
         posthogApiKey,
+        debug: true,
         onEvent: (event) => {
             if (event.type !== 'token') {
                 console.info(JSON.stringify({ type: 'event', data: event }))
@@ -26,23 +27,41 @@ export async function runAgent(taskId, workflowId, repositoryPath, posthogApiUrl
         },
     })
 
-    await agent.runWorkflow(taskId, workflowId, {
-        repositoryPath,
-        permissionMode: PermissionMode.BYPASS,
-        autoProgress: true,
-    })
+    if (prompt) {
+        const options = {
+            repositoryPath,
+            permissionMode: PermissionMode.BYPASS,
+            isCloudMode: true,
+        }
+
+        if (maxTurns) {
+            options.queryOverrides = {
+                maxTurns: parseInt(maxTurns, 10),
+            }
+        }
+
+        await agent.run(prompt, options)
+    } else {
+        await agent.runTask(taskId, {
+            repositoryPath,
+            permissionMode: PermissionMode.BYPASS,
+            isCloudMode: true,
+            createPR: true,
+            autoProgress: true,
+        })
+    }
 }
 
 async function main() {
-    const { taskId, workflowId, repositoryPath } = parseArgs()
+    const { taskId, repositoryPath, prompt, 'max-turns': maxTurns } = parseArgs()
 
-    if (!taskId) {
-        console.error('Missing required argument: taskId')
+    if (!prompt && !taskId) {
+        console.error('Missing required argument: either --prompt or --taskId must be provided')
         process.exit(1)
     }
 
-    if (!workflowId) {
-        console.error('Missing required argument: workflowId')
+    if (!prompt && !taskId) {
+        console.error('Missing required argument: taskId (required when using taskId)')
         process.exit(1)
     }
 
@@ -65,7 +84,7 @@ async function main() {
     }
 
     try {
-        await runAgent(taskId, workflowId, repositoryPath, posthogApiUrl, posthogApiKey)
+        await runAgent(taskId, repositoryPath, posthogApiUrl, posthogApiKey, prompt, maxTurns)
         process.exit(0)
     } catch (error) {
         console.error(
