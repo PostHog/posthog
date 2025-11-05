@@ -56,6 +56,9 @@ export function useNotebookDrag({ href, node, properties, onlyWithModifierKey }:
                     const url = window.location.origin + href
                     e.dataTransfer.setData('text/uri-list', url)
                     e.dataTransfer.setData('text/plain', url)
+                    // Add data for shortcuts
+                    e.dataTransfer.setData('text/href', href)
+                    e.dataTransfer.setData('text/title', e.currentTarget?.textContent || '')
                 }
                 node && e.dataTransfer.setData('node', node)
                 properties && e.dataTransfer.setData('properties', JSON.stringify(properties))

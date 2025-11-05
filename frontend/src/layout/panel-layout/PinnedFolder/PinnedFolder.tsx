@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 
@@ -16,9 +17,59 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 
 import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
+import { shortcutDropLogic } from '~/layout/panel-layout/PinnedFolder/shortcutDropLogic'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { formatUrlAsName } from '~/layout/panel-layout/ProjectTree/utils'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { notebookPanelLogic } from '~/scenes/notebooks/NotebookPanel/notebookPanelLogic'
+
+function ShortcutDropZone({ children }: { children: React.ReactNode }): JSX.Element {
+    const { dropMode } = useValues(notebookPanelLogic)
+    const { handleShortcutDrop } = useActions(shortcutDropLogic)
+    const [isDragOver, setIsDragOver] = useState(false)
+
+    const handleDragOver = (e: React.DragEvent): void => {
+        e.preventDefault()
+        setIsDragOver(true)
+    }
+
+    const handleDragLeave = (e: React.DragEvent): void => {
+        e.preventDefault()
+        setIsDragOver(false)
+    }
+
+    const handleDrop = (e: React.DragEvent): void => {
+        e.preventDefault()
+        setIsDragOver(false)
+
+        const href = e.dataTransfer.getData('text/href')
+        const title = e.dataTransfer.getData('text/title')
+
+        if (href) {
+            handleShortcutDrop(href, title)
+        }
+    }
+
+    const showDropZone = dropMode && isDragOver
+
+    return (
+        <div
+            className={`relative h-full ${showDropZone ? 'bg-accent/10 border-2 border-dashed border-accent' : ''}`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
+            {children}
+            {showDropZone && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-50">
+                    <div className="bg-white/90 backdrop-blur-sm px-3 py-2 rounded-md border text-sm font-medium">
+                        Drop to add shortcut
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}
 
 export function PinnedFolder(): JSX.Element {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
@@ -73,7 +124,7 @@ export function PinnedFolder(): JSX.Element {
         </DropdownMenu>
     )
 
-    return (
+    const content = (
         <>
             {!isLayoutNavCollapsed &&
                 (showDefaultHeader ? (
@@ -103,4 +154,6 @@ export function PinnedFolder(): JSX.Element {
             </div>
         </>
     )
+
+    return pinnedFolder === 'shortcuts://' ? <ShortcutDropZone>{content}</ShortcutDropZone> : content
 }
