@@ -8,19 +8,13 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import Integration, SyntheticMonitor, User
+from posthog.models import SyntheticMonitor
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 
 class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    alert_recipient_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=User.objects.all(), source="alert_recipients", required=False, allow_null=True
-    )
-    slack_integration_id = serializers.PrimaryKeyRelatedField(
-        queryset=Integration.objects.all(), source="slack_integration", required=False, allow_null=True
-    )
 
     class Meta:
         model = SyntheticMonitor
@@ -35,19 +29,13 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
             "body",
             "expected_status_code",
             "timeout_seconds",
-            "alert_enabled",
-            "alert_threshold_failures",
-            "alert_recipient_ids",
-            "slack_integration_id",
             "enabled",
-            "last_alerted_at",
             "created_by",
             "created_at",
             "updated_at",
         ]
         read_only_fields = [
             "id",
-            "last_alerted_at",
             "created_by",
             "created_at",
             "updated_at",
@@ -71,11 +59,13 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
             return value
         if not all(isinstance(region, str) for region in value):
             raise serializers.ValidationError("All regions must be strings")
-        return value
-
-    def validate_slack_integration_id(self, value: Integration | None) -> Integration | None:
-        if value and value.kind != "slack":
-            raise serializers.ValidationError("Integration must be a Slack integration")
+        valid_regions = {region.value for region in SyntheticMonitor.Region}
+        invalid_regions = [r for r in value if r not in valid_regions]
+        if invalid_regions:
+            raise serializers.ValidationError(
+                f"Invalid regions: {', '.join(invalid_regions)}. "
+                f"Valid regions are: {', '.join(sorted(valid_regions))}"
+            )
         return value
 
     def create(self, validated_data: dict) -> SyntheticMonitor:
@@ -134,9 +124,7 @@ class SyntheticMonitorViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "INTERNAL"
-    queryset = SyntheticMonitor.objects.select_related("created_by", "slack_integration").prefetch_related(
-        "alert_recipients"
-    )
+    queryset = SyntheticMonitor.objects.select_related("created_by")
     serializer_class = SyntheticMonitorSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "url"]

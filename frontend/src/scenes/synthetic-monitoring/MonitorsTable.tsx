@@ -8,11 +8,12 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { syntheticMonitoringLogic } from './syntheticMonitoringLogic'
-import { MonitorState, SyntheticMonitor } from './types'
+import { SyntheticMonitor } from './types'
 
 export function MonitorsTable(): JSX.Element {
     const { monitors, monitorsLoading } = useValues(syntheticMonitoringLogic)
-    const { deleteMonitor, pauseMonitor, resumeMonitor, testMonitor } = useActions(syntheticMonitoringLogic)
+    const { deleteMonitor, pauseMonitor, resumeMonitor, testMonitor, createAlertWorkflow } =
+        useActions(syntheticMonitoringLogic)
 
     const columns: LemonTableColumns<SyntheticMonitor> = [
         {
@@ -27,20 +28,10 @@ export function MonitorsTable(): JSX.Element {
         },
         {
             title: 'Status',
-            dataIndex: 'state',
-            render: (_, monitor) => {
-                const statusColors = {
-                    [MonitorState.Healthy]: 'success',
-                    [MonitorState.Failing]: 'danger',
-                    [MonitorState.Error]: 'danger',
-                    [MonitorState.Disabled]: 'default',
-                }
-                return (
-                    <LemonTag type={statusColors[monitor.state] as any}>
-                        {monitor.state.charAt(0).toUpperCase() + monitor.state.slice(1)}
-                    </LemonTag>
-                )
-            },
+            dataIndex: 'enabled',
+            render: (enabled) => (
+                <LemonTag type={enabled ? 'success' : 'default'}>{enabled ? 'Enabled' : 'Disabled'}</LemonTag>
+            ),
         },
         {
             title: 'Method',
@@ -55,33 +46,22 @@ export function MonitorsTable(): JSX.Element {
         {
             title: 'Regions',
             dataIndex: 'regions',
-            render: (regions) => (
-                <div className="flex gap-1 flex-wrap">
-                    {regions?.length > 0 ? (
-                        regions.map((region) => (
-                            <LemonTag key={region} type="default">
-                                {region}
-                            </LemonTag>
-                        ))
-                    ) : (
-                        <span className="text-muted">No regions</span>
-                    )}
-                </div>
-            ),
-        },
-        {
-            title: 'Last checked',
-            dataIndex: 'last_checked_at',
-            render: (lastChecked) => (lastChecked ? new Date(lastChecked).toLocaleString() : 'Never'),
-        },
-        {
-            title: 'Failures',
-            dataIndex: 'consecutive_failures',
-            render: (failures, monitor) => (
-                <span className={failures > 0 ? 'text-danger font-semibold' : ''}>
-                    {failures}/{monitor.alert_threshold_failures}
-                </span>
-            ),
+            render: (_, monitor) => {
+                const regions = monitor.regions
+                return (
+                    <div className="flex gap-1 flex-wrap">
+                        {regions && regions.length > 0 ? (
+                            regions.map((region) => (
+                                <LemonTag key={region} type="default">
+                                    {region}
+                                </LemonTag>
+                            ))
+                        ) : (
+                            <span className="text-muted">No regions</span>
+                        )}
+                    </div>
+                )
+            },
         },
         {
             width: 0,
@@ -97,6 +77,9 @@ export function MonitorsTable(): JSX.Element {
                             </LemonButton>
                             <LemonButton fullWidth onClick={() => testMonitor(monitor.id)}>
                                 Test now
+                            </LemonButton>
+                            <LemonButton fullWidth onClick={() => createAlertWorkflow(monitor.id)}>
+                                Create alert workflow
                             </LemonButton>
                             {monitor.enabled ? (
                                 <LemonButton fullWidth onClick={() => pauseMonitor(monitor.id)}>

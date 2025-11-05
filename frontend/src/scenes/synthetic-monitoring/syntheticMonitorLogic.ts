@@ -2,6 +2,7 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import { SyntheticMonitoringRegion } from 'types'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -40,16 +41,12 @@ export const syntheticMonitorLogic = kea<syntheticMonitorLogicType>([
                 name: '',
                 url: '',
                 frequency_minutes: 5 as const,
-                regions: ['default'],
+                regions: [SyntheticMonitoringRegion.US_EAST_1],
                 method: 'GET',
                 headers: null,
                 body: null,
                 expected_status_code: 200,
                 timeout_seconds: 30,
-                alert_enabled: true,
-                alert_threshold_failures: 3,
-                alert_recipient_ids: [],
-                slack_integration_id: null,
             } as Partial<SyntheticMonitor>,
             errors: ({ name, url, expected_status_code, timeout_seconds }) => ({
                 name: !name ? 'Name is required' : undefined,

@@ -24,6 +24,7 @@ import { workflowSceneLogic } from './workflowSceneLogic'
 
 export interface WorkflowLogicProps {
     id?: string
+    monitorId?: string
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -132,7 +133,55 @@ export const workflowLogic = kea<workflowLogicType>([
             {
                 loadWorkflow: async () => {
                     if (!props.id || props.id === 'new') {
-                        return { ...NEW_WORKFLOW }
+                        const workflow = { ...NEW_WORKFLOW }
+
+                        // Pre-fill trigger for synthetic monitor if monitorId is provided
+                        if (props.monitorId) {
+                            try {
+                                // Fetch monitor to get its name
+                                const monitor = await api.syntheticMonitoring.get(props.monitorId)
+
+                                // Update trigger action with synthetic_http_check event filters
+                                const triggerAction = workflow.actions.find((a) => a.id === TRIGGER_NODE_ID)
+                                if (triggerAction && triggerAction.type === 'trigger') {
+                                    triggerAction.config = {
+                                        type: 'event',
+                                        filters: {
+                                            events: [
+                                                {
+                                                    id: 'synthetic_http_check',
+                                                    name: 'synthetic_http_check',
+                                                    type: 'events',
+                                                    order: 0,
+                                                },
+                                            ],
+                                            properties: [
+                                                {
+                                                    key: 'monitor_id',
+                                                    value: [props.monitorId],
+                                                    operator: 'exact',
+                                                    type: 'event',
+                                                },
+                                                {
+                                                    key: 'success',
+                                                    value: [false],
+                                                    operator: 'exact',
+                                                    type: 'event',
+                                                },
+                                            ],
+                                        },
+                                    }
+                                }
+
+                                // Update workflow name
+                                workflow.name = `Synthetic monitor for ${monitor.name}`
+                            } catch (error) {
+                                // If monitor fetch fails, still create workflow with default trigger
+                                console.error('Failed to fetch monitor:', error)
+                            }
+                        }
+
+                        return workflow
                     }
 
                     return api.hogFlows.getHogFlow(props.id)

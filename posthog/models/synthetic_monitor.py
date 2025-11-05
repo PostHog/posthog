@@ -1,15 +1,24 @@
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from posthog.models.utils import CreatedMetaFields, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 
-class SyntheticMonitor(CreatedMetaFields, UUIDTModel):
+class SyntheticMonitor(CreatedMetaFields, UUIDModel):
     """
     Configuration for synthetic HTTP monitoring checks (uptime and latency).
-    All check results are stored as events in ClickHouse. Monitor state (last_checked_at,
-    consecutive_failures, state) is computed from ClickHouse events on-demand.
+    All check results are stored as events in ClickHouse.
     """
+
+    class Region(models.TextChoices):
+        """AWS regions available for synthetic monitoring checks"""
+
+        US_EAST_1 = "us-east-1"  # US East (N. Virginia)
+        US_WEST_2 = "us-west-2"  # US West (Oregon)
+        EU_WEST_1 = "eu-west-1"  # EU West (Ireland)
+        EU_CENTRAL_1 = "eu-central-1"  # EU Central (Frankfurt)
+        AP_SOUTHEAST_1 = "ap-southeast-1"  # Asia Pacific (Singapore)
+        AP_NORTHEAST_1 = "ap-northeast-1"  # Asia Pacific (Tokyo)
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)
@@ -20,7 +29,9 @@ class SyntheticMonitor(CreatedMetaFields, UUIDTModel):
         choices=[(1, "1 minute"), (5, "5 minutes"), (15, "15 minutes"), (30, "30 minutes"), (60, "60 minutes")]
     )
     regions = models.JSONField(
-        default=list, help_text="List of regions to run checks from (e.g., ['us-east-1', 'eu-west-1'])"
+        default=list,
+        help_text="List of regions to run checks from (e.g., ['us-east-1', 'eu-west-1'])",
+        choices=Region.choices,
     )
 
     # HTTP configuration
@@ -32,28 +43,11 @@ class SyntheticMonitor(CreatedMetaFields, UUIDTModel):
     expected_status_code = models.IntegerField(default=200)
     timeout_seconds = models.IntegerField(default=30)
 
-    # Alert configuration (integrated, not separate AlertConfiguration)
-    alert_enabled = models.BooleanField(default=True)
-    alert_threshold_failures = models.IntegerField(
-        default=3, help_text="Number of consecutive failures before triggering an alert"
-    )
-    alert_recipients = models.ManyToManyField(
-        "User",
-        blank=True,
-        related_name="synthetic_monitors",
-        help_text="Users to notify when alerts trigger",
-    )
-    slack_integration = models.ForeignKey(
-        "Integration",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        help_text="Slack integration for alert notifications",
-    )
+    # Alerts are handled via HogFlows (workflows)
+    # Users create workflows triggered by synthetic_http_check events
 
     # Monitor state
     enabled = models.BooleanField(default=True)
-    last_alerted_at = models.DateTimeField(null=True, blank=True)
 
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
@@ -74,3 +68,13 @@ class SyntheticMonitor(CreatedMetaFields, UUIDTModel):
 
         if self.regions and not isinstance(self.regions, list):
             raise ValidationError({"regions": "Regions must be a list"})
+        if self.regions:
+            valid_regions = {region.value for region in SyntheticMonitor.Region}
+            invalid_regions = [r for r in self.regions if r not in valid_regions]
+            if invalid_regions:
+                raise ValidationError(
+                    {
+                        "regions": f"Invalid regions: {', '.join(invalid_regions)}. "
+                        f"Valid regions are: {', '.join(sorted(valid_regions))}"
+                    }
+                )

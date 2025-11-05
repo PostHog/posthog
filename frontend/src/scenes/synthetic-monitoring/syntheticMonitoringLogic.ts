@@ -1,9 +1,10 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,6 +15,7 @@ export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
     path(['scenes', 'synthetic-monitoring', 'syntheticMonitoringLogic']),
     connect({
         values: [userLogic, ['user']],
+        actions: [sceneLogic, ['newTab']],
     }),
     actions({
         setTab: (tab: SyntheticMonitoringTab) => ({ tab }),
@@ -22,8 +24,9 @@ export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
         pauseMonitor: (id: string) => ({ id }),
         resumeMonitor: (id: string) => ({ id }),
         testMonitor: (id: string) => ({ id }),
+        createAlertWorkflow: (id: string) => ({ id }),
     }),
-    loaders(({ values }) => ({
+    lazyLoaders(({ values }) => ({
         monitors: [
             [] as SyntheticMonitor[],
             {
@@ -60,12 +63,8 @@ export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
     selectors({
         activeMonitors: [(s) => [s.monitors], (monitors): SyntheticMonitor[] => monitors.filter((m) => m.enabled)],
         pausedMonitors: [(s) => [s.monitors], (monitors): SyntheticMonitor[] => monitors.filter((m) => !m.enabled)],
-        failingMonitors: [
-            (s) => [s.monitors],
-            (monitors): SyntheticMonitor[] => monitors.filter((m) => m.state === 'failing' || m.state === 'error'),
-        ],
     }),
-    listeners(() => ({
+    listeners(({ actions }) => ({
         testMonitor: async ({ id }) => {
             try {
                 await api.syntheticMonitoring.test(id)
@@ -74,15 +73,16 @@ export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
                 lemonToast.error('Failed to trigger test check')
             }
         },
+        createAlertWorkflow: async ({ id }) => {
+            // Navigate to workflows page with monitor ID pre-filled
+            actions.newTab(urls.workflowNew() + `?monitorId=${id}`)
+        },
     })),
-    urlToAction(({ actions }) => ({
+    tabAwareUrlToAction(({ actions }) => ({
         [urls.syntheticMonitoring()]: (_, searchParams) => {
             if (searchParams.tab) {
                 actions.setTab(searchParams.tab as SyntheticMonitoringTab)
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadMonitors()
-    }),
 ])

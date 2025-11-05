@@ -47,6 +47,7 @@ TODO. Do not implement this for now.
 - `PUT/PATCH /api/projects/:id/synthetic_monitors/:monitor_id/` - Update monitor (use `enabled` field to pause/resume)
 - `DELETE /api/projects/:id/synthetic_monitors/:monitor_id/` - Delete monitor
 - `POST /api/projects/:id/synthetic_monitors/:monitor_id/test/` - Trigger test check
+- `POST /api/projects/:id/synthetic_monitors/:monitor_id/create_alert_workflow/` - Create alert workflow for this monitor
 
 **Features:**
 
@@ -65,11 +66,13 @@ TODO. Do not implement this for now.
 
 **Alert Handling:**
 
-- Alerts are triggered when monitors fail (handled by external service or webhook)
-  - 1-hour cooldown between alerts
-  - Email notifications to configured recipients
-  - Slack notifications via Integration model
-  - Configurable failure threshold
+- **Uses HogFlows (workflows) for alerting**
+- Users create workflows triggered by `synthetic_http_check` events
+- Workflows can send notifications via email, Slack, webhooks, etc. (using existing HogFlow actions)
+- UI button `POST /api/projects/:id/synthetic_monitors/:monitor_id/create_alert_workflow/` creates a workflow:
+  - Trigger: `synthetic_http_check` event with `monitor_id` and `success=false` filters
+  - Status: `draft` - user configures notification actions and activates
+- No alert fields in SyntheticMonitor model - all alerting handled via workflows
 
 ## Event Schema
 
@@ -123,12 +126,9 @@ See `lambda/synthetic-monitor/README.md` for Lambda deployment instructions.
 
 1. External service executes check and sends result to PostHog via webhook/API
 2. PostHog stores result as `synthetic_http_check` event in ClickHouse
-3. Alert logic (in webhook handler or external service) queries ClickHouse to compute consecutive failures
-4. When consecutive failures (from ClickHouse events) >= `alert_threshold_failures`:
-   - Alert triggered (if not in cooldown - checked via `last_alerted_at` in Postgres)
-   - Email sent to `alert_recipients`
-   - Slack message sent to `slack_integration`
-   - `last_alerted_at` updated in Postgres
+3. HogFlows (workflows) automatically trigger on matching `synthetic_http_check` events
+4. Workflow executes notification actions (email, Slack, webhook, etc.) configured by the user
+5. Users create workflows via UI button or manually in the workflows interface
 
 ## What's Next (Frontend + Tests)
 

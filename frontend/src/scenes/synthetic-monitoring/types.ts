@@ -1,3 +1,5 @@
+import { SyntheticMonitoringRegion } from 'types'
+
 // Monitor state is computed from ClickHouse events, not stored in Postgres
 export enum MonitorState {
     Healthy = 'healthy',
@@ -11,18 +13,13 @@ export interface SyntheticMonitor {
     name: string
     url: string
     frequency_minutes: 1 | 5 | 15 | 30 | 60
-    regions: string[]
+    regions: SyntheticMonitoringRegion[]
     method: string
     headers: Record<string, string> | null
     body: string | null
     expected_status_code: number
     timeout_seconds: number
-    alert_enabled: boolean
-    alert_threshold_failures: number
-    alert_recipient_ids: string[]
-    slack_integration_id: string | null
     enabled: boolean
-    last_alerted_at: string | null
     // Computed from ClickHouse events (not stored in Postgres):
     // state: MonitorState
     // last_checked_at: string | null

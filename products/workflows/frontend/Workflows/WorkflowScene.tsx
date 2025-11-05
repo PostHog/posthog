@@ -22,7 +22,11 @@ import { WorkflowSceneLogicProps, WorkflowTab, workflowSceneLogic } from './work
 export const scene: SceneExport<WorkflowSceneLogicProps> = {
     component: WorkflowScene,
     logic: workflowSceneLogic,
-    paramsToProps: ({ params: { id, tab } }) => ({ id: id || 'new', tab: tab || 'workflow' }),
+    paramsToProps: ({ params: { id, tab }, searchParams: { monitorId } }) => ({
+        id: id || 'new',
+        tab: tab || 'workflow',
+        monitorId,
+    }),
 }
 
 export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {

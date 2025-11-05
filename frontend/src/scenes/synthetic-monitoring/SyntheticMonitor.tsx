@@ -2,11 +2,13 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { SyntheticMonitoringRegion } from '~/types'
 
 import { syntheticMonitorLogic } from './syntheticMonitorLogic'
 
@@ -101,33 +103,51 @@ export function SyntheticMonitor(): JSX.Element {
                     <h2 className="text-xl font-semibold mb-4">2. Select locations</h2>
 
                     <LemonField name="regions" label="Regions" help="Select AWS regions to run checks from">
-                        <LemonSelect
+                        <LemonInputSelect
                             mode="multiple"
                             placeholder="Select regions"
                             options={[
-                                { label: 'US East (N. Virginia)', value: 'us-east-1' },
-                                { label: 'US West (Oregon)', value: 'us-west-2' },
-                                { label: 'EU West (Ireland)', value: 'eu-west-1' },
-                                { label: 'EU Central (Frankfurt)', value: 'eu-central-1' },
-                                { label: 'Asia Pacific (Singapore)', value: 'ap-southeast-1' },
-                                { label: 'Asia Pacific (Tokyo)', value: 'ap-northeast-1' },
+                                {
+                                    label: 'US East (N. Virginia)',
+                                    key: SyntheticMonitoringRegion.US_EAST_1,
+                                    value: SyntheticMonitoringRegion.US_EAST_1,
+                                },
+                                {
+                                    label: 'US West (Oregon)',
+                                    key: SyntheticMonitoringRegion.US_WEST_2,
+                                    value: SyntheticMonitoringRegion.US_WEST_2,
+                                },
+                                {
+                                    label: 'EU West (Ireland)',
+                                    key: SyntheticMonitoringRegion.EU_WEST_1,
+                                    value: SyntheticMonitoringRegion.EU_WEST_1,
+                                },
+                                {
+                                    label: 'EU Central (Frankfurt)',
+                                    key: SyntheticMonitoringRegion.EU_CENTRAL_1,
+                                    value: SyntheticMonitoringRegion.EU_CENTRAL_1,
+                                },
+                                {
+                                    label: 'Asia Pacific (Singapore)',
+                                    key: SyntheticMonitoringRegion.AP_SOUTHEAST_1,
+                                    value: SyntheticMonitoringRegion.AP_SOUTHEAST_1,
+                                },
+                                {
+                                    label: 'Asia Pacific (Tokyo)',
+                                    key: SyntheticMonitoringRegion.AP_NORTHEAST_1,
+                                    value: SyntheticMonitoringRegion.AP_NORTHEAST_1,
+                                },
                             ]}
                         />
                     </LemonField>
                 </div>
 
                 <div className="bg-bg-light border rounded p-6 space-y-4">
-                    <h2 className="text-xl font-semibold mb-4">3. Alerts (optional)</h2>
-
-                    <LemonField name="alert_enabled" label="">
-                        {({ value, onChange }) => (
-                            <LemonCheckbox checked={value} onChange={onChange} label="Enable alerts" />
-                        )}
-                    </LemonField>
-
-                    <LemonField name="alert_threshold_failures" label="Alert after consecutive failures">
-                        <LemonInput type="number" placeholder="3" />
-                    </LemonField>
+                    <h2 className="text-xl font-semibold mb-4">3. Alerts</h2>
+                    <p className="text-muted">
+                        Create alert workflows to get notified when monitors fail. Use the "Create alert workflow"
+                        button in the monitor list to set up email, Slack, or webhook notifications.
+                    </p>
                 </div>
 
                 <div className="flex gap-2">

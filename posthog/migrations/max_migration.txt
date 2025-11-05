@@ -1,1 +1,1 @@
-0901_synthetic_monitoring
+0901_syntheticmonitor
