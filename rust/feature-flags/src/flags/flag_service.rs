@@ -158,11 +158,13 @@ impl FlagService {
             FeatureFlagList::get_with_cache(&self.flags_cache, self.pg_client.clone(), project_id)
                 .await?;
 
-        // Track cache hits
+        // Track cache hits and misses
         let was_cache_hit = cache_result.was_cached();
-        if was_cache_hit {
-            inc(FLAG_CACHE_HIT_COUNTER, &[], 1);
-        }
+        inc(
+            FLAG_CACHE_HIT_COUNTER,
+            &[("cache_hit".to_string(), was_cache_hit.to_string())],
+            1,
+        );
 
         // Track database reads (when loader was invoked)
         if cache_result.invoked_loader() {
