@@ -335,14 +335,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                         warnings.push(
                             "The toolbar's PII masking tool doesn't support non-string `session_recording.blockClass`. If you want to use PII masking, please set it to a string. Or, reach out to support@posthog.com to file a feature request."
                         )
-                if (posthog.sessionRecording?.status === 'active') {
-                    if (
-                        posthog.config.session_recording?.blockClass !== undefined &&
-                        typeof posthog.config.session_recording?.blockClass !== 'string'
-                    ) {
-                        warnings.push(
-                            "The toolbar's PII masking tool doesn't support non-string `session_recording.blockClass`. If you want to use PII masking, please set it to a string. Or, reach out to support@posthog.com to file a feature request."
-                        )
                     }
                     if (
                         posthog.config.session_recording?.maskTextClass !== undefined &&
@@ -353,14 +345,6 @@ export const toolbarLogic = kea<toolbarLogicType>([
                         )
                     }
                     if (
-                        posthog.config.session_recording?.maskTextSelector !== undefined &&
-                        typeof posthog.config.session_recording?.maskTextSelector !== 'string'
-                    ) {
-                        warnings.push(
-                            "The toolbar's PII masking tool doesn't support non-string `session_recording.maskTextSelector`. If you want to use PII masking, please set it to a string. Or, reach out to support@posthog.com to file a feature request."
-                        )
-                    }
-                }
                         posthog.config.session_recording?.maskTextSelector !== undefined &&
                         typeof posthog.config.session_recording?.maskTextSelector !== 'string'
                     ) {
