@@ -147,14 +147,13 @@ class TestUserAPI(APIBaseTest):
             response.json(),
             {
                 "tabs": [],
-                "personal_tabs": [],
                 "homepage": None,
             },
         )
 
     def test_pinned_scene_tabs_update(self):
         payload = {
-            "personal_tabs": [
+            "tabs": [
                 {
                     "id": "tab-1",
                     "pathname": "/a",
@@ -183,16 +182,15 @@ class TestUserAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        expected_personal_tab = {k: v for k, v in payload["personal_tabs"][0].items() if k != "active"}
-        expected_personal_tab["pinned"] = True
+        expected_tab = {k: v for k, v in payload["tabs"][0].items() if k != "active"}
+        expected_tab["pinned"] = True
         expected_homepage = {k: v for k, v in payload["homepage"].items() if k != "active"}
         expected_homepage["pinned"] = True
 
         self.assertEqual(
             response.json(),
             {
-                "tabs": [expected_personal_tab],
-                "personal_tabs": [expected_personal_tab],
+                "tabs": [expected_tab],
                 "homepage": expected_homepage,
             },
         )

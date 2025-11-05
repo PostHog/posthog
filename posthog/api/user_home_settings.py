@@ -27,7 +27,6 @@ class PinnedSceneTabSerializer(serializers.Serializer):
 
 class PinnedSceneTabsSerializer(serializers.Serializer):
     tabs = PinnedSceneTabSerializer(many=True, required=False)
-    personal_tabs = PinnedSceneTabSerializer(many=True, required=False)
     homepage = PinnedSceneTabSerializer(required=False, allow_null=True)
 
 
@@ -71,15 +70,12 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        personal_tabs_specified = "personal_tabs" in serializer.validated_data
         tabs_specified = "tabs" in serializer.validated_data
-        personal_tabs_payload: Optional[Iterable[dict[str, Any]]]
-        if personal_tabs_specified:
-            personal_tabs_payload = serializer.validated_data.get("personal_tabs")
-        elif tabs_specified:
-            personal_tabs_payload = serializer.validated_data.get("tabs") or []
+        tabs_payload: Optional[Iterable[dict[str, Any]]]
+        if tabs_specified:
+            tabs_payload = serializer.validated_data.get("tabs") or []
         else:
-            personal_tabs_payload = None
+            tabs_payload = None
 
         homepage_provided = "homepage" in serializer.validated_data
         homepage_payload = serializer.validated_data.get("homepage") if homepage_provided else None
@@ -88,10 +84,10 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
         if not team:
             raise serializers.ValidationError("Current team is required to manage pinned scene tabs.")
 
-        pinned_tabs, legacy_project_tabs = self._get_settings(instance, team)
+        pinned_tabs = self._get_settings(instance, team)
 
-        if personal_tabs_payload is not None:
-            sanitized_tabs, tabs_changed = self._sanitize_tabs(personal_tabs_payload)
+        if tabs_payload is not None:
+            sanitized_tabs, tabs_changed = self._sanitize_tabs(tabs_payload)
             if tabs_changed or sanitized_tabs != pinned_tabs.tabs:
                 pinned_tabs.tabs = sanitized_tabs
                 pinned_tabs.save()
@@ -102,9 +98,6 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
                 pinned_tabs.homepage = sanitized_homepage
                 pinned_tabs.save()
 
-        if legacy_project_tabs:
-            legacy_project_tabs.delete()
-
         return self._get_response(instance)
 
     def _get_response(self, instance: User) -> Response:
@@ -112,19 +105,12 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
         if not team:
             raise serializers.ValidationError("Current team is required to manage pinned scene tabs.")
 
-        pinned_tabs, legacy_project_tabs = self._get_settings(instance, team)
+        pinned_tabs = self._get_settings(instance, team)
 
-        if legacy_project_tabs and legacy_project_tabs.tabs:
-            if not pinned_tabs.tabs:
-                sanitized_tabs, _ = self._sanitize_tabs(legacy_project_tabs.tabs)
-                pinned_tabs.tabs = sanitized_tabs
-                pinned_tabs.save()
-            legacy_project_tabs.delete()
-
-        personal_tabs_raw = pinned_tabs.tabs or []
-        personal_tabs, changed = self._sanitize_tabs(personal_tabs_raw)
+        tabs_raw = pinned_tabs.tabs or []
+        tabs, changed = self._sanitize_tabs(tabs_raw)
         if changed:
-            pinned_tabs.tabs = personal_tabs
+            pinned_tabs.tabs = tabs
             pinned_tabs.save()
 
         homepage, homepage_changed = self._sanitize_tab(pinned_tabs.homepage)
@@ -134,8 +120,7 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
 
         return Response(
             {
-                "tabs": personal_tabs,
-                "personal_tabs": personal_tabs,
+                "tabs": tabs,
                 "homepage": homepage,
             }
         )
@@ -167,7 +152,6 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
             changed = True
         return sanitized, changed
 
-    def _get_settings(self, instance: User, team: Team) -> tuple[UserHomeSettings, Optional[UserHomeSettings]]:
+    def _get_settings(self, instance: User, team: Team) -> UserHomeSettings:
         pinned_tabs, _ = UserHomeSettings.objects.get_or_create(user=instance, team=team)
-        legacy_project_tabs = UserHomeSettings.objects.filter(user=None, team=team).first()
-        return pinned_tabs, legacy_project_tabs
+        return pinned_tabs

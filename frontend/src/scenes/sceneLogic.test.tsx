@@ -35,8 +35,8 @@ describe('sceneLogic', () => {
         initKeaTests()
         localStorage.clear()
         sessionStorage.clear()
-        ;(api.get as jest.Mock).mockResolvedValue({ personal_tabs: [], homepage: null })
-        ;(api.update as jest.Mock).mockResolvedValue({ personal_tabs: [], homepage: null })
+        ;(api.get as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+        ;(api.update as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
         router.actions.push(urls.eventDefinitions())
@@ -130,7 +130,7 @@ describe('sceneLogic', () => {
         expect(api.update).toHaveBeenLastCalledWith(
             'api/user_pinned_scene_tabs/@me/',
             expect.objectContaining({
-                personal_tabs: [
+                tabs: [
                     expect.objectContaining({
                         id: 'tab-2',
                         pathname: '/b',
@@ -154,7 +154,7 @@ describe('sceneLogic', () => {
         expect(api.update).toHaveBeenLastCalledWith(
             'api/user_pinned_scene_tabs/@me/',
             expect.objectContaining({
-                personal_tabs: [
+                tabs: [
                     expect.objectContaining({
                         id: 'tab-2',
                         pathname: '/b',
@@ -181,7 +181,7 @@ describe('sceneLogic', () => {
         await expectLogic(logic).delay(600)
 
         expect(api.update).toHaveBeenLastCalledWith('api/user_pinned_scene_tabs/@me/', {
-            personal_tabs: [],
+            tabs: [],
             homepage: null,
         })
         expect(localStorage.getItem(pinnedStorageKey)).toBeNull()
