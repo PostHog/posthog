@@ -2,9 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PluginServer } from '../../../src/server'
 import {
-    Database,
     Hub,
-    LogLevel,
     PluginServerMode,
     PluginsServerConfig,
     PropertyUpdateOperation,
@@ -12,8 +10,14 @@ import {
 } from '../../../src/types'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { parseJSON } from '../../../src/utils/json-parse'
-import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
+import { UUIDT, castTimestampOrNow } from '../../../src/utils/utils'
+import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
+import {
+    fetchDistinctIdValues,
+    fetchDistinctIds,
+    fetchPersons,
+} from '../../../src/worker/ingestion/persons/repositories/test-helpers'
+import { Clickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
@@ -21,23 +25,31 @@ jest.mock('../../../src/utils/logger')
 jest.setTimeout(30000)
 
 const extraServerConfig: Partial<PluginsServerConfig> = {
-    LOG_LEVEL: LogLevel.Info,
+    LOG_LEVEL: 'info',
 }
 
 describe('postgres parity', () => {
     jest.retryTimes(5) // Flakey due to reliance on kafka/clickhouse
     let hub: Hub
     let server: PluginServer
-    let teamId = 10 // Incremented every test. Avoids late ingestion causing issues
+    let personRepository: PostgresPersonRepository
+    let clickhouse: Clickhouse
+    let teamId: number
 
-    beforeAll(async () => {
-        console.log('[TEST] Resetting kafka')
-        await resetKafka(extraServerConfig)
+    beforeAll(() => {
+        clickhouse = Clickhouse.create()
     })
 
     beforeEach(async () => {
         jest.spyOn(process, 'exit').mockImplementation()
-        console.log('[TEST] Resetting tests databases')
+
+        // Generate unique teamId to avoid collisions across test files
+        teamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
+
+        // Reset Kafka and ClickHouse for each test to ensure isolation
+        await resetKafka(extraServerConfig)
+        await clickhouse.resetTestDatabase()
+
         await resetTestDatabase(`
             async function processEvent (event) {
                 event.properties.processed = 'hell yes'
@@ -45,15 +57,12 @@ describe('postgres parity', () => {
                 return event
             }
         `)
-        await resetTestDatabaseClickhouse(extraServerConfig)
-        console.log('[TEST] Starting plugins server')
+
         server = new PluginServer({
             PLUGIN_SERVER_MODE: PluginServerMode.ingestion_v2,
         })
         await server.start()
         hub = server.hub!
-        teamId++
-        console.log('[TEST] Setting up seed data')
         await createUserTeamAndOrganization(
             hub.db.postgres,
             teamId,
@@ -62,18 +71,21 @@ describe('postgres parity', () => {
             new UUIDT().toString(),
             new UUIDT().toString()
         )
-        console.log('[TEST] BeforeEach complete')
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
+    })
+
+    afterAll(() => {
+        clickhouse.close()
     })
 
     afterEach(async () => {
-        console.log('[TEST] Stopping server')
         await server.stop()
     })
 
     test('createPerson', async () => {
         const uuid = new UUIDT().toString()
         const ts = DateTime.now().toString()
-        const person = await hub.db.createPerson(
+        const result = await personRepository.createPerson(
             DateTime.utc(),
             { userPropOnce: 'propOnceValue', userProp: 'propValue' },
             { userProp: ts, userPropOnce: ts },
@@ -84,30 +96,37 @@ describe('postgres parity', () => {
             uuid,
             [{ distinctId: 'distinct1' }, { distinctId: 'distinct2' }]
         )
-        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
-        await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
-        await delayUntilEventIngested(() => hub.db.fetchDistinctIds(person, Database.ClickHouse), 2)
+        if (!result.success) {
+            throw new Error('Failed to create person')
+        }
+        const person = result.person
+        const kafkaMessages = result.messages
 
-        const clickHousePersons = (await hub.db.fetchPersons(Database.ClickHouse)).map((row) => ({
+        await hub.db.kafkaProducer.queueMessages(kafkaMessages)
+
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(person), 2)
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIds(person), 2)
+
+        const clickHousePersons = (await clickhouse.fetchPersons()).map((row) => ({
             ...row,
             properties: parseJSON(row.properties), // avoids depending on key sort order
         }))
-        expect(clickHousePersons).toEqual([
+        expect(clickHousePersons).toMatchObject([
             {
                 id: uuid,
                 created_at: expect.any(String), // '2021-02-04 00:18:26.472',
-                team_id: teamId,
+                team_id: teamId.toString(),
                 properties: { userPropOnce: 'propOnceValue', userProp: 'propValue' },
                 is_identified: 1,
                 is_deleted: 0,
-                _timestamp: expect.any(String),
-                _offset: expect.any(Number),
             },
         ])
-        const clickHouseDistinctIds = await hub.db.fetchDistinctIdValues(person, Database.ClickHouse)
-        expect(clickHouseDistinctIds).toEqual(['distinct1', 'distinct2'])
+        const clickHouseDistinctIds = await clickhouse.fetchDistinctIdValues(person)
+        expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['distinct1', 'distinct2']))
+        expect(clickHouseDistinctIds).toHaveLength(2)
 
-        const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
+        const postgresPersons = await fetchPersons(hub.db.postgres)
         expect(postgresPersons).toEqual([
             {
                 id: expect.any(String),
@@ -131,41 +150,34 @@ describe('postgres parity', () => {
                 version: 0,
             },
         ])
-        const postgresDistinctIds = await hub.db.fetchDistinctIdValues(person, Database.Postgres)
-        expect(postgresDistinctIds).toEqual(['distinct1', 'distinct2'])
+        const postgresDistinctIds = await fetchDistinctIdValues(hub.db.postgres, person)
+        expect(postgresDistinctIds).toEqual(expect.arrayContaining(['distinct1', 'distinct2']))
+        expect(postgresDistinctIds).toHaveLength(2)
 
-        const newClickHouseDistinctIdValues = await hub.db.fetchDistinctIds(person, Database.ClickHouse)
-        expect(newClickHouseDistinctIdValues).toEqual(
-            expect.arrayContaining([
-                {
-                    distinct_id: 'distinct1',
-                    person_id: person.uuid,
-                    team_id: teamId,
-                    version: 0,
-                    is_deleted: 0,
-                    _timestamp: expect.any(String),
-                    _offset: expect.any(Number),
-                    _partition: expect.any(Number),
-                },
-                {
-                    distinct_id: 'distinct2',
-                    person_id: person.uuid,
-                    team_id: teamId,
-                    version: 0,
-                    is_deleted: 0,
-                    _timestamp: expect.any(String),
-                    _offset: expect.any(Number),
-                    _partition: expect.any(Number),
-                },
-            ])
-        )
+        const newClickHouseDistinctIdValues = await clickhouse.fetchDistinctIds(person)
+        expect(newClickHouseDistinctIdValues).toMatchObject([
+            {
+                distinct_id: 'distinct1',
+                person_id: person.uuid,
+                team_id: teamId.toString(),
+                version: '0',
+                is_deleted: 0,
+            },
+            {
+                distinct_id: 'distinct2',
+                person_id: person.uuid,
+                team_id: teamId.toString(),
+                version: '0',
+                is_deleted: 0,
+            },
+        ])
 
         expect(person).toEqual(postgresPersons[0])
     })
 
-    test('updatePersonDeprecated', async () => {
+    test('updatePerson', async () => {
         const uuid = new UUIDT().toString()
-        const person = await hub.db.createPerson(
+        const result = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -176,26 +188,33 @@ describe('postgres parity', () => {
             uuid,
             [{ distinctId: 'distinct1' }, { distinctId: 'distinct2' }]
         )
-        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
-        await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(person, Database.ClickHouse), 2)
-
-        // update properties and set is_identified to true
-        const [_p, kafkaMessages] = await hub.db.updatePersonDeprecated(person, {
-            properties: { replacedUserProp: 'propValue' },
-            is_identified: true,
-        })
+        if (!result.success) {
+            throw new Error('Failed to create person')
+        }
+        const person = result.person
+        const kafkaMessages = result.messages
 
         await hub.db.kafkaProducer.queueMessages(kafkaMessages)
 
-        await delayUntilEventIngested(async () =>
-            (await hub.db.fetchPersons(Database.ClickHouse)).filter((p) => p.is_identified)
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(person), 2)
+
+        // update properties and set is_identified to true
+        const [_p, kafkaMessagesUpdate] = await personRepository.updatePerson(person, {
+            properties: { replacedUserProp: 'propValue' },
+            is_identified: true,
+        })
+        await hub.db.kafkaProducer.queueMessages(kafkaMessagesUpdate)
+
+        await clickhouse.delayUntilEventIngested(async () =>
+            (await clickhouse.fetchPersons()).filter((p) => p.is_identified)
         )
 
-        const clickHousePersons = await hub.db.fetchPersons(Database.ClickHouse)
-        const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
+        const clickHousePersons = await clickhouse.fetchPersons()
+        const postgresPersons = await fetchPersons(hub.db.postgres)
 
-        expect(clickHousePersons.length).toEqual(1)
-        expect(postgresPersons.length).toEqual(1)
+        expect(clickHousePersons.filter((p) => p.team_id.toString() === teamId.toString()).length).toEqual(1)
+        expect(postgresPersons.filter((p) => p.team_id.toString() === teamId.toString()).length).toEqual(1)
 
         expect(postgresPersons[0].is_identified).toEqual(true)
         expect(postgresPersons[0].version).toEqual(1)
@@ -208,7 +227,7 @@ describe('postgres parity', () => {
         // update date and boolean to false
 
         const randomDate = DateTime.utc().minus(100000).setZone('UTC')
-        const [updatedPerson, kafkaMessages2] = await hub.db.updatePersonDeprecated(person, {
+        const [updatedPerson, kafkaMessages2] = await personRepository.updatePerson(person, {
             created_at: randomDate,
             is_identified: false,
         })
@@ -217,12 +236,12 @@ describe('postgres parity', () => {
 
         expect(updatedPerson.version).toEqual(2)
 
-        await delayUntilEventIngested(async () =>
-            (await hub.db.fetchPersons(Database.ClickHouse)).filter((p) => !p.is_identified)
+        await clickhouse.delayUntilEventIngested(async () =>
+            (await clickhouse.fetchPersons()).filter((p) => !p.is_identified)
         )
 
-        const clickHousePersons2 = await hub.db.fetchPersons(Database.ClickHouse)
-        const postgresPersons2 = await hub.db.fetchPersons(Database.Postgres)
+        const clickHousePersons2 = await clickhouse.fetchPersons()
+        const postgresPersons2 = await fetchPersons(hub.db.postgres)
 
         expect(clickHousePersons2.length).toEqual(1)
         expect(postgresPersons2.length).toEqual(1)
@@ -240,7 +259,7 @@ describe('postgres parity', () => {
     test('addDistinctId', async () => {
         const uuid = new UUIDT().toString()
         const uuid2 = new UUIDT().toString()
-        const person = await hub.db.createPerson(
+        const result = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -251,7 +270,15 @@ describe('postgres parity', () => {
             uuid,
             [{ distinctId: 'distinct1' }]
         )
-        const anotherPerson = await hub.db.createPerson(
+        if (!result.success) {
+            throw new Error('Failed to create person')
+        }
+        const person = result.person
+
+        await hub.db.kafkaProducer.queueMessages(result.messages)
+        await hub.db.kafkaProducer.flush()
+
+        const result2 = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -262,21 +289,29 @@ describe('postgres parity', () => {
             uuid2,
             [{ distinctId: 'another_distinct_id' }]
         )
-        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
-        const [postgresPerson] = await hub.db.fetchPersons(Database.Postgres)
+        if (!result2.success) {
+            throw new Error('Failed to create person')
+        }
+        const anotherPerson = result2.person
+        const anotherPersonKafkaMessages = result2.messages
 
-        await delayUntilEventIngested(() => hub.db.fetchDistinctIds(postgresPerson, Database.ClickHouse), 1)
-        await delayUntilEventIngested(() => hub.db.fetchDistinctIds(postgresPerson, Database.ClickHouse), 1)
-        const clickHouseDistinctIdValues = await hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse)
-        const postgresDistinctIdValues = await hub.db.fetchDistinctIdValues(postgresPerson, Database.Postgres)
+        await hub.db.kafkaProducer.queueMessages(anotherPersonKafkaMessages)
+        await hub.db.kafkaProducer.flush()
+
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
+        const [postgresPerson] = await fetchPersons(hub.db.postgres)
+
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIds(postgresPerson), 1)
+        const clickHouseDistinctIdValues = await clickhouse.fetchDistinctIdValues(postgresPerson)
+        const postgresDistinctIdValues = await fetchDistinctIdValues(hub.db.postgres, postgresPerson)
 
         // check that all is in the right format
 
         expect(clickHouseDistinctIdValues).toEqual(['distinct1'])
         expect(postgresDistinctIdValues).toEqual(['distinct1'])
 
-        const postgresDistinctIds = await hub.db.fetchDistinctIds(postgresPerson, Database.Postgres)
-        const newClickHouseDistinctIdValues = await hub.db.fetchDistinctIds(postgresPerson, Database.ClickHouse)
+        const postgresDistinctIds = await fetchDistinctIds(hub.db.postgres, postgresPerson)
+        const newClickHouseDistinctIdValues = await clickhouse.fetchDistinctIds(postgresPerson)
 
         expect(postgresDistinctIds).toEqual([
             expect.objectContaining({
@@ -286,35 +321,33 @@ describe('postgres parity', () => {
                 version: '0',
             }),
         ])
-        expect(newClickHouseDistinctIdValues).toEqual([
+        expect(newClickHouseDistinctIdValues).toMatchObject([
             {
                 distinct_id: 'distinct1',
                 person_id: person.uuid,
-                team_id: teamId,
-                version: 0,
+                team_id: teamId.toString(),
+                version: '0',
                 is_deleted: 0,
-                _timestamp: expect.any(String),
-                _offset: expect.any(Number),
-                _partition: expect.any(Number),
             },
         ])
 
         // add 'anotherOne' to person
 
-        await hub.db.addDistinctId(postgresPerson, 'anotherOne', 0)
+        const kafkaMessagesAddDistinctId = await personRepository.addDistinctId(postgresPerson, 'anotherOne', 0)
+        await hub.db.kafkaProducer.queueMessages(kafkaMessagesAddDistinctId)
 
-        await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse), 2)
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(postgresPerson), 2)
 
-        const clickHouseDistinctIdValues2 = await hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse)
-        const postgresDistinctIdValues2 = await hub.db.fetchDistinctIdValues(postgresPerson, Database.Postgres)
+        const clickHouseDistinctIdValues2 = await clickhouse.fetchDistinctIdValues(postgresPerson)
+        const postgresDistinctIdValues2 = await fetchDistinctIdValues(hub.db.postgres, postgresPerson)
 
         expect(clickHouseDistinctIdValues2).toEqual(['distinct1', 'anotherOne'])
         expect(postgresDistinctIdValues2).toEqual(['distinct1', 'anotherOne'])
 
         // check anotherPerson for their initial distinct id
 
-        const clickHouseDistinctIdValuesOther = await hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse)
-        const postgresDistinctIdValuesOther = await hub.db.fetchDistinctIdValues(anotherPerson, Database.Postgres)
+        const clickHouseDistinctIdValuesOther = await clickhouse.fetchDistinctIdValues(anotherPerson)
+        const postgresDistinctIdValuesOther = await fetchDistinctIdValues(hub.db.postgres, anotherPerson)
 
         expect(clickHouseDistinctIdValuesOther).toEqual(['another_distinct_id'])
         expect(postgresDistinctIdValuesOther).toEqual(['another_distinct_id'])
@@ -323,7 +356,7 @@ describe('postgres parity', () => {
     test('moveDistinctIds & deletePerson', async () => {
         const uuid = new UUIDT().toString()
         const uuid2 = new UUIDT().toString()
-        const person = await hub.db.createPerson(
+        const result = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -334,7 +367,14 @@ describe('postgres parity', () => {
             uuid,
             [{ distinctId: 'distinct1' }]
         )
-        const anotherPerson = await hub.db.createPerson(
+        if (!result.success) {
+            throw new Error('Failed to create person')
+        }
+        const person = result.person
+        await hub.db.kafkaProducer.queueMessages(result.messages)
+        await hub.db.kafkaProducer.flush()
+
+        const result2 = await personRepository.createPerson(
             DateTime.utc(),
             { userProp: 'propValue' },
             { userProp: PropertyUpdateOperation.Set },
@@ -345,78 +385,79 @@ describe('postgres parity', () => {
             uuid2,
             [{ distinctId: 'another_distinct_id' }]
         )
-        await delayUntilEventIngested(() => hub.db.fetchPersons(Database.ClickHouse))
-        const [postgresPerson] = await hub.db.fetchPersons(Database.Postgres)
+        if (!result2.success) {
+            throw new Error('Failed to create person')
+        }
+        const anotherPerson = result2.person
+        const kafkaMessagesAnotherPerson = result2.messages
 
-        await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(postgresPerson, Database.ClickHouse), 1)
+        await hub.db.kafkaProducer.queueMessages(kafkaMessagesAnotherPerson)
+        await hub.db.kafkaProducer.flush()
+
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchPersons())
+        const [postgresPerson] = await fetchPersons(hub.db.postgres)
+
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(postgresPerson), 1)
 
         // move distinct ids from person to to anotherPerson
+        const moveDistinctIdsResult = await personRepository.moveDistinctIds(person, anotherPerson, undefined)
+        expect(moveDistinctIdsResult.success).toEqual(true)
 
-        const kafkaMessages = await hub.db.moveDistinctIds(person, anotherPerson)
-        await hub.db!.kafkaProducer!.queueMessages(kafkaMessages)
-        await delayUntilEventIngested(() => hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse), 2)
+        if (moveDistinctIdsResult.success) {
+            await hub.db!.kafkaProducer!.queueMessages(moveDistinctIdsResult.messages)
+        }
+        await clickhouse.delayUntilEventIngested(() => clickhouse.fetchDistinctIdValues(anotherPerson), 2)
 
         // it got added
 
         // :TODO: Update version
-        const clickHouseDistinctIdValuesMoved = await hub.db.fetchDistinctIdValues(anotherPerson, Database.ClickHouse)
-        const postgresDistinctIdValuesMoved = await hub.db.fetchDistinctIdValues(anotherPerson, Database.Postgres)
-        const newClickHouseDistinctIdValues = await delayUntilEventIngested(
-            () => hub.db.fetchDistinctIds(anotherPerson, Database.ClickHouse),
+        const clickHouseDistinctIdValuesMoved = await clickhouse.fetchDistinctIdValues(anotherPerson)
+        const postgresDistinctIdValuesMoved = await fetchDistinctIdValues(hub.db.postgres, anotherPerson)
+        const newClickHouseDistinctIdValues = await clickhouse.delayUntilEventIngested(
+            () => clickhouse.fetchDistinctIds(anotherPerson),
             2
         )
 
         expect(postgresDistinctIdValuesMoved).toEqual(expect.arrayContaining(['distinct1', 'another_distinct_id']))
         expect(clickHouseDistinctIdValuesMoved).toEqual(expect.arrayContaining(['distinct1', 'another_distinct_id']))
-        expect(newClickHouseDistinctIdValues).toEqual(
-            expect.arrayContaining([
-                {
-                    distinct_id: 'another_distinct_id',
-                    person_id: anotherPerson.uuid,
-                    team_id: teamId,
-                    version: 0,
-                    is_deleted: 0,
-                    _timestamp: expect.any(String),
-                    _offset: expect.any(Number),
-                    _partition: expect.any(Number),
-                },
-                {
-                    distinct_id: 'distinct1',
-                    person_id: anotherPerson.uuid,
-                    team_id: teamId,
-                    version: 1,
-                    is_deleted: 0,
-                    _timestamp: expect.any(String),
-                    _offset: expect.any(Number),
-                    _partition: expect.any(Number),
-                },
-            ])
-        )
+        expect(newClickHouseDistinctIdValues).toMatchObject([
+            {
+                distinct_id: 'another_distinct_id',
+                person_id: anotherPerson.uuid,
+                team_id: teamId.toString(),
+                version: '0',
+                is_deleted: 0,
+            },
+            {
+                distinct_id: 'distinct1',
+                person_id: anotherPerson.uuid,
+                team_id: teamId.toString(),
+                version: '1',
+                is_deleted: 0,
+            },
+        ])
 
         // it got removed
 
-        const clickHouseDistinctIdValuesRemoved = await hub.db.fetchDistinctIdValues(
-            postgresPerson,
-            Database.ClickHouse
-        )
-        const postgresDistinctIdValuesRemoved = await hub.db.fetchDistinctIdValues(postgresPerson, Database.Postgres)
-        const newClickHouseDistinctIdRemoved = await hub.db.fetchDistinctIds(postgresPerson, Database.ClickHouse)
+        const clickHouseDistinctIdValuesRemoved = await clickhouse.fetchDistinctIdValues(postgresPerson)
+        const postgresDistinctIdValuesRemoved = await fetchDistinctIdValues(hub.db.postgres, postgresPerson)
+        const newClickHouseDistinctIdRemoved = await clickhouse.fetchDistinctIds(postgresPerson)
 
         expect(clickHouseDistinctIdValuesRemoved).toEqual([])
         expect(postgresDistinctIdValuesRemoved).toEqual([])
         expect(newClickHouseDistinctIdRemoved).toEqual([])
 
         // delete person
-        await hub.db.postgres.transaction(PostgresUse.COMMON_WRITE, '', async (client) => {
-            const deletePersonMessage = await hub.db.deletePerson(person, client)
+        await hub.db.postgres.transaction(PostgresUse.PERSONS_WRITE, '', async (client) => {
+            const deletePersonMessage = await personRepository.deletePerson(person, client)
             await hub.db!.kafkaProducer!.queueMessages(deletePersonMessage[0])
         })
 
-        await delayUntilEventIngested(async () =>
-            (await hub.db.fetchPersons(Database.ClickHouse)).length === 1 ? ['deleted!'] : []
+        await clickhouse.delayUntilEventIngested(async () =>
+            (await clickhouse.fetchPersons()).length === 1 ? ['deleted!'] : []
         )
-        const clickHousePersons = await hub.db.fetchPersons(Database.ClickHouse)
-        const postgresPersons = await hub.db.fetchPersons(Database.Postgres)
+        const clickHousePersons = await clickhouse.fetchPersons()
+        const postgresPersons = await fetchPersons(hub.db.postgres)
 
         expect(clickHousePersons.length).toEqual(1)
         expect(postgresPersons.length).toEqual(1)

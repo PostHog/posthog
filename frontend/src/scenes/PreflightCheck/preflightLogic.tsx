@@ -1,9 +1,10 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
 import { urls } from 'scenes/urls'
 
 import { PreflightStatus, Realm } from '~/types'
@@ -97,8 +98,8 @@ export const preflightLogic = kea<preflightLogicType>([
                         status: preflight?.redis
                             ? 'validated'
                             : preflightMode === 'experimentation'
-                            ? 'warning'
-                            : 'error',
+                              ? 'warning'
+                              : 'error',
                         caption:
                             !preflight?.redis && preflightMode === 'experimentation'
                                 ? 'Required in production environments'
@@ -110,8 +111,8 @@ export const preflightLogic = kea<preflightLogicType>([
                         status: preflight?.celery
                             ? 'validated'
                             : preflightMode === 'experimentation'
-                            ? 'warning'
-                            : 'error',
+                              ? 'warning'
+                              : 'error',
                         caption:
                             !preflight?.celery && preflightMode === 'experimentation'
                                 ? 'Required in production environments'
@@ -123,8 +124,8 @@ export const preflightLogic = kea<preflightLogicType>([
                         status: preflight?.plugins
                             ? 'validated'
                             : preflightMode === 'experimentation'
-                            ? 'warning'
-                            : 'error',
+                              ? 'warning'
+                              : 'error',
                         caption:
                             !preflight?.plugins && preflightMode === 'experimentation'
                                 ? 'Required in production environments'
@@ -132,7 +133,7 @@ export const preflightLogic = kea<preflightLogicType>([
                     },
                     {
                         id: 'frontend',
-                        name: 'Frontend build · Webpack',
+                        name: 'Frontend build · Vite',
                         status: 'validated', // Always validated if we're showing the preflight check
                     },
                     {
@@ -142,8 +143,8 @@ export const preflightLogic = kea<preflightLogicType>([
                             window.location.protocol === 'https:'
                                 ? 'validated'
                                 : preflightMode === 'experimentation'
-                                ? 'optional'
-                                : 'warning',
+                                  ? 'optional'
+                                  : 'warning',
                         caption:
                             !(window.location.protocol === 'https:') && preflightMode === 'experimentation'
                                 ? 'Not required for experimentation mode'
@@ -271,6 +272,8 @@ export const preflightLogic = kea<preflightLogicType>([
                 return preflight?.cloud || preflight?.is_debug
             },
         ],
+        isTest: [(s) => [s.preflight], (preflight) => !!preflight?.is_test],
+        isHobby: [(s) => [s.isCloudOrDev, s.isTest], (isCloudOrDev, isTest) => !isCloudOrDev && !isTest],
         isCloud: [
             (s) => [s.preflight],
             (preflight): boolean | undefined => {

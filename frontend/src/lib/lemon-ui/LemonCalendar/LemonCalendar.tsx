@@ -2,12 +2,14 @@ import './LemonCalendar.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { Ref, forwardRef, useEffect, useState } from 'react'
+
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { range } from 'lib/utils'
-import { forwardRef, Ref, useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface LemonCalendarProps {
@@ -51,12 +53,13 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
     const months = Math.max(props.months ?? 1, 1)
     const weekStartDay = props.weekStartDay ?? teamWeekStartDay
     const today = dayjs().startOf('day')
+
     const [leftmostMonth, setLeftmostMonth] = useState<dayjs.Dayjs>((props.leftmostMonth ?? today).startOf('month'))
     useEffect(() => {
         if (props.leftmostMonth && props.leftmostMonth.isSame(leftmostMonth, 'd')) {
             setLeftmostMonth(props.leftmostMonth)
         }
-    }, [props.leftmostMonth])
+    }, [props.leftmostMonth]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div

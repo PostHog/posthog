@@ -1,7 +1,9 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { IconTableChart } from 'lib/lemon-ui/icons'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { IconTableChart } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -22,7 +24,7 @@ export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.El
             icon={<IconTableChart />}
             to={urls.insightNew({ query })}
             sideAction={
-                response?.hogql
+                response && 'hogql' in response && response.hogql
                     ? {
                           dropdown: {
                               overlay: (

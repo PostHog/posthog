@@ -1,5 +1,6 @@
-import api from 'lib/api'
 import posthog from 'posthog-js'
+
+import api, { ApiRequest } from 'lib/api'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -112,6 +113,22 @@ describe('API helper', () => {
         await expect(api.get('/api/projects/null/dings')).rejects.toStrictEqual({
             detail: 'Cannot make request - project ID is unknown.',
             status: 0,
+        })
+    })
+
+    describe('organizationFeatureFlags', () => {
+        it('builds correct URL for organization feature flags', () => {
+            const apiRequest = new ApiRequest()
+            const request = apiRequest.organizationFeatureFlags('123', 'my-feature-flag')
+            expect(request.assembleEndpointUrl()).toEqual('organizations/123/feature_flags/my-feature-flag')
+        })
+
+        it('builds correct URL for organization feature flags with special characters', () => {
+            const apiRequest = new ApiRequest()
+            const request = apiRequest.organizationFeatureFlags('123', 'my-feature-flag/foo/bar?baz=qux')
+            expect(request.assembleEndpointUrl()).toEqual(
+                'organizations/123/feature_flags/my-feature-flag%2Ffoo%2Fbar%3Fbaz%3Dqux'
+            )
         })
     })
 })

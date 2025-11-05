@@ -1,8 +1,8 @@
 import './LemonSkeleton.scss'
 
-import clsx from 'clsx'
 import { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { range } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 export interface LemonSkeletonProps {
     className?: string
@@ -14,7 +14,7 @@ export interface LemonSkeletonProps {
 }
 export function LemonSkeleton({ className, repeat, active = true, fade = false }: LemonSkeletonProps): JSX.Element {
     const content = (
-        <div className={clsx('LemonSkeleton rounded', !active && 'LemonSkeleton--static', className || 'h-4 w-full')}>
+        <div className={cn('LemonSkeleton rounded', !active && 'LemonSkeleton--static', className || 'h-4 w-full')}>
             {/* The span is for accessibility, but also because @storybook/test-runner smoke tests require content */}
             <span>Loading…</span>
         </div>
@@ -36,15 +36,15 @@ export function LemonSkeleton({ className, repeat, active = true, fade = false }
 }
 
 LemonSkeleton.Text = function LemonSkeletonText({ className, ...props }: LemonSkeletonProps) {
-    return <LemonSkeleton className={clsx('rounded h-6 w-full', className)} {...props} />
+    return <LemonSkeleton className={cn('flex-inline rounded h-6 w-full', className)} {...props} />
 }
 
 LemonSkeleton.Row = function LemonSkeletonRow({ className, ...props }: LemonSkeletonProps) {
-    return <LemonSkeleton className={clsx('rounded h-10 w-full', className)} {...props} />
+    return <LemonSkeleton className={cn('rounded h-10 w-full', className)} {...props} />
 }
 
 LemonSkeleton.Circle = function LemonSkeletonCircle({ className, ...props }: LemonSkeletonProps) {
-    return <LemonSkeleton className={clsx('rounded-full shrink-0', className || 'h-10 w-10')} {...props} />
+    return <LemonSkeleton className={cn('rounded-full shrink-0', className || 'h-10 w-10')} {...props} />
 }
 
 LemonSkeleton.Button = function LemonSkeletonButton({
@@ -54,7 +54,7 @@ LemonSkeleton.Button = function LemonSkeletonButton({
 }: LemonSkeletonProps & { size?: LemonButtonProps['size'] }) {
     return (
         <LemonSkeleton
-            className={clsx(
+            className={cn(
                 'rounded px-3',
                 size === 'small' && 'h-10',
                 (!size || size === 'medium') && 'h-10',

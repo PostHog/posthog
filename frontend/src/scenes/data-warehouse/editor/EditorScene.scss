@@ -1,17 +1,7 @@
 .EditorScene {
     .LemonTabs__bar {
-        --lemon-tabs-slider-width: 0px;
-
+        // height is hardcoded to match implicit height from tree view nav bar
+        height: 39px;
         margin-bottom: 0;
-    }
-
-    .OutputPane {
-        .LemonTabs {
-            align-self: center;
-        }
-
-        .LemonTabs__bar::before {
-            display: none;
-        }
     }
 }

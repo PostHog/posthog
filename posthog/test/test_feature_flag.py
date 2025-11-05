@@ -2,15 +2,20 @@ import concurrent.futures
 from datetime import datetime
 from typing import cast
 
+import pytest
+from freezegun import freeze_time
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries, snapshot_postgres_queries_context
+from unittest.mock import patch
+
 from django.core.cache import cache
 from django.db import IntegrityError, connection
 from django.test import TransactionTestCase
 from django.utils import timezone
-from freezegun import freeze_time
-from parameterized import parameterized
-import pytest
 
-from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
+from flaky import flaky
+from parameterized import parameterized
+
+from posthog.models import Cohort, FeatureFlag, Person
 from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagHashKeyOverride,
@@ -26,12 +31,7 @@ from posthog.models.group import Group
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.test.base import (
-    BaseTest,
-    QueryMatchingTest,
-    snapshot_postgres_queries,
-    snapshot_postgres_queries_context,
-)
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class TestFeatureFlagCohortExpansion(BaseTest):
@@ -677,7 +677,8 @@ class TestModelCache(BaseTest):
         cache.clear()
         return super().setUp()
 
-    def test_save_updates_cache(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_save_updates_cache(self, mock_on_commit):
         initial_cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
         self.assertIsNone(initial_cached_flags)
 
@@ -3972,7 +3973,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 ).get_match(feature_flag),
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
-        # one extra query to query group
+        # 4 extra query to query group (including setting timeout)
         # second extra query to check existence
         with self.assertNumQueries(11):
             self.assertEqual(
@@ -4006,7 +4007,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        # 9 queries same as before for groups, 1 extra for person existence check, 1 extra for person query
+        # 9 queries same as before for groups, 4 extra for person existence check (including timeouts), 1 extra for person query
         with self.assertNumQueries(11):
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4124,7 +4125,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             properties={"email": "tim@posthog.com"},
         )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(8):
             # single query for all cohorts
             # no team queries
             self.assertEqual(
@@ -4187,7 +4188,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             properties={"email": "tim@posthog.com"},
         )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(8):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4199,7 +4200,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(7):
             # no local computation because cohort lookup is required
             # no postgres person query required here to get the person, because email is sufficient
             self.assertEqual(
@@ -4213,7 +4214,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(7):
             # no postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4226,7 +4227,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(7):
             # Random person doesn't yet exist, but still should resolve thanks to overrides
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4239,7 +4240,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(7):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4280,7 +4281,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             properties={"email": "tim@posthog.com"},
         )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(8):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id,
@@ -4292,7 +4293,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(7):
             # no local computation because cohort lookup is required
             # no postgres person query required here to get the person, because email is sufficient
             # property id override shouldn't confuse the matcher
@@ -4307,7 +4308,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(7):
             # no postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4320,7 +4321,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(8):
             # postgres query required here to get the person
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4446,7 +4447,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             properties={"email": "tim@posthog.com"},
         )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(8):
             self.assertEqual(
                 FeatureFlagMatcher(
                     self.team.id, self.project.id, [feature_flag1], "example_id", property_value_overrides={}
@@ -4454,7 +4455,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
             )
 
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(8):
             # no local computation because cohort lookup is required
             self.assertEqual(
                 FeatureFlagMatcher(
@@ -4899,10 +4900,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
 
     def create_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
         )
 
@@ -5152,10 +5153,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             distinct_ids=["307"],
             properties={"number": 30, "string_number": "30", "version": "1.24"},
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="project", group_type_index=1
         )
 
@@ -5891,6 +5892,146 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
+    def test_date_string_property_matching_iso8601(self):
+        """Test that date string properties in ISO8601 format are correctly compared with is_date_after operator.
+
+        This test reproduces a scenario where:
+        - A person has last_active_date: "2024-03-15T19:17:07.083Z"
+        - Flag condition checks if this is after "2024-03-15 19:37:00"
+        - Expected: Should NOT match since 19:17 is before 19:37
+        """
+        # First, test a simple case with just the date condition
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test_user_123"],
+            properties={
+                "last_active_date": "2024-03-15T19:17:07.083Z",
+            },
+        )
+
+        simple_flag = self.create_feature_flag(
+            key="date-comparison-test",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "last_active_date",
+                                "type": "person",
+                                "value": "2024-03-15 19:37:00",
+                                "operator": "is_date_after",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        # This should NOT match because 19:17 is NOT after 19:37
+        simple_match = self.match_flag(simple_flag, "test_user_123")
+        self.assertEqual(
+            simple_match.match, False, f"Flag should NOT match: 19:17:07 is not after 19:37:00. Got: {simple_match}"
+        )
+
+        # Now test the full multivariate scenario
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test_user_456"],
+            properties={
+                "user_id": "test_456",
+                "last_active_date": "2024-03-15T19:17:07.083Z",
+                "segment": None,
+            },
+        )
+
+        # Create flag with multivariate structure
+        feature_flag = self.create_feature_flag(
+            key="multivariate-date-test",
+            filters={
+                "groups": [
+                    {"variant": None, "properties": [], "rollout_percentage": 100},
+                    {
+                        "variant": "experimental",
+                        "properties": [{"key": "segment", "type": "person", "value": ["premium"], "operator": "exact"}],
+                        "rollout_percentage": 100,
+                    },
+                    {
+                        "variant": "experimental",
+                        "properties": [
+                            {
+                                "key": "last_active_date",
+                                "type": "person",
+                                "value": "2024-03-15 19:37:00",  # 20 minutes after the person's time
+                                "operator": "is_date_after",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    },
+                ],
+                "payloads": {},
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "Control variant",
+                            "rollout_percentage": 50,
+                        },
+                        {"key": "experimental", "name": "Experimental variant", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+
+        # Test the match
+        match_result = self.match_flag(feature_flag, "test_user_456")
+
+        # The first group (100% rollout, no conditions) should match
+        self.assertEqual(match_result.match, True)
+        # But the variant should NOT be "experimental" since the date condition doesn't match
+        # (19:17 is before 19:37)
+        self.assertNotEqual(match_result.variant, "experimental")
+        # It should match the first condition group (index 0)
+        self.assertEqual(match_result.condition_index, 0)
+
+        # Test with different date formats to ensure parsing works correctly
+        test_cases = [
+            # Person's time is before filter time - should NOT get "experimental" variant
+            ("2024-03-15T19:17:07.083Z", "2024-03-15 19:37:00", False),
+            # Person's time is after filter time - should get "experimental" variant
+            ("2024-03-15T19:45:00.000Z", "2024-03-15 19:37:00", True),
+            # Same time - should NOT match (is_date_after requires strictly after)
+            ("2024-03-15T19:37:00.000Z", "2024-03-15 19:37:00", False),
+            # Test with timezone offset
+            ("2024-03-15T19:17:07.083+00:00", "2024-03-15 19:37:00", False),
+        ]
+
+        for person_date, filter_date, should_match_date_condition in test_cases:
+            with self.subTest(person_date=person_date, filter_date=filter_date):
+                # Update the flag's filter value
+                feature_flag.filters["groups"][2]["properties"][0]["value"] = filter_date
+                feature_flag.save()
+
+                # Test with property override (simulates real-time evaluation)
+                match_result = self.match_flag(
+                    feature_flag,
+                    "test_user_456",
+                    property_value_overrides={"last_active_date": person_date},
+                )
+
+                # First group always matches
+                self.assertEqual(match_result.match, True)
+
+                if should_match_date_condition:
+                    # Should get "experimental" variant from the third group
+                    self.assertEqual(match_result.variant, "experimental")
+                    self.assertEqual(match_result.condition_index, 2)
+                else:
+                    # Should NOT get "experimental" variant
+                    self.assertNotEqual(match_result.variant, "experimental")
+                    # Should match first group
+                    self.assertEqual(match_result.condition_index, 0)
+
 
 class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
     person: Person
@@ -6340,6 +6481,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 "default-flag": True,
             }
 
+    @flaky(max_runs=3, min_passes=1)
     def test_hash_key_overrides_with_race_conditions_on_person_creation_and_deletion(self, *args):
         org = Organization.objects.create(name="test")
         user = User.objects.create_and_join(org, "a@b.com", "kkk")

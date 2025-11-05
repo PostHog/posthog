@@ -1,15 +1,18 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, events, kea, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, DataWarehouseTable, PipelineTab } from '~/types'
+import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
 
+import { dataWarehouseSourceSceneLogic } from '../settings/DataWarehouseSourceScene'
 import type { dataWarehouseTableLogicType } from './dataWarehouseTableLogicType'
 
 export interface TableLogicProps {
@@ -62,17 +65,26 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, props }) => ({
         createTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} created</>)
             actions.loadDatabase()
-            router.actions.replace(urls.pipeline(PipelineTab.Sources))
+            router.actions.replace(urls.dataPipelines('sources'))
         },
         updateTableSuccess: async ({ table }) => {
             lemonToast.success(<>Table {table.name} updated</>)
             actions.editingTable(false)
             actions.loadDatabase()
-            router.actions.replace(urls.pipeline(PipelineTab.Sources))
+            router.actions.replace(urls.dataPipelines('sources'))
+        },
+        loadTableSuccess: async ({ table }) => {
+            if (props.id) {
+                dataWarehouseSourceSceneLogic
+                    .findMounted({
+                        id: `self-managed-${props.id}`,
+                    })
+                    ?.actions.setBreadcrumbName(table.name)
+            }
         },
     })),
     reducers({
@@ -125,10 +137,14 @@ export const dataWarehouseTableLogic = kea<dataWarehouseTableLogicType>([
                 }
             },
             submit: async (tablePayload) => {
-                if (props.id && props.id !== 'new') {
-                    actions.updateTable(tablePayload)
-                } else {
-                    actions.createTable(tablePayload)
+                try {
+                    if (props.id && props.id !== 'new') {
+                        actions.updateTable(tablePayload)
+                    } else {
+                        actions.createTable(tablePayload)
+                    }
+                } catch (e: any) {
+                    lemonToast.error(e.data?.message ?? e.message)
                 }
             },
         },

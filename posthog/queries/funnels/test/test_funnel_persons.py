@@ -1,17 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from django.utils import timezone
 from freezegun import freeze_time
-
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.models import Cohort, Filter
-from posthog.models.event.util import bulk_create_events
-from posthog.models.person.util import bulk_create_persons
-from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -20,6 +10,15 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
 )
+
+from django.utils import timezone
+
+from posthog.constants import INSIGHT_FUNNELS
+from posthog.models import Cohort, Filter
+from posthog.models.event.util import bulk_create_events
+from posthog.models.person.util import bulk_create_persons
+from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"

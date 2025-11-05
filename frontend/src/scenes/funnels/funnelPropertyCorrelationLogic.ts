@@ -1,10 +1,13 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, defaults, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { FunnelCorrelationQuery, FunnelsActorsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType, InsightLogicProps } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -67,17 +70,23 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
                     await breakpoint(100)
 
                     try {
-                        const actorsQuery: FunnelsActorsQuery = {
-                            kind: NodeKind.FunnelsActorsQuery,
-                            source: values.querySource!,
-                        }
-                        const query: FunnelCorrelationQuery = {
-                            kind: NodeKind.FunnelCorrelationQuery,
-                            source: actorsQuery,
-                            funnelCorrelationType: FunnelCorrelationResultsType.Properties,
-                            funnelCorrelationNames: targetProperties,
-                            funnelCorrelationExcludeNames: values.excludedPropertyNames,
-                        }
+                        const actorsQuery: FunnelsActorsQuery = setLatestVersionsOnQuery(
+                            {
+                                kind: NodeKind.FunnelsActorsQuery,
+                                source: values.querySource!,
+                            },
+                            { recursion: false }
+                        )
+                        const query: FunnelCorrelationQuery = setLatestVersionsOnQuery(
+                            {
+                                kind: NodeKind.FunnelCorrelationQuery,
+                                source: actorsQuery,
+                                funnelCorrelationType: FunnelCorrelationResultsType.Properties,
+                                funnelCorrelationNames: targetProperties,
+                                funnelCorrelationExcludeNames: values.excludedPropertyNames,
+                            },
+                            { recursion: false }
+                        )
                         const response = await api.query(query)
                         return {
                             events: response.results.events.map((result) => ({
@@ -85,7 +94,7 @@ export const funnelPropertyCorrelationLogic = kea<funnelPropertyCorrelationLogic
                                 result_type: FunnelCorrelationResultsType.Events,
                             })) as FunnelCorrelation[],
                         }
-                    } catch (error) {
+                    } catch {
                         lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })
                         return { events: [] }
                     }

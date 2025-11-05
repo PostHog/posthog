@@ -4,7 +4,9 @@
     .TZLabelPopover__row {
         display: flex;
         align-items: center;
-        margin-top: 0.5rem;
+        padding: 4px;
+        cursor: pointer;
+        border-radius: 4px;
 
         > :nth-child(1) {
             margin-right: 8px;
@@ -21,7 +23,7 @@
         > :nth-child(3) {
             flex-grow: 1;
             margin-right: 16px;
-            color: var(--text-secondary);
+            color: var(--color-text-secondary);
         }
 
         > :nth-child(4) {
@@ -32,14 +34,28 @@
                 min-width: 12rem;
             }
         }
+
+        > :nth-child(5) {
+            margin-left: 8px;
+        }
+
+        &:hover {
+            background-color: var(--color-bg-primary);
+        }
     }
 
     .TZLabelPopover__row--muted {
-        color: var(--text-secondary);
+        color: var(--color-text-secondary);
 
         > :nth-child(1),
         > :nth-child(2):not(:empty) {
-            color: var(--text-secondary);
+            color: var(--color-text-secondary);
         }
+    }
+
+    .TZLabelPopover__datetime {
+        display: flex;
+        gap: 4px;
+        align-items: center;
     }
 }

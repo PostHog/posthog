@@ -1,12 +1,14 @@
 from datetime import datetime
 from typing import cast
 
+from posthog.test.base import APIBaseTest
+
+from posthog.schema import FunnelsQuery
+
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models.filters import Filter
-from posthog.schema import FunnelsQuery
-from posthog.test.base import APIBaseTest
 from posthog.test.test_journeys import journeys_for
 
 

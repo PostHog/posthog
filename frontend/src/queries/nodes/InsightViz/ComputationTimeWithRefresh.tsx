@@ -1,10 +1,12 @@
-import { Link, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { Link, Tooltip } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { shouldQueryBeAsync } from '~/queries/utils'
@@ -25,7 +27,7 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
 
     usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date `insightRefreshButtonDisabledReason`
 
-    if (!response || (!response.result && !response.results)) {
+    if (!response || (!(response as any).result && !(response as any).results)) {
         return null
     }
 

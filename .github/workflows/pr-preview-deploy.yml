@@ -19,7 +19,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@885d1462b80bc1c1c7f0b00334ad271f09369c55 # v2
@@ -57,7 +57,7 @@ jobs:
 
             - name: Build and push PR test image
               id: build
-              uses: depot/build-push-action@636daae76684e38c301daa0c5eca1c095b24e780 # v1
+              uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
               with:
                   context: .
                   buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -67,7 +67,7 @@ jobs:
                   build-args: COMMIT_HASH=${{ github.event.pull_request.head.sha }}
 
             - name: start deployment
-              uses: bobheadxi/deployments@88ce5600046c82542f8246ac287d0a53c461bca3 # v1.4.0
+              uses: bobheadxi/deployments@648679e8e4915b27893bd7dbc35cb504dc915bc8 # v1.5.0
               id: deployment
               with:
                   step: start

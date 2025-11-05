@@ -1,12 +1,14 @@
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 
-from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Team, Organization
+from posthog.models import Organization, Team
 from posthog.models.user import User
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+
+from products.notebooks.backend.models import Notebook
 
 
 class TestNotebooks(APIBaseTest, QueryMatchingTest):
@@ -95,7 +97,7 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "deleted": False,
             "last_modified_at": mock.ANY,
             "last_modified_by": response.json()["last_modified_by"],
-            "user_access_level": "editor",
+            "user_access_level": "manager",
         }
 
         self.assert_notebook_activity(
@@ -206,6 +208,16 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["short_id"] == this_team_notebook_short_id
 
+    def test_listing_does_not_return_internal_visibility(self) -> None:
+        Notebook.objects.create(team=self.team, visibility=Notebook.Visibility.INTERNAL)
+        default_visibility_notebook = Notebook.objects.create(team=self.team, visibility=Notebook.Visibility.DEFAULT)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/notebooks")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 1
+        assert response.json()["results"][0]["short_id"] == default_visibility_notebook.short_id
+
     def test_creating_does_not_leak_between_teams(self) -> None:
         another_org = Organization.objects.create(name="other org")
         another_team = Team.objects.create(organization=another_org)
@@ -243,3 +255,21 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         )
 
         assert response.status_code == status.HTTP_304_NOT_MODIFIED
+
+    def test_create_notebook_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {
+                "title": "My Notebook in folder",
+                "_create_in_folder": "Notebooks/Special Team Folder",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        notebook_short_id = response.json()["short_id"]
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=notebook_short_id, type="notebook").first()
+        assert fs_entry is not None
+        assert "Notebooks/Special Team Folder" in fs_entry.path

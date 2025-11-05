@@ -24,6 +24,10 @@
 
             <stream_poll_timeout_ms>50</stream_poll_timeout_ms>
 
+            <!-- Development performance optimizations -->
+            <max_threads>2</max_threads>
+            <background_merges_mutations_concurrency_ratio>1</background_merges_mutations_concurrency_ratio>
+
         </default>
 
         <!-- Profile that allows only read queries. -->
@@ -31,6 +35,13 @@
             <readonly>1</readonly>
         </readonly>
 
+        <api>
+            <profile>default</profile>
+        </api>
+
+        <app>
+            <profile>default</profile>
+        </app>
     </profiles>
 
     <!-- Users and ACL. -->
@@ -115,8 +126,35 @@
             <quota>default</quota>
 
             <!-- User can create other users and grant rights to them. -->
-            <!-- <access_management>1</access_management> -->
+            <access_management>1</access_management>
+            <named_collection_control>1</named_collection_control>
+            <show_named_collections>1</show_named_collections>
+            <show_named_collections_secrets>1</show_named_collections_secrets>
         </default>
+
+        <api>
+            <password>apipass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>api</profile>
+
+            <quota>default</quota>
+        </api>
+
+        <app>
+            <password>apppass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>app</profile>
+
+            <quota>default</quota>
+        </app>
     </users>
 
     <!-- Quotas. -->

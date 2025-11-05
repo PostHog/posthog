@@ -1,4 +1,5 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -10,8 +11,10 @@ import { Theme, themes } from './themes'
 export const themeLogic = kea<themeLogicType>([
     path(['layout', 'navigation-3000', 'themeLogic']),
     connect(() => ({
+        logic: [sceneLogic],
         values: [userLogic, ['themeMode'], featureFlagLogic, ['featureFlags']],
     })),
+
     actions({
         syncDarkModePreference: (darkModePreference: boolean) => ({ darkModePreference }),
         setTheme: (theme: string | null) => ({ theme }),
@@ -82,12 +85,8 @@ export const themeLogic = kea<themeLogicType>([
                 if (theme) {
                     return !!theme?.dark
                 }
-                // NOTE: Unauthenticated users always get the light mode until we have full support across onboarding flows
-                if (
-                    sceneConfig?.layout === 'plain' ||
-                    sceneConfig?.allowUnauthenticated ||
-                    sceneConfig?.onlyUnauthenticated
-                ) {
+                // NOTE: Unauthenticated users always get the light mode until we have full support for dark mode there
+                if (sceneConfig?.allowUnauthenticated || sceneConfig?.onlyUnauthenticated) {
                     return false
                 }
 
@@ -103,12 +102,13 @@ export const themeLogic = kea<themeLogicType>([
     })),
     events(({ cache, actions }) => ({
         afterMount() {
-            cache.prefersColorSchemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
-            cache.onPrefersColorSchemeChange = (e: MediaQueryListEvent) => actions.syncDarkModePreference(e.matches)
-            cache.prefersColorSchemeMedia.addEventListener('change', cache.onPrefersColorSchemeChange)
-        },
-        beforeUnmount() {
-            cache.prefersColorSchemeMedia.removeEventListener('change', cache.onPrefersColorSchemeChange)
+            cache.disposables.add(() => {
+                const prefersColorSchemeMedia = window.matchMedia('(prefers-color-scheme: dark)')
+                const onPrefersColorSchemeChange = (e: MediaQueryListEvent): void =>
+                    actions.syncDarkModePreference(e.matches)
+                prefersColorSchemeMedia.addEventListener('change', onPrefersColorSchemeChange)
+                return () => prefersColorSchemeMedia.removeEventListener('change', onPrefersColorSchemeChange)
+            }, 'prefersColorSchemeListener')
         },
     })),
 ])

@@ -2,12 +2,14 @@ import './WorldMap.scss'
 
 import { style } from 'd3'
 import { props, useActions, useValues } from 'kea'
+import React, { useEffect, useRef } from 'react'
+
 import { gradateColor } from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
-import React, { useEffect, useRef } from 'react'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -16,7 +18,6 @@ import { QueryContext } from '~/queries/types'
 import { ChartParams, TrendResult } from '~/types'
 
 import { SeriesDatum } from '../../InsightTooltip/insightTooltipUtils'
-import { ensureTooltip } from '../LineGraph/LineGraph'
 import { countryVectors } from './countryVectors'
 import { worldMapLogic } from './worldMapLogic'
 
@@ -35,7 +36,8 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
     const svgRef = useRef<SVGSVGElement>(null)
 
     const svgRect = svgRef.current?.getBoundingClientRect()
-    const [tooltipRoot, tooltipEl] = ensureTooltip()
+    const { getTooltip } = useInsightTooltip()
+    const [tooltipRoot, tooltipEl] = getTooltip()
 
     useEffect(() => {
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
@@ -50,6 +52,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
                                     dataIndex: 1,
                                     datasetIndex: 1,
                                     id: 1,
+                                    order: 1,
                                     breakdown_value: currentTooltip[0],
                                     count: currentTooltip[1]?.aggregated_value || 0,
                                 },
@@ -78,7 +81,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
-    }, [isTooltipShown, tooltipCoordinates, currentTooltip])
+    }, [isTooltipShown, tooltipCoordinates, currentTooltip]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (tooltipCoordinates) {
@@ -97,7 +100,7 @@ function useWorldMapTooltip(showPersonsModal: boolean): React.RefObject<SVGSVGEl
             tooltipEl.style.left = `${window.pageXOffset + tooltipCoordinates[0] + xOffset}px`
             tooltipEl.style.top = `${window.pageYOffset + tooltipCoordinates[1] + WORLD_MAP_TOOLTIP_OFFSET_PX}px`
         }
-    }, [currentTooltip, tooltipEl])
+    }, [currentTooltip, tooltipEl]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return svgRef
 }

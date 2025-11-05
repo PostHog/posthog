@@ -1,5 +1,6 @@
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
+
 import { humanFriendlyNumber } from 'lib/utils'
 
 import { TIMEFRAME_HISTORICAL_DATA_DAYS } from './runningTimeCalculatorLogic'

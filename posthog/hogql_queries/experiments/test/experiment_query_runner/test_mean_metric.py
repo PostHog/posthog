@@ -1,30 +1,34 @@
 from typing import cast
+
+from freezegun import freeze_time
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+
 from django.test import override_settings
-from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
+
+from parameterized import parameterized
+
 from posthog.schema import (
     EventsNode,
+    ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQuery,
-    ExperimentVariantTrendsBaseStats,
-    ExperimentMeanMetric,
+    ExperimentQueryResponse,
 )
-from posthog.test.base import (
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
+
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from posthog.test.test_journeys import journeys_for
-from freezegun import freeze_time
 
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_property_sum_metric(self):
+    def test_property_sum_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         metric = ExperimentMeanMetric(
@@ -44,33 +48,79 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
-        self.create_standard_test_events(feature_flag)
+        # Create events with different amounts for control vs test to provide variance
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control: 6 purchases with amount 10 (total 60)
+        for i in range(10):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            if i < 6:  # First 6 users make purchases
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: "control", "amount": 10},
+                )
+
+        # Test: 8 purchases with amount 15 (total 120)
+        for i in range(10):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            if i < 8:  # First 8 users make purchases
+                _create_event(
+                    team=self.team,
+                    event="purchase",
+                    distinct_id=f"user_test_{i}",
+                    timestamp="2020-01-02T12:01:00Z",
+                    properties={feature_flag_property: "test", "amount": 15},
+                )
 
         flush_persons_and_events()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.count, 20)
-        self.assertEqual(test_variant.count, 20)
-        self.assertEqual(control_variant.absolute_exposure, 10)
-        self.assertEqual(test_variant.absolute_exposure, 10)
+        self.assertEqual(control_variant.sum, 60)
+        self.assertEqual(test_variant.sum, 120)
+        self.assertEqual(control_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_outlier_handling_for_sum_metric(self):
+    def test_outlier_handling_for_sum_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -144,28 +194,27 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
-        )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
-        )
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
 
-        self.assertEqual(control_variant.count, 1055)
-        self.assertEqual(test_variant.count, 1055)
-        self.assertEqual(control_variant.absolute_exposure, 10)
-        self.assertEqual(test_variant.absolute_exposure, 10)
+        self.assertEqual(control_variant.sum, 1055)
+        self.assertEqual(test_variant.sum, 1055)
+        self.assertEqual(control_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.number_of_samples, 10)
 
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_outlier_handling_for_count_metric(self):
+    def test_outlier_handling_for_count_metric(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"version": 2}
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
         experiment.save()
 
         ff_property = f"$feature/{feature_flag.key}"
@@ -206,16 +255,16 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
                 "control_8": _create_events_for_user("control", 3),
                 "control_9": _create_events_for_user("control", 3),
                 "control_10": _create_events_for_user("control", 100),
-                "test_1": _create_events_for_user("test", 3),
-                "test_2": _create_events_for_user("test", 3),
-                "test_3": _create_events_for_user("test", 3),
-                "test_4": _create_events_for_user("test", 3),
-                "test_5": _create_events_for_user("test", 3),
-                "test_6": _create_events_for_user("test", 3),
-                "test_7": _create_events_for_user("test", 3),
-                "test_8": _create_events_for_user("test", 3),
-                "test_9": _create_events_for_user("test", 3),
-                "test_10": _create_events_for_user("test", 3),
+                "test_1": _create_events_for_user("test", 2),
+                "test_2": _create_events_for_user("test", 4),
+                "test_3": _create_events_for_user("test", 4),
+                "test_4": _create_events_for_user("test", 4),
+                "test_5": _create_events_for_user("test", 4),
+                "test_6": _create_events_for_user("test", 4),
+                "test_7": _create_events_for_user("test", 4),
+                "test_8": _create_events_for_user("test", 4),
+                "test_9": _create_events_for_user("test", 4),
+                "test_10": _create_events_for_user("test", 4),
             },
             self.team,
         )
@@ -241,18 +290,453 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
         experiment.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
 
-        self.assertEqual(len(result.variants), 2)
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-        control_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "control")
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        self.assertEqual(control_variant.sum, 30.9)
+        self.assertEqual(test_variant.sum, 38.9)
+        self.assertEqual(control_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.number_of_samples, 10)
+
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_unique_sessions_math_type(self, name, use_new_query_builder):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        def _create_events_for_user(variant: str, count: int, session_id: str) -> list[dict]:
+            pageview_events = [
+                {
+                    "event": "$pageview",
+                    "timestamp": f"2024-01-02T12:01:{i:02d}",
+                    "properties": {
+                        ff_property: variant,
+                        "$session_id": session_id,
+                    },
+                }
+                for i in range(count)
+            ]
+            return [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                        "$session_id": session_id,
+                    },
+                },
+                *pageview_events,
+            ]
+
+        journeys_for(
+            {
+                # 3 unique sessions in control
+                "control_1": [
+                    *_create_events_for_user("control", 3, "c_1_a"),
+                    *_create_events_for_user("control", 3, "c_1_b"),
+                ],
+                "control_2": _create_events_for_user("control", 3, "c_2_a"),
+                # Control 3 has zero pageviews, so this session should not be included in the session metric count
+                "control_3": _create_events_for_user("control", 0, "c_3_a"),
+                # 5 unique sessions in test
+                "test_1": [
+                    *_create_events_for_user("test", 3, "t_1_a"),
+                    *_create_events_for_user("test", 3, "t_1_b"),
+                ],
+                "test_2": [
+                    *_create_events_for_user("test", 3, "t_2_a"),
+                    *_create_events_for_user("test", 3, "t_2_b"),
+                    *_create_events_for_user("test", 3, "t_2_c"),
+                ],
+            },
+            self.team,
         )
-        test_variant = cast(
-            ExperimentVariantTrendsBaseStats, next(variant for variant in result.variants if variant.key == "test")
+
+        flush_persons_and_events()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="$pageview",
+                math=ExperimentMetricMathType.UNIQUE_SESSION,
+            ),
         )
 
-        self.assertEqual(control_variant.count, 30)
-        self.assertEqual(test_variant.count, 30)
-        self.assertEqual(control_variant.absolute_exposure, 10)
-        self.assertEqual(test_variant.absolute_exposure, 10)
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        self.assertEqual(control_variant.sum, 3)
+        self.assertEqual(test_variant.sum, 5)
+        self.assertEqual(control_variant.number_of_samples, 3)
+        self.assertEqual(test_variant.number_of_samples, 2)
+
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_property_max_metric(self, name, use_new_query_builder):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        def _create_events_for_user(variant: str, amounts: list[int]) -> list[dict]:
+            purchase_events = [
+                {
+                    "event": "purchase",
+                    "timestamp": f"2024-01-02T12:01:{i:02d}",
+                    "properties": {
+                        ff_property: variant,
+                        "amount": amount,
+                    },
+                }
+                for i, amount in enumerate(amounts)
+            ]
+            return [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+                *purchase_events,
+            ]
+
+        journeys_for(
+            {
+                "control_1": _create_events_for_user("control", [10, 20, 30]),
+                "control_2": _create_events_for_user("control", [5, 15, 25]),
+                "test_1": _create_events_for_user("test", [50, 60, 70]),
+                "test_2": _create_events_for_user("test", [40, 80, 90]),
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.MAX,
+                math_property="amount",
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        self.assertEqual(control_variant.sum, 55)
+        self.assertEqual(test_variant.sum, 160)
+        self.assertEqual(control_variant.number_of_samples, 2)
+        self.assertEqual(test_variant.number_of_samples, 2)
+
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_property_min_metric(self, name, use_new_query_builder):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        def _create_events_for_user(variant: str, amounts: list[int]) -> list[dict]:
+            purchase_events = [
+                {
+                    "event": "purchase",
+                    "timestamp": f"2024-01-02T12:01:{i:02d}",
+                    "properties": {
+                        ff_property: variant,
+                        "amount": amount,
+                    },
+                }
+                for i, amount in enumerate(amounts)
+            ]
+            return [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+                *purchase_events,
+            ]
+
+        journeys_for(
+            {
+                "control_1": _create_events_for_user("control", [10, 20, 30]),
+                "control_2": _create_events_for_user("control", [5, 15, 25]),
+                "test_1": _create_events_for_user("test", [50, 60, 70]),
+                "test_2": _create_events_for_user("test", [40, 80, 90]),
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.MIN,
+                math_property="amount",
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        self.assertEqual(control_variant.sum, 15)
+        self.assertEqual(test_variant.sum, 90)
+        self.assertEqual(control_variant.number_of_samples, 2)
+        self.assertEqual(test_variant.number_of_samples, 2)
+
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
+    @freeze_time("2024-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_property_avg_metric(self, name, use_new_query_builder):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        ff_property = f"$feature/{feature_flag.key}"
+
+        def _create_events_for_user(variant: str, amounts: list[int]) -> list[dict]:
+            purchase_events = [
+                {
+                    "event": "purchase",
+                    "timestamp": f"2024-01-02T12:01:{i:02d}",
+                    "properties": {
+                        ff_property: variant,
+                        "amount": amount,
+                    },
+                }
+                for i, amount in enumerate(amounts)
+            ]
+            return [
+                {
+                    "event": "$feature_flag_called",
+                    "timestamp": "2024-01-02T12:00:00",
+                    "properties": {
+                        "$feature_flag_response": variant,
+                        ff_property: variant,
+                        "$feature_flag": feature_flag.key,
+                    },
+                },
+                *purchase_events,
+            ]
+
+        journeys_for(
+            {
+                "control_1": _create_events_for_user("control", [10, 20, 30]),
+                "control_2": _create_events_for_user("control", [5, 15, 25]),
+                "test_1": _create_events_for_user("test", [50, 60, 70]),
+                "test_2": _create_events_for_user("test", [40, 80, 90]),
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.AVG,
+                math_property="amount",
+            ),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        self.assertEqual(control_variant.sum, 35)
+        self.assertEqual(test_variant.sum, 130)
+        self.assertEqual(control_variant.number_of_samples, 2)
+        self.assertEqual(test_variant.number_of_samples, 2)
+
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_outlier_handling_with_ignore_zeros(self, name, use_new_query_builder):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            upper_bound_percentile=0.9,
+            ignore_zeros=True,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        for i in range(10):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            if i < 5:
+                amount = 0
+            elif i < 8:
+                amount = 100
+            else:
+                amount = 1000
+
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "control", "amount": amount},
+            )
+
+        for i in range(10):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+            if i < 5:
+                amount = 0
+            elif i < 8:
+                amount = 150
+            else:
+                amount = 2000
+
+            _create_event(
+                team=self.team,
+                event="purchase",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "test", "amount": amount},
+            )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        self.assertEqual(control_variant.number_of_samples, 10)
+        self.assertEqual(test_variant.number_of_samples, 10)
+        self.assertEqual(control_variant.sum, 2300)
+        self.assertEqual(test_variant.sum, 4450)

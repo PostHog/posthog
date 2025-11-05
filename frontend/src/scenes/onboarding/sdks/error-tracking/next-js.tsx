@@ -1,12 +1,22 @@
-import { Link } from '@posthog/lemon-ui'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useValues } from 'kea'
 
+import { Link } from '@posthog/lemon-ui'
+
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { apiHostOrigin } from 'lib/utils/apiHost'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { NodeInstallSnippet } from '../sdk-install-instructions'
 import { SDKInstallNextJSInstructions } from '../sdk-install-instructions/next-js'
 import { JSManualCapture } from './FinalSteps'
 
 export function NextJSInstructions(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const host = apiHostOrigin()
+
     return (
         <>
+            <h2>Client-side installation</h2>
             <SDKInstallNextJSInstructions />
             <h3>Capturing component render errors</h3>
             <p>
@@ -20,7 +30,7 @@ export function NextJSInstructions(): JSX.Element {
                 to handle uncaught exceptions by rendering a fallback UI instead of the crashing components.
             </p>
             <p>
-                To set one up, create a <code>error.tsx</code> file in any of your route directories. This triggers when
+                To set one up, create a <code>error.jsx</code> file in any of your route directories. This triggers when
                 there is an error rendering your component and should look like this:
             </p>
             <CodeSnippet language={Language.JavaScript}>{errorComponent}</CodeSnippet>
@@ -36,6 +46,17 @@ export function NextJSInstructions(): JSX.Element {
             </p>
             <CodeSnippet language={Language.JavaScript}>{globalErrorComponent}</CodeSnippet>
             <JSManualCapture />
+            <h2>Server-side installation</h2>
+            <p>
+                Next.js enables you to capture exceptions on both server-side render pages and within server-side
+                functionality. To integrate PostHog into your Next.js app on the server-side, you can use the Node SDK.
+            </p>
+            <h3>Install posthog-node using your package manager</h3>
+            <NodeInstallSnippet />
+            <h3>Create a reusable client</h3>
+            <CodeSnippet language={Language.JavaScript}>
+                {serverClient(currentTeam?.api_token ?? '<API_KEY>', host)}
+            </CodeSnippet>
             <h3>Capturing server errors</h3>
             <p>
                 To capture errors that occur in your server-side code, you can set up a{' '}
@@ -43,7 +64,7 @@ export function NextJSInstructions(): JSX.Element {
                     target="_blank"
                     to="https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation"
                 >
-                    instrumentation.ts
+                    instrumentation.js
                 </Link>{' '}
                 file at the root of your project. This provides a <code>onRequestError</code> hook that you can use to
                 capture errors.
@@ -57,7 +78,7 @@ export function NextJSInstructions(): JSX.Element {
     )
 }
 
-const globalErrorComponent = `// app/global-error.tsx
+const globalErrorComponent = `// app/global-error.jsx
 
 'use client' // Error boundaries must be Client Components
 
@@ -68,9 +89,6 @@ import { useEffect } from "react";
 export default function GlobalError({
   error,
   reset,
-}: {
-  error: Error & { digest?: string }
-  reset: () => void
 }) {
   useEffect(() => {
     posthog.captureException(error);
@@ -87,7 +105,7 @@ export default function GlobalError({
   )
 }
 `
-const errorComponent = `// error.tsx
+const errorComponent = `// error.jsx
 
 "use client";  // Error boundaries must be Client Components
 
@@ -97,9 +115,6 @@ import { useEffect } from "react";
 export default function Error({
   error,
   reset,
-}: {
-  error: Error & { digest?: string }
-  reset: () => void
 }) {
   useEffect(() => {
     posthog.captureException(error);
@@ -111,7 +126,7 @@ export default function Error({
 }
 `
 
-const instrumentationComponent = `// instrumentation.ts
+const instrumentationComponent = `// instrumentation.js
 
 export function register() {
   // No-op for initialization
@@ -140,5 +155,26 @@ export const onRequestError = async (err, request, context) => {
 
     await posthog.captureException(err, distinctId || undefined)
   }
+}
+`
+
+const serverClient = (api_key: string, host: string): string => `// app/posthog-server.js
+
+import { PostHog } from 'posthog-node'
+
+let posthogInstance = null
+
+export function getPostHogServer() {
+  if (!posthogInstance) {
+    posthogInstance = new PostHog(
+      '${api_key}',
+      {
+        host: '${host}',
+        flushAt: 1,
+        flushInterval: 0 // Because server-side functions in Next.js can be short-lived we flush regularly
+      }
+    )
+  }
+  return posthogInstance
 }
 `

@@ -1,5 +1,8 @@
-import { IconGearFilled, IconHeadset } from '@posthog/icons'
 import clsx from 'clsx'
+import { Ref, forwardRef } from 'react'
+
+import { IconGearFilled, IconHeadset, IconPhone, IconTabletPortrait } from '@posthog/icons'
+
 import {
     IconAndroidOS,
     IconAppleIOS,
@@ -14,16 +17,13 @@ import {
     IconMicrosoftEdge,
     IconMonitor,
     IconOpera,
-    IconPhone,
     IconSafari,
     IconSamsungInternet,
-    IconTablet,
     IconUCBrowser,
     IconWeb,
     IconWindows,
 } from 'lib/lemon-ui/icons'
 import { countryCodeToFlag } from 'lib/utils/geography/country'
-import { forwardRef, Ref } from 'react'
 
 import { PropertyIconProps } from './types'
 
@@ -71,7 +71,7 @@ export const PROPERTIES_ICON_MAP: Record<string, Record<string, JSX.Element>> = 
     $device_type: {
         ['desktop']: <IconMonitor />,
         ['mobile']: <IconPhone />,
-        ['tablet']: <IconTablet />,
+        ['tablet']: <IconTabletPortrait />,
         ['console']: <IconHeadset />,
         ['wearable']: <IconDevices />,
         ['other']: <IconDevices />,

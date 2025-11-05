@@ -1,10 +1,10 @@
 import base64
 
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
+
 from django.core import exceptions
-from rest_framework.exceptions import ValidationError
 
 from posthog.models import Plugin, PluginSourceFile
-from posthog.models.plugin import validate_plugin_job_payload
 from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_FRONTEND_TSX,
     HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS,
@@ -21,7 +21,6 @@ from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_RAW_WITHOUT_PLUGIN_JS,
     HELLO_WORLD_PLUGIN_SITE_TS,
 )
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
 class TestPlugin(BaseTest):
@@ -44,98 +43,6 @@ class TestPlugin(BaseTest):
         default_config = some_plugin.get_default_config()
 
         self.assertDictEqual(default_config, {"x": "z"})
-
-    def test_validate_plugin_job_payload(self):
-        with self.assertRaises(ValidationError):
-            validate_plugin_job_payload(Plugin(), "unknown_job", {}, is_staff=False)
-        with self.assertRaises(ValidationError):
-            validate_plugin_job_payload(Plugin(public_jobs={}), "unknown_job", {}, is_staff=False)
-
-        validate_plugin_job_payload(Plugin(public_jobs={"foo_job": {}}), "foo_job", {}, is_staff=False)
-        validate_plugin_job_payload(
-            Plugin(public_jobs={"foo_job": {"payload": {}}}),
-            "foo_job",
-            {},
-            is_staff=False,
-        )
-        validate_plugin_job_payload(
-            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number"}}}}),
-            "foo_job",
-            {},
-            is_staff=False,
-        )
-        validate_plugin_job_payload(
-            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "required": False}}}}),
-            "foo_job",
-            {"param": 77},
-            is_staff=False,
-        )
-        with self.assertRaises(ValidationError):
-            validate_plugin_job_payload(
-                Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "required": True}}}}),
-                "foo_job",
-                {},
-                is_staff=False,
-            )
-
-        with self.assertRaises(ValidationError):
-            validate_plugin_job_payload(
-                Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "staff_only": True}}}}),
-                "foo_job",
-                {"param": 5},
-                is_staff=False,
-            )
-        validate_plugin_job_payload(
-            Plugin(
-                public_jobs={
-                    "foo_job": {
-                        "payload": {
-                            "param": {
-                                "type": "number",
-                                "staff_only": True,
-                                "default": 5,
-                            }
-                        }
-                    }
-                }
-            ),
-            "foo_job",
-            {"param": 5},
-            is_staff=False,
-        )
-
-        with self.assertRaises(ValidationError):
-            validate_plugin_job_payload(
-                Plugin(
-                    public_jobs={
-                        "foo_job": {
-                            "payload": {
-                                "param": {
-                                    "type": "number",
-                                    "staff_only": True,
-                                    "default": 1,
-                                }
-                            }
-                        }
-                    }
-                ),
-                "foo_job",
-                {"param": 5},
-                is_staff=False,
-            )
-
-        validate_plugin_job_payload(
-            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "staff_only": True}}}}),
-            "foo_job",
-            {},
-            is_staff=False,
-        )
-        validate_plugin_job_payload(
-            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "staff_only": True}}}}),
-            "foo_job",
-            {"param": 5},
-            is_staff=True,
-        )
 
 
 class TestPluginSourceFile(BaseTest, QueryMatchingTest):

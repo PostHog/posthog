@@ -1,3 +1,5 @@
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
+
 import { PropertyOperator } from '../../types'
 import { HogFunctionType } from '../types'
 
@@ -286,11 +288,6 @@ export const HOG_EXAMPLES: Record<string, Pick<HogFunctionType, 'hog' | 'bytecod
             35,
         ],
     },
-    send_email: {
-        type: 'broadcast',
-        hog: 'sendEmail(inputs)',
-        bytecode: ['_H', 1, 32, 'inputs', 1, 1, 2, 'sendEmail', 1, 35],
-    },
 }
 
 export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' | 'inputs_schema'>> = {
@@ -339,6 +336,82 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
                     nested: { foo: ['_h', 32, 'url', 32, 'event', 1, 2] },
                     person: ['_h', 32, 'person', 1, 1],
                     event_url: ['_h', 32, '-test', 32, 'url', 32, 'event', 1, 2, 2, 'concat', 2],
+                },
+            },
+        },
+    },
+    simple_fetch_with_oauth: {
+        inputs_schema: [
+            { key: 'oauth', type: 'integration', label: 'OAuth', secret: false, required: true, integration: 'oauth' },
+            { key: 'url', type: 'string', label: 'Webhook URL', secret: false, required: true },
+            { key: 'body', type: 'json', label: 'JSON body', secret: false, required: true },
+            {
+                key: 'method',
+                type: 'choice',
+                label: 'HTTP Method',
+                secret: false,
+                choices: [
+                    { label: 'POST', value: 'POST' },
+                    { label: 'PUT', value: 'PUT' },
+                    { label: 'PATCH', value: 'PATCH' },
+                    { label: 'GET', value: 'GET' },
+                ],
+                required: true,
+            },
+            { key: 'headers', type: 'dictionary', label: 'Headers', secret: false, required: false },
+        ],
+        inputs: {
+            oauth: {
+                value: {
+                    access_token: ACCESS_TOKEN_PLACEHOLDER + '123',
+                },
+                bytecode: ['_h', 32, ACCESS_TOKEN_PLACEHOLDER, 32, '123'],
+            },
+            url: {
+                value: 'https://example.com/posthog-webhook?access_token={inputs.oauth.access_token}',
+                bytecode: [
+                    '_h',
+                    32,
+                    'https://example.com/posthog-webhook',
+                    32,
+                    'access_token',
+                    32,
+                    'inputs',
+                    1,
+                    2,
+                    32,
+                    'oauth',
+                    1,
+                    2,
+                ],
+            },
+            method: { value: 'POST' },
+            headers: {
+                value: {
+                    version: 'v={event.properties.$lib_version}',
+                    access_token: '{inputs.oauth.access_token}',
+                },
+                bytecode: {
+                    version: ['_h', 32, '$lib_version', 32, 'properties', 32, 'event', 1, 3, 32, 'v=', 2, 'concat', 2],
+                    access_token: ['_h', 32, 'access_token', 32, 'inputs', 1, 2, 32, 'oauth', 1, 2],
+                },
+            },
+            body: {
+                value: {
+                    event: '{event}',
+                    groups: '{groups}',
+                    nested: { foo: '{event.url}' },
+                    person: '{person}',
+                    event_url: "{f'{event.url}-test'}",
+                    access_token: '{inputs.oauth.access_token}',
+                },
+                bytecode: {
+                    event: ['_h', 32, 'event', 1, 1],
+                    groups: ['_h', 32, 'groups', 1, 1],
+                    nested: { foo: ['_h', 32, 'url', 32, 'event', 1, 2] },
+                    person: ['_h', 32, 'person', 1, 1],
+                    event_url: ['_h', 32, '-test', 32, 'url', 32, 'event', 1, 2, 2, 'concat', 2],
+                    access_token: ['_h', 32, 'access_token', 32, 'inputs', 1, 2, 32, 'oauth', 1, 2],
                 },
             },
         },
@@ -429,68 +502,6 @@ export const HOG_INPUTS_EXAMPLES: Record<string, Pick<HogFunctionType, 'inputs' 
     none: {
         inputs_schema: [],
         inputs: {},
-    },
-    email: {
-        inputs_schema: [
-            { key: 'auth', type: 'dictionary', label: 'Mailjet', secret: false, required: true },
-            { key: 'email', type: 'string', label: 'Email', secret: false, required: true },
-        ],
-        inputs: {
-            auth: {
-                value: {
-                    api_key: 'test_api_key',
-                    secret_key: 'test_secret_key',
-                },
-                bytecode: {
-                    api_key: ['_h', 32, 'test_api_key'],
-                    secret_key: ['_h', 32, 'test_secret_key'],
-                },
-            },
-            email: {
-                value: {
-                    to: '{person.properties.email}',
-                    body: 'Hello {person.properties.first_name} {person.properties.last_name}!\n\nThis is a broadcast',
-                    from: 'info@posthog.com',
-                    html: '<html></html>',
-                    subject: 'Hello {person.properties.email}',
-                },
-                bytecode: {
-                    to: ['_H', 1, 32, 'email', 32, 'properties', 32, 'person', 1, 3],
-                    body: [
-                        '_H',
-                        1,
-                        32,
-                        'Hello ',
-                        32,
-                        'first_name',
-                        32,
-                        'properties',
-                        32,
-                        'person',
-                        1,
-                        3,
-                        32,
-                        ' ',
-                        32,
-                        'last_name',
-                        32,
-                        'properties',
-                        32,
-                        'person',
-                        1,
-                        3,
-                        32,
-                        '!\n\nThis is a broadcast',
-                        2,
-                        'concat',
-                        5,
-                    ],
-                    from: ['_H', 1, 32, 'info@posthog.com'],
-                    html: ['_H', 1, 32, '<html></html>'],
-                    subject: ['_H', 1, 32, 'Hello ', 32, 'email', 32, 'properties', 32, 'person', 1, 3, 2, 'concat', 2],
-                },
-            },
-        },
     },
 }
 
@@ -740,6 +751,33 @@ export const HOG_MASK_EXAMPLES: Record<string, Pick<HogFunctionType, 'masking'>>
             ttl: 30,
             hash: '{concat(person.id, event.event)}',
             bytecode: ['_H', 1, 32, 'id', 32, 'person', 1, 2, 32, 'event', 32, 'event', 1, 2, 2, 'concat', 2],
+            threshold: null,
+        },
+    },
+}
+
+export const HOG_FLOW_MASK_EXAMPLES: Record<string, Pick<any, 'trigger_masking'>> = {
+    everyTime: {
+        trigger_masking: {
+            ttl: 30,
+            hash: 'all',
+            bytecode: ['_h', 32, 'all'],
+            threshold: null,
+        },
+    },
+    oncePerTimePeriod: {
+        trigger_masking: {
+            ttl: 30,
+            hash: '{person.id}',
+            bytecode: ['_h', 32, 'id', 32, 'person', 1, 2],
+            threshold: null,
+        },
+    },
+    onceEver: {
+        trigger_masking: {
+            ttl: null,
+            hash: '{person.id}',
+            bytecode: ['_h', 32, 'id', 32, 'person', 1, 2],
             threshold: null,
         },
     },

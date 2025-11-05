@@ -5,14 +5,8 @@ from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.sql import (
-    GET_COHORTPEOPLE_BY_COHORT_ID,
-    GET_STATIC_COHORTPEOPLE_BY_COHORT_ID,
-)
-from posthog.models.cohort.util import (
-    format_precalculated_cohort_query,
-    format_static_cohort_query,
-)
+from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+from posthog.models.cohort.util import format_precalculated_cohort_query, format_static_cohort_query
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -167,6 +161,52 @@ class PersonQuery:
                 **person_filters_params,
                 **single_cohort_params,
                 **limit_params,
+                **search_params,
+                **distinct_id_params,
+                **email_params,
+                **multiple_cohorts_params,
+                "team_id": self._team_id,
+            },
+        )
+
+    def get_uniq_count(self) -> tuple[str, dict]:
+        """
+        Returns a simplified query that counts unique person IDs using uniq(id).
+        This is more efficient than the full get_query() for counting purposes.
+        Ignores prefiltering optimizations and is_deleted checks for simplicity.
+        """
+        (
+            person_filters_prefiltering_condition,
+            _,
+            person_filters_params,
+        ) = self._get_person_filter_clauses()
+        (
+            multiple_cohorts_condition,
+            multiple_cohorts_params,
+        ) = self._get_multiple_cohorts_clause()
+        single_cohort_join, single_cohort_params = self._get_fast_single_cohort_clause()
+        (
+            search_prefiltering_condition,
+            _,
+            search_params,
+        ) = self._get_search_clauses()
+        distinct_id_condition, distinct_id_params = self._get_distinct_id_clause()
+        email_condition, email_params = self._get_email_clause()
+
+        return (
+            f"""
+            SELECT uniq(id)
+            FROM person
+            {single_cohort_join}
+            WHERE team_id = %(team_id)s
+            {multiple_cohorts_condition}
+            {email_condition}
+            {person_filters_prefiltering_condition} {search_prefiltering_condition}
+            {distinct_id_condition}
+            """,
+            {
+                **person_filters_params,
+                **single_cohort_params,
                 **search_params,
                 **distinct_id_params,
                 **email_params,

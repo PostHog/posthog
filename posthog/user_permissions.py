@@ -3,15 +3,7 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Insight,
-    Organization,
-    OrganizationMembership,
-    Team,
-    User,
-)
+from posthog.models import Dashboard, DashboardTile, Insight, Organization, OrganizationMembership, Team, User
 
 
 class UserPermissions:
@@ -70,7 +62,7 @@ class UserPermissions:
     @cached_property
     def teams_visible_for_user(self) -> list[Team]:
         candidate_teams = Team.objects.filter(organization_id__in=self.organizations.keys()).only(
-            "pk", "organization_id", "access_control"
+            "pk", "organization_id"
         )
         return [team for team in candidate_teams if self.team(team).effective_membership_level is not None]
 
@@ -103,18 +95,6 @@ class UserPermissions:
         return {membership.organization_id: membership for membership in memberships}
 
     @cached_property
-    def explicit_team_memberships(self) -> dict[int, Any]:
-        try:
-            from ee.models import ExplicitTeamMembership
-        except ImportError:
-            return {}
-
-        memberships = ExplicitTeamMembership.objects.filter(
-            parent_membership_id__in=[membership.pk for membership in self.organization_memberships.values()]
-        ).only("parent_membership_id", "level", "team_id")
-        return {membership.team_id: membership.level for membership in memberships}
-
-    @cached_property
     def dashboard_privileges(self) -> dict[int, Dashboard.PrivilegeLevel]:
         try:
             from ee.models import DashboardPrivilege
@@ -123,6 +103,47 @@ class UserPermissions:
             return {dashboard_id: cast(Dashboard.PrivilegeLevel, level) for dashboard_id, level in rows}
         except ImportError:
             return {}
+
+    @cached_property
+    def _prefetched_access_controls(self) -> dict[int, list[dict[str, Any]]]:
+        """
+        Prefetch all AccessControl entries for teams in user's organizations.
+        Returns a dict mapping team_id to list of access control entries.
+        """
+        from ee.models.rbac.access_control import AccessControl
+
+        organization_ids = list(self.organizations.keys())
+        # Get all access controls for teams in these organizations
+        access_controls = AccessControl.objects.filter(
+            team__organization_id__in=organization_ids, resource="project"
+        ).values("team_id", "resource_id", "organization_member_id", "role_id", "access_level")
+
+        # Group by team_id
+        result: dict[int, list[dict[str, Any]]] = {}
+        for ac in access_controls:
+            team_id = ac["team_id"]
+            if team_id not in result:
+                result[team_id] = []
+            result[team_id].append(dict(ac))
+        return result
+
+    @cached_property
+    def _prefetched_role_memberships(self) -> dict[UUID, list[UUID]]:
+        """
+        Prefetch all role memberships for the user.
+        Returns a dict mapping organization_member_id to list of role_ids.
+        """
+        from ee.models.rbac.role import RoleMembership
+
+        memberships = RoleMembership.objects.filter(user=self.user).values("organization_member_id", "role_id")
+
+        result: dict[UUID, list[UUID]] = {}
+        for membership in memberships:
+            org_member_id = membership["organization_member_id"]
+            if org_member_id not in result:
+                result[org_member_id] = []
+            result[org_member_id].append(membership["role_id"])
+        return result
 
     def set_preloaded_dashboard_tiles(self, tiles: list[DashboardTile]):
         """
@@ -169,17 +190,58 @@ class UserTeamPermissions:
         if organization is None or organization_membership is None:
             return None
 
-        if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS) or not self.team.access_control:
+        if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
             return organization_membership.level
 
-        explicit_membership_level = self.p.explicit_team_memberships.get(self.team.id)
-        if explicit_membership_level is not None:
-            return max(explicit_membership_level, organization_membership.level)
-        # Only organizations admins and above get implicit project membership
-        elif organization_membership.level < OrganizationMembership.Level.ADMIN:
-            return None
-        else:
-            return organization_membership.level
+        # Use prefetched data to check team privacy and access
+        access_controls = self.p._prefetched_access_controls.get(self.team.id, [])
+
+        # Check if the team is private
+        team_is_private = any(
+            ac["resource_id"] == str(self.team.id)
+            and ac["organization_member_id"] is None
+            and ac["role_id"] is None
+            and ac["access_level"] == "none"
+            for ac in access_controls
+        )
+
+        # If team is not private, all organization members have access
+        if not team_is_private:
+            return cast("OrganizationMembership.Level", organization_membership.level)
+
+        # For private teams, check if the user has specific access
+
+        # Organization admins and owners always have access
+        if organization_membership.level >= OrganizationMembership.Level.ADMIN:
+            return cast("OrganizationMembership.Level", organization_membership.level)
+
+        # Check for direct member access through AccessControl entries
+        user_has_access = any(
+            ac["resource_id"] == str(self.team.id)
+            and ac["organization_member_id"] == organization_membership.id
+            and ac["access_level"] in ["member", "admin"]
+            for ac in access_controls
+        )
+
+        if user_has_access:
+            return cast("OrganizationMembership.Level", organization_membership.level)
+
+        # Check for role-based access
+        user_roles = self.p._prefetched_role_memberships.get(organization_membership.id, [])
+
+        if user_roles:
+            role_has_access = any(
+                ac["resource_id"] == str(self.team.id)
+                and ac["role_id"] in user_roles
+                and ac["access_level"] in ["member", "admin"]
+                for ac in access_controls
+            )
+
+            if role_has_access:
+                return cast("OrganizationMembership.Level", organization_membership.level)
+
+        # No access found
+        return None
 
 
 class UserDashboardPermissions:

@@ -1,28 +1,11 @@
 import uuid
+import itertools
 from abc import ABC
 from functools import cached_property
 from typing import Any, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.clickhouse.materialized_columns import ColumnName
-from posthog.hogql import ast
-from posthog.hogql.constants import get_breakdown_limit_for_context
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
-from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import (
-    funnel_window_interval_unit_to_sql,
-    get_breakdown_expr,
-)
-from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
-from posthog.models.action.action import Action
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.property.property import PropertyName
-from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, get_breakdown_cohort_name
-from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
     BreakdownAttributionType,
@@ -30,12 +13,29 @@ from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
     FunnelExclusionActionsNode,
-    FunnelTimeToConvertResults,
-    FunnelVizType,
     FunnelExclusionEventsNode,
     FunnelMathType,
+    FunnelTimeToConvertResults,
+    FunnelVizType,
     StepOrderValue,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.constants import get_breakdown_limit_for_context
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import action_to_expr, property_to_expr
+
+from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
+from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql, get_breakdown_expr
+from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
+from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.property.property import PropertyName
+from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID, get_breakdown_cohort_name
+from posthog.queries.util import correct_result_for_sampling
 from posthog.types import EntityNode, ExclusionEntityNode
 
 JOIN_ALGOS = "auto"
@@ -61,6 +61,26 @@ class FunnelBase(ABC):
             self._extra_event_fields = ["uuid"]
             self._extra_event_properties = ["$session_id", "$window_id"]
 
+        # validate funnel steps range
+        max_series_index = len(self.context.query.series) - 1
+        if self.context.funnelsFilter.funnelFromStep is not None:
+            if not (0 <= self.context.funnelsFilter.funnelFromStep <= max_series_index - 1):
+                raise ValidationError(
+                    f"funnelFromStep is out of bounds. It must be between 0 and {max_series_index - 1}."
+                )
+
+        if self.context.funnelsFilter.funnelToStep is not None:
+            if not (1 <= self.context.funnelsFilter.funnelToStep <= max_series_index):
+                raise ValidationError(f"funnelToStep is out of bounds. It must be between 1 and {max_series_index}.")
+
+            if (
+                self.context.funnelsFilter.funnelFromStep is not None
+                and self.context.funnelsFilter.funnelFromStep >= self.context.funnelsFilter.funnelToStep
+            ):
+                raise ValidationError(
+                    "Funnel step range is invalid. funnelToStep should be greater than funnelFromStep."
+                )
+
         # validate exclusions
         if self.context.funnelsFilter.exclusions is not None:
             for exclusion in self.context.funnelsFilter.exclusions:
@@ -82,6 +102,35 @@ class FunnelBase(ABC):
                 for entity in self.context.query.series[exclusion.funnelFromStep : exclusion.funnelToStep + 1]:
                     if is_equal(entity, exclusion) or is_superset(entity, exclusion):
                         raise ValidationError("Exclusion steps cannot contain an event that's part of funnel steps.")
+
+        has_optional_steps = any(getattr(node, "optionalInFunnel", False) for node in self.context.query.series)
+
+        if has_optional_steps:
+            # validate that optional steps are only allowed in Ordered Steps funnels
+            allows_optional_steps = (
+                self.context.funnelsFilter.funnelVizType in (FunnelVizType.STEPS, None)
+                and self.context.funnelsFilter.funnelOrderType != StepOrderValue.UNORDERED
+            )
+            if not allows_optional_steps:
+                raise ValidationError(
+                    'Optional funnel steps are only supported in funnels with step order Sequential or Strict and the graph type "Conversion Steps".'
+                )
+
+            # validate that the first step is not optional
+            if self.context.query.series and getattr(self.context.query.series[0], "optionalInFunnel", False):
+                raise ValidationError("The first step of a funnel cannot be optional.")
+
+            # Validate that an optional step never follows a required step that is exactly the same right after it
+            # In that case, the optional step will show up as never converting.
+            # Not trying to be overly clever here - putting filters in different order or using SQL queries that are slightly different could
+            # get around this, but want to stop the naive case from spawning support issues.
+            for i, j in itertools.pairwise(self.context.query.series):
+                if (
+                    (is_equal(i, j) or is_superset(j, i))
+                    and getattr(i, "optionalInFunnel", True)
+                    and not getattr(j, "optionalInFunnel", False)
+                ):
+                    raise ValidationError("An optional step cannot be the same as the following required step.")
 
     def get_query(self) -> ast.SelectQuery:
         raise NotImplementedError()
@@ -164,8 +213,11 @@ class FunnelBase(ABC):
                     )
 
                 final_select = parse_expr(f"prop_{funnelsFilter.breakdownAttributionValue} as prop")
-            prop_window = parse_expr("groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
 
+            if for_udf:
+                return [prop_basic, *select_columns, final_select]
+
+            prop_window = parse_expr("groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals")
             return [prop_basic, *select_columns, final_select, prop_window]
         elif breakdownAttributionType in [
             BreakdownAttributionType.FIRST_TOUCH,
@@ -182,6 +234,8 @@ class FunnelBase(ABC):
             )
 
             breakdown_window_selector = f"{aggregate_operation}(prop, timestamp, {prop_conditional})"
+            if for_udf:
+                return [prop_basic, ast.Alias(alias="prop", expr=ast.Field(chain=["prop_basic"]))]
             prop_window = parse_expr(f"{breakdown_window_selector} over (PARTITION by aggregation_target) as prop_vals")
             return [
                 prop_basic,
@@ -248,7 +302,6 @@ class FunnelBase(ABC):
         total_people = 0
 
         breakdown_value = results[-1]
-        # cache_invalidation_key = generate_short_id()
 
         for index, step in enumerate(reversed(self.context.query.series)):
             step_index = max_steps - 1 - index
@@ -270,11 +323,6 @@ class FunnelBase(ABC):
             else:
                 serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
 
-            # # Construct converted and dropped people URLs
-            # funnel_step = step.index + 1
-            # converted_people_filter = self._filter.shallow_clone({"funnel_step": funnel_step})
-            # dropped_people_filter = self._filter.shallow_clone({"funnel_step": -funnel_step})
-
             if with_breakdown:
                 # breakdown will return a display ready value
                 # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
@@ -288,28 +336,6 @@ class FunnelBase(ABC):
                         "breakdown_value": breakdown_value,
                     }
                 )
-                # important to not try and modify this value any how - as these
-                # are keys for fetching persons
-
-                # # Add in the breakdown to people urls as well
-                # converted_people_filter = converted_people_filter.shallow_clone(
-                #     {"funnel_step_breakdown": breakdown_value}
-                # )
-                # dropped_people_filter = dropped_people_filter.shallow_clone({"funnel_step_breakdown": breakdown_value})
-
-            # serialized_result.update(
-            #     {
-            #         "converted_people_url": f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(converted_people_filter.to_params())}&cache_invalidation_key={cache_invalidation_key}",
-            #         "dropped_people_url": (
-            #             f"{self._base_uri}api/person/funnel/?{urllib.parse.urlencode(dropped_people_filter.to_params())}&cache_invalidation_key={cache_invalidation_key}"
-            #             # NOTE: If we are looking at the first step, there is no drop off,
-            #             # everyone converted, otherwise they would not have been
-            #             # included in the funnel.
-            #             if step.index > 0
-            #             else None
-            #         ),
-            #     }
-            # )
 
             steps.append(serialized_result)
 
@@ -461,12 +487,11 @@ class FunnelBase(ABC):
         skip_entity_filter=False,
         skip_step_filter=False,
     ) -> ast.SelectQuery:
-        query, funnelsFilter, breakdown, breakdownType, breakdownAttributionType = (
+        query, funnelsFilter, breakdown, breakdownType = (
             self.context.query,
             self.context.funnelsFilter,
             self.context.breakdown,
             self.context.breakdownType,
-            self.context.breakdownAttributionType,
         )
         entities_to_use = entities or query.series
 
@@ -497,7 +522,7 @@ class FunnelBase(ABC):
                 exclusion_col_expr = self._get_exclusions_col(exclusions, index, entity_name)
                 all_step_cols.append(exclusion_col_expr)
 
-        breakdown_select_prop = self._get_breakdown_select_prop(for_udf=False)
+        breakdown_select_prop = self._get_breakdown_select_prop(for_udf=True)
 
         if breakdown_select_prop:
             all_step_cols.extend(breakdown_select_prop)
@@ -512,10 +537,6 @@ class FunnelBase(ABC):
             assert isinstance(funnel_events_query.where, ast.Expr)
             steps_conditions = self._get_steps_conditions_for_udf(all_exclusions, length=len(entities_to_use))
             funnel_events_query.where = ast.And(exprs=[funnel_events_query.where, steps_conditions])
-
-        if breakdown and breakdownAttributionType != BreakdownAttributionType.ALL_EVENTS:
-            # ALL_EVENTS attribution is the old default, which doesn't need the subquery
-            return self._add_breakdown_attribution_subquery(funnel_events_query)
 
         return funnel_events_query
 
@@ -539,7 +560,7 @@ class FunnelBase(ABC):
 
         for cohort in self.breakdown_cohorts:
             query = parse_select(
-                f"select id as cohort_person_id, {cohort.pk} as value from persons where id in cohort {cohort.pk}"
+                f"select person_id as cohort_person_id, {cohort.pk} as value from cohort_people where person_id in cohort {cohort.pk}"
             )
             assert isinstance(query, ast.SelectQuery)
             cohort_queries.append(query)
@@ -741,13 +762,17 @@ class FunnelBase(ABC):
 
         if entity.math == FunnelMathType.FIRST_TIME_FOR_USER:
             subquery = FirstTimeForUserAggregationQuery(self.context, filter_expr, event_expr).to_query()
-            first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
+            first_time_filter = ast.CompareOperation(
+                left=ast.Field(chain=["e", "uuid"]), right=subquery, op=ast.CompareOperationOp.GlobalIn
+            )
             return ast.And(exprs=[*filters, first_time_filter])
         elif entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
             subquery = FirstTimeForUserAggregationQuery(
                 self.context, ast.Constant(value=1), ast.And(exprs=filters)
             ).to_query()
-            first_time_filter = parse_expr("e.uuid IN {subquery}", placeholders={"subquery": subquery})
+            first_time_filter = ast.CompareOperation(
+                left=ast.Field(chain=["e", "uuid"]), right=subquery, op=ast.CompareOperationOp.GlobalIn
+            )
             return ast.And(exprs=[*filters, first_time_filter])
         elif len(filters) > 1:
             return ast.And(exprs=filters)
@@ -770,22 +795,19 @@ class FunnelBase(ABC):
         assert actorsQuery is not None
 
         funnelStep = actorsQuery.funnelStep
-        funnelCustomSteps = actorsQuery.funnelCustomSteps
         funnelStepBreakdown = actorsQuery.funnelStepBreakdown
+
+        if funnelStep is None:
+            raise ValueError("Missing funnelStep in actors query")
 
         conditions: list[ast.Expr] = []
 
-        if funnelCustomSteps:
-            conditions.append(parse_expr(f"steps IN {funnelCustomSteps}"))
-        elif funnelStep is not None:
-            if funnelStep >= 0:
-                step_nums = list(range(funnelStep, max_steps + 1))
-                conditions.append(parse_expr(f"steps IN {step_nums}"))
-            else:
-                step_num = abs(funnelStep) - 1
-                conditions.append(parse_expr(f"steps = {step_num}"))
+        if funnelStep >= 0:
+            step_nums = list(range(funnelStep, max_steps + 1))
+            conditions.append(parse_expr(f"steps IN {step_nums}"))
         else:
-            raise ValueError("Missing both funnelStep and funnelCustomSteps")
+            step_num = abs(funnelStep) - 1
+            conditions.append(parse_expr(f"steps = {step_num}"))
 
         if funnelStepBreakdown is not None:
             if isinstance(funnelStepBreakdown, int) and breakdownType != "cohort":
@@ -1059,7 +1081,7 @@ class FunnelBase(ABC):
 
     def _query_has_array_breakdown(self) -> bool:
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
-        return not isinstance(breakdown, str) and breakdownType != "cohort"
+        return breakdown is not None and not isinstance(breakdown, str) and breakdownType != "cohort"
 
     def _get_exclusion_condition(self) -> list[ast.Expr]:
         funnelsFilter = self.context.funnelsFilter

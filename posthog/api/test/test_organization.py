@@ -1,19 +1,28 @@
-from rest_framework import status
-from unittest.mock import patch, ANY
+from datetime import timedelta
 from typing import cast
 
-from posthog.models import Organization, OrganizationMembership, Team, FeatureFlag
+from posthog.test.base import APIBaseTest
+from unittest.mock import ANY, patch
+
+from django.conf import settings
+from django.test import override_settings
+from django.utils import timezone
+
+from rest_framework import status
+from rest_framework.test import APIRequestFactory
+
+from posthog.api.organization import OrganizationSerializer
+from posthog.api.test.test_oauth import generate_rsa_key
+from posthog.models import FeatureFlag, Organization, OrganizationMembership, Team
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import APIBaseTest
-from posthog.api.organization import OrganizationSerializer
-from rest_framework.test import APIRequestFactory
 from posthog.user_permissions import UserPermissions
-from ee.models.rbac.role import Role, RoleMembership
-from ee.models.rbac.access_control import AccessControl
-from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
+from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+from ee.models.rbac.access_control import AccessControl
+from ee.models.rbac.role import Role, RoleMembership
 
 
 class TestOrganizationAPI(APIBaseTest):
@@ -152,8 +161,8 @@ class TestOrganizationAPI(APIBaseTest):
 
         # Verify the capture event was called correctly
         mock_capture.assert_any_call(
-            self.user.distinct_id,
             "organization 2fa enforcement toggled",
+            distinct_id=self.user.distinct_id,
             properties={
                 "enabled": True,
                 "organization_id": str(self.organization.id),
@@ -182,6 +191,39 @@ class TestOrganizationAPI(APIBaseTest):
             {str(other_org.id)},
             "Only the scoped organization should be listed, the other one should be excluded",
         )
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_projects_outside_oauth_scoped_organizations_causes_401(self):
+        # TODO: This should filter out the organizations to the scoped organizations, but it causes a 401 due to a bug in APIScopePermission for list endpoints.
+        other_org, _, _ = Organization.objects.bootstrap(self.user)
+
+        oauth_app = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="test_oauth_token",
+            scope="organization:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_organizations=[str(other_org.id)],
+        )
+
+        response = self.client.get("/api/organizations/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_delete_organizations_and_verify_list(self):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
@@ -236,6 +278,69 @@ def create_organization(name: str) -> Organization:
     with real world scenarios.
     """
     return Organization.objects.create(name=name)
+
+
+class TestOrganizationPutPatchPermissions(APIBaseTest):
+    """Test that PUT and PATCH methods have consistent permission behavior."""
+
+    def test_put_organization_as_member_forbidden(self):
+        """Test that members cannot update organization using PUT method."""
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.put(
+            f"/api/organizations/{self.organization.id}",
+            {"name": "Updated Name PUT"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_patch_organization_as_member_forbidden(self):
+        """Test that members cannot update organization using PATCH method."""
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}",
+            {"name": "Updated Name PATCH"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_patch_consistency_admin(self):
+        """Test that PATCH method works consistently for admins."""
+        # Test as admin - PATCH should work
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Test PATCH - only need to provide the fields we're updating
+        response_patch = self.client.patch(
+            f"/api/organizations/{self.organization.id}",
+            {"name": "Admin Updated Name PATCH"},
+        )
+        self.assertEqual(response_patch.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.name, "Admin Updated Name PATCH")
+
+    def test_idor_protection_patch(self):
+        """Test that users cannot modify organizations they don't belong to using PATCH."""
+        # Create another organization with a different owner
+        other_org, _, other_user = Organization.objects.bootstrap(self._create_user("other_user@posthog.com"))
+
+        # Make current user an admin of their own org
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Try to modify other organization using PATCH - should fail
+        # The exact status code (403 or 404) depends on permission implementation
+        response_patch = self.client.patch(
+            f"/api/organizations/{other_org.id}",
+            {"name": "Hacked Name PATCH"},
+        )
+        # Should be either forbidden or not found - both indicate access is properly restricted
+        self.assertIn(response_patch.status_code, [status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND])
+
+        # Verify the other organization wasn't modified
+        other_org.refresh_from_db()
+        self.assertNotEqual(other_org.name, "Hacked Name PATCH")
 
 
 class TestOrganizationSerializer(APIBaseTest):
@@ -353,53 +458,6 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         self.assertEqual(access_control.resource_id, str(feature_flag.id))
 
         # Verify reporting calls
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
-        )
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
-        )
-
-    @patch("posthog.api.organization.report_organization_action")
-    def test_migrate_feature_flags_rbac_with_org_view_only(self, mock_report_action):
-        self.client.force_login(self.admin_user)
-
-        # Create organization-wide view-only access
-        OrganizationResourceAccess.objects.create(
-            organization=self.organization,
-            resource="feature flags",
-            access_level=21,  # view only
-        )
-
-        # Create multiple feature flags
-        feature_flags = []
-        for i in range(3):
-            feature_flag = FeatureFlag.objects.create(
-                team=self.team, created_by=self.admin_user, key=f"test-flag-{i}", name=f"Test Flag {i}"
-            )
-            feature_flags.append(feature_flag)
-
-        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], True)
-
-        # Should create viewer access for all flags
-        viewer_access = AccessControl.objects.filter(
-            resource="feature_flag",
-            access_level="viewer",
-            role__isnull=True,
-        )
-        self.assertEqual(viewer_access.count(), 3)
-
-        # Should create editor access for admin role (feature_flags_access_level=37)
-        editor_access = AccessControl.objects.filter(
-            resource="feature_flag",
-            access_level="editor",
-            role=self.admin_role,
-        )
-        self.assertEqual(editor_access.count(), 3)
-
-        # Add verification of reporting calls at the end
         mock_report_action.assert_any_call(
             self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
         )

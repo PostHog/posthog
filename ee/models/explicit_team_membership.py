@@ -1,11 +1,11 @@
 from django.db import models
 
-from posthog.models.utils import UUIDModel, sane_repr
 from posthog.models.organization import OrganizationMembership
+from posthog.models.utils import UUIDTModel, sane_repr
 
 
-# We call models that grant a user access to some grouping of users a "membership"
-class ExplicitTeamMembership(UUIDModel):
+# DEPRECATED - do not use
+class ExplicitTeamMembership(UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with OrganizationMembership.Level (only difference being organizations having an Owner)."""
 

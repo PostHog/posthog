@@ -1,7 +1,9 @@
 import random
-from typing import Any, TypedDict, Literal
+from typing import Any, Literal, TypedDict
+
 from django.core.management.base import BaseCommand
-from posthog.models import Team, Survey, User
+
+from posthog.models import Survey, Team, User
 
 
 class MultipleChoiceTemplate(TypedDict):

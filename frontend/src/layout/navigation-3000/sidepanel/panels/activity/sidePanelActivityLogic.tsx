@@ -1,13 +1,10 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+
 import api, { PaginatedResponse } from 'lib/api'
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
-import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { dayjs } from 'lib/dayjs'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { toParams } from 'lib/utils'
-import posthog from 'posthog-js'
+import { activityLogTransforms, describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { ActivityLogItem, HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { ActivityScope, UserBasicType } from '~/types'
@@ -17,17 +14,22 @@ import { SidePanelSceneContext } from '../../types'
 import { sidePanelContextLogic } from '../sidePanelContextLogic'
 import type { sidePanelActivityLogicType } from './sidePanelActivityLogicType'
 
-const POLL_TIMEOUT = 5 * 60 * 1000
+// ActivityScope values that should not appear in dropdowns
+const HIDDEN_ACTIVITY_SCOPES: ActivityScope[] = [
+    ActivityScope.TAGGED_ITEM, // Handled under ActivityScope.TAG
+    ActivityScope.ORGANIZATION_MEMBERSHIP, // Handled under ActivityScope.ORGANIZATION
+    ActivityScope.ORGANIZATION_INVITE, // Handled under ActivityScope.ORGANIZATION
+    ActivityScope.EXTERNAL_DATA_SCHEMA, // Handled under ActivityScope.EXTERNAL_DATA_SOURCE
+]
+
+const getVisibleActivityScopes = (): ActivityScope[] => {
+    return Object.values(ActivityScope).filter((scope) => !HIDDEN_ACTIVITY_SCOPES.includes(scope))
+}
 
 export type ActivityFilters = {
     scope?: ActivityScope | string
     item_id?: ActivityLogItem['item_id']
     user?: UserBasicType['id']
-}
-
-export interface ChangelogFlagPayload {
-    notificationDate: dayjs.Dayjs
-    markdown: string
 }
 
 export interface ChangesResponse {
@@ -50,17 +52,12 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         actions: [sidePanelStateLogic, ['openSidePanel']],
     })),
     actions({
-        togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
-        incrementErrorCount: true,
-        clearErrorCount: true,
-        markAllAsRead: true,
         setActiveTab: (tab: SidePanelActivityTab) => ({ tab }),
         loadAllActivity: true,
         loadOlderActivity: true,
         maybeLoadOlderActivity: true,
-        loadImportantChanges: (onlyUnread = true) => ({ onlyUnread }),
-        setFilters: (filters: ActivityFilters | null) => ({ filters }),
-        setFiltersForCurrentPage: (filters: ActivityFilters | null) => ({ filters }),
+        setActiveFilters: (filters: ActivityFilters | null) => ({ filters }),
+        setContextFromPage: (filters: ActivityFilters | null) => ({ filters }),
     }),
     reducers({
         activeTab: [
@@ -70,96 +67,31 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
-        errorCounter: [
-            0,
-            {
-                incrementErrorCount: (state) => (state >= 5 ? 5 : state + 1),
-                clearErrorCount: () => 0,
-            },
-        ],
-        filters: [
+        activeFilters: [
             null as ActivityFilters | null,
             {
-                setFilters: (_, { filters }) => filters,
-                setFiltersForCurrentPage: (_, { filters }) => filters,
+                setActiveFilters: (_, { filters }) => filters,
             },
         ],
-        filtersForCurrentPage: [
+        contextFromPage: [
             null as ActivityFilters | null,
             {
-                setFiltersForCurrentPage: (_, { filters }) => filters,
+                setContextFromPage: (_, { filters }) => filters,
             },
         ],
     }),
-    loaders(({ actions, values, cache }) => ({
-        importantChanges: [
-            null as ChangesResponse | null,
-            {
-                markAllAsRead: async () => {
-                    const current = values.importantChanges
-                    if (!current) {
-                        return null
-                    }
-
-                    const latestNotification = values.notifications.reduce((a, b) =>
-                        a.created_at.isAfter(b.created_at) ? a : b
-                    )
-
-                    if (!latestNotification.unread) {
-                        return current
-                    }
-
-                    await api.create(
-                        `api/projects/${values.currentProjectId}/activity_log/bookmark_activity_notification`,
-                        {
-                            bookmark: latestNotification.created_at.toISOString(),
-                        }
-                    )
-
-                    return {
-                        last_read: latestNotification.created_at.toISOString(),
-                        next: current.next,
-                        results: current.results.map((ic) => ({ ...ic, unread: false })),
-                    }
-                },
-                loadImportantChanges: async ({ onlyUnread }, breakpoint) => {
-                    await breakpoint(1)
-
-                    clearTimeout(cache.pollTimeout)
-
-                    try {
-                        const response = await api.get<ChangesResponse>(
-                            `api/projects/${values.currentProjectId}/activity_log/important_changes?` +
-                                toParams({ unread: onlyUnread })
-                        )
-
-                        // we can't rely on automatic success action here because we swallow errors so always succeed
-                        actions.clearErrorCount()
-                        return response
-                    } catch (e) {
-                        // swallow errors as this isn't user initiated
-                        // increment a counter to backoff calling the API while errors persist
-                        actions.incrementErrorCount()
-                        return null
-                    } finally {
-                        const pollTimeoutMilliseconds = values.errorCounter
-                            ? POLL_TIMEOUT * values.errorCounter
-                            : POLL_TIMEOUT
-                        cache.pollTimeout = window.setTimeout(actions.loadImportantChanges, pollTimeoutMilliseconds)
-                    }
-                },
-            },
-        ],
+    lazyLoaders(({ values }) => ({
         allActivityResponse: [
             null as PaginatedResponse<ActivityLogItem> | null,
             {
                 loadAllActivity: async (_, breakpoint) => {
-                    const response = await api.activity.list(values.filters ?? {})
+                    const filters = values.activeFilters ?? {}
+                    const expandedFilters = activityLogTransforms.expandListScopes(filters)
+                    const response = await api.activity.list(expandedFilters)
 
                     breakpoint()
                     return response
                 },
-
                 loadOlderActivity: async (_, breakpoint) => {
                     await breakpoint(1)
 
@@ -177,13 +109,12 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         ],
     })),
 
-    listeners(({ values, actions, cache }) => ({
+    listeners(({ values, actions }) => ({
         setActiveTab: ({ tab }) => {
             if (tab === SidePanelActivityTab.All && !values.allActivityResponseLoading) {
                 actions.loadAllActivity()
             }
         },
-
         maybeLoadOlderActivity: () => {
             if (!values.allActivityResponseLoading && values.allActivityResponse?.next) {
                 actions.loadOlderActivity()
@@ -192,13 +123,6 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
         openSidePanel: ({ options }) => {
             if (options) {
                 actions.setActiveTab(options as SidePanelActivityTab)
-            }
-        },
-        togglePolling: ({ pageIsVisible }) => {
-            if (pageIsVisible) {
-                actions.loadImportantChanges()
-            } else {
-                clearTimeout(cache.pollTimeout)
             }
         },
     })),
@@ -210,78 +134,27 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
             },
         ],
         allActivityHasNext: [(s) => [s.allActivityResponse], (allActivityResponse) => !!allActivityResponse?.next],
-        notifications: [
-            (s) => [s.importantChanges],
-            (importantChanges): HumanizedActivityLogItem[] => {
-                try {
-                    const importantChangesHumanized = humanize(importantChanges?.results || [], describerFor, true)
-
-                    let changelogNotification: ChangelogFlagPayload | null = null
-                    const flagPayload = posthog.getFeatureFlagPayload('changelog-notification')
-                    if (flagPayload) {
-                        changelogNotification = {
-                            markdown: flagPayload['markdown'],
-                            notificationDate: dayjs(flagPayload['notificationDate']),
-                        } as ChangelogFlagPayload
-                    }
-
-                    if (changelogNotification) {
-                        const lastRead = importantChanges?.last_read ? dayjs(importantChanges.last_read) : null
-                        const changeLogIsUnread =
-                            !!lastRead &&
-                            (lastRead.isBefore(changelogNotification.notificationDate) ||
-                                lastRead == changelogNotification.notificationDate)
-
-                        const changelogNotificationHumanized: HumanizedActivityLogItem = {
-                            email: 'joe@posthog.com',
-                            name: 'Joe',
-                            isSystem: true,
-                            description: <LemonMarkdown>{changelogNotification.markdown}</LemonMarkdown>,
-                            created_at: changelogNotification.notificationDate,
-                            unread: changeLogIsUnread,
-                        }
-                        const notifications = [changelogNotificationHumanized, ...importantChangesHumanized]
-                        notifications.sort((a, b) => {
-                            if (a.created_at.isBefore(b.created_at)) {
-                                return 1
-                            } else if (a.created_at.isAfter(b.created_at)) {
-                                return -1
-                            }
-                            return 0
-                        })
-                        return notifications
-                    }
-
-                    return humanize(importantChanges?.results || [], describerFor, true)
-                } catch (e) {
-                    // swallow errors as this isn't user initiated
-                    return []
-                }
+        visibleActivityScopes: [
+            () => [],
+            (): ActivityScope[] => {
+                return getVisibleActivityScopes()
             },
         ],
-
-        hasNotifications: [(s) => [s.notifications], (notifications) => !!notifications.length],
-        unread: [
-            (s) => [s.notifications],
-            (notifications: HumanizedActivityLogItem[]) => notifications.filter((ic) => ic.unread),
-        ],
-        unreadCount: [(s) => [s.unread], (unread) => (unread || []).length],
-        hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
     }),
 
     subscriptions(({ actions, values }) => ({
         sceneSidePanelContext: (sceneSidePanelContext: SidePanelSceneContext) => {
-            actions.setFiltersForCurrentPage(
-                sceneSidePanelContext
-                    ? {
-                          ...values.filters,
-                          scope: sceneSidePanelContext.activity_scope,
-                          item_id: sceneSidePanelContext.activity_item_id,
-                      }
-                    : null
-            )
+            const newFilters = sceneSidePanelContext
+                ? {
+                      scope: sceneSidePanelContext.activity_scope,
+                      item_id: sceneSidePanelContext.activity_item_id,
+                  }
+                : null
+
+            actions.setContextFromPage(newFilters)
+            actions.setActiveFilters(newFilters)
         },
-        filters: () => {
+        activeFilters: () => {
             if (values.activeTab === SidePanelActivityTab.All) {
                 actions.loadAllActivity()
             }
@@ -289,13 +162,15 @@ export const sidePanelActivityLogic = kea<sidePanelActivityLogicType>([
     })),
 
     afterMount(({ actions, values }) => {
-        actions.loadImportantChanges()
+        const sceneSidePanelContext = values.sceneSidePanelContext
+        const newFilters = sceneSidePanelContext
+            ? {
+                  scope: sceneSidePanelContext.activity_scope,
+                  item_id: sceneSidePanelContext.activity_item_id,
+              }
+            : null
 
-        const activityFilters = values.sceneSidePanelContext
-        actions.setFiltersForCurrentPage(activityFilters ? { ...values.filters, ...activityFilters } : null)
-    }),
-
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.pollTimeout)
+        actions.setContextFromPage(newFilters)
+        actions.setActiveFilters(newFilters)
     }),
 ])

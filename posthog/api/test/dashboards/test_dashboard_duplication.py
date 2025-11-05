@@ -1,5 +1,6 @@
-from posthog.api.test.dashboards import DashboardAPI
 from posthog.test.base import APIBaseTest, QueryMatchingTest
+
+from posthog.api.test.dashboards import DashboardAPI
 
 
 class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
@@ -42,17 +43,21 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
             },
         ).json()
 
-        assert len(duplicated_dashboard["tiles"]) == 2
-        # always makes new tiles
-        assert [tile["id"] for tile in duplicated_dashboard["tiles"]] != self.tile_ids
-        # makes new children
-        assert self.original_child_ids != self._tile_child_ids_from(duplicated_dashboard)
+        # Get only the tiles that match our original dashboard's tiles
+        original_tile_ids = set(self.tile_ids)
+        duplicated_tiles = [tile for tile in duplicated_dashboard["tiles"] if tile["id"] not in original_tile_ids]
 
-        assert [tile["color"] for tile in duplicated_dashboard["tiles"]] == [
+        assert len(duplicated_tiles) == 2
+        # always makes new tiles
+        assert [tile["id"] for tile in duplicated_tiles] != self.tile_ids
+        # makes new children
+        assert sorted(self.original_child_ids) != sorted(self._tile_child_ids_from({"tiles": duplicated_tiles}))
+
+        assert [tile["color"] for tile in duplicated_tiles] == [
             self.tile_color,
             self.tile_color,
         ]
-        assert [tile["layouts"] for tile in duplicated_dashboard["tiles"]] == [
+        assert [tile["layouts"] for tile in duplicated_tiles] == [
             self.tile_layout,
             self.tile_layout,
         ]
@@ -67,17 +72,21 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
             },
         ).json()
 
-        assert len(duplicated_dashboard["tiles"]) == 2
-        # always makes new tiles
-        assert [tile["id"] for tile in duplicated_dashboard["tiles"]] != self.tile_ids
-        # uses existing children
-        assert self.original_child_ids == self._tile_child_ids_from(duplicated_dashboard)
+        # Get only the tiles that match our original dashboard's tiles
+        original_tile_ids = set(self.tile_ids)
+        duplicated_tiles = [tile for tile in duplicated_dashboard["tiles"] if tile["id"] not in original_tile_ids]
 
-        assert [tile["color"] for tile in duplicated_dashboard["tiles"]] == [
+        assert len(duplicated_tiles) == 2
+        # always makes new tiles
+        assert [tile["id"] for tile in duplicated_tiles] != self.tile_ids
+        # uses existing children
+        assert sorted(self.original_child_ids) == sorted(self._tile_child_ids_from({"tiles": duplicated_tiles}))
+
+        assert [tile["color"] for tile in duplicated_tiles] == [
             self.tile_color,
             self.tile_color,
         ]
-        assert [tile["layouts"] for tile in duplicated_dashboard["tiles"]] == [
+        assert [tile["layouts"] for tile in duplicated_tiles] == [
             self.tile_layout,
             self.tile_layout,
         ]

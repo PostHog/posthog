@@ -1,46 +1,12 @@
-import dataclasses
 import json
 import uuid
+import dataclasses
 from datetime import datetime
 from typing import Optional, Union
-from unittest.mock import patch, ANY
 from urllib.parse import parse_qsl, urlparse
-
 from zoneinfo import ZoneInfo
-from django.conf import settings
-from django.core.cache import cache
-from django.test import override_settings
-from django.utils import timezone
-from freezegun import freeze_time
-from rest_framework.exceptions import ValidationError
 
-from posthog.constants import (
-    ENTITY_ID,
-    ENTITY_TYPE,
-    TREND_FILTER_TYPE_EVENTS,
-    TRENDS_BAR_VALUE,
-    TRENDS_LINEAR,
-    TRENDS_TABLE,
-)
-from posthog.models import (
-    Action,
-    Cohort,
-    Entity,
-    Filter,
-    GroupTypeMapping,
-    Organization,
-    Person,
-)
-from posthog.models.group.util import create_group
-from posthog.models.instance_setting import (
-    get_instance_setting,
-    override_instance_config,
-    set_instance_setting,
-)
-from posthog.models.person.util import create_person_distinct_id
-from posthog.models.utils import uuid7
-from posthog.queries.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
-from posthog.queries.trends.trends import Trends
+from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -53,7 +19,32 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import ANY, patch
+
+from django.conf import settings
+from django.core.cache import cache
+from django.test import override_settings
+from django.utils import timezone
+
+from rest_framework.exceptions import ValidationError
+
+from posthog.constants import (
+    ENTITY_ID,
+    ENTITY_TYPE,
+    TREND_FILTER_TYPE_EVENTS,
+    TRENDS_BAR_VALUE,
+    TRENDS_LINEAR,
+    TRENDS_TABLE,
+)
+from posthog.models import Action, Cohort, Entity, Filter, Organization, Person
+from posthog.models.group.util import create_group
+from posthog.models.instance_setting import get_instance_setting, override_instance_config, set_instance_setting
+from posthog.models.person.util import create_person_distinct_id
+from posthog.models.utils import uuid7
+from posthog.queries.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.queries.trends.trends import Trends
 from posthog.test.test_journeys import journeys_for
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import generate_cache_key
 
 
@@ -4391,9 +4382,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
-            self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
-            self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
-            self.assertDictContainsSubset({"breakdown_value": "person3", "aggregated_value": 1}, event_response[2])
+            self.assertLessEqual(
+                {"breakdown_value": "person1", "aggregated_value": 1}.items(), event_response[0].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": "person2", "aggregated_value": 1}.items(), event_response[1].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": "person3", "aggregated_value": 1}.items(), event_response[2].items()
+            )
 
     @also_test_with_materialized_columns(person_properties=["name"])
     def test_breakdown_by_person_property_pie_with_event_dau_filter(self):
@@ -4430,8 +4427,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             event_response = sorted(event_response, key=lambda resp: resp["breakdown_value"])
             self.assertEqual(len(event_response), 2)
-            self.assertDictContainsSubset({"breakdown_value": "person1", "aggregated_value": 1}, event_response[0])
-            self.assertDictContainsSubset({"breakdown_value": "person2", "aggregated_value": 1}, event_response[1])
+            self.assertLessEqual(
+                {"breakdown_value": "person1", "aggregated_value": 1}.items(), event_response[0].items()
+            )
+            self.assertLessEqual(
+                {"breakdown_value": "person2", "aggregated_value": 1}.items(), event_response[1].items()
+            )
 
     def test_breakdown_hour_interval(self):
         response = self._test_events_with_dates(
@@ -4854,8 +4855,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertDictContainsSubset({"count": 2, "breakdown_value": "2"}, event_response[0])
-        self.assertDictContainsSubset({"count": 1, "breakdown_value": "1"}, event_response[1])
+        self.assertLessEqual({"count": 2, "breakdown_value": "2"}.items(), event_response[0].items())
+        self.assertLessEqual({"count": 1, "breakdown_value": "1"}.items(), event_response[1].items())
         self.assertEntityResponseEqual(event_response, action_response)
 
     @also_test_with_materialized_columns(["$some_property"])
@@ -5517,7 +5518,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         step = sign_up_action.steps[0]
         step.properties = [{"key": "id", "value": cohort.pk, "type": "cohort"}]
 
-        sign_up_action.steps = [dataclasses.asdict(step)]  # type: ignore
+        sign_up_action.steps = [dataclasses.asdict(step)]
         sign_up_action.save()
 
         with freeze_time("2020-01-04T14:01:01Z"):
@@ -6786,7 +6787,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         query_time = datetime(2020, 1, 5, 10, 1, 1, tzinfo=ZoneInfo(self.team.timezone))
-        utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600  # type: ignore
+        utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600
         utc_offset_sign = "-" if utc_offset_hours < 0 else "+"
         with freeze_time(query_time):
             response = Trends().run(
@@ -7772,7 +7773,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_count_per_group_average_daily(self):
         self._create_event_count_per_actor_events()
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="shape", group_type_index=0
         )
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bouba")
@@ -7821,7 +7822,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
     def test_trends_count_per_group_average_aggregated(self):
         self._create_event_count_per_actor_events()
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="shape", group_type_index=0
         )
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bouba")
@@ -7884,10 +7885,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert daily_response[2]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
 
     def _create_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 
@@ -8491,10 +8492,10 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_filtering_by_multiple_groups_person_on_events(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=2
         )
 

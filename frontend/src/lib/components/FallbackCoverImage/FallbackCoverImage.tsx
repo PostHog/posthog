@@ -1,6 +1,7 @@
 import clsx from 'clsx'
-import { getSeriesColor } from 'lib/colors'
 import { useState } from 'react'
+
+import { getSeriesColor } from 'lib/colors'
 
 export function FallbackCoverImage({
     src,

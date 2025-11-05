@@ -3,10 +3,11 @@ from typing import Any, Optional
 
 from freezegun import freeze_time
 from freezegun.api import FrozenDateTimeFactory, StepTickTimeFactory
+from posthog.test.base import APIBaseTest, QueryMatchingTest
+
 from rest_framework import status
 
-from posthog.models import User, NotificationViewed
-from posthog.test.base import APIBaseTest, QueryMatchingTest, FuzzyInt
+from posthog.models import User
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -177,135 +178,11 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
         return notebook_version
 
-    def test_can_get_top_ten_important_changes(self) -> None:
-        # user one is shown the most recent 10 of those changes
-        self.client.force_login(self.user)
-        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
-        assert changes.status_code == status.HTTP_200_OK
-        results = changes.json()["results"]
-        assert len(results) == 10
-        assert [c["scope"] for c in results] == [
-            "Notebook",
-            "FeatureFlag",
-            "FeatureFlag",
-            "Insight",
-            "Insight",
-            "Insight",
-            "Insight",
-            "Insight",
-            "Insight",
-            "Insight",
-        ]
-        assert [c["unread"] for c in results] == [True] * 10
-
-    def test_can_get_top_ten_important_changes_including_my_edits(self) -> None:
-        # user two is _also_ shown the most recent 10 of those changes
-        # because they edited those things
-        # and they were then changed
-        self.client.force_login(self.other_user)
-        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
-        assert changes.status_code == status.HTTP_200_OK
-        results = changes.json()["results"]
-        assert [(c["user"]["id"], c["scope"]) for c in results] == [
-            (
-                self.third_user.pk,
-                "Notebook",
-            ),
-            (
-                self.third_user.pk,
-                "FeatureFlag",
-            ),
-            (
-                self.third_user.pk,
-                "FeatureFlag",
-            ),
-            (
-                self.third_user.pk,
-                "Insight",
-            ),
-            (
-                self.third_user.pk,
-                "Insight",
-            ),
-            (
-                self.third_user.pk,
-                "Insight",
-            ),
-            (
-                self.third_user.pk,
-                "Insight",
-            ),
-            (
-                self.third_user.pk,
-                "Insight",
-            ),
-            (
-                self.third_user.pk,
-                "Insight",
-            ),
-            (
-                self.third_user.pk,
-                "Insight",
-            ),
-        ]
-        assert [c["unread"] for c in results] == [True] * 10
-
-    def test_reading_notifications_marks_them_unread(self):
-        self.client.force_login(self.user)
-
-        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes?unread=true")
-        assert changes.status_code == status.HTTP_200_OK
-        assert len(changes.json()["results"]) == 10
-        assert changes.json()["last_read"] is None
-        assert [c["unread"] for c in changes.json()["results"]] == [True] * 10
-        assert [c["created_at"] for c in changes.json()["results"]] == [
-            # time is frozen in test setup so
-            "2023-08-17T04:36:50Z",
-            "2023-08-17T04:30:25Z",
-            "2023-08-17T04:24:25Z",
-            "2023-08-17T04:18:25Z",
-            "2023-08-17T04:06:25Z",
-            "2023-08-17T03:54:25Z",
-            "2023-08-17T03:42:25Z",
-            "2023-08-17T03:30:25Z",
-            "2023-08-17T03:18:25Z",
-            "2023-08-17T03:06:25Z",
-        ]
-        most_recent_date = changes.json()["results"][2]["created_at"]
-
-        # the user can mark where they have read up to
-        bookmark_response = self.client.post(
-            f"/api/projects/{self.team.id}/activity_log/bookmark_activity_notification",
-            {"bookmark": most_recent_date},
-        )
-        assert bookmark_response.status_code == status.HTTP_204_NO_CONTENT
-
-        changes = self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes?unread=true")
-        assert changes.status_code == status.HTTP_200_OK
-        assert changes.json()["last_read"] == "2023-08-17T04:24:25Z"
-        assert [c["unread"] for c in changes.json()["results"]] == [True, True]
-
-    def test_notifications_viewed_n_plus_1(self) -> None:
-        for i in range(1, 9):
-            if i % 3 == 0:
-                user = self.user
-            elif i % 3 == 1:
-                user = self.other_user
-            else:
-                user = self.third_user
-
-            NotificationViewed.objects.update_or_create(
-                user=user, defaults={"last_viewed_activity_date": f"2023-0{i}-17T04:36:50Z"}
-            )
-
-            with self.assertNumQueries(FuzzyInt(42, 42)):
-                self.client.get(f"/api/projects/{self.team.id}/activity_log/important_changes")
-
     def test_can_list_all_activity(self) -> None:
-        res = self.client.get(f"/api/projects/{self.team.id}/activity_log")
+        res = self.client.get(f"/api/projects/{self.team.id}/activity_log?include_organization_scoped=1")
 
         assert res.status_code == status.HTTP_200_OK
-        assert len(res.json()["results"]) == 31
+        assert len(res.json()["results"]) == 39
 
     def test_can_list_all_activity_filtered_by_scope(self) -> None:
         res = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=FeatureFlag")

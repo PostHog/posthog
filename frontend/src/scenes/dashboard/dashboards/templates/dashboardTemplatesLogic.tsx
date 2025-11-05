@@ -1,5 +1,9 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { lazyLoaders } from 'kea-loaders'
+import { router } from 'kea-router'
+import { actionToUrl } from 'kea-router'
+import { urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -36,7 +40,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             },
         ],
     }),
-    loaders(({ props, values }) => ({
+    lazyLoaders(({ props, values }) => ({
         allTemplates: [
             [] as DashboardTemplateType[],
             {
@@ -58,7 +62,21 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             actions.getAllTemplates()
         },
     })),
-    afterMount(({ actions }) => {
-        actions.getAllTemplates()
-    }),
+    urlToAction(({ actions }) => ({
+        '/dashboard': (_, searchParams) => {
+            if (searchParams.templateFilter) {
+                actions.setTemplateFilter(searchParams.templateFilter)
+            }
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        setTemplateFilter: () => {
+            const searchParams = { ...router.values.searchParams }
+            searchParams.templateFilter = values.templateFilter
+            if (!values.templateFilter) {
+                delete searchParams.templateFilter
+            }
+            return ['/dashboard', searchParams, router.values.hashParams, { replace: true }]
+        },
+    })),
 ])

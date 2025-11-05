@@ -1,23 +1,40 @@
 from typing import Literal
+
+from posthog.test.base import BaseTest
+from unittest import mock
+
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import TableNode
 from posthog.hogql.database.s3_table import build_function_call
 from posthog.hogql.database.test.tables import create_aapl_stock_s3_table
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
-from posthog.test.base import BaseTest
-from posthog.warehouse.models.table import DataWarehouseTable
+
+from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 
 class TestS3Table(BaseTest):
     def _init_database(self):
-        self.database = create_hogql_database(team=self.team)
-        self.database.add_warehouse_tables(
-            aapl_stock=create_aapl_stock_s3_table(), aapl_stock_2=create_aapl_stock_s3_table(name="aapl_stock_2")
+        self.database = Database.create_for(team=self.team)
+        self.database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "aapl_stock": TableNode(
+                        name="aapl_stock",
+                        table=create_aapl_stock_s3_table(),
+                    ),
+                    "aapl_stock_2": TableNode(
+                        name="aapl_stock_2",
+                        table=create_aapl_stock_s3_table(name="aapl_stock_2"),
+                    ),
+                }
+            )
         )
+
         self.context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
@@ -26,7 +43,7 @@ class TestS3Table(BaseTest):
         )
 
     def _select(self, query: str, dialect: Literal["hogql", "clickhouse"] = "clickhouse") -> str:
-        return print_ast(parse_select(query), self.context, dialect=dialect)
+        return prepare_and_print_ast(parse_select(query), self.context, dialect=dialect)[0]
 
     def test_s3_table_select(self):
         self._init_database()
@@ -127,32 +144,60 @@ class TestS3Table(BaseTest):
 
     def test_s3_table_select_and_non_s3_join_first(self):
         self._init_database()
+        with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", True):
+            hogql = self._select(
+                query="SELECT aapl_stock.High, aapl_stock.Low FROM aapl_stock JOIN events ON aapl_stock.High = events.event LIMIT 10",
+                dialect="hogql",
+            )
+            self.assertEqual(
+                hogql,
+                "SELECT aapl_stock.High, aapl_stock.Low FROM aapl_stock JOIN events ON equals(aapl_stock.High, events.event) LIMIT 10",
+            )
 
-        hogql = self._select(
-            query="SELECT aapl_stock.High, aapl_stock.Low FROM aapl_stock JOIN events ON aapl_stock.High = events.event LIMIT 10",
-            dialect="hogql",
-        )
-        self.assertEqual(
-            hogql,
-            "SELECT aapl_stock.High, aapl_stock.Low FROM aapl_stock JOIN events ON equals(aapl_stock.High, events.event) LIMIT 10",
-        )
+            clickhouse = self._select(
+                query="SELECT aapl_stock.High, aapl_stock.Low FROM events JOIN aapl_stock ON aapl_stock.High = events.event LIMIT 10",
+                dialect="clickhouse",
+            )
 
-        clickhouse = self._select(
-            query="SELECT aapl_stock.High, aapl_stock.Low FROM events JOIN aapl_stock ON aapl_stock.High = events.event LIMIT 10",
-            dialect="clickhouse",
-        )
+            self.assertEqual(
+                clickhouse,
+                f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events GLOBAL JOIN (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+            )
 
-        self.assertEqual(
-            clickhouse,
-            f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events GLOBAL JOIN (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
-        )
+            clickhouse = self._select(
+                query="SELECT aapl_stock.High, aapl_stock.Low FROM events LEFT JOIN aapl_stock ON aapl_stock.High = events.event LIMIT 10",
+                dialect="clickhouse",
+            )
+
+            self.assertEqual(
+                clickhouse,
+                f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events GLOBAL LEFT JOIN (SELECT * FROM s3(%(hogql_val_2_sensitive)s, %(hogql_val_3)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+            )
+
+            clickhouse = self._select(
+                query="SELECT aapl_stock.High, aapl_stock.Low FROM events RIGHT JOIN aapl_stock ON aapl_stock.High = events.event LIMIT 10",
+                dialect="clickhouse",
+            )
+
+            self.assertEqual(
+                clickhouse,
+                f"SELECT aapl_stock.High AS High, aapl_stock.Low AS Low FROM events GLOBAL RIGHT JOIN (SELECT * FROM s3(%(hogql_val_4_sensitive)s, %(hogql_val_5)s)) AS aapl_stock ON equals(aapl_stock.High, events.event) WHERE equals(events.team_id, {self.team.pk}) LIMIT 10",
+            )
 
     def test_s3_table_select_alias_escaped(self):
         self._init_database()
 
-        escaped_table = create_aapl_stock_s3_table(name="random as (SELECT * FROM events), SELECT * FROM events --")
-        self.database.add_warehouse_tables(
-            **{"random as (SELECT * FROM events), SELECT * FROM events --": escaped_table}
+        self.database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "random as (SELECT * FROM events), SELECT * FROM events --": TableNode(
+                        name="random as (SELECT * FROM events), SELECT * FROM events --",
+                        table=create_aapl_stock_s3_table(
+                            name="random as (SELECT * FROM events), SELECT * FROM events --"
+                        ),
+                    )
+                }
+            )
         )
 
         hogql = self._select(
@@ -178,8 +223,15 @@ class TestS3Table(BaseTest):
     def test_s3_table_select_table_name_bad_character(self):
         self._init_database()
 
-        escaped_table = create_aapl_stock_s3_table(name="some%(asd)sname")
-        self.database.add_warehouse_tables(**{"some%(asd)sname": escaped_table})
+        self.database._add_warehouse_tables(
+            TableNode(
+                children={
+                    "some%(asd)sname": TableNode(
+                        name="some%(asd)sname", table=create_aapl_stock_s3_table(name="some%(asd)sname")
+                    ),
+                }
+            )
+        )
 
         with self.assertRaises(ExposedHogQLError) as context:
             self._select(query='SELECT * FROM "some%(asd)sname" LIMIT 10', dialect="clickhouse")
@@ -187,49 +239,53 @@ class TestS3Table(BaseTest):
 
     def test_s3_table_select_in(self):
         self._init_database()
+        with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", True):
+            hogql = self._select(
+                query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)",
+                dialect="hogql",
+            )
+            self.assertEqual(
+                hogql,
+                f"SELECT uuid, event FROM events WHERE globalIn(event, (SELECT Date FROM aapl_stock)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            )
 
-        hogql = self._select(
-            query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)",
-            dialect="hogql",
-        )
-        self.assertEqual(
-            hogql,
-            f"SELECT uuid, event FROM events WHERE globalIn(event, (SELECT Date FROM aapl_stock)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
+            clickhouse = self._select(
+                query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)",
+                dialect="clickhouse",
+            )
 
-        clickhouse = self._select(
-            query="SELECT uuid, event FROM events WHERE event IN (SELECT Date FROM aapl_stock)",
-            dialect="clickhouse",
-        )
-
-        self.assertEqual(
-            clickhouse,
-            f"SELECT events.uuid AS uuid, events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), ifNull(globalIn(events.event, (SELECT aapl_stock.Date AS Date FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock)), 0)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
-        )
+            self.assertEqual(
+                clickhouse,
+                f"SELECT events.uuid AS uuid, events.event AS event FROM events WHERE and(equals(events.team_id, {self.team.pk}), ifNull(globalIn(events.event, (SELECT aapl_stock.Date AS Date FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_1)s) AS aapl_stock)), 0)) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+            )
 
     def test_s3_build_function_call_without_context(self):
-        res = build_function_call("http://url.com", DataWarehouseTable.TableFormat.Parquet, "key", "secret", None, None)
+        res = build_function_call(
+            "http://url.com", DataWarehouseTable.TableFormat.Parquet, None, "key", "secret", None, None
+        )
         assert res == "s3('http://url.com', 'key', 'secret', 'Parquet')"
 
     def test_s3_build_function_call_without_context_with_structure(self):
         res = build_function_call(
-            "http://url.com", DataWarehouseTable.TableFormat.Parquet, "key", "secret", "some structure", None
+            "http://url.com", DataWarehouseTable.TableFormat.Parquet, None, "key", "secret", "some structure", None
         )
         assert res == "s3('http://url.com', 'key', 'secret', 'Parquet', 'some structure')"
 
     def test_s3_build_function_call_without_context_and_delta_format(self):
-        res = build_function_call("http://url.com", DataWarehouseTable.TableFormat.Delta, "key", "secret", None, None)
-        assert res == "deltaLake('http://url.com', 'key', 'secret')"
+        res = build_function_call(
+            "http://url.com", DataWarehouseTable.TableFormat.Delta, None, "key", "secret", None, None
+        )
+        assert res == "deltaLake('http://url.com', 'key', 'secret', 'Parquet')"
 
     def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format(self):
         res = build_function_call(
-            "http://url.com/folder", DataWarehouseTable.TableFormat.DeltaS3Wrapper, "key", "secret", None, None
+            "http://url.com/folder", DataWarehouseTable.TableFormat.DeltaS3Wrapper, None, "key", "secret", None, None
         )
         assert res == "s3('http://url.com/folder__query/**.parquet', 'key', 'secret', 'Parquet')"
 
     def test_s3_build_function_call_without_context_and_deltaS3Wrapper_format_with_slash(self):
         res = build_function_call(
-            "http://url.com/folder/", DataWarehouseTable.TableFormat.DeltaS3Wrapper, "key", "secret", None, None
+            "http://url.com/folder/", DataWarehouseTable.TableFormat.DeltaS3Wrapper, None, "key", "secret", None, None
         )
         assert res == "s3('http://url.com/folder__query/**.parquet', 'key', 'secret', 'Parquet')"
 
@@ -237,6 +293,7 @@ class TestS3Table(BaseTest):
         res = build_function_call(
             "http://url.com/folder",
             DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            None,
             "key",
             "secret",
             "some structure",
@@ -246,14 +303,15 @@ class TestS3Table(BaseTest):
 
     def test_s3_build_function_call_without_context_and_delta_format_and_with_structure(self):
         res = build_function_call(
-            "http://url.com", DataWarehouseTable.TableFormat.Delta, "key", "secret", "some structure", None
+            "http://url.com", DataWarehouseTable.TableFormat.Delta, None, "key", "secret", "some structure", None
         )
-        assert res == "deltaLake('http://url.com', 'key', 'secret', 'some structure')"
+        assert res == "deltaLake('http://url.com', 'key', 'secret', 'Parquet', 'some structure')"
 
     def test_s3_build_function_call_azure(self):
         res = build_function_call(
             "https://tomposthogtest.blob.core.windows.net/somecontainer/path/to/file.parquet",
             DataWarehouseTable.TableFormat.Parquet,
+            None,
             "tomposthogtest",
             "blah",
             "some structure",
@@ -269,6 +327,7 @@ class TestS3Table(BaseTest):
         res = build_function_call(
             "https://tomposthogtest.blob.core.windows.net/somecontainer/path/to/file.parquet",
             DataWarehouseTable.TableFormat.Parquet,
+            None,
             "tomposthogtest",
             "blah",
             None,
@@ -286,6 +345,7 @@ class TestS3Table(BaseTest):
         res = build_function_call(
             "https://tomposthogtest.blob.core.windows.net/somecontainer/path/to/file.parquet",
             DataWarehouseTable.TableFormat.Parquet,
+            None,
             "tomposthogtest",
             "blah",
             None,
@@ -295,4 +355,49 @@ class TestS3Table(BaseTest):
         assert (
             res
             == "azureBlobStorage(%(hogql_val_0_sensitive)s, %(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_5)s, 'auto')"
+        )
+
+    def test_s3_build_function_call_with_large_table(self):
+        res = build_function_call(
+            "http://url.com",
+            DataWarehouseTable.TableFormat.Parquet,
+            None,
+            "key",
+            "secret",
+            "some structure",
+            None,
+            4000.0,
+        )
+        assert res == "s3Cluster('posthog', 'http://url.com', 'key', 'secret', 'Parquet', 'some structure')"
+
+    def test_s3_build_function_call_with_queryable_folder(self):
+        res = build_function_call(
+            "http://url.com/path/to/table_name",
+            DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            "table_name__query_12345",
+            "key",
+            "secret",
+            "some structure",
+            None,
+            10,
+        )
+        assert (
+            res
+            == "s3('http://url.com/path/to/table_name__query_12345/**.parquet', 'key', 'secret', 'Parquet', 'some structure')"
+        )
+
+    def test_s3_build_function_call_with_queryable_folder_and_cluster(self):
+        res = build_function_call(
+            "http://url.com/path/to/table_name",
+            DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            "table_name__query_12345",
+            "key",
+            "secret",
+            "some structure",
+            None,
+            4000,
+        )
+        assert (
+            res
+            == "s3Cluster('posthog', 'http://url.com/path/to/table_name__query_12345/**.parquet', 'key', 'secret', 'Parquet', 'some structure')"
         )

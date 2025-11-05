@@ -1,14 +1,14 @@
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-
-from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from django.db.models import QuerySet
 
-from posthog.utils import absolute_uri
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -19,7 +19,7 @@ class DashboardManager(RootTeamManager):
         return super().get_queryset().exclude(deleted=True)
 
 
-class Dashboard(FileSystemSyncMixin, RootTeamMixin, models.Model):
+class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = (
@@ -54,6 +54,7 @@ class Dashboard(FileSystemSyncMixin, RootTeamMixin, models.Model):
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
     deleted = models.BooleanField(default=False)
     last_accessed_at = models.DateTimeField(blank=True, null=True)
+    last_refresh = models.DateTimeField(blank=True, null=True)
     filters = models.JSONField(default=dict)
     variables = models.JSONField(default=dict, null=True, blank=True)
     breakdown_colors = models.JSONField(default=list, null=True, blank=True)
@@ -115,7 +116,7 @@ class Dashboard(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         should_delete = self.deleted or (self.creation_mode == "template")
         return FileSystemRepresentation(
-            base_folder="Unfiled/Dashboards",
+            base_folder=self._get_assigned_folder("Unfiled/Dashboards"),
             type="dashboard",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",

@@ -3,9 +3,11 @@ import { dayjs } from 'lib/dayjs'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import {
+    AccessControlLevel,
     ActivationTaskStatus,
     CohortType,
     DataColorThemeModel,
+    ExperimentStatsMethod,
     FilterLogicalOperator,
     GroupType,
     OrganizationInviteType,
@@ -35,6 +37,8 @@ type APIMockReturnType = {
         typeof apiReal,
         'create' | 'createResponse' | 'get' | 'getResponse' | 'update' | 'delete'
     >]: jest.Mock<ReturnType<(typeof apiReal)[K]>, Parameters<(typeof apiReal)[K]>>
+} & {
+    cohorts: typeof apiReal.cohorts
 }
 
 export const api = apiReal as any as APIMockReturnType
@@ -45,7 +49,9 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     uuid: MOCK_TEAM_UUID,
     organization: MOCK_ORGANIZATION_ID,
     api_token: 'default-team-api-token',
-    app_urls: ['https://posthog.com/', 'https://app.posthog.com'],
+    secret_api_token: 'phs_default-team-secret-api-token',
+    secret_api_token_backup: 'phs_default-team-secret-api-token-backup',
+    app_urls: ['https://posthog.com/', 'https://app.posthog.com', 'https://example.com'],
     recording_domains: ['https://recordings.posthog.com/'],
     name: 'MockHog App + Marketing',
     slack_incoming_webhook: '',
@@ -82,6 +88,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     session_recording_masking_config: {
         maskAllInputs: true,
     },
+    session_recording_retention_period: '30d',
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,
@@ -90,8 +97,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     autocapture_web_vitals_opt_in: false,
     autocapture_exceptions_errors_to_ignore: [],
     effective_membership_level: OrganizationMembershipLevel.Admin,
-    user_access_level: 'admin',
-    access_control: true,
+    user_access_level: AccessControlLevel.Admin,
     group_types: [
         {
             group_type: 'organization',
@@ -125,18 +131,60 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     live_events_token: '123',
     capture_dead_clicks: false,
     human_friendly_comparison_periods: false,
-    revenue_tracking_config: {
-        baseCurrency: CurrencyCode.USD,
+    revenue_analytics_config: {
         events: [
             {
                 eventName: 'purchase',
                 revenueProperty: 'value',
                 revenueCurrencyProperty: { static: CurrencyCode.ZAR },
+                subscriptionDropoffDays: 45,
+                subscriptionDropoffMode: 'last_event',
+                currencyAwareDecimal: false,
+            },
+            {
+                eventName: 'subscription_created',
+                revenueProperty: 'subscription_value',
+                revenueCurrencyProperty: { property: 'currency' },
+                subscriptionDropoffDays: 45,
+                subscriptionDropoffMode: 'after_dropoff_period',
+                currencyAwareDecimal: true,
+            },
+        ],
+        filter_test_accounts: false,
+        goals: [
+            // Past goal
+            {
+                due_date: '2020-12-31',
+                name: '2020 Q4',
+                goal: 1_000_000,
+                mrr_or_gross: 'gross',
+            },
+            // Very in the future to avoid flappy snapshots until 2035, assuming I'll be a multimillionaire by then and wont have to handle this
+            // These are both "Current" goals since they're for the same day
+            {
+                due_date: '2035-12-31',
+                name: '2035 Q4',
+                goal: 1_500_000,
+                mrr_or_gross: 'gross',
+            },
+            {
+                due_date: '2035-12-31',
+                name: '2035 Q4 MRR',
+                goal: 1_200_000,
+                mrr_or_gross: 'mrr',
+            },
+            // Future goal
+            {
+                due_date: '2040-12-31',
+                name: '2040 Q4',
+                goal: 1_800_000,
+                mrr_or_gross: 'gross',
             },
         ],
     },
     flags_persistence_default: false,
-    access_control_version: 'v1',
+    feature_flag_confirmation_enabled: false,
+    feature_flag_confirmation_message: '',
     has_completed_onboarding_for: {
         product_analytics: true,
     },
@@ -144,6 +192,13 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         ingest_first_event: ActivationTaskStatus.COMPLETED,
         setup_session_recordings: ActivationTaskStatus.COMPLETED,
     },
+    marketing_analytics_config: {
+        sources_map: {},
+    },
+    base_currency: CurrencyCode.USD,
+    default_evaluation_environments_enabled: false,
+    managed_viewsets: { revenue_analytics: true },
+    receive_org_level_activity_logs: false,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -166,10 +221,13 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     teams: [MOCK_DEFAULT_TEAM],
     projects: [MOCK_DEFAULT_PROJECT],
     is_member_join_email_enabled: true,
+    members_can_use_personal_api_keys: true,
+    allow_publicly_shared_resources: true,
     metadata: {},
     available_product_features: [],
     member_count: 2,
     logo_media_id: null,
+    default_experiment_stats_method: ExperimentStatsMethod.Bayesian,
 }
 
 export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
@@ -190,26 +248,34 @@ export const MOCK_DEFAULT_USER: UserType = {
         plugin_disabled: false,
         project_weekly_digest_disabled: {},
         all_weekly_digest_disabled: false,
+        error_tracking_issue_assigned: false,
+        discussions_mentioned: false,
     },
     anonymize_data: false,
     toolbar_mode: 'toolbar',
     has_password: true,
+    id: 179,
     is_staff: true,
     is_impersonated: false,
     is_email_verified: true,
     is_2fa_enabled: false,
     has_social_auth: false,
+    has_sso_enforcement: false,
     sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
-    organizations: [MOCK_DEFAULT_ORGANIZATION].map(({ id, name, slug, membership_level }) => ({
-        id,
-        name,
-        slug,
-        membership_level,
-        logo_media_id: null,
-    })),
+    organizations: [MOCK_DEFAULT_ORGANIZATION].map(
+        ({ id, name, slug, membership_level, members_can_use_personal_api_keys, allow_publicly_shared_resources }) => ({
+            id,
+            name,
+            slug,
+            membership_level,
+            members_can_use_personal_api_keys,
+            allow_publicly_shared_resources,
+            logo_media_id: null,
+        })
+    ),
     events_column_config: {
         active: 'DEFAULT',
     },

@@ -1,19 +1,22 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+
 import {
     LemonButton,
     LemonCalendarSelectInput,
     LemonModal,
     LemonModalProps,
     LemonSelect,
-    LemonTextArea,
+    LemonSelectOptions,
+    LemonTextAreaMarkdown,
     Link,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { shortTimeZone } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AnnotationScope } from '~/types'
+import { AnnotationScope, AnnotationType } from '~/types'
 
 import { annotationModalLogic, annotationScopeToName } from './annotationModalLogic'
 
@@ -40,6 +43,60 @@ export function AnnotationModal({
     } = useValues(annotationModalLogic)
     const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
 
+    const scopeOptions: LemonSelectOptions<AnnotationType['scope'] | null> = [
+        {
+            value: AnnotationScope.Insight,
+            label: annotationScopeToName[AnnotationScope.Insight],
+            tooltip: existingModalAnnotation?.insight_name ? (
+                existingModalAnnotation.insight_name
+            ) : existingModalAnnotation?.insight_derived_name ? (
+                <i>{existingModalAnnotation.insight_derived_name}</i>
+            ) : undefined,
+            disabledReason:
+                (!onSavedInsight && 'You need to save the insight first.') ||
+                // if existing annotation data in db (for backwards compatibility) doesn't have insight id set on it
+                // we can't let them change scope to insight as we don't know which insight to map to
+                (existingModalAnnotation
+                    ? !existingModalAnnotation?.dashboard_item &&
+                      'To select this scope, open this annotation on the target insight'
+                    : undefined),
+            sideIcon: existingModalAnnotation?.insight_short_id ? (
+                <Link
+                    to={urls.insightView(existingModalAnnotation?.insight_short_id)}
+                    target="_blank"
+                    targetBlankIcon
+                />
+            ) : null,
+        },
+        {
+            value: AnnotationScope.Dashboard,
+            label: annotationScopeToName[AnnotationScope.Dashboard],
+            tooltip: existingModalAnnotation?.dashboard_name,
+            disabledReason:
+                (!annotationModal.dashboardId &&
+                    'To select this scope, open this annotation on the target dashboard') ||
+                (existingModalAnnotation?.scope === AnnotationScope.Dashboard && 'Already scoped to dashboard') ||
+                (existingModalAnnotation && existingModalAnnotation?.dashboard_name
+                    ? annotationModal.dashboardId != existingModalAnnotation.dashboard_id &&
+                      `To select this scope, open this annotation on the ${existingModalAnnotation?.dashboard_name} dashboard`
+                    : undefined),
+            sideIcon:
+                existingModalAnnotation?.dashboard_id &&
+                existingModalAnnotation?.scope !== AnnotationScope.Dashboard &&
+                existingModalAnnotation.dashboard_id !== annotationModal.dashboardId ? (
+                    <Link to={urls.dashboard(existingModalAnnotation?.dashboard_id)} target="_blank" targetBlankIcon />
+                ) : null,
+        },
+        {
+            value: AnnotationScope.Project,
+            label: annotationScopeToName[AnnotationScope.Project],
+        },
+        {
+            value: AnnotationScope.Organization,
+            label: annotationScopeToName[AnnotationScope.Organization],
+        },
+    ]
+
     return (
         <LemonModal
             overlayRef={overlayRef}
@@ -47,7 +104,7 @@ export function AnnotationModal({
             isOpen={isModalOpen}
             onClose={closeModal}
             title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
-            description="Use annotations to add context to insights and dashboards."
+            description="Use annotations to comment on insights, dashboards"
             footer={
                 <div className="flex-1 flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -77,7 +134,7 @@ export function AnnotationModal({
                             loading={isAnnotationModalSubmitting}
                             data-attr="create-annotation-submit"
                         >
-                            {existingModalAnnotation ? 'Edit' : 'Create'}
+                            Save
                         </LemonButton>
                     </div>
                 </div>
@@ -108,71 +165,11 @@ export function AnnotationModal({
                         <LemonCalendarSelectInput granularity="minute" />
                     </LemonField>
                     <LemonField name="scope" label="Scope" className="flex-1">
-                        <LemonSelect
-                            options={[
-                                {
-                                    value: AnnotationScope.Insight,
-                                    label: annotationScopeToName[AnnotationScope.Insight],
-                                    tooltip: existingModalAnnotation?.insight_name ? (
-                                        existingModalAnnotation.insight_name
-                                    ) : existingModalAnnotation?.insight_derived_name ? (
-                                        <i>{existingModalAnnotation.insight_derived_name}</i>
-                                    ) : undefined,
-                                    disabledReason:
-                                        (!onSavedInsight && 'You need to save the insight first.') ||
-                                        // if existing annotation data in db (for backwards compatibility) doesn't have insight id set on it
-                                        // we can't let them change scope to insight as we don't know which insight to map to
-                                        (existingModalAnnotation
-                                            ? !existingModalAnnotation?.dashboard_item &&
-                                              'To select this scope, open this annotation on the target insight'
-                                            : undefined),
-                                    sideIcon: existingModalAnnotation?.insight_short_id ? (
-                                        <Link
-                                            to={urls.insightView(existingModalAnnotation?.insight_short_id)}
-                                            target="_blank"
-                                            targetBlankIcon
-                                        />
-                                    ) : null,
-                                },
-                                {
-                                    value: AnnotationScope.Dashboard,
-                                    label: annotationScopeToName[AnnotationScope.Dashboard],
-                                    tooltip: existingModalAnnotation?.dashboard_name,
-                                    disabledReason:
-                                        (!annotationModal.dashboardId &&
-                                            'To select this scope, open this annotation on the target dashboard') ||
-                                        (existingModalAnnotation?.scope === AnnotationScope.Dashboard &&
-                                            'Already scoped to dashboard') ||
-                                        (existingModalAnnotation && existingModalAnnotation?.dashboard_name
-                                            ? annotationModal.dashboardId != existingModalAnnotation.dashboard_id &&
-                                              `To select this scope, open this annotation on the ${existingModalAnnotation?.dashboard_name} dashboard`
-                                            : undefined),
-                                    sideIcon:
-                                        existingModalAnnotation?.dashboard_id &&
-                                        existingModalAnnotation?.scope !== AnnotationScope.Dashboard &&
-                                        existingModalAnnotation.dashboard_id !== annotationModal.dashboardId ? (
-                                            <Link
-                                                to={urls.dashboard(existingModalAnnotation?.dashboard_id)}
-                                                target="_blank"
-                                                targetBlankIcon
-                                            />
-                                        ) : null,
-                                },
-                                {
-                                    value: AnnotationScope.Project,
-                                    label: annotationScopeToName[AnnotationScope.Project],
-                                },
-                                {
-                                    value: AnnotationScope.Organization,
-                                    label: annotationScopeToName[AnnotationScope.Organization],
-                                },
-                            ]}
-                            fullWidth
-                        />
+                        <LemonSelect options={scopeOptions} fullWidth />
                     </LemonField>
                 </div>
                 <LemonField name="content" label="Content">
-                    <LemonTextArea
+                    <LemonTextAreaMarkdown
                         placeholder="What's this annotation about?"
                         onPressCmdEnter={submitAnnotationModal}
                         data-attr="create-annotation-input"

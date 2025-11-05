@@ -1,4 +1,5 @@
 import { expectLogic, partial } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -237,7 +238,12 @@ describe('the property definitions model', () => {
                         'event_metadata/distinct_id': partial({ name: 'distinct_id' }),
                         'event_metadata/event': partial({ name: 'event' }),
                         'event_metadata/person_id': partial({ name: 'person_id' }),
-                        'event_metadata/timestamp': partial({ name: 'timestamp' }),
+                        'event_metadata/person_mode': partial({ name: 'person_mode' }),
+                        'event_metadata/timestamp': partial({
+                            name: 'timestamp',
+                        }),
+                        'resource/assignee': partial({ name: 'assignee' }),
+                        'resource/first_seen': partial({ name: 'first_seen' }),
                     },
                 })
         })

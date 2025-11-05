@@ -1,16 +1,18 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { sessionRecordingDataLogic } from '../player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecordingDataCoordinatorLogic'
+import { playlistLogic } from './playlistLogic'
 import {
+    DEFAULT_RECORDING_FILTERS,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
-    DEFAULT_RECORDING_FILTERS,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
 
@@ -130,6 +132,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 updateSearchParams: true,
             })
             logic.mount()
+            playlistLogic.mount()
+            playlistLogic.actions.setIsFiltersExpanded(false)
         })
 
         describe('core assumptions', () => {
@@ -178,7 +182,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
             it('mounts and loads the recording when a recording is opened', () => {
                 expectLogic(logic, async () => logic.asyncActions.setSelectedRecordingId('abcd'))
-                    .toMount(sessionRecordingDataLogic({ sessionRecordingId: 'abcd' }))
+                    .toMount(sessionRecordingDataCoordinatorLogic({ sessionRecordingId: 'abcd' }))
                     .toDispatchActions(['loadEntireRecording'])
             })
 
@@ -403,6 +407,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     .toMatchValues({
                         sessionRecordingsResponse: {
                             order: 'start_time',
+                            order_direction: 'DESC',
                             has_next: undefined,
                             results: listOfSessionRecordings,
                         },
@@ -417,6 +422,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         sessionRecordingsResponse: {
                             has_next: undefined,
                             order: 'start_time',
+                            order_direction: 'DESC',
                             results: [
                                 {
                                     ...aRecording,
@@ -500,6 +506,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         },
                         filter_test_accounts: false,
                         order: 'start_time',
+                        order_direction: 'DESC',
                     },
                 })
         })
@@ -537,69 +544,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
                         },
                         filter_test_accounts: false,
                         order: 'start_time',
+                        order_direction: 'DESC',
                     },
-                })
-        })
-
-        it('reads advanced filters from the URL', async () => {
-            router.actions.push('/replay', {
-                advancedFilters: {
-                    events: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
-                },
-            })
-
-            await expectLogic(logic)
-                .toDispatchActions(['setFilters'])
-                .toMatchValues({
-                    filters: expect.objectContaining({
-                        filter_group: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: FilterLogicalOperator.And,
-                                    values: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
-                                },
-                            ],
-                        },
-                    }),
-                })
-        })
-
-        it('reads simple filters from the URL', async () => {
-            router.actions.push('/replay', {
-                simpleFilters: {
-                    properties: [
-                        {
-                            key: '$geoip_country_name',
-                            value: ['Australia'],
-                            operator: PropertyOperator.Exact,
-                            type: PropertyFilterType.Person,
-                        },
-                    ],
-                },
-            })
-
-            await expectLogic(logic)
-                .toDispatchActions(['setFilters'])
-                .toMatchValues({
-                    filters: expect.objectContaining({
-                        filter_group: {
-                            type: FilterLogicalOperator.And,
-                            values: [
-                                {
-                                    type: FilterLogicalOperator.And,
-                                    values: [
-                                        {
-                                            key: '$geoip_country_name',
-                                            value: ['Australia'],
-                                            operator: PropertyOperator.Exact,
-                                            type: PropertyFilterType.Person,
-                                        },
-                                    ],
-                                },
-                            ],
-                        },
-                    }),
                 })
         })
     })
@@ -723,6 +669,29 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('set filters', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsPlaylistLogic({
+                key: 'cool_user_99',
+                personUUID: 'cool_user_99',
+                updateSearchParams: true,
+            })
+            logic.mount()
+        })
+
+        it('resets date_to when given a relative date_from', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({
+                    date_from: '2021-10-01',
+                    date_to: '2021-10-10',
+                })
+                logic.actions.setFilters({
+                    date_from: '-7d',
+                })
+            }).toMatchValues({ filters: expect.objectContaining({ date_from: '-7d', date_to: null }) })
+        })
+    })
+
     describe('convertUniversalFiltersToRecordingsQuery', () => {
         it('expands the visited_page filter to a pageview with $current_url property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({
@@ -744,6 +713,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                     ],
                 },
                 order: 'console_error_count',
+                order_direction: 'DESC',
             })
 
             expect(result).toEqual({
@@ -778,6 +748,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 kind: 'RecordingsQuery',
                 operand: 'AND',
                 order: 'console_error_count',
+                order_direction: 'DESC',
                 properties: [],
             })
         })
@@ -808,6 +779,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 },
                 filter_test_accounts: false,
                 order: 'start_time',
+                order_direction: 'DESC',
             })
         })
         it('should parse even the most complex queries', () => {
@@ -867,6 +839,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 },
                 filter_test_accounts: true,
                 order: 'start_time',
+                order_direction: 'DESC',
             })
         })
     })

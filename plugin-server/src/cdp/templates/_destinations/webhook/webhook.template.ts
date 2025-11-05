@@ -1,15 +1,16 @@
-import { HogFunctionTemplate, SUB_TEMPLATE_COMMON } from '../../types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: false,
-    status: 'beta',
+    status: 'stable',
     type: 'destination',
     id: 'template-webhook',
     name: 'HTTP Webhook',
     description: 'Sends a webhook templated by the incoming event data',
-    icon_url: '/static/posthog-icon.svg',
+    icon_url: '/static/services/webhook.svg',
     category: ['Custom'],
-    hog: `
+    code_language: 'hog',
+    code: `
 let payload := {
   'headers': inputs.headers,
   'body': inputs.body,
@@ -22,6 +23,10 @@ if (inputs.debug) {
 
 let res := fetch(inputs.url, payload);
 
+if (res.status >= 400) {
+  throw Error(f'Webhook failed with status {res.status}: {res.body}');
+}
+
 if (inputs.debug) {
   print('Response', res.status, res.body);
 }
@@ -33,6 +38,7 @@ if (inputs.debug) {
             label: 'Webhook URL',
             secret: false,
             required: true,
+            description: 'Endpoint URL to send event data to.',
         },
         {
             key: 'method',
@@ -63,6 +69,7 @@ if (inputs.debug) {
             ],
             default: 'POST',
             required: false,
+            description: 'HTTP method to use for the request.',
         },
         {
             key: 'body',
@@ -71,6 +78,7 @@ if (inputs.debug) {
             default: { event: '{event}', person: '{person}' },
             secret: false,
             required: false,
+            description: 'JSON payload to send in the request body.',
         },
         {
             key: 'headers',
@@ -79,6 +87,7 @@ if (inputs.debug) {
             secret: false,
             required: false,
             default: { 'Content-Type': 'application/json' },
+            description: 'HTTP headers to send in the request.',
         },
         {
             key: 'debug',
@@ -88,34 +97,6 @@ if (inputs.debug) {
             secret: false,
             required: false,
             default: false,
-        },
-    ],
-    sub_templates: [
-        {
-            id: 'early-access-feature-enrollment',
-            name: 'HTTP Webhook on feature enrollment',
-            filters: SUB_TEMPLATE_COMMON['early-access-feature-enrollment'].filters,
-        },
-        {
-            id: 'survey-response',
-            name: 'HTTP Webhook on survey response',
-            filters: SUB_TEMPLATE_COMMON['survey-response'].filters,
-        },
-        {
-            id: 'activity-log',
-            name: 'HTTP Webhook on team activity',
-            filters: SUB_TEMPLATE_COMMON['activity-log'].filters,
-            type: 'internal_destination',
-        },
-        {
-            ...SUB_TEMPLATE_COMMON['error-tracking-issue-created'],
-            name: 'HTTP Webhook on issue created',
-            description: 'Send a webhook when an issue is created.',
-        },
-        {
-            ...SUB_TEMPLATE_COMMON['error-tracking-issue-reopened'],
-            name: 'HTTP Webhook on issue reopened',
-            description: 'Send a webhook when an issue is reopened.',
         },
     ],
 }

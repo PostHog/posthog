@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { LegacyTransformationPluginMeta } from '../../types'
+
 /**
  * Some events will always create very large numbers of flattened properties
  * This is undesirable since a large enough number of properties for a particular team can slow down the property filter in the UI

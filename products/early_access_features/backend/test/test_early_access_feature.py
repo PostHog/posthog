@@ -1,20 +1,17 @@
 import json
-from unittest.mock import ANY
 
-from rest_framework import status
+from posthog.test.base import APIBaseTest, BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from unittest.mock import ANY, patch
+
 from django.core.cache import cache
 from django.test.client import Client
-from unittest.mock import patch
 
-from products.early_access_features.backend.models import EarlyAccessFeature
+from rest_framework import status
+
 from posthog.models import FeatureFlag, Person
 from posthog.models.team.team_caching import set_team_in_cache
-from posthog.test.base import (
-    APIBaseTest,
-    BaseTest,
-    QueryMatchingTest,
-    snapshot_postgres_queries,
-)
+
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 
 class TestEarlyAccessFeature(APIBaseTest):
@@ -40,7 +37,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == "concept"
         assert response_data["feature_flag"]["key"] == "hick-bondoogling"
         assert response_data["feature_flag"]["active"]
-        assert not response_data["feature_flag"]["filters"].get("super_groups", None)
+        assert response_data["feature_flag"]["filters"].get("super_groups", None)
         assert len(response_data["feature_flag"]["filters"]["groups"]) == 1
         assert response_data["feature_flag"]["filters"]["groups"][0]["rollout_percentage"] == 0
         assert isinstance(response_data["created_at"], str)
@@ -552,6 +549,62 @@ class TestEarlyAccessFeature(APIBaseTest):
                 "creation_context": "early_access_features",
             },
         )
+
+    @patch("posthog.tasks.early_access_feature.send_events_for_early_access_feature_stage_change.delay")
+    def test_send_events_for_early_access_feature_stage_change_fires_on_stage_change(self, mock_celery_task):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "CeleryTestFeature",
+                "description": "Test firing celery task",
+                "stage": EarlyAccessFeature.Stage.CONCEPT,
+            },
+            format="json",
+        )
+        feature_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data={"stage": EarlyAccessFeature.Stage.BETA},
+            format="json",
+        )
+
+        mock_celery_task.assert_called_once_with(
+            str(feature_id),
+            "concept",
+            "beta",
+        )
+
+    def test_create_early_access_feature_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={
+                "name": "Hick bondoogling",
+                "description": 'Boondoogle your hicks with one click. Just click "bazinga"!',
+                "stage": "concept",
+                "_create_in_folder": "Special Folder/Early Access",
+            },
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        feature_id = response_data["id"]
+        assert EarlyAccessFeature.objects.filter(id=feature_id).exists()
+        assert FeatureFlag.objects.filter(id=response_data["feature_flag"]["id"]).exists()
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(
+            team=self.team,
+            ref=str(feature_id),
+            type="early_access_feature",
+        ).first()
+
+        assert fs_entry is not None, "FileSystem entry not found for the newly created Early Access Feature."
+        assert (
+            "Special Folder/Early Access" in fs_entry.path
+        ), f"Expected 'Special Folder/Early Access' in {fs_entry.path}"
 
 
 class TestPreviewList(BaseTest, QueryMatchingTest):

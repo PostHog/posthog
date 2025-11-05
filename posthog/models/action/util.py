@@ -1,9 +1,12 @@
-from collections import Counter
+from collections import (
+    Counter,
+    Counter as TCounter,
+)
 from typing import Literal, Optional
-from collections import Counter as TCounter
+
+from posthog.hogql.hogql import HogQLContext
 
 from posthog.constants import AUTOCAPTURE_EVENT
-from posthog.hogql.hogql import HogQLContext
 from posthog.models import Filter
 from posthog.models.action import Action
 from posthog.models.action.action import ActionStepJSON
@@ -51,9 +54,7 @@ def format_action_filter(
         conditions: list[str] = []
         # filter element
         if step.event == AUTOCAPTURE_EVENT:
-            from posthog.models.property.util import (
-                filter_element,
-            )  # prevent circular import
+            from posthog.models.property.util import filter_element  # prevent circular import
 
             if step.selector:
                 element_condition, element_params = filter_element(

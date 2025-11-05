@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+
 import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -149,6 +150,7 @@ export function StacktracelessSafariScriptError(): JSX.Element {
             eventProperties={errorProperties({
                 $exception_list: [{ type: 'ScriptError', value: 'Script error.', mechanism: { synthetic: true } }],
             })}
+            eventId="error"
         />
     )
 }
@@ -165,6 +167,7 @@ export function StacktracelessImportModuleError(): JSX.Element {
                     },
                 ],
             })}
+            eventId="error"
         />
     )
 }
@@ -192,6 +195,7 @@ export function AnonymousErrorWithStackTrace(): JSX.Element {
                     },
                 ],
             })}
+            eventId="error"
         />
     )
 }
@@ -246,6 +250,7 @@ export function ChainedErrorStack(): JSX.Element {
                     },
                 ],
             })}
+            eventId="error"
         />
     )
 }
@@ -275,6 +280,7 @@ export function StackTraceWithLineContext(): JSX.Element {
                     },
                 ],
             })}
+            eventId="error"
         />
     )
 }
@@ -291,12 +297,13 @@ export function WithCymbalErrors(): JSX.Element {
                 ],
                 $cymbal_errors: ['This is an ingestion error', 'This is a second one'],
             })}
+            eventId="error"
         />
     )
 }
 
 export function SentryStackTrace(): JSX.Element {
-    return <ErrorDisplay eventProperties={errorProperties({ $exception_list: [] })} />
+    return <ErrorDisplay eventProperties={errorProperties({ $exception_list: [] })} eventId="error" />
 }
 
 export function LegacyEventProperties(): JSX.Element {
@@ -308,6 +315,7 @@ export function LegacyEventProperties(): JSX.Element {
                 $exception_personURL: 'https://app.posthog.com/person/the-person-id',
                 $exception_synthetic: true,
             })}
+            eventId="error"
         />
     )
 }

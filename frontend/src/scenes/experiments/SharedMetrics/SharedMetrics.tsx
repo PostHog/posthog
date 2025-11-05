@@ -1,11 +1,20 @@
-import { IconArrowLeft, IconPencil } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconCopy, IconPencil } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonTable,
+    LemonTableColumn,
+    LemonTableColumns,
+    LemonTag,
+    Tooltip,
+} from '@posthog/lemon-ui'
+
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
-import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -14,6 +23,7 @@ import { userLogic } from 'scenes/userLogic'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AvailableFeature } from '~/types'
 
+import { isLegacySharedMetric } from '../utils'
 import { SharedMetric } from './sharedMetricLogic'
 import { sharedMetricsLogic } from './sharedMetricsLogic'
 
@@ -35,7 +45,21 @@ export function SharedMetrics(): JSX.Element {
                 return (
                     <LemonTableLink
                         to={sharedMetric.id ? urls.experimentsSharedMetric(sharedMetric.id) : undefined}
-                        title={stringWithWBR(sharedMetric.name, 17)}
+                        title={
+                            <>
+                                {stringWithWBR(sharedMetric.name, 17)}
+                                {isLegacySharedMetric(sharedMetric) && (
+                                    <Tooltip
+                                        title="This metric uses the legacy engine, so some features and improvements may be missing."
+                                        docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
+                                    >
+                                        <LemonTag type="warning" className="ml-1">
+                                            Legacy
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
+                            </>
+                        }
                     />
                 )
             },
@@ -74,15 +98,26 @@ export function SharedMetrics(): JSX.Element {
             title: 'Actions',
             render: (_, sharedMetric) => {
                 return (
-                    <LemonButton
-                        className="max-w-72"
-                        type="secondary"
-                        size="xsmall"
-                        icon={<IconPencil />}
-                        onClick={() => {
-                            router.actions.push(urls.experimentsSharedMetric(sharedMetric.id))
-                        }}
-                    />
+                    <div className="flex gap-1">
+                        <LemonButton
+                            className="max-w-72"
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconPencil />}
+                            onClick={() => {
+                                router.actions.push(urls.experimentsSharedMetric(sharedMetric.id))
+                            }}
+                        />
+                        <LemonButton
+                            className="max-w-72"
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconCopy />}
+                            onClick={() => {
+                                router.actions.push(urls.experimentsSharedMetric(sharedMetric.id, 'duplicate'))
+                            }}
+                        />
+                    </div>
                 )
             },
         },
@@ -90,15 +125,6 @@ export function SharedMetrics(): JSX.Element {
 
     return (
         <div className="deprecated-space-y-4">
-            <LemonButton
-                type="tertiary"
-                className="inline-flex"
-                to={urls.experiments()}
-                icon={<IconArrowLeft />}
-                size="small"
-            >
-                Back to experiments
-            </LemonButton>
             <LemonBanner type="info">
                 Shared metrics let you create reusable metrics that you can quickly add to any experiment. They are
                 ideal for tracking key metrics like conversion rates or revenue across different experiments without

@@ -1,16 +1,17 @@
+import dataclasses
 from typing import Optional, TypeVar
 
-import dataclasses
 from dateutil.parser import isoparse
+
+from posthog.schema import HogQLFilters, SessionPropertyFilter
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import CloningVisitor
-from posthog.models import Team
-from posthog.schema import HogQLFilters, SessionPropertyFilter
-from posthog.utils import relative_date_parse
 
+from posthog.models import Team
+from posthog.utils import relative_date_parse
 
 T = TypeVar("T", bound=ast.Expr)
 
@@ -52,28 +53,38 @@ class ReplaceFilters(CloningVisitor):
         return node
 
     def visit_placeholder(self, node):
-        if node.chain == ["filters"]:
-            if self.filters is None:
-                return ast.Constant(value=True)
+        no_filters = self.filters is None or not self.filters.model_fields_set
 
+        if node.chain == ["filters"]:
             last_select = self.selects[-1]
             last_join = last_select.select_from
             found_events = False
             found_sessions = False
+            found_logs = False
+            found_groups = False
             while last_join is not None:
                 if isinstance(last_join.table, ast.Field):
                     if last_join.table.chain == ["events"]:
                         found_events = True
                     if last_join.table.chain == ["sessions"]:
                         found_sessions = True
-                    if found_events and found_sessions:
+                    if last_join.table.chain == ["logs"]:
+                        found_logs = True
+                    if last_join.table.chain == ["groups"]:
+                        found_groups = True
+                    if found_events and found_sessions or found_groups:
                         break
                 last_join = last_join.next_join
 
-            if not found_events and not found_sessions:
+            if not any([found_events, found_sessions, found_logs, found_groups]):
                 raise QueryError(
-                    "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events or sessions table."
+                    "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs or groups table."
                 )
+
+            if no_filters:
+                return ast.Constant(value=True)
+
+            assert self.filters is not None
 
             exprs: list[ast.Expr] = []
             if self.filters.properties is not None:
@@ -88,15 +99,23 @@ class ReplaceFilters(CloningVisitor):
                         )
                     exprs.append(property_to_expr(session_properties, self.team, scope="session"))
                     exprs.append(property_to_expr(non_session_properties, self.team, scope="event"))
+                elif found_groups:
+                    exprs.append(property_to_expr(self.filters.properties, self.team, scope="group"))
                 else:
                     exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
 
-            timestamp_field = ast.Field(chain=["timestamp"]) if found_events else ast.Field(chain=["$start_timestamp"])
+            timestamp_field = ast.Field(chain=["$start_timestamp"])
+            if found_events or found_logs:
+                timestamp_field = ast.Field(chain=["timestamp"])
+            if found_groups:
+                timestamp_field = ast.Field(chain=["created_at"])
 
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
                 try:
-                    parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateTo)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 exprs.append(
@@ -111,7 +130,9 @@ class ReplaceFilters(CloningVisitor):
             dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
             if dateFrom is not None and dateFrom != "all":
                 try:
-                    parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateFrom)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
                 exprs.append(
@@ -134,14 +155,18 @@ class ReplaceFilters(CloningVisitor):
         if node.chain == ["filters", "dateRange", "from"]:
             compare_op_wrapper = self.compare_operations[-1]
 
-            if self.filters is None:
+            if no_filters:
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
+
+            assert self.filters is not None
 
             dateFrom = self.filters.dateRange.date_from if self.filters.dateRange else None
             if dateFrom is not None and dateFrom != "all":
                 try:
-                    parsed_date = isoparse(dateFrom).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateFrom)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
 
@@ -152,14 +177,18 @@ class ReplaceFilters(CloningVisitor):
         if node.chain == ["filters", "dateRange", "to"]:
             compare_op_wrapper = self.compare_operations[-1]
 
-            if self.filters is None:
+            if no_filters:
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
+
+            assert self.filters is not None
 
             dateTo = self.filters.dateRange.date_to if self.filters.dateRange else None
             if dateTo is not None:
                 try:
-                    parsed_date = isoparse(dateTo).replace(tzinfo=self.team.timezone_info)
+                    parsed_date = isoparse(dateTo)
+                    if parsed_date.tzinfo is None:
+                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
                 except ValueError:
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 return ast.Constant(value=parsed_date)

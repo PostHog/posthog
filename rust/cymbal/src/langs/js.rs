@@ -1,18 +1,19 @@
-use std::sync::atomic::Ordering;
-
+use common_types::error_tracking::FrameId;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use symbolic::sourcemapcache::{ScopeLookupResult, SourceLocation, SourcePosition};
 
 use crate::{
-    config::FRAME_CONTEXT_LINES,
-    error::{Error, FrameError, JsResolveErr, UnhandledError},
-    frames::{Context, ContextLine, Frame},
+    error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
+    frames::Frame,
+    langs::CommonFrameMetadata,
     metric_consts::{FRAME_NOT_RESOLVED, FRAME_RESOLVED},
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog},
 };
+
+use super::utils::{add_raw_to_junk, get_sourcelocation_context};
 
 // A minifed JS stack frame. Just the minimal information needed to lookup some
 // sourcemap for it and produce a "real" stack frame.
@@ -22,11 +23,12 @@ pub struct RawJSFrame {
     pub location: Option<FrameLocation>, // Sometimes we get frames with no location information. We treat these as already resolved, or unminified
     #[serde(rename = "filename")]
     pub source_url: Option<String>, // The url the the script the frame was in was fetched from
-    pub in_app: bool,
     #[serde(rename = "function")]
     pub fn_name: String,
     #[serde(alias = "chunkId", skip_serializing_if = "Option::is_none")]
     pub chunk_id: Option<String>,
+    #[serde(flatten)]
+    pub meta: CommonFrameMetadata,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Eq, PartialEq)]
@@ -44,18 +46,21 @@ impl RawJSFrame {
     {
         match self.resolve_impl(team_id, catalog).await {
             Ok(frame) => Ok(frame),
-            Err(Error::ResolutionError(FrameError::JavaScript(e))) => {
+            Err(ResolveError::ResolutionError(FrameError::JavaScript(e))) => {
                 Ok(self.handle_resolution_error(e))
             }
-            Err(Error::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
+            Err(ResolveError::ResolutionError(FrameError::MissingChunkIdData(chunk_id))) => {
                 Ok(self.handle_resolution_error(JsResolveErr::NoSourcemapUploaded(chunk_id)))
             }
-            Err(Error::UnhandledError(e)) => Err(e),
-            Err(Error::EventError(_)) => unreachable!(),
+            Err(ResolveError::ResolutionError(e)) => {
+                // TODO - other kinds of errors here should be unreachable, we need to specialize ResolveError to encode that
+                unreachable!("Should not have received error {:?}", e)
+            }
+            Err(ResolveError::UnhandledError(e)) => Err(e),
         }
     }
 
-    async fn resolve_impl<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, Error>
+    async fn resolve_impl<C>(&self, team_id: i32, catalog: &C) -> Result<Frame, ResolveError>
     where
         C: SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache>,
     {
@@ -162,6 +167,12 @@ impl RawJSFrame {
         );
         format!("{:x}", hasher.finalize())
     }
+
+    pub fn is_suspicious(&self) -> bool {
+        self.source_url
+            .as_ref()
+            .is_some_and(|s| s.contains("posthog.com/static/"))
+    }
 }
 
 impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
@@ -175,28 +186,35 @@ impl From<(&RawJSFrame, SourceLocation<'_>)> for Frame {
             ScopeLookupResult::Unknown => None,
         };
 
-        let source = token.file().and_then(|f| f.name()).map(|s| s.to_string());
+        let source = token
+            .file()
+            .and_then(|f| f.name())
+            .map(|s| sanitize_string(s.to_string()));
 
         let in_app = source
+            .as_ref()
             .map(|s| !s.contains("node_modules"))
-            .unwrap_or(raw_frame.in_app);
+            .unwrap_or(raw_frame.meta.in_app);
+
+        let suspicious = source.as_ref().is_some_and(|s| s.contains("posthog-js@"));
 
         let mut res = Self {
-            raw_id: String::new(), // We use placeholders here, as they're overriden at the RawFrame level
+            frame_id: FrameId::placeholder(), // We use placeholders here, as they're overriden at the RawFrame level
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(token.line()),
             column: Some(token.column()),
-            source: token
-                .file()
-                .and_then(|f| f.name())
-                .map(|s| sanitize_string(s.to_string())),
+            source,
             in_app,
             resolved_name,
             lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
             junk_drawer: None,
-            context: get_context(&token),
+            context: get_sourcelocation_context(&token),
+            release: None,
+            synthetic: raw_frame.meta.synthetic,
+            suspicious,
+            module: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -226,12 +244,12 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
         };
 
         let mut res = Self {
-            raw_id: String::new(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(location.line),
             column: Some(location.column),
             source: raw_frame.source_url().map(|u| u.path().to_string()).ok(),
-            in_app: raw_frame.in_app,
+            in_app: raw_frame.meta.in_app,
             resolved_name,
             lang: "javascript".to_string(),
             resolved: !was_minified,
@@ -241,6 +259,10 @@ impl From<(&RawJSFrame, JsResolveErr, &FrameLocation)> for Frame {
             resolve_failure: Some(err.to_string()),
             junk_drawer: None,
             context: None,
+            release: None,
+            synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
+            module: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
@@ -262,10 +284,10 @@ impl From<&RawJSFrame> for Frame {
             .map(|s| s == "<anonymous>")
             .unwrap_or_default();
 
-        let in_app = raw_frame.in_app && !is_anon;
+        let in_app = raw_frame.meta.in_app && !is_anon;
 
         let mut res = Self {
-            raw_id: String::new(),
+            frame_id: FrameId::placeholder(),
             mangled_name: raw_frame.fn_name.clone(),
             line: None,
             column: None,
@@ -277,51 +299,16 @@ impl From<&RawJSFrame> for Frame {
             resolve_failure: None,
             junk_drawer: None,
             context: None,
+            release: None,
+            synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
+            module: None,
         };
 
         add_raw_to_junk(&mut res, raw_frame);
 
         res
     }
-}
-
-fn add_raw_to_junk(frame: &mut Frame, raw: &RawJSFrame) {
-    // UNWRAP: raw JS frames are definitely representable as json
-    frame.add_junk("raw_frame", raw.clone()).unwrap();
-}
-
-fn get_context(token: &SourceLocation) -> Option<Context> {
-    let file = token.file()?;
-    let token_line_num = token.line();
-    let src = file.source()?;
-
-    let line_limit = FRAME_CONTEXT_LINES.load(Ordering::Relaxed);
-    get_context_lines(src, token_line_num as usize, line_limit)
-}
-
-fn get_context_lines(src: &str, line: usize, context_len: usize) -> Option<Context> {
-    let start = line.saturating_sub(context_len).saturating_sub(1);
-
-    let mut lines = src.lines().enumerate().skip(start);
-    let before = (&mut lines)
-        .take(line - start)
-        .map(|(number, line)| ContextLine::new(number as u32, line))
-        .collect();
-
-    let line = lines
-        .next()
-        .map(|(number, line)| ContextLine::new(number as u32, line))?;
-
-    let after = lines
-        .take(context_len)
-        .map(|(number, line)| ContextLine::new(number as u32, line))
-        .collect();
-
-    Some(Context {
-        before,
-        line,
-        after,
-    })
 }
 
 #[cfg(test)]
@@ -331,9 +318,9 @@ mod test {
         let frame = super::RawJSFrame {
             location: None,
             source_url: Some("http://example.com/path/to/file.js:1:2".to_string()),
-            in_app: true,
             fn_name: "main".to_string(),
             chunk_id: None,
+            meta: Default::default(),
         };
 
         assert_eq!(
@@ -344,9 +331,9 @@ mod test {
         let frame = super::RawJSFrame {
             location: None,
             source_url: Some("http://example.com/path/to/file.js".to_string()),
-            in_app: true,
             fn_name: "main".to_string(),
             chunk_id: None,
+            meta: Default::default(),
         };
 
         assert_eq!(

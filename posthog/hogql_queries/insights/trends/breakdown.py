@@ -1,19 +1,9 @@
 import json
 from typing import Union, cast
 
-import sentry_sdk
-
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import get_properties_chain
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
+    Breakdown as BreakdownSchema,
     BreakdownFilter,
     BreakdownType,
     DataWarehouseNode,
@@ -23,9 +13,17 @@ from posthog.schema import (
     MultipleBreakdownType,
     TrendsQuery,
 )
-from posthog.schema import (
-    Breakdown as BreakdownSchema,
-)
+
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
+from posthog.hogql_queries.insights.trends.utils import get_properties_chain
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.team.team import Team
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
@@ -64,9 +62,6 @@ class Breakdown:
         self.timings = timings
         self.modifiers = modifiers
         self.limit_context = limit_context
-
-        if self.enabled:
-            sentry_sdk.set_tag("breakdown_enabled", True)
 
     @property
     def enabled(self) -> bool:
@@ -227,7 +222,7 @@ class Breakdown:
                     cast(list[BreakdownSchema], self._breakdown_filter.breakdowns), lookup_values
                 ):
                     actors_filter = self._get_actors_query_where_expr(
-                        breakdown_value=breakdown.property,
+                        breakdown_value=str(breakdown.property),
                         breakdown_type=breakdown.type,
                         normalize_url=breakdown.normalize_url,
                         lookup_value=str(
@@ -299,7 +294,7 @@ class Breakdown:
                     ast.CompareOperation(
                         left=self.get_replace_null_values_transform(left),
                         op=ast.CompareOperationOp.Eq,
-                        right=ast.Constant(value=""),
+                        right=ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
                     ),
                 ]
             )

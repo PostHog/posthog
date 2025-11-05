@@ -137,7 +137,7 @@ impl SingleTopicConsumer {
                     let was_err = result.is_err();
                     results.push(result);
                     if was_err {
-                        break; // Early exit on error, since it might indicate a kafka error or something
+                        break; // Early exit on error, since it might indicate a kafka error or somethingz
                     }
                 }
             } => {}

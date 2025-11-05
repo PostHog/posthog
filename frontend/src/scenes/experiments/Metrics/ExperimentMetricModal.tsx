@@ -1,115 +1,80 @@
-import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useCallback } from 'react'
 
-import { ExperimentMetric } from '~/queries/schema/schema-general'
-import { Experiment } from '~/types'
+import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
-import { experimentLogic } from '../experimentLogic'
+import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
+import type { Experiment } from '~/types'
+
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
+import { modalsLogic } from '../modalsLogic'
+import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
 
 export function ExperimentMetricModal({
-    experimentId,
-    isSecondary,
+    experiment,
+    exposureCriteria,
+    onSave,
+    onDelete,
 }: {
-    experimentId: Experiment['id']
-    isSecondary?: boolean
-}): JSX.Element {
-    const {
-        experiment,
-        experimentLoading,
-        isPrimaryMetricModalOpen,
-        isSecondaryMetricModalOpen,
-        editingPrimaryMetricIndex,
-        editingSecondaryMetricIndex,
-    } = useValues(experimentLogic({ experimentId }))
-    const {
-        setMetric,
-        updateExperimentMetrics,
-        setExperiment,
-        closePrimaryMetricModal,
-        closeSecondaryMetricModal,
-        restoreUnmodifiedExperiment,
-    } = useActions(experimentLogic({ experimentId }))
+    experiment: Experiment
+    exposureCriteria: ExperimentExposureCriteria | undefined
+    onSave: (metric: ExperimentMetric, context: MetricContext) => void
+    onDelete: (metric: ExperimentMetric, context: MetricContext) => void
+}): JSX.Element | null {
+    const { isModalOpen, metric, context, isCreateMode, isEditMode } = useValues(experimentMetricModalLogic)
+    const { closeExperimentMetricModal, setMetric: setModalMetric } = useActions(experimentMetricModalLogic)
+    const { openExposureCriteriaModal } = useActions(modalsLogic)
 
-    const metricIdx = isSecondary ? editingSecondaryMetricIndex : editingPrimaryMetricIndex
-    const metricsField = isSecondary ? 'metrics_secondary' : 'metrics'
-
-    const handleSetMetric = useCallback(
-        (newMetric: ExperimentMetric): void => {
-            if (metricIdx == null) {
-                return
-            }
-            setMetric({ metricIdx, metric: newMetric, isSecondary })
-        },
-        [metricIdx, isSecondary, setMetric]
-    )
-
-    if (metricIdx == null) {
-        return <></>
-    }
-
-    const metrics = experiment[metricsField]
-    const metric = metrics[metricIdx] as ExperimentMetric
-
-    const onClose = (): void => {
-        restoreUnmodifiedExperiment()
-        isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
+    if (!isModalOpen || !metric) {
+        return null
     }
 
     return (
         <LemonModal
-            isOpen={isSecondary ? isSecondaryMetricModalOpen : isPrimaryMetricModalOpen}
-            onClose={onClose}
-            width={1000}
-            title="Edit experiment metric"
+            isOpen={isModalOpen}
+            onClose={closeExperimentMetricModal}
+            title={isCreateMode ? 'Create experiment metric' : 'Edit experiment metric'}
             footer={
                 <div className="flex items-center w-full">
-                    <LemonButton
-                        type="secondary"
-                        status="danger"
-                        onClick={() => {
-                            LemonDialog.open({
-                                title: 'Delete this metric?',
-                                content: <div className="text-sm text-muted">This action cannot be undone.</div>,
-                                primaryButton: {
-                                    children: 'Delete',
-                                    type: 'primary',
-                                    onClick: () => {
-                                        const newMetrics = metrics.filter((_, idx) => idx !== metricIdx)
-                                        setExperiment({
-                                            [metricsField]: newMetrics,
-                                        })
-                                        updateExperimentMetrics()
-                                        isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
+                    {isEditMode && (
+                        <LemonButton
+                            type="secondary"
+                            status="danger"
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Delete this metric?',
+                                    content: <div className="text-sm text-muted">This action cannot be undone.</div>,
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        type: 'primary',
+                                        onClick: () => onDelete(metric, context),
+                                        size: 'small',
                                     },
-                                    size: 'small',
-                                },
-                                secondaryButton: {
-                                    children: 'Cancel',
-                                    type: 'tertiary',
-                                    size: 'small',
-                                },
-                            })
-                        }}
-                    >
-                        Delete
-                    </LemonButton>
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'tertiary',
+                                        size: 'small',
+                                    },
+                                })
+                            }}
+                        >
+                            Delete
+                        </LemonButton>
+                    )}
                     <div className="flex items-center gap-2 ml-auto">
-                        <LemonButton form="edit-experiment-metric-form" type="secondary" onClick={onClose}>
+                        <LemonButton
+                            form="edit-experiment-metric-form"
+                            type="secondary"
+                            onClick={closeExperimentMetricModal}
+                        >
                             Cancel
                         </LemonButton>
                         <LemonButton
                             form="edit-experiment-metric-form"
-                            onClick={() => {
-                                updateExperimentMetrics()
-                                isSecondary ? closeSecondaryMetricModal() : closePrimaryMetricModal()
-                            }}
+                            onClick={() => onSave(metric, context)}
                             type="primary"
-                            loading={experimentLoading}
                             data-attr="save-experiment-metric"
                         >
-                            Save
+                            {isCreateMode ? 'Create' : 'Save'}
                         </LemonButton>
                     </div>
                 </div>
@@ -120,21 +85,19 @@ export function ExperimentMetricModal({
                 <LemonInput
                     value={metric.name}
                     onChange={(newName) => {
-                        setMetric({
-                            metricIdx,
-                            metric: {
-                                ...metric,
-                                name: newName,
-                            },
-                            isSecondary,
+                        setModalMetric({
+                            ...metric,
+                            name: newName,
                         })
                     }}
                 />
             </div>
             <ExperimentMetricForm
                 metric={metric}
-                handleSetMetric={handleSetMetric}
+                handleSetMetric={setModalMetric}
                 filterTestAccounts={experiment.exposure_criteria?.filterTestAccounts || false}
+                exposureCriteria={exposureCriteria}
+                openExposureCriteriaModal={openExposureCriteriaModal}
             />
         </LemonModal>
     )

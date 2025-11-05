@@ -1,8 +1,11 @@
 from abc import ABCMeta, abstractmethod
 from typing import Any, Optional, Union
 
+from posthog.schema import PersonsOnEventsMode
+
+from posthog.hogql.database.database import Database
+
 from posthog.clickhouse.materialized_columns import ColumnName
-from posthog.hogql.database.database import create_hogql_database
 from posthog.models import Cohort, Filter, Property
 from posthog.models.cohort.util import is_precalculated_query
 from posthog.models.filters import AnyFilter
@@ -20,7 +23,6 @@ from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
-from posthog.schema import PersonsOnEventsMode
 from posthog.session_recordings.queries.session_query import SessionQuery
 
 
@@ -93,7 +95,7 @@ class EventQuery(metaclass=ABCMeta):
         self._filter.hogql_context.modifiers.personsOnEventsMode = self._person_on_events_mode
 
         # Recreate the database with the legacy-alised PoE mode
-        self._filter.hogql_context.database = create_hogql_database(
+        self._filter.hogql_context.database = Database.create_for(
             team=self._team, modifiers=self._filter.hogql_context.modifiers
         )
 

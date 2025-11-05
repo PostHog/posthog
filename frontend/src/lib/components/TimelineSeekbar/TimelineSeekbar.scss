@@ -25,8 +25,8 @@
     font-size: 0.75rem;
     font-weight: 500;
     line-height: 1.25rem;
-    color: var(--bg-surface-primary);
-    background: var(--accent);
+    color: var(--color-bg-surface-primary);
+    background: var(--color-accent);
     border-radius: var(--radius);
 
     &::selection {
@@ -65,7 +65,7 @@
     left: calc(var(--timeline-seekbar-section-progress-current) - var(--timeline-seekbar-thickness));
     width: var(--timeline-seekbar-section-progress-next);
     cursor: pointer;
-    border-left: var(--timeline-seekbar-thickness) solid var(--bg-surface-primary);
+    border-left: var(--timeline-seekbar-thickness) solid var(--color-bg-surface-primary);
 
     &:last-child {
         width: calc(var(--timeline-seekbar-section-progress-next) + 1.25rem);
@@ -78,7 +78,7 @@
     left: 0;
     width: calc(100% - var(--timeline-seekbar-arrow-width));
     height: var(--timeline-seekbar-thickness);
-    background: var(--accent);
+    background: var(--color-accent);
 }
 
 .TimelineSeekbar__line-start,
@@ -92,7 +92,7 @@
         height: var(--timeline-seekbar-arrow-height);
         margin: calc(var(--timeline-seekbar-thickness) + 0.125rem) 0;
         content: '';
-        background: var(--accent);
+        background: var(--color-accent);
     }
 }
 

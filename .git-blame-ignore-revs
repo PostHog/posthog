@@ -1,0 +1,3 @@
+c63bcb7a5763ec8ef05a0b59c922469b57e649a0 # bumped prettier and kea-typegen
+90175d065868ca42aa6471bc2b4356ac415c986e # added prettier-plugin-sort-imports (sort frontend imports)
+1e3813a2f8d762893687946400f90fe96c555742 # added isort (sort backend imports)

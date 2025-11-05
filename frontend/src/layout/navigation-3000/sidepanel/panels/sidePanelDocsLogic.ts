@@ -1,7 +1,12 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 import { RefObject } from 'react'
+
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { ProductKey } from '~/types'
 
 import { sidePanelStateLogic } from '../sidePanelStateLogic'
 import type { sidePanelDocsLogicType } from './sidePanelDocsLogicType'
@@ -17,7 +22,7 @@ export const getPathFromUrl = (urlOrPath: string): string => {
     try {
         const url = new URL(urlOrPath)
         return url.pathname + url.search + url.hash
-    } catch (e) {
+    } catch {
         return urlOrPath
     }
 }
@@ -35,7 +40,12 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelDocsLogic']),
     props({} as SidePanelDocsLogicProps),
     connect(() => ({
-        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions']],
+        actions: [
+            sidePanelStateLogic,
+            ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions'],
+            teamLogic,
+            ['addProductIntent'],
+        ],
         values: [sceneLogic, ['sceneConfig'], sidePanelStateLogic, ['selectedTabOptions']],
     })),
 
@@ -131,21 +141,22 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
 
         updatePath: ({ path }) => {
             actions.setSidePanelOptions(path)
+
+            if (path && path.includes('/docs/llm-analytics')) {
+                actions.addProductIntent({
+                    product_type: ProductKey.LLM_ANALYTICS,
+                    intent_context: ProductIntentContext.LLM_ANALYTICS_DOCS_VIEWED,
+                    metadata: {
+                        docs_path: path,
+                    },
+                })
+            }
         },
     })),
 
-    afterMount(({ actions, values, cache }) => {
-        // If a destination was set in the options, use that
-        // otherwise the default for the current scene
-        // otherwise, whatever it last was set to
-        if (values.selectedTabOptions) {
-            const initialPath = getPathFromUrl(values.selectedTabOptions)
-            actions.setInitialPath(initialPath)
-        } else if (values.sceneConfig?.defaultDocsPath) {
-            actions.setInitialPath(values.sceneConfig?.defaultDocsPath)
-        }
-
-        cache.onWindowMessage = (event: MessageEvent): void => {
+    afterMount(async ({ actions, values, cache }) => {
+        // Set message receiver for the iframe very early on the `afterMount` hook
+        const onWindowMessage = (event: MessageEvent): void => {
             if (event.origin === POSTHOG_WEBSITE_ORIGIN) {
                 if (event.data.type === 'internal-navigation') {
                     actions.updatePath(event.data.url)
@@ -175,12 +186,29 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
             }
         }
 
-        window.addEventListener('message', cache.onWindowMessage)
+        cache.disposables.add(() => {
+            window.addEventListener('message', onWindowMessage)
+            return () => window.removeEventListener('message', onWindowMessage)
+        }, 'windowMessageListener')
+
+        // After that's set up can run stuff that's slower - such as await-ing the default docs path
+        //
+        // If a destination was set in the options, use that
+        // otherwise the default for the current scene
+        // otherwise, whatever it last was set to
+        if (values.selectedTabOptions) {
+            const initialPath = getPathFromUrl(values.selectedTabOptions)
+            actions.setInitialPath(initialPath)
+        } else if (values.sceneConfig?.defaultDocsPath) {
+            const docsPath =
+                typeof values.sceneConfig?.defaultDocsPath === 'function'
+                    ? await values.sceneConfig?.defaultDocsPath()
+                    : values.sceneConfig?.defaultDocsPath
+            actions.setInitialPath(docsPath)
+        }
     }),
 
-    beforeUnmount(({ actions, values, cache }) => {
+    beforeUnmount(({ actions, values }) => {
         actions.setInitialPath(values.currentPath ?? '/docs')
-
-        window.removeEventListener('message', cache.onWindowMessage)
     }),
 ])

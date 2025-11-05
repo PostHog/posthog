@@ -18,7 +18,7 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
 
             - uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
               with:
@@ -61,7 +61,7 @@ jobs:
                   kubectl -n $NAMESPACE delete -f .github/pr-deploy/hobby.yaml || true
 
             - name: delete deployment
-              uses: bobheadxi/deployments@88ce5600046c82542f8246ac287d0a53c461bca3 # v1.4.0
+              uses: bobheadxi/deployments@648679e8e4915b27893bd7dbc35cb504dc915bc8 # v1.5.0
               id: deployment
               with:
                   step: deactivate-env

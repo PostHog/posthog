@@ -1,5 +1,5 @@
 ---
-description: 
+description: Rules for writing Python services at PostHog (Python servers powered by the Django framework)
 globs: *.py
 alwaysApply: false
 ---
@@ -49,7 +49,7 @@ Performance Optimization
 
 Logging
   - As a general rule, we should have logs for every expected and unexpected actions of the application, using the appropriate log level.
-  - We should also be logging these exceptions to Sentry with the Sentry Python SDK. Python exceptions should almost always be captured automatically without extra instrumentation, but custom ones (such as failed requests to external services, query errors, or Celery task failures) can be tracked using capture_exception().
+  - We should also be logging these exceptions to error tracking with the PostHog Python SDK. Python exceptions should almost always be captured automatically without extra instrumentation, but custom ones (such as failed requests to external services, query errors, or Celery task failures) can be tracked using capture_exception().
 
 Log Levels
   - A log level or log severity is a piece of information telling how important a given log message is:
@@ -91,6 +91,7 @@ Testing
   - All new packages and most new significant functionality should come with unit tests
   - Significant features should come with integration and/or end-to-end tests
   - Analytics-related queries should be covered by snapshot tests for ease of reviewing
+  - Always consider if you can simplify a test by using the `parameterized.expand` decorator
 
 Unit tests
   - A good unit test should:

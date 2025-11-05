@@ -1,31 +1,33 @@
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { useRef } from 'react'
+
 import { IconBug, IconInfo, IconQuestion } from '@posthog/icons'
 import {
     LemonBanner,
     LemonInput,
     LemonSegmentedButton,
     LemonSegmentedButtonOption,
-    lemonToast,
     Link,
     Tooltip,
+    lemonToast,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
+
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { IconFeedback } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { useRef } from 'react'
+import { IconFeedback } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
     SEVERITY_LEVEL_TO_NAME,
     SUPPORT_TICKET_TEMPLATES,
-    supportLogic,
     SupportTicketKind,
     TARGET_AREA_TO_NAME,
+    supportLogic,
 } from './supportLogic'
 
 const SUPPORT_TICKET_OPTIONS: LemonSegmentedButtonOption<SupportTicketKind>[] = [
@@ -61,6 +63,24 @@ export function SupportForm(): JSX.Element | null {
     // only allow authentication issues for logged out users
 
     const dropRef = useRef<HTMLDivElement>(null)
+
+    const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>): void => {
+        const items = e.clipboardData?.items
+        if (!items) {
+            return
+        }
+
+        // Convert DataTransferItemList to array for iteration
+        const itemsArray = Array.from(items)
+        for (const item of itemsArray) {
+            if (item.type.startsWith('image/')) {
+                const file = item.getAsFile()
+                if (file) {
+                    setFilesToUpload([...filesToUpload, file])
+                }
+            }
+        }
+    }
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url, fileName) => {
@@ -123,7 +143,7 @@ export function SupportForm(): JSX.Element | null {
                 label={sendSupportRequest.kind ? SUPPORT_TICKET_KIND_TO_PROMPT[sendSupportRequest.kind] : 'Content'}
             >
                 {(props) => (
-                    <div ref={dropRef} className="flex flex-col gap-2">
+                    <div ref={dropRef} className="flex flex-col gap-2" onPaste={handlePaste}>
                         <LemonTextArea
                             placeholder={SUPPORT_TICKET_TEMPLATES[sendSupportRequest.kind] ?? 'Type your message here'}
                             data-attr="support-form-content-input"
@@ -153,7 +173,11 @@ export function SupportForm(): JSX.Element | null {
                             </span>
                         </Tooltip>
                     </label>
-                    <Link target="_blank" to="https://posthog.com/docs/support-options#severity-levels">
+                    <Link
+                        target="_blank"
+                        disableDocsPanel
+                        to="https://posthog.com/docs/support-options#severity-levels"
+                    >
                         Definitions
                     </Link>
                 </div>

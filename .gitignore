@@ -1,29 +1,24 @@
-!.vscode/launch.json
 __emails__
 __pycache__/
 # Local files generated for the ANTLR VS Code extension (https://github.com/mike-lischke/vscode-antlr4)
 .antlr
 .coverage
-# Assistant Evaluation with Deepeval
-.deepeval
-.deepeval_telemtry.txt
-.deepeval_telemetry.txt
-.deepeval-cache.json
 .dlt
 .dmypy.json
 .DS_Store
-.env
+.env*
 .eslintcache
 .idea
 .mypy_cache
 .parcel-cache
 # pyenv local config
 .python-version
-.temp-deepeval-cache.json
 .temporal-worker-settings
 .turbo
 .venv
 .vscode/*
+!.vscode/launch.json
+!.vscode/settings.example.json
 .wokeignore
 .yalc
 *-esbuild-bundle-visualization.html
@@ -37,6 +32,7 @@ __pycache__/
 *.swp
 **/*.tsbuildinfo
 *Type.ts
+CLAUDE.local.md
 /env
 /playwright-report/
 /test-results/
@@ -49,9 +45,6 @@ common/hogvm/typescript/dist
 common/plugin_transpiler/dist
 common/tailwind/dist
 coverage-*.xml
-cypress/**/*.diff.png
-cypress/downloads/
-cypress/screenshots/
 debug.log
 docker-compose.prod.yml
 ee/benchmarks/results
@@ -68,6 +61,10 @@ frontend/pnpm-error.log
 frontend/public/Matter*.woff* # Paid font
 frontend/tmp
 frontend/types/
+frontend/src/products.tsx
+# Vite-specific assets (we copy public assets to src/assets) just for development
+frontend/src/assets
+.typegen
 # ANTLR-generated temp files when "npm run grammar:build" crashes
 gen/
 max-test-venv/
@@ -100,6 +97,30 @@ playwright/test-results/
 
 .dagster_home/*
 !.dagster_home/.gitkeep
+!.dagster_home/workspace.yaml
+!.dagster_home/dagster.yaml
+.tmp_dagster_home*/*
 
 # Dist release target dir
 target/*
+
+# Ignore user's Cursor rules
+.cursor/**/user*.mdc
+
+# Ignore file for clearing demo data on local
+posthog/management/commands/clear_demo_data.py
+
+# Ignore Claude Code settings
+.claude/settings.local.json
+
+# Ignore local mprocs configs
+bin/mprocs*.local.yaml
+
+# Debug output of our session summaries product
+.session-summaries
+
+# Claude Code review outputs
+CODE_REVIEW.md
+CODE_DEBUGGING_SESSION.md
+
+data/seaweedfs

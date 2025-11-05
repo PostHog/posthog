@@ -1,7 +1,8 @@
 import { router } from 'kea-router'
+import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
 import { urls } from 'scenes/urls'
 
 import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
@@ -41,9 +42,9 @@ export async function addRecordingToPlaylist(
 ): Promise<void> {
     await api.recordings.addRecordingToPlaylist(playlistId, sessionRecordingId)
     if (!silent) {
-        lemonToast.success('Recording added to playlist', {
+        lemonToast.success('Recording added to collection', {
             button: {
-                label: 'View playlist',
+                label: 'View collection',
                 action: () => router.actions.push(urls.replayPlaylist(playlistId)),
             },
         })
@@ -57,7 +58,7 @@ export async function removeRecordingFromPlaylist(
 ): Promise<void> {
     await api.recordings.removeRecordingFromPlaylist(playlistId, sessionRecordingId)
     if (!silent) {
-        lemonToast.success('Recording removed from playlist')
+        lemonToast.success('Recording removed from collection')
     }
 }
 

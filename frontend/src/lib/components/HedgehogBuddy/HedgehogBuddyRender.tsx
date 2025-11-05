@@ -27,11 +27,13 @@ export function HedgehogBuddyStatic({
             }}
         >
             <div
-                className="object-cover absolute inset-0 rendering-pixelated size-[400%] bg-cover"
+                className="object-cover absolute inset-0 rendering-pixelated bg-cover"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     filter: filter as any,
                     backgroundImage: `url(${spriteUrl(skin, 'wave')})`,
+                    width: skin === 'robohog' ? '300%' : '400%', // RoboHog sprite is 3 tiles tall, while others are 4
+                    height: skin === 'robohog' ? '300%' : '400%',
                 }}
             />
 

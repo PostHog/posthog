@@ -1,9 +1,10 @@
-import { toMatchImageSnapshot } from 'jest-image-snapshot'
-import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
-import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
-import type { Mocks } from '~/mocks/utils'
+import type { Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
 import { StoryContext } from '@storybook/csf'
+import { TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
+import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import path from 'path'
+
+import type { Mocks } from '~/mocks/utils'
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
@@ -25,6 +26,12 @@ declare module '@storybook/types' {
             waitForLoadersToDisappear?: boolean
             /** If set, we'll wait for the given selector (or all selectors, if multiple) to be satisfied. */
             waitForSelector?: string | string[]
+            /**
+             * By default we wait for images to have width as an indication the page is ready for screenshot testing
+             * Some stories have broken images on purpose to test what the UI does
+             * in those cases set `allowImagesWithoutWidth` to `true`
+             */
+            allowImagesWithoutWidth?: boolean
             /**
              * Whether navigation should be included in the snapshot. Only applies to `layout: 'fullscreen'` stories.
              * @default false
@@ -62,10 +69,12 @@ const LOADER_SELECTORS = [
     '[aria-busy="true"]',
     '.SessionRecordingPlayer--buffering',
     '.Lettermark--unknown',
+    '[data-attr="loading-bar"]',
 ]
 
 const customSnapshotsDir = path.resolve(__dirname, '../../../frontend/__snapshots__')
-console.log("[test-runner] Storybook snapshots will be saved to", customSnapshotsDir)
+// eslint-disable-next-line no-console
+console.log('[test-runner] Storybook snapshots will be saved to', customSnapshotsDir)
 
 const JEST_TIMEOUT_MS = 15000
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
@@ -91,6 +100,7 @@ module.exports = {
         const viewport = storyContext.parameters?.testOptions?.viewport || DEFAULT_VIEWPORT
 
         await page.evaluate(
+            // eslint-disable-next-line no-console
             ([retry, id]) => console.log(`[${id}] Attempt ${retry}`),
             [ATTEMPT_COUNT_PER_ID[context.id], context.id]
         )
@@ -112,7 +122,7 @@ module.exports = {
         }
     },
     tags: {
-        skip: ['test-skip'], // NOTE: This is overridden by the CI action storybook-chromatic.yml to include browser specific skipping
+        skip: ['test-skip'], // NOTE: This is overridden by the CI action ci-storybook.yml to include browser specific skipping
     },
 } as TestRunnerConfig
 
@@ -123,16 +133,50 @@ async function expectStoryToMatchSnapshot(
     browser: SupportedBrowserName
 ): Promise<void> {
     await waitForPageReady(page)
+
+    // set up iframe load tracking early, before they start loading
+    await page.evaluate(() => {
+        // use MutationObserver to catch iframes as they're added to the DOM
+        const trackIframeLoad = (iframe: HTMLIFrameElement): void => {
+            if (!iframe.hasAttribute('data-load-tracked')) {
+                iframe.setAttribute('data-load-tracked', 'loading')
+                iframe.addEventListener(
+                    'load',
+                    () => {
+                        iframe.setAttribute('data-load-tracked', 'loaded')
+                    },
+                    { once: true }
+                )
+            }
+        }
+
+        // track existing iframes
+        document.querySelectorAll('iframe').forEach(trackIframeLoad)
+
+        // track future iframes
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                mutation.addedNodes.forEach((node) => {
+                    if (node instanceof HTMLIFrameElement) {
+                        trackIframeLoad(node)
+                    }
+                    if (node instanceof Element) {
+                        node.querySelectorAll('iframe').forEach(trackIframeLoad)
+                    }
+                })
+            })
+        })
+        observer.observe(document.body, { childList: true, subtree: true })
+        ;(window as Window & { __iframeObserver?: MutationObserver }).__iframeObserver = observer
+    })
+
     await page.evaluate((layout: string) => {
         // Stop all animations for consistent snapshots, and adjust other styles
         document.body.classList.add('storybook-test-runner')
         document.body.classList.add(`storybook-test-runner--${layout}`)
     }, storyContext.parameters?.layout || 'padded')
 
-    const {
-        waitForLoadersToDisappear = true,
-        waitForSelector,
-    } = storyContext.parameters?.testOptions ?? {}
+    const { waitForLoadersToDisappear = true, waitForSelector } = storyContext.parameters?.testOptions ?? {}
 
     if (waitForLoadersToDisappear) {
         // The timeout is reduced so that we never allow toasts – they usually signify something wrong
@@ -150,21 +194,123 @@ async function expectStoryToMatchSnapshot(
     await takeSnapshotWithTheme(page, context, browser, 'dark', storyContext)
 }
 
+async function takeSnapshotWithTheme(
+    page: Page,
+    context: TestContext,
+    browser: SupportedBrowserName,
+    theme: SnapshotTheme,
+    storyContext: StoryContext
+): Promise<void> {
+    const { allowImagesWithoutWidth = false } = storyContext.parameters?.testOptions ?? {}
 
-async function takeSnapshotWithTheme(page: Page, context: TestContext, browser: SupportedBrowserName, theme: SnapshotTheme, storyContext: StoryContext) {
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
 
     // Wait until we're sure we've finished loading everything
     await waitForPageReady(page)
-    await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
-    await page.waitForTimeout(2000)
+    // check if all images have width, unless purposefully skipped
+    if (!allowImagesWithoutWidth) {
+        await page.waitForFunction(() => {
+            const allImages = Array.from(document.images)
+            const areAllImagesLoaded = allImages.every(
+                // ProseMirror-separator isn't an actual image of any sort, so we ignore those
+                (i: HTMLImageElement) => !!i.naturalWidth || i.classList.contains('ProseMirror-separator')
+            )
+            if (areAllImagesLoaded) {
+                // Hide gifs to prevent their animations causing flakiness
+                for (const image of allImages) {
+                    if (image.src.endsWith('.gif')) {
+                        image.style.visibility = 'hidden'
+                        image.style.background = 'red'
+                    }
+                }
+            }
+            return areAllImagesLoaded
+        })
+    }
+
+    // wait for iframes to load their content
+    const iframeCount = await page.locator('iframe').count()
+    if (iframeCount > 0) {
+        await page
+            .waitForFunction(
+                () => {
+                    const iframes = Array.from(document.querySelectorAll('iframe'))
+                    return iframes.every((iframe) => iframe.getAttribute('data-load-tracked') === 'loaded')
+                },
+                { timeout: 8000 }
+            )
+            .catch(() => {
+                // if timeout, that's okay - some iframes might not fire load events
+            })
+        // give iframe content a moment to render after load event
+        await page.waitForTimeout(1000)
+    }
+
+    // reset scroll positions to ensure consistent snapshots
+    await page.evaluate(() => {
+        // scroll main viewport to top
+        window.scrollTo(0, 0)
+        // scroll all overflow containers to top
+        document.querySelectorAll('.overflow-auto, .overflow-y-auto, .overflow-x-auto').forEach((el) => {
+            if (el instanceof HTMLElement) {
+                el.scrollTop = 0
+                el.scrollLeft = 0
+            }
+        })
+    })
+
+    // wait for content to stabilize - detects when DOM stops changing
+    await page
+        .waitForFunction(
+            () => {
+                return new Promise<boolean>((resolve) => {
+                    let lastHeight = document.body.scrollHeight
+                    let lastWidth = document.body.scrollWidth
+                    let stableCount = 0
+
+                    const checkStability = (): void => {
+                        const currentHeight = document.body.scrollHeight
+                        const currentWidth = document.body.scrollWidth
+
+                        if (currentHeight === lastHeight && currentWidth === lastWidth) {
+                            stableCount++
+                            if (stableCount >= 3) {
+                                resolve(true)
+                                return
+                            }
+                        } else {
+                            stableCount = 0
+                            lastHeight = currentHeight
+                            lastWidth = currentWidth
+                        }
+
+                        setTimeout(checkStability, 100)
+                    }
+
+                    checkStability()
+                })
+            },
+            { timeout: 3000 }
+        )
+        .catch(() => {
+            // if content keeps changing, that's okay - we'll proceed anyway
+        })
+
+    // final wait for any remaining renders
+    await page.waitForTimeout(1000)
 
     // Do take the snapshot
     await doTakeSnapshotWithTheme(page, context, browser, theme, storyContext)
 }
 
-async function doTakeSnapshotWithTheme(page: Page, context: TestContext, browser: SupportedBrowserName, theme: SnapshotTheme, storyContext: StoryContext) {
+async function doTakeSnapshotWithTheme(
+    page: Page,
+    context: TestContext,
+    browser: SupportedBrowserName,
+    theme: SnapshotTheme,
+    storyContext: StoryContext
+): Promise<void> {
     const { includeNavigationInSnapshot = false, snapshotTargetSelector } = storyContext.parameters?.testOptions ?? {}
 
     // Figure out what's the right check function depending on the parameters
@@ -184,7 +330,7 @@ async function doTakeSnapshotWithTheme(page: Page, context: TestContext, browser
     } else {
         check = expectStoryToMatchComponentSnapshot
     }
-    
+
     await check(page, context, browser, theme, snapshotTargetSelector)
 }
 

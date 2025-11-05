@@ -1,34 +1,36 @@
 from datetime import datetime
-from freezegun import freeze_time
 from pathlib import Path
 
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from freezegun import freeze_time
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+
+from django.test import override_settings
+
 from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
-    DateRange,
-    DataWarehouseNode,
     DataWarehouseEventsModifier,
-    TrendsQuery,
+    DataWarehouseNode,
+    DataWarehousePersonPropertyFilter,
+    DateRange,
+    EventsNode,
+    PropertyOperator,
     TrendsFilter,
+    TrendsQuery,
 )
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.test.base import BaseTest, _create_event
-from posthog.warehouse.models import DataWarehouseJoin
-from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 
-from posthog.test.base import (
-    ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
-)
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
-    clean_entity_properties,
-)
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import clean_entity_properties
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+
+from products.data_warehouse.backend.models import DataWarehouseJoin
+from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 
@@ -85,10 +87,10 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             csv_path=Path(__file__).parent / "data" / "trends_data.csv",
             table_name="test_table_1",
             table_columns={
-                "id": "String",
-                "created": "DateTime64(3, 'UTC')",
-                "prop_1": "String",
-                "prop_2": "String",
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "prop_1": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "prop_2": {"clickhouse": "String", "hogql": "StringDatabaseField"},
             },
             test_bucket=TEST_BUCKET,
             team=self.team,
@@ -148,7 +150,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
 
     def _avg_view_setup(self, function_name: str):
-        from posthog.warehouse.models import DataWarehouseSavedQuery
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
         table_name = self.setup_data_warehouse()
 
@@ -374,7 +376,7 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_trends_breakdown_on_view(self):
-        from posthog.warehouse.models import DataWarehouseSavedQuery
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
         table_name = self.setup_data_warehouse()
 
@@ -404,6 +406,48 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
                     id_field="id",
                     distinct_id_field="customer_email",
                     timestamp_field="created",
+                )
+            ],
+            breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_2"),
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+        assert len(response.results) == 4
+
+    @snapshot_clickhouse_queries
+    def test_trends_breakdown_on_view_with_date_timestamp(self):
+        from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
+        table_name = self.setup_data_warehouse()
+
+        # Define a `timestamp` field as a `date`
+        query = f"""\
+          select
+            id as id,
+            toDate(created) as timestamp,
+            prop_1 as prop_2,
+            true as boolfield
+          from {table_name}
+        """
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="saved_view",
+            query={"query": query, "kind": "HogQLQuery"},
+        )
+        saved_query.columns = saved_query.get_columns()
+        saved_query.save()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id="saved_view",
+                    table_name="saved_view",
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field="timestamp",
                 )
             ],
             breakdownFilter=BreakdownFilter(breakdown_type=BreakdownType.DATA_WAREHOUSE, breakdown="prop_2"),
@@ -522,3 +566,117 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         # Should only match the row where both prop_1='a' AND prop_2='e'
         assert response.results[0][1] == [1, 0, 0, 0, 0, 0, 0]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @snapshot_clickhouse_queries
+    def test_trends_data_warehouse_all_time(self):
+        table_name = self.setup_data_warehouse()
+
+        # Create an event before the first data warehouse row
+        # This tests that the query uses the earliest timestamp from the data warehouse not the events
+        # when no EventsNode is present in the series
+        _create_event(
+            distinct_id="1",
+            event="$pageview",
+            timestamp="2020-01-01 00:00:00",
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="all"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                )
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        self.assertEqual(1, len(response.results))
+
+        self.assertEqual("2023-01-01", response.results[0]["days"][0])
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @snapshot_clickhouse_queries
+    def test_trends_events_and_data_warehouse_all_time(self):
+        table_name = self.setup_data_warehouse()
+
+        # Create an event before the first data warehouse row
+        # This tests that the query uses the minimum earliest timestamp when multiple series are present
+        _create_event(
+            distinct_id="1",
+            event="$pageview",
+            timestamp="2022-12-01 00:00:00",
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="all"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="customer_email",
+                    timestamp_field="created",
+                ),
+                EventsNode(
+                    event="$pageview",
+                ),
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        self.assertEqual(2, len(response.results))
+
+        self.assertEqual("2022-12-01", response.results[0]["days"][0])
+        self.assertEqual("2022-12-01", response.results[1]["days"][0])
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @snapshot_clickhouse_queries
+    def test_trends_events_filtering_on_warehouse_person_property(self):
+        table_name = self.setup_data_warehouse()
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=table_name,
+            joining_table_key="prop_1",
+            field_name=table_name,
+        )
+
+        _create_event(
+            distinct_id="1",
+            event="$pageview",
+            timestamp="2022-12-01 00:00:00",
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="all"),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        DataWarehousePersonPropertyFilter(
+                            key=f"{table_name}.id", operator=PropertyOperator.EXACT, value=["false"]
+                        )
+                    ],
+                ),
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            TrendsQueryRunner(team=self.team, query=trends_query).calculate()

@@ -7,7 +7,6 @@ use strum::Display;
 use tokio::sync::RwLock;
 use tokio::task;
 use tokio::time::interval;
-use tracing::instrument;
 
 /// Limit resources by checking if a value is present in Redis
 ///
@@ -32,20 +31,21 @@ use tracing::instrument;
 ///
 /// Some small delay between an account being limited and the limit taking effect is acceptable.
 /// However, ideally we should not allow requests from some pods but 429 from others.
-
 // todo: fetch from env
 // due to historical reasons we use different suffixes for quota limits and overflow
 // hopefully we can unify these in the future
 pub const QUOTA_LIMITER_CACHE_KEY: &str = "@posthog/quota-limits/";
 pub const OVERFLOW_LIMITER_CACHE_KEY: &str = "@posthog/capture-overflow/";
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum QuotaResource {
     Events,
     Exceptions,
     Recordings,
     Replay,
     FeatureFlags,
+    Surveys,
+    LLMEvents,
 }
 
 impl QuotaResource {
@@ -56,12 +56,15 @@ impl QuotaResource {
             Self::Recordings => "recordings",
             Self::Replay => "replay",
             Self::FeatureFlags => "feature_flag_requests",
+            Self::Surveys => "survey_responses",
+            Self::LLMEvents => "llm_events",
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Display)]
 pub enum ServiceName {
+    SessionReplay,
     FeatureFlags,
     Capture,
     Cymbal,
@@ -70,6 +73,7 @@ pub enum ServiceName {
 impl ServiceName {
     pub fn as_string(&self) -> String {
         match self {
+            ServiceName::SessionReplay => "session_replay".to_string(),
             ServiceName::FeatureFlags => "feature_flags".to_string(),
             ServiceName::Capture => "capture".to_string(),
             ServiceName::Cymbal => "cymbal".to_string(),
@@ -144,7 +148,7 @@ impl RedisLimiter {
                         *limited_lock = set;
                     }
                     Err(e) => {
-                        tracing::error!("Failed to update cache from Redis: {:?}", e);
+                        tracing::warn!("Failed to update cache from Redis: {:?}", e);
                     }
                 }
 
@@ -153,7 +157,6 @@ impl RedisLimiter {
         });
     }
 
-    #[instrument(skip_all)]
     async fn fetch_limited(
         client: &Arc<dyn Client + Send + Sync>,
         key: &String,
@@ -164,7 +167,6 @@ impl RedisLimiter {
             .await
     }
 
-    #[instrument(skip_all, fields(value = value))]
     pub async fn is_limited(&self, value: &str) -> bool {
         let limited = self.limited.read().await;
         limited.contains(value)

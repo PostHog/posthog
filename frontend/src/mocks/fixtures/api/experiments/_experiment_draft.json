@@ -85,7 +85,7 @@
     "exposure_criteria": {},
     "metrics": [],
     "metrics_secondary": [],
-    "stats_config": {
-        "version": 2
-    }
+    "primary_metrics_ordered_uuids": [],
+    "secondary_metrics_ordered_uuids": [],
+    "user_access_level": "editor"
 }

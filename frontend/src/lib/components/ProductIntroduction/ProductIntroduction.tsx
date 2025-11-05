@@ -1,6 +1,9 @@
-import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/types'
@@ -27,10 +30,12 @@ export type ProductIntroductionProps = {
     isEmpty?: boolean
     /** The action to take when the user clicks the CTA */
     action?: () => void
+    disabledReason?: string
     /** If you want to provide a custom action button instead of using the default one */
     actionElementOverride?: JSX.Element
     docsURL?: string
     customHog?: React.ComponentType<{ className?: string }>
+    className?: string
 }
 
 export const ProductIntroduction = ({
@@ -41,9 +46,11 @@ export const ProductIntroduction = ({
     titleOverride,
     isEmpty,
     action,
+    disabledReason,
     actionElementOverride,
     docsURL,
     customHog: CustomHog,
+    className,
 }: ProductIntroductionProps): JSX.Element | null => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const { user } = useValues(userLogic)
@@ -60,7 +67,10 @@ export const ProductIntroduction = ({
     const actionable = action || actionElementOverride
     return (
         <div
-            className="border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4"
+            className={cn(
+                'border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4',
+                className
+            )}
             data-attr={`product-introduction-${thingName}`}
         >
             {!isEmpty && (
@@ -70,7 +80,7 @@ export const ProductIntroduction = ({
                             icon={<IconX />}
                             size="small"
                             onClick={() => {
-                                productKey && updateHasSeenProductIntroFor(productKey, true)
+                                productKey && updateHasSeenProductIntroFor(productKey)
                             }}
                         />
                     </div>
@@ -93,10 +103,10 @@ export const ProductIntroduction = ({
                         {!isEmpty
                             ? `Welcome to ${productName}!`
                             : actionable
-                            ? titleOverride
-                                ? titleOverride
-                                : `Create your first ${thingName}`
-                            : `No ${thingName}s yet`}
+                              ? titleOverride
+                                  ? titleOverride
+                                  : `Create your first ${thingName}`
+                              : `No ${thingName}s yet`}
                     </h2>
                     <p className="ml-0">{description}</p>
                     {!isEmpty && (
@@ -111,10 +121,11 @@ export const ProductIntroduction = ({
                                 type="primary"
                                 icon={<IconPlus />}
                                 onClick={() => {
-                                    productKey && updateHasSeenProductIntroFor(productKey, true)
-                                    action && action()
+                                    productKey && updateHasSeenProductIntroFor(productKey)
+                                    action?.()
                                 }}
                                 data-attr={'create-' + thingName.replace(' ', '-').toLowerCase()}
+                                disabledReason={disabledReason}
                             >
                                 Create {thingName}
                             </LemonButton>

@@ -5,10 +5,10 @@ from posthog.models.raw_sessions.migrations import (
     DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL,
     WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL,
 )
-from posthog.models.raw_sessions.sql import (
+from posthog.models.raw_sessions.sessions_v2 import (
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
-    RAW_SESSIONS_TABLE_MV_SQL,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
+    RAW_SESSIONS_TABLE_MV_SQL,
 )
 
 operations = [
@@ -18,7 +18,7 @@ operations = [
     run_sql_with_exceptions(BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL()),
     run_sql_with_exceptions(DISTRIBUTED_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL()),
     run_sql_with_exceptions(
-        BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=False), node_role=NodeRole.COORDINATOR
+        BASE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]
     ),
     run_sql_with_exceptions(WRITABLE_RAW_SESSIONS_ADD_IRCLID_KX_COLUMNS_SQL()),
     # and then recreate the materialized view and view

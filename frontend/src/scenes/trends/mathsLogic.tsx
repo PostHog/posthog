@@ -1,10 +1,18 @@
 import { connect, kea, path, selectors } from 'kea'
+
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { MathType } from '~/queries/schema/schema-general'
-import { BaseMathType, CountPerActorMathType, FunnelMathType, HogQLMathType, PropertyMathType } from '~/types'
+import {
+    BaseMathType,
+    CalendarHeatmapMathType,
+    CountPerActorMathType,
+    FunnelMathType,
+    HogQLMathType,
+    PropertyMathType,
+} from '~/types'
 
 import type { mathsLogicType } from './mathsLogicType'
 
@@ -33,40 +41,71 @@ export const FUNNEL_MATH_DEFINITIONS: Record<FunnelMathType, MathDefinition> = {
         category: MathCategory.EventCount,
     },
     [FunnelMathType.FirstTimeForUser]: {
-        name: 'First event for user',
+        // renamed on 2025-07-24, used to 'First time for user'
+        name: 'First-ever occurrence',
         shortName: 'first event',
         description: (
             <>
-                Matches only the first time the user performed this event type. If this event does not match the event
-                filters, or is outside the selected date range, the user will be excluded from the funnel.
+                Finds the user's very first occurrence of this event type, then checks if it matches your filters. If
+                the first-ever event doesn't match your filters, the user is excluded from the funnel.
                 <br />
                 <br />
                 <i>
-                    Example: If the we are looking for pageview events to posthog.com/about, but the user's first
-                    pageview was on posthog.com, it will not match, even if they went to posthog.com/about afterwards.
+                    Example: If you're filtering for pageview events to posthog.com/about, but the user's first pageview
+                    was to posthog.com, it will not match (even if they went to posthog.com/about later).
                 </i>
             </>
         ),
         category: MathCategory.EventCount,
     },
     [FunnelMathType.FirstTimeForUserWithFilters]: {
-        name: 'First matching event for user',
+        // renamed on 2025-07-24, used to 'First matching event for user'
+        name: 'First occurrence matching filters',
         shortName: 'first matching event',
         description: (
             <>
-                Matches only the first time the user performed this event type with the selected filters. If this event
-                is outside the selected date range, or the user never performed the event with the selected filters, the
-                user will be excluded from the funnel.
+                Finds the first time the user performed this event type that also matches your filters. Previous events
+                that don't match are ignored.
                 <br />
                 <br />
                 <i>
-                    Example: If the we are looking for pageview events to posthog.com/about, and the user's first
-                    pageview was on posthog.com but then they navigated to posthog.com/about, it will match the pageview
-                    event from posthog.com/about
+                    Example: If you're filtering for pageview events to posthog.com/about, and the user first viewed
+                    posthog.com then later posthog.com/about, it will match the posthog.com/about pageview.
                 </i>
             </>
         ),
         category: MathCategory.EventCount,
+    },
+}
+
+export const CALENDAR_HEATMAP_MATH_DEFINITIONS: Record<CalendarHeatmapMathType, MathDefinition> = {
+    [CalendarHeatmapMathType.TotalCount]: {
+        name: 'Total count',
+        shortName: 'count',
+        description: (
+            <>
+                Total event count. Total number of times the event was performed by any user.
+                <br />
+                <br />
+                <i>Example: If a user performs an event 3 times in the given period, it counts as 3.</i>
+            </>
+        ),
+        category: MathCategory.EventCount,
+    },
+    [CalendarHeatmapMathType.UniqueUsers]: {
+        name: 'Unique users',
+        shortName: 'unique users',
+        description: (
+            <>
+                Number of unique users who performed the event in the specified period.
+                <br />
+                <br />
+                <i>
+                    Example: If a single user performs an event 3 times in a given day/week/month, it counts only as 1.
+                </i>
+            </>
+        ),
+        category: MathCategory.ActorCount,
     },
 }
 
@@ -150,36 +189,36 @@ export const BASE_MATH_DEFINITIONS: Record<BaseMathType, MathDefinition> = {
         category: MathCategory.SessionCount,
     },
     [BaseMathType.FirstTimeForUser]: {
-        name: 'First time for user',
+        // renamed on 2025-07-24, used to 'First time for user'
+        name: 'First-ever occurrence',
         shortName: 'first time',
         description: (
             <>
-                Matches only the first time the user performed this event type. If this event does not match the event
-                filters, or is outside the selected date range, the user will be excluded from the insight.
+                Finds the user's very first occurrence of this event type, then checks if it matches your filters. If
+                the first-ever event doesn't match your filters, the user is excluded.
                 <br />
                 <br />
                 <i>
-                    Example: If the we are looking for pageview events to posthog.com/about, but the user's first
-                    pageview was on posthog.com, it will not match, even if they went to posthog.com/about afterwards.
+                    Example: If you're filtering for pageview events to posthog.com/about, but the user's first pageview
+                    was to posthog.com, it will not match (even if they went to posthog.com/about later).
                 </i>
             </>
         ),
         category: MathCategory.EventCount,
     },
     [BaseMathType.FirstMatchingEventForUser]: {
-        name: 'First matching event for user',
+        // renamed on 2025-07-24, used to 'First matching event for user'
+        name: 'First occurrence matching filters',
         shortName: 'first matching event',
         description: (
             <>
-                Matches only the first time the user performed this event type with the selected filters. If this event
-                is outside the selected date range, or the user never performed the event with the selected filters, the
-                user will be excluded from the insight.
+                Finds the first time the user performed this event type that also matches your filters. Previous events
+                that don't match are ignored.
                 <br />
                 <br />
                 <i>
-                    Example: If the we are looking for pageview events to posthog.com/about, and the user's first
-                    pageview was on posthog.com but then they navigated to posthog.com/about, it will match the pageview
-                    event from posthog.com/about
+                    Example: If you're filtering for pageview events to posthog.com/about, and the user first viewed
+                    posthog.com then later posthog.com/about, it will match the posthog.com/about pageview.
                 </i>
             </>
         ),
@@ -412,6 +451,15 @@ export const mathsLogic = kea<mathsLogicType>([
                 return allMathDefinitions
             },
         ],
+        calendarHeatmapMathDefinitions: [
+            () => [],
+            (): Partial<Record<MathType, MathDefinition>> => {
+                const calendarHeatmapMathDefinitions: Partial<Record<MathType, MathDefinition>> = Object.fromEntries(
+                    Object.entries(CALENDAR_HEATMAP_MATH_DEFINITIONS) as [MathType, MathDefinition][]
+                )
+                return calendarHeatmapMathDefinitions
+            },
+        ],
         funnelMathDefinitions: [
             () => [],
             (): Partial<Record<MathType, MathDefinition>> => {
@@ -422,16 +470,7 @@ export const mathsLogic = kea<mathsLogicType>([
             },
         ],
         // Static means the options do not have nested selectors (like math function)
-        staticMathDefinitions: [
-            (s) => [s.groupsMathDefinitions, s.needsUpgradeForGroups],
-            (groupsMathDefinitions, needsUpgradeForGroups): Partial<Record<MathType, MathDefinition>> => {
-                const staticMathDefinitions: Partial<Record<MathType, MathDefinition>> = {
-                    ...BASE_MATH_DEFINITIONS,
-                    ...(!needsUpgradeForGroups ? groupsMathDefinitions : {}),
-                }
-                return staticMathDefinitions
-            },
-        ],
+        staticMathDefinitions: [() => [], (): Partial<Record<MathType, MathDefinition>> => BASE_MATH_DEFINITIONS],
         staticActorsOnlyMathDefinitions: [
             (s) => [s.staticMathDefinitions],
             (staticMathDefinitions): Partial<Record<MathType, MathDefinition>> => {
@@ -451,8 +490,8 @@ export const mathsLogic = kea<mathsLogicType>([
                         .map((groupType) => [
                             apiValueToMathType('unique_group', groupType.group_type_index),
                             {
-                                name: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
-                                shortName: `unique ${aggregationLabel(groupType.group_type_index).plural}`,
+                                name: `${aggregationLabel(groupType.group_type_index).plural}`,
+                                shortName: `${aggregationLabel(groupType.group_type_index).plural}`,
                                 description: (
                                     <>
                                         Number of unique {aggregationLabel(groupType.group_type_index).plural} who

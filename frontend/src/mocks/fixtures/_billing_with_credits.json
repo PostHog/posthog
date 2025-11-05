@@ -621,6 +621,7 @@
             "percentage_usage": 0,
             "projected_usage": 19563644,
             "projected_amount_usd": "2967.27",
+            "projected_amount_usd_with_limit": "2967.27",
             "unit": "event",
             "addons": [
                 {
@@ -650,68 +651,32 @@
         },
         {
             "name": "Session replay",
-            "description": "Searchable recordings of people using your app or website with console logs and behavioral bucketing.",
+            "headline": "Watch how users experience your app",
+            "description": "Session replay helps you diagnose issues and understand user behavior in your product or website.",
             "price_description": null,
             "usage_key": "recordings",
-            "image_url": "https://posthog.com/images/product/product-icons/session-replay.svg",
+            "image_url": "https://posthog.com/images/products/session-replay/session-replay.png",
+            "screenshot_url": "https://posthog.com/images/products/session-replay/screenshot-session-replay.png",
+            "icon_key": "IconRewindPlay",
             "docs_url": "https://posthog.com/docs/session-replay",
             "subscribed": true,
             "plans": [
                 {
-                    "plan_key": "free-20230117",
+                    "plan_key": "free-20231218",
                     "product_key": "session_replay",
-                    "name": "Session replay",
-                    "description": "Searchable recordings of people using your app or website with console logs and behavioral bucketing.",
-                    "image_url": "https://posthog.com/images/product/product-icons/session-replay.svg",
+                    "name": "Free",
+                    "description": "Session replay helps you diagnose issues and understand user behavior in your product or website.",
+                    "image_url": "https://posthog.com/images/products/session-replay/session-replay.png",
                     "docs_url": "https://posthog.com/docs/session-replay",
                     "note": null,
                     "unit": "recording",
-                    "free_allocation": 15000,
+                    "flat_rate": false,
+                    "free_allocation": 5000,
                     "features": [
                         {
                             "key": "console_logs",
                             "name": "Console logs",
-                            "description": "Diagnose issues by inspecting errors in the user's network console",
-                            "unit": null,
-                            "limit": null,
-                            "note": null
-                        },
-                        {
-                            "key": "recordings_playlists",
-                            "name": "Recording playlists",
-                            "description": "Create playlists of certain session recordings to easily find and watch them again in the future.",
-                            "unit": "playlists",
-                            "limit": 5,
-                            "note": null
-                        }
-                    ],
-                    "tiers": null,
-                    "current_plan": false,
-                    "included_if": null
-                },
-                {
-                    "plan_key": "paid-20230117",
-                    "product_key": "session_replay",
-                    "name": "Session replay",
-                    "description": "Searchable recordings of people using your app or website with console logs and behavioral bucketing.",
-                    "image_url": "https://posthog.com/images/product/product-icons/session-replay.svg",
-                    "docs_url": "https://posthog.com/docs/session-replay",
-                    "note": null,
-                    "unit": "recording",
-                    "free_allocation": null,
-                    "features": [
-                        {
-                            "key": "console_logs",
-                            "name": "Console logs",
-                            "description": "Diagnose issues by inspecting errors in the user's network console",
-                            "unit": null,
-                            "limit": null,
-                            "note": null
-                        },
-                        {
-                            "key": "recordings_playlists",
-                            "name": "Recording playlists",
-                            "description": "Create playlists of certain session recordings to easily find and watch them again in the future.",
+                            "description": "Debug issues faster by browsing the user's console.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -725,9 +690,220 @@
                             "note": null
                         },
                         {
+                            "key": "session_replay_network_payloads",
+                            "name": "Network monitor",
+                            "description": "Analyze performance and network calls.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "session_replay_data_retention",
+                            "name": "Data retention",
+                            "description": "Keep a historical record of your data.",
+                            "unit": "month",
+                            "limit": 1,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_mask_sensitive_data",
+                            "name": "Block sensitive data",
+                            "description": "Disable capturing data from any DOM element with HTML attributes or a customizable config.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_sharing_embedding",
+                            "name": "Share and embed",
+                            "description": "Share replays directly via URL or embed via iframe.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_product_analytics_integration",
+                            "name": "Event timeline",
+                            "description": "See a history of everything that happened in a user's session.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_filter_person_properties",
+                            "name": "Filter person properties",
+                            "description": "Filter by person properties to quickly find relevant recordings.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_filter_events",
+                            "name": "Filter events",
+                            "description": "Filter by events to quickly find relevant recordings.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_dom_explorer",
+                            "name": "DOM Explorer",
+                            "description": "Freeze snapshots of recordings and explore the DOM with your browser dev tools.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "session_replay_sampling",
+                            "name": "Sample recorded sessions",
+                            "description": "Restrict the percentage of sessions that will be recorded.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_recording_duration_minimum",
+                            "name": "Minimum duration",
+                            "description": "Only record sessions longer than the minimum duration.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_feature_flag_based_recording",
+                            "name": "Record via feature flag",
+                            "description": "Only record sessions for users that have the flag enabled.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        }
+                    ],
+                    "tiers": null,
+                    "current_plan": false,
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                },
+                {
+                    "plan_key": "paid-20231218",
+                    "product_key": "session_replay",
+                    "name": "Paid",
+                    "description": "Session replay helps you diagnose issues and understand user behavior in your product or website.",
+                    "image_url": "https://posthog.com/images/products/session-replay/session-replay.png",
+                    "docs_url": "https://posthog.com/docs/session-replay",
+                    "note": null,
+                    "unit": "recording",
+                    "flat_rate": false,
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "console_logs",
+                            "name": "Console logs",
+                            "description": "Debug issues faster by browsing the user's console.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "recordings_performance",
+                            "name": "Network performance on recordings",
+                            "description": "See your end-user's network performance and information alongside session recordings.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "session_replay_network_payloads",
+                            "name": "Network monitor",
+                            "description": "Analyze performance and network calls.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
                             "key": "recordings_file_export",
-                            "name": "Recordings file export",
-                            "description": "Save session recordings as a file to your local filesystem.",
+                            "name": "Download recordings",
+                            "description": "Retain recordings beyond data retention limits.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "session_replay_data_retention",
+                            "name": "Data retention",
+                            "description": "Keep a historical record of your data.",
+                            "unit": "months",
+                            "limit": 3,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_mask_sensitive_data",
+                            "name": "Block sensitive data",
+                            "description": "Disable capturing data from any DOM element with HTML attributes or a customizable config.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_sharing_embedding",
+                            "name": "Share and embed",
+                            "description": "Share replays directly via URL or embed via iframe.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_product_analytics_integration",
+                            "name": "Event timeline",
+                            "description": "See a history of everything that happened in a user's session.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_filter_person_properties",
+                            "name": "Filter person properties",
+                            "description": "Filter by person properties to quickly find relevant recordings.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_filter_events",
+                            "name": "Filter events",
+                            "description": "Filter by events to quickly find relevant recordings.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_dom_explorer",
+                            "name": "DOM Explorer",
+                            "description": "Freeze snapshots of recordings and explore the DOM with your browser dev tools.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "session_replay_sampling",
+                            "name": "Sample recorded sessions",
+                            "description": "Restrict the percentage of sessions that will be recorded.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_recording_duration_minimum",
+                            "name": "Minimum duration",
+                            "description": "Only record sessions longer than the minimum duration.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_feature_flag_based_recording",
+                            "name": "Record via feature flag",
+                            "description": "Only record sessions for users that have the flag enabled.",
                             "unit": null,
                             "limit": null,
                             "note": null
@@ -737,6 +913,15 @@
                         {
                             "flat_amount_usd": "0",
                             "unit_amount_usd": "0",
+                            "up_to": 5000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.04",
                             "up_to": 15000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -745,7 +930,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.005",
+                            "unit_amount_usd": "0.003",
                             "up_to": 50000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -754,7 +939,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.0045",
+                            "unit_amount_usd": "0.0027",
                             "up_to": 150000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -763,7 +948,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.004",
+                            "unit_amount_usd": "0.0025",
                             "up_to": 500000,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -772,7 +957,7 @@
                         },
                         {
                             "flat_amount_usd": "0",
-                            "unit_amount_usd": "0.0035",
+                            "unit_amount_usd": "0.002",
                             "up_to": null,
                             "current_amount_usd": "0.00",
                             "current_usage": 0,
@@ -781,42 +966,53 @@
                         }
                     ],
                     "current_plan": true,
-                    "included_if": null
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
                 }
             ],
             "type": "session_replay",
-            "free_allocation": 0,
+            "free_allocation": 5000,
             "tiers": [
                 {
                     "flat_amount_usd": "0",
                     "unit_amount_usd": "0",
+                    "up_to": 5000,
+                    "current_amount_usd": "0.00",
+                    "current_usage": 5000,
+                    "projected_usage": 5000,
+                    "projected_amount_usd": "0.00"
+                },
+                {
+                    "flat_amount_usd": "0",
+                    "unit_amount_usd": "0.04",
                     "up_to": 15000,
                     "current_amount_usd": "0.00",
-                    "current_usage": 0,
-                    "projected_usage": null,
-                    "projected_amount_usd": null
+                    "current_usage": 10000,
+                    "projected_usage": 10000,
+                    "projected_amount_usd": "400.00"
                 },
                 {
                     "flat_amount_usd": "0",
-                    "unit_amount_usd": "0.005",
+                    "unit_amount_usd": "0.003",
                     "up_to": 50000,
                     "current_amount_usd": "0.00",
-                    "current_usage": 0,
-                    "projected_usage": null,
-                    "projected_amount_usd": null
+                    "current_usage": 1022,
+                    "projected_usage": 35000,
+                    "projected_amount_usd": "105"
                 },
                 {
                     "flat_amount_usd": "0",
-                    "unit_amount_usd": "0.0045",
+                    "unit_amount_usd": "0.0027",
                     "up_to": 150000,
                     "current_amount_usd": "0.00",
                     "current_usage": 0,
-                    "projected_usage": null,
-                    "projected_amount_usd": null
+                    "projected_usage": 10000,
+                    "projected_amount_usd": "270.00"
                 },
                 {
                     "flat_amount_usd": "0",
-                    "unit_amount_usd": "0.004",
+                    "unit_amount_usd": "0.0025",
                     "up_to": 500000,
                     "current_amount_usd": "0.00",
                     "current_usage": 0,
@@ -825,7 +1021,7 @@
                 },
                 {
                     "flat_amount_usd": "0",
-                    "unit_amount_usd": "0.0035",
+                    "unit_amount_usd": "0.002",
                     "up_to": null,
                     "current_amount_usd": "0.00",
                     "current_usage": 0,
@@ -835,18 +1031,369 @@
             ],
             "tiered": true,
             "unit_amount_usd": null,
-            "current_amount_usd_before_addons": "0.00",
-            "current_amount_usd": "0.00",
-            "current_usage": 0,
-            "usage_limit": null,
+            "current_amount_usd_before_addons": "403.07",
+            "current_amount_usd": "503.07",
+            "current_usage": 16022,
+            "usage_limit": 100000,
             "has_exceeded_limit": false,
-            "percentage_usage": 0,
-            "projected_usage": 0,
-            "projected_amount_usd": "0.00",
+            "percentage_usage": 0.16022,
+            "projected_usage": 50000,
+            "projected_amount_usd": "775.00",
+            "projected_amount_usd_with_limit": "775.00",
             "unit": "recording",
-            "addons": [],
+            "addons": [
+                {
+                    "name": "Mobile session replay",
+                    "description": "Record and replay mobile app sessions.",
+                    "price_description": null,
+                    "image_url": "None",
+                    "icon_key": "IconRewindPlay",
+                    "docs_url": "https://posthog.com/docs/session-replay",
+                    "type": "mobile_replay",
+                    "tiers": [
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.00",
+                            "up_to": 2500,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0001",
+                            "up_to": 15000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0007",
+                            "up_to": 50000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0004",
+                            "up_to": 150000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.00034",
+                            "up_to": 500000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0003",
+                            "up_to": null,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        }
+                    ],
+                    "tiered": true,
+                    "included_with_main_product": false,
+                    "subscribed": true,
+                    "unit": "mobile recording",
+                    "unit_amount_usd": null,
+                    "current_amount_usd": "100.00",
+                    "current_usage": 0,
+                    "projected_usage": 0,
+                    "projected_amount_usd": "200.00",
+                    "plans": [
+                        {
+                            "plan_key": "free-20250106",
+                            "product_key": "mobile_replay",
+                            "name": "Addon",
+                            "description": "Record and replay mobile app sessions.",
+                            "image_url": null,
+                            "docs_url": "https://posthog.com/docs/session-replay",
+                            "note": null,
+                            "unit": "mobile recording",
+                            "flat_rate": false,
+                            "free_allocation": 2500,
+                            "features": [
+                                {
+                                    "key": "mobile_replay",
+                                    "name": "Mobile session replay",
+                                    "description": "Record and replay mobile app sessions.",
+                                    "unit": null,
+                                    "limit": null,
+                                    "note": null,
+                                    "entitlement_only": false,
+                                    "is_plan_default": true
+                                }
+                            ],
+                            "tiers": null,
+                            "current_plan": false,
+                            "included_if": "no_active_parent_subscription",
+                            "contact_support": null,
+                            "unit_amount_usd": null,
+                            "initial_billing_limit": null
+                        },
+                        {
+                            "plan_key": "addon-20250106",
+                            "product_key": "mobile_replay",
+                            "name": "Addon",
+                            "description": "Record and replay mobile app sessions.",
+                            "image_url": null,
+                            "docs_url": "https://posthog.com/docs/session-replay",
+                            "note": null,
+                            "unit": "mobile recording",
+                            "flat_rate": false,
+                            "free_allocation": null,
+                            "features": [
+                                {
+                                    "key": "mobile_replay",
+                                    "name": "Mobile session replay",
+                                    "description": "Record and replay mobile app sessions.",
+                                    "unit": null,
+                                    "limit": null,
+                                    "note": null,
+                                    "entitlement_only": false,
+                                    "is_plan_default": true
+                                }
+                            ],
+                            "tiers": [
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.00",
+                                    "up_to": 2500,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0001",
+                                    "up_to": 15000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0007",
+                                    "up_to": 50000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0004",
+                                    "up_to": 150000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.00034",
+                                    "up_to": 500000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0003",
+                                    "up_to": null,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                }
+                            ],
+                            "current_plan": true,
+                            "included_if": "has_parent_subscription",
+                            "contact_support": null,
+                            "unit_amount_usd": null,
+                            "initial_billing_limit": null
+                        }
+                    ],
+                    "contact_support": null,
+                    "inclusion_only": true,
+                    "included_if": "no_active_parent_subscription",
+                    "features": [
+                        {
+                            "key": "mobile_replay",
+                            "name": "Mobile session replay",
+                            "description": "Record and replay mobile app sessions.",
+                            "images": null,
+                            "icon_key": null,
+                            "type": null,
+                            "category": null
+                        }
+                    ],
+                    "usage_key": "mobile_recordings",
+                    "usage_limit": null,
+                    "trial": null,
+                    "legacy_product": false,
+                    "free_allocation": 2500
+                }
+            ],
             "contact_support": false,
-            "inclusion_only": false
+            "inclusion_only": false,
+            "features": [
+                {
+                    "key": "session_replay_data_retention",
+                    "name": "Data retention",
+                    "description": "Keep a historical record of your data.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "console_logs",
+                    "name": "Console logs",
+                    "description": "Debug issues faster by browsing the user's console.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/session-replay/console.png",
+                        "dark": "https://posthog.com/images/products/session-replay/console-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "recordings_performance",
+                    "name": "Network performance on recordings",
+                    "description": "See your end-user's network performance and information alongside session recordings.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "session_replay_network_payloads",
+                    "name": "Network monitor",
+                    "description": "Analyze performance and network calls.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/session-replay/network.png",
+                        "dark": "https://posthog.com/images/products/session-replay/network-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "recordings_file_export",
+                    "name": "Download recordings",
+                    "description": "Retain recordings beyond data retention limits.",
+                    "images": null,
+                    "icon_key": "IconDownload",
+                    "type": "secondary"
+                },
+                {
+                    "key": "session_replay_sampling",
+                    "name": "Sample recorded sessions",
+                    "description": "Restrict the percentage of sessions that will be recorded.",
+                    "images": null,
+                    "icon_key": "IconSampling",
+                    "type": "secondary"
+                },
+                {
+                    "key": "replay_recording_duration_minimum",
+                    "name": "Minimum duration",
+                    "description": "Only record sessions longer than the minimum duration.",
+                    "images": null,
+                    "icon_key": "IconClock",
+                    "type": "secondary"
+                },
+                {
+                    "key": "replay_feature_flag_based_recording",
+                    "name": "Record via feature flag",
+                    "description": "Only record sessions for users that have the flag enabled.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "replay_mask_sensitive_data",
+                    "name": "Block sensitive data",
+                    "description": "Disable capturing data from any DOM element with HTML attributes or a customizable config.",
+                    "images": null,
+                    "icon_key": "IconPassword",
+                    "type": "secondary"
+                },
+                {
+                    "key": "replay_sharing_embedding",
+                    "name": "Share and embed",
+                    "description": "Share replays directly via URL or embed via iframe.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "replay_product_analytics_integration",
+                    "name": "Event timeline",
+                    "description": "See a history of everything that happened in a user's session.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/session-replay/timeline.png",
+                        "dark": "https://posthog.com/images/products/session-replay/timeline-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "replay_filter_person_properties",
+                    "name": "Filter person properties",
+                    "description": "Filter by person properties to quickly find relevant recordings.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "replay_filter_events",
+                    "name": "Filter events",
+                    "description": "Filter by events to quickly find relevant recordings.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "replay_dom_explorer",
+                    "name": "DOM Explorer",
+                    "description": "Freeze snapshots of recordings and explore the DOM with your browser dev tools.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "works_with_posthog_js",
+                    "name": "Capture sessions without extra code",
+                    "description": "Works with PostHog.js",
+                    "images": null,
+                    "icon_key": "IconBolt",
+                    "type": "secondary"
+                },
+                {
+                    "key": "replay_automatic_playlists",
+                    "name": "Automatic playlists",
+                    "description": "Filter by user behavior, user properties, or time.",
+                    "images": null,
+                    "icon_key": "IconPlaylist",
+                    "type": "secondary"
+                }
+            ]
         },
         {
             "name": "Feature flags",
@@ -927,6 +1474,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": null,
             "addons": [],
             "contact_support": false,
@@ -979,6 +1527,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": null,
             "addons": [],
             "contact_support": false,
@@ -1127,6 +1676,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": null,
             "addons": [],
             "contact_support": false,
@@ -1379,6 +1929,7 @@
             "percentage_usage": 0,
             "projected_usage": 0,
             "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
             "unit": null,
             "addons": [],
             "contact_support": true,

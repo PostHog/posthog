@@ -3,12 +3,13 @@ import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
-import { elementToSelector, escapeRegex } from 'lib/actionUtils'
+import { PostHog } from 'posthog-js'
+import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
+
+import { elementToSelector } from 'lib/actionUtils'
 import { PaginatedResponse } from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { createVersionChecker } from 'lib/utils/semver'
-import { PostHog } from 'posthog-js'
-import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
@@ -58,6 +59,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 'setCommonFilters',
                 'setHeatmapFixedPositionMode',
                 'setHref as setDataHref',
+                'setHrefMatchType',
                 'resetHeatmapData',
                 'patchHeatmapFilters',
                 'loadHeatmap',
@@ -80,6 +82,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         loadAllEnabled: true,
         maybeLoadClickmap: true,
         maybeLoadHeatmap: true,
+        updateElementMetrics: (observedElements: [HTMLElement, boolean][]) => ({ observedElements }),
+        startScrollTracking: true,
+        stopScrollTracking: true,
+        startElementObservation: true,
+        stopElementObservation: true,
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -115,6 +122,24 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 setSamplingFactor: (_, { samplingFactor }) => samplingFactor,
             },
         ],
+        elementMetrics: [
+            new Map<HTMLElement, { visible: boolean }>(),
+            {
+                updateElementMetrics: (state, { observedElements }) => {
+                    if (observedElements.length === 0) {
+                        return state
+                    }
+
+                    const onUpdate = new Map(Array.from(state.entries()))
+                    for (const [element, visible] of observedElements) {
+                        onUpdate.set(element, { visible })
+                    }
+
+                    return onUpdate
+                },
+                toggleClickmapsEnabled: (state, { enabled }) => (enabled ? state : new Map()),
+            },
+        ],
     }),
     loaders(({ values }) => ({
         elementStats: [
@@ -138,7 +163,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                       }
                                     : {
                                           key: '$current_url',
-                                          value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
+                                          value: `^${wildcardHref.split('*').map(escapeUnescapedRegex).join('.*')}$`,
                                           operator: PropertyOperator.Regex,
                                           type: PropertyFilterType.Event,
                                       },
@@ -188,8 +213,18 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     })),
     selectors(({ cache }) => ({
         elements: [
-            (s) => [s.elementStats, toolbarConfigLogic.selectors.dataAttributes, s.href, s.matchLinksByHref],
-            (elementStats, dataAttributes, href, matchLinksByHref) => {
+            (s) => [
+                s.elementStats,
+                toolbarConfigLogic.selectors.dataAttributes,
+                s.href,
+                s.matchLinksByHref,
+                s.clickmapsEnabled,
+            ],
+            (elementStats, dataAttributes, href, matchLinksByHref, clickmapsEnabled) => {
+                if (!clickmapsEnabled) {
+                    return []
+                }
+
                 cache.pageElements = cache.lastHref == href ? cache.pageElements : collectAllElementsDeep('*', document)
                 cache.selectorToElements = cache.lastHref == href ? cache.selectorToElements : {}
 
@@ -255,7 +290,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                     continue
                                 }
                             }
-                        } catch (error) {
+                        } catch {
                             break
                         }
 
@@ -269,16 +304,23 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             },
         ],
         countedElements: [
-            (s) => [s.elements, toolbarConfigLogic.selectors.dataAttributes, s.clickmapsEnabled],
-            (elements, dataAttributes, clickmapsEnabled) => {
-                if (!clickmapsEnabled) {
+            (s) => [s.elements, toolbarConfigLogic.selectors.dataAttributes, s.clickmapsEnabled, s.elementMetrics],
+            (elements, dataAttributes, clickmapsEnabled, elementMetrics) => {
+                if (!clickmapsEnabled || !cache.intersectionObserver) {
                     return []
                 }
+
                 const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
-                ;(elements || []).forEach((countedElement) => {
+
+                for (const countedElement of elements || []) {
                     const trimmedElement = trimElement(countedElement.element)
                     if (!trimmedElement) {
-                        return
+                        continue
+                    }
+
+                    const metrics = elementMetrics.get(trimmedElement) || {
+                        visible: isElementVisible(trimmedElement),
+                        rect: trimmedElement.getBoundingClientRect(),
                     }
 
                     if (normalisedElements.has(trimmedElement)) {
@@ -288,6 +330,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             existing.clickCount += countedElement.type === '$autocapture' ? countedElement.count : 0
                             existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
                             existing.deadclickCount += countedElement.type === '$dead_click' ? countedElement.count : 0
+                            existing.visible = metrics.visible
                         }
                     } else {
                         normalisedElements.set(trimmedElement, {
@@ -297,9 +340,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                             deadclickCount: countedElement.type === '$dead_click' ? countedElement.count : 0,
                             element: trimmedElement,
                             actionStep: elementToActionStep(trimmedElement, dataAttributes),
+                            visible: metrics.visible,
                         })
                     }
-                })
+                }
 
                 const countedElements = Array.from(normalisedElements.values())
                 countedElements.sort((a, b) => b.count - a.count)
@@ -345,19 +389,56 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         viewportRange: () => {
             actions.maybeLoadHeatmap()
         },
+        countedElements: () => {
+            actions.startElementObservation()
+        },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         enableHeatmap: () => {
-            // need to set the href at least once to get the heatmap to load
             actions.setDataHref(values.href)
             actions.loadAllEnabled()
+            actions.startScrollTracking()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
 
         disableHeatmap: () => {
+            actions.stopScrollTracking()
             actions.resetElementStats()
             actions.resetHeatmapData()
             toolbarPosthogJS.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
+        },
+
+        startScrollTracking: () => {
+            cache.disposables.add(() => {
+                const timerId = setInterval(() => {
+                    const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
+                    if (values.heatmapScrollY !== scrollY) {
+                        actions.setHeatmapScrollY(scrollY)
+                    }
+                }, 50)
+                return () => clearInterval(timerId)
+            }, 'scrollCheckTimer')
+        },
+
+        stopScrollTracking: () => {
+            cache.disposables.dispose('scrollCheckTimer')
+        },
+
+        startElementObservation: () => {
+            if (!cache.intersectionObserver || !values.clickmapsEnabled) {
+                return
+            }
+
+            const countedElements = values.countedElements
+            cache.intersectionObserver.disconnect()
+            cache.intersectionObserver.observe(document.body)
+            countedElements.forEach((element) => {
+                cache.intersectionObserver.observe(element.element)
+            })
+        },
+
+        stopElementObservation: () => {
+            cache.intersectionObserver?.disconnect()
         },
 
         loadAllEnabled: async () => {
@@ -372,24 +453,20 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         maybeLoadHeatmap: async () => {
-            if (values.heatmapEnabled) {
-                if (values.heatmapFilters.enabled && values.heatmapFilters.type) {
-                    actions.loadHeatmap()
-                }
+            if (values.heatmapEnabled && values.heatmapFilters.enabled && values.heatmapFilters.type) {
+                actions.loadHeatmap()
             }
         },
 
         setHref: ({ href }) => {
             if (values.heatmapEnabled) {
+                actions.setHrefMatchType(href === window.location.href ? 'exact' : 'pattern')
                 actions.setDataHref(href)
             }
             actions.maybeLoadClickmap()
         },
         setWildcardHref: ({ href }) => {
-            if (values.heatmapEnabled) {
-                actions.setDataHref(href)
-            }
-            actions.maybeLoadClickmap()
+            actions.setHref(href)
         },
         setCommonFilters: () => {
             actions.loadAllEnabled()
@@ -398,10 +475,15 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             actions.maybeLoadClickmap()
         },
 
-        // Only trigger element stats loading if clickmaps are enabled
         toggleClickmapsEnabled: () => {
             if (values.clickmapsEnabled) {
                 actions.getElementStats()
+            } else {
+                actions.stopElementObservation()
+                actions.resetElementStats()
+                cache.pageElements = undefined
+                cache.selectorToElements = {}
+                cache.lastHref = undefined
             }
         },
 
@@ -419,15 +501,50 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             actions.maybeLoadHeatmap()
         },
     })),
-    afterMount(({ actions, values, cache }) => {
-        cache.scrollCheckTimer = setInterval(() => {
-            const scrollY = values.posthog?.scrollManager?.scrollY() ?? 0
-            if (values.heatmapScrollY !== scrollY) {
-                actions.setHeatmapScrollY(scrollY)
+    afterMount(({ actions, cache, values }) => {
+        cache.disposables.add(() => {
+            const intersectionObserver = new IntersectionObserver((entries) => {
+                const observedElements: [HTMLElement, boolean][] = []
+                entries.forEach((entry) => {
+                    const element = entry.target as HTMLElement
+                    observedElements.push([element, entry.isIntersecting])
+                })
+                actions.updateElementMetrics(observedElements)
+            })
+
+            cache.intersectionObserver = intersectionObserver
+
+            return () => intersectionObserver.disconnect()
+        }, 'intersectionObserver')
+
+        cache.disposables.add(() => {
+            const handleVisibilityChange = (): void => {
+                if (document.hidden) {
+                    actions.stopScrollTracking()
+                    actions.stopElementObservation()
+                } else {
+                    if (values.heatmapEnabled) {
+                        actions.startScrollTracking()
+                    }
+                    if (values.clickmapsEnabled) {
+                        actions.startElementObservation()
+                    }
+                }
             }
-        }, 100)
+
+            document.addEventListener('visibilitychange', handleVisibilityChange)
+            return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+        }, 'visibilityChangeHandler')
     }),
-    beforeUnmount(({ cache }) => {
-        clearInterval(cache.scrollCheckTimer)
+    beforeUnmount(() => {
+        // Disposables plugin handles cleanup automatically
     }),
 ])
+
+function isElementVisible(element: HTMLElement): boolean {
+    const style = window.getComputedStyle(element)
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
+}
+
+export const escapeUnescapedRegex = (str: string): string =>
+    str.replace(/\\.|([.*+?^=!:${}()|[\]/\\])/g, (match, group1) => (group1 ? `\\${group1}` : match))

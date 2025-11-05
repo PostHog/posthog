@@ -8,20 +8,37 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
     switch (mode) {
         case null:
             return {
-                mmdb: true,
                 ingestionV2Combined: true,
-                processAsyncOnEventHandlers: true,
                 processAsyncWebhooksHandlers: true,
-                sessionRecordingBlobIngestion: true,
-                sessionRecordingBlobOverflowIngestion: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 sessionRecordingBlobIngestionV2: true,
                 sessionRecordingBlobIngestionV2Overflow: config.SESSION_RECORDING_OVERFLOW_ENABLED,
                 appManagementSingleton: true,
-                preflightSchedules: true,
                 cdpProcessedEvents: true,
+                cdpPersonUpdates: true,
                 cdpInternalEvents: true,
+                cdpLegacyOnEvent: true,
                 cdpCyclotronWorker: true,
-                cdpCyclotronWorkerPlugins: true,
+                cdpCyclotronWorkerHogFlow: true,
+                cdpCyclotronWorkerDelay: true,
+                cdpBehaviouralEvents: true,
+                cdpCohortMembership: true,
+                cdpApi: true,
+                evaluationScheduler: true,
+                logsIngestion: true,
+            }
+
+        case PluginServerMode.local_cdp:
+            return {
+                ingestionV2: true,
+                cdpProcessedEvents: true,
+                cdpPersonUpdates: true,
+                cdpInternalEvents: true,
+                cdpLegacyOnEvent: true,
+                cdpCyclotronWorker: true,
+                cdpCyclotronWorkerHogFlow: true,
+                cdpCyclotronWorkerDelay: true,
+                cdpBehaviouralEvents: true,
+                cdpCohortMembership: true,
                 cdpApi: true,
             }
 
@@ -29,16 +46,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             // NOTE: this mode will be removed in the future and replaced with
             // `analytics-ingestion` and `recordings-ingestion` modes.
             return {
-                mmdb: true,
                 ingestionV2: true,
-            }
-        case PluginServerMode.recordings_blob_ingestion:
-            return {
-                sessionRecordingBlobIngestion: true,
-            }
-        case PluginServerMode.recordings_blob_ingestion_overflow:
-            return {
-                sessionRecordingBlobOverflowIngestion: true,
             }
         case PluginServerMode.recordings_blob_ingestion_v2:
             return {
@@ -49,10 +57,6 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 sessionRecordingBlobIngestionV2Overflow: true,
             }
 
-        case PluginServerMode.async_onevent:
-            return {
-                processAsyncOnEventHandlers: true,
-            }
         case PluginServerMode.async_webhooks:
             return {
                 processAsyncWebhooksHandlers: true,
@@ -60,6 +64,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.cdp_processed_events:
             return {
                 cdpProcessedEvents: true,
+            }
+        case PluginServerMode.cdp_person_updates:
+            return {
+                cdpPersonUpdates: true,
             }
         case PluginServerMode.cdp_internal_events:
             return {
@@ -69,28 +77,39 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 cdpCyclotronWorker: true,
             }
-        case PluginServerMode.cdp_cyclotron_worker_plugins:
+        case PluginServerMode.cdp_cyclotron_worker_hogflow:
             return {
-                cdpCyclotronWorkerPlugins: true,
+                cdpCyclotronWorkerHogFlow: true,
+            }
+        case PluginServerMode.cdp_cyclotron_worker_delay:
+            return {
+                cdpCyclotronWorkerDelay: true,
+            }
+        case PluginServerMode.cdp_behavioural_events:
+            return {
+                cdpBehaviouralEvents: true,
+            }
+        case PluginServerMode.cdp_cohort_membership:
+            return {
+                cdpCohortMembership: true,
+            }
+        case PluginServerMode.cdp_legacy_on_event:
+            return {
+                cdpLegacyOnEvent: true,
             }
         case PluginServerMode.cdp_api:
             return {
                 cdpApi: true,
-                mmdb: true,
                 // NOTE: This is temporary until we have removed plugins
                 appManagementSingleton: true,
             }
-        // This is only for functional tests, which time out if all capabilities are used
-        // ideally we'd run just the specific capability needed per test, but that's not easy to do atm
-        case PluginServerMode.functional_tests:
+        case PluginServerMode.evaluation_scheduler:
             return {
-                mmdb: true,
-                ingestionV2Combined: true,
-                processAsyncOnEventHandlers: true,
-                processAsyncWebhooksHandlers: true,
-                sessionRecordingBlobIngestion: true,
-                appManagementSingleton: true,
-                preflightSchedules: true,
+                evaluationScheduler: true,
+            }
+        case PluginServerMode.ingestion_logs:
+            return {
+                logsIngestion: true,
             }
     }
 }

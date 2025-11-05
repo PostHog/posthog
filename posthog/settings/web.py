@@ -5,6 +5,7 @@ from datetime import timedelta
 import structlog
 from corsheaders.defaults import default_headers
 
+from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
@@ -20,7 +21,9 @@ AXES_HANDLER = "axes.handlers.cache.AxesCacheHandler"
 AXES_FAILURE_LIMIT = get_from_env("AXES_FAILURE_LIMIT", 30, type_cast=int)
 AXES_COOLOFF_TIME = timedelta(minutes=10)
 AXES_LOCKOUT_CALLABLE = "posthog.api.authentication.axes_locked_out"
-AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
+AXES_IPWARE_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
+# Keep legacy 403 status code for lockouts (django-axes 6.0+ defaults to 429)
+AXES_HTTP_RESPONSE_CODE = 403
 
 ####
 # Application definition
@@ -28,9 +31,19 @@ AXES_META_PRECEDENCE_ORDER = ["HTTP_X_FORWARDED_FOR", "REMOTE_ADDR"]
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
-    "products.early_access_features",
-    "products.editor",
-    "products.revenue_analytics",
+    "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
+    "products.tasks.backend.apps.TasksConfig",
+    "products.links.backend.apps.LinksConfig",
+    "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
+    "products.user_interviews.backend.apps.UserInterviewsConfig",
+    "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
+    "products.endpoints.backend.apps.EndpointsConfig",
+    "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
+    "products.error_tracking.backend.apps.ErrorTrackingConfig",
+    "products.notebooks.backend.apps.NotebooksConfig",
+    "products.data_warehouse.backend.apps.DataWarehouseConfig",
+    "products.desktop_recordings.backend.apps.DesktopRecordingsConfig",
+    "products.live_debugger.backend.apps.LiveDebuggerConfig",
 ]
 
 INSTALLED_APPS = [
@@ -49,6 +62,7 @@ INSTALLED_APPS = [
     "social_django",
     "django_filters",
     "axes",
+    "django_structlog",
     "drf_spectacular",
     *PRODUCTS_APPS,
     "django_otp",
@@ -60,6 +74,8 @@ INSTALLED_APPS = [
     # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
     # 'two_factor.plugins.email',  # <- if you want email capability.
     # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
+    "oauth2_provider",
+    "django_admin_inline_paginator",
 ]
 
 MIDDLEWARE = [
@@ -67,9 +83,8 @@ MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
-    "django_structlog.middlewares.CeleryMiddleware",
+    "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
-    "posthog.middleware.CaptureMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
@@ -78,12 +93,15 @@ MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
-    "posthog.middleware.SessionAgeMiddleware",
     "corsheaders.middleware.CorsMiddleware",
+    "posthog.middleware.CSPMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.middleware.SocialAuthExceptionMiddleware",
+    "posthog.middleware.SessionAgeMiddleware",
+    "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -95,7 +113,10 @@ MIDDLEWARE = [
     "posthog.middleware.CHQueries",
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
+    "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
+
+DJANGO_STRUCTLOG_CELERY_ENABLED = True
 
 if DEBUG:
     # rebase_migration command
@@ -159,7 +180,7 @@ LOGIN_URL = "/login"
 LOGOUT_URL = "/logout"
 LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
-CORS_URLS_REGEX = r"^(/site_app/|/array/|/api/(?!early_access_features|surveys|web_experiments).*$)"
+CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
@@ -171,12 +192,14 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
     "social_core.pipeline.social_auth.social_uid",
     "social_core.pipeline.social_auth.auth_allowed",
+    "ee.api.authentication.social_auth_allowed",
     "social_core.pipeline.social_auth.social_user",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.api.signup.social_create_user",
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
+    "posthog.api.authentication.social_login_notification",
 )
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"
@@ -186,6 +209,7 @@ SOCIAL_AUTH_FIELDS_STORED_IN_SESSION = [
     "user_name",
     "email_opt_in",
     "organization_name",
+    "reauth",
 ]
 SOCIAL_AUTH_GITHUB_SCOPE = ["user:email"]
 SOCIAL_AUTH_GITHUB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITHUB_KEY")
@@ -196,11 +220,13 @@ SOCIAL_AUTH_GITLAB_KEY: str | None = os.getenv("SOCIAL_AUTH_GITLAB_KEY")
 SOCIAL_AUTH_GITLAB_SECRET: str | None = os.getenv("SOCIAL_AUTH_GITLAB_SECRET")
 SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https://gitlab.com")
 
+LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
+
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
 
-# For sensitive actions we have an additional permission (default 1 hour)
-SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 6, type_cast=int)
+# For sensitive actions we have an additional permission (default 2 hour)
+SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60 * 60 * 2, type_cast=int)
 
 CSRF_COOKIE_NAME = "posthog_csrftoken"
 CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)
@@ -213,6 +239,8 @@ IMPERSONATION_IDLE_TIMEOUT_SECONDS = get_from_env("IMPERSONATION_IDLE_TIMEOUT_SE
 IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY = get_from_env(
     "IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY", "impersonation_last_activity"
 )
+# Disallow impersonating other staff
+CAN_LOGIN_AS = lambda request, target_user: request.user.is_staff and not target_user.is_staff
 
 SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
 
@@ -316,7 +344,7 @@ GZIP_POST_RESPONSE_ALLOW_LIST = get_list(
         "GZIP_POST_RESPONSE_ALLOW_LIST",
         ",".join(
             [
-                "^/?api/projects/\\d+/query/?$",
+                "^/?api/(environments|projects)/\\d+/query/?$",
             ]
         ),
     )
@@ -328,31 +356,31 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         ",".join(
             [
                 "^/?api/plugin_config/\\d+/frontend/?$",
-                "^/?api/projects/@current/property_definitions/?$",
-                "^/?api/projects/\\d+/event_definitions/?$",
-                "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
-                "^/?api/projects/\\d+/insights/?$",
-                "^/?api/projects/\\d+/insights/\\d+/?$",
-                "^/?api/projects/\\d+/dashboards/\\d+/?$",
-                "^/?api/projects/\\d+/dashboards/?$",
-                "^/?api/projects/\\d+/actions/?$",
-                "^/?api/projects/\\d+/session_recordings/?$",
-                "^/?api/projects/\\d+/session_recordings/.*$",
-                "^/?api/projects/\\d+/session_recording_playlists/?$",
-                "^/?api/projects/\\d+/session_recording_playlists/.*$",
-                "^/?api/projects/\\d+/performance_events/?$",
-                "^/?api/projects/\\d+/performance_events/.*$",
-                "^/?api/projects/\\d+/exports/\\d+/content/?$",
-                "^/?api/projects/\\d+/activity_log/important_changes/?$",
-                "^/?api/projects/\\d+/uploaded_media/?$",
+                "^/?api/(environments|projects)/@current/property_definitions/?$",
+                "^/?api/(environments|projects)/\\d+/event_definitions/?$",
+                "^/?api/(environments|projects)/\\d+/insights/(trend|funnel)/?$",
+                "^/?api/(environments|projects)/\\d+/insights/?$",
+                "^/?api/(environments|projects)/\\d+/insights/\\d+/?$",
+                "^/?api/(environments|projects)/\\d+/dashboards/\\d+/?$",
+                "^/?api/(environments|projects)/\\d+/dashboards/?$",
+                "^/?api/(environments|projects)/\\d+/actions/?$",
+                "^/?api/(environments|projects)/\\d+/session_recordings/?$",
+                "^/?api/(environments|projects)/\\d+/session_recordings/.*$",
+                "^/?api/(environments|projects)/\\d+/session_recording_playlists/?$",
+                "^/?api/(environments|projects)/\\d+/session_recording_playlists/.*$",
+                "^/?api/(environments|projects)/\\d+/performance_events/?$",
+                "^/?api/(environments|projects)/\\d+/performance_events/.*$",
+                "^/?api/(environments|projects)/\\d+/exports/\\d+/content/?$",
+                "^/?api/(environments|projects)/\\d+/my_notifications/?$",
+                "^/?api/(environments|projects)/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
                 "^/api/element/stats/?$",
-                "^/api/projects/\\d+/groups/property_definitions/?$",
-                "^/api/projects/\\d+/cohorts/?$",
-                "^/api/projects/\\d+/persons/?$",
+                "^/api/(environments|projects)/\\d+/groups/property_definitions/?$",
+                "^/api/(environments|projects)/\\d+/cohorts/?$",
+                "^/api/(environments|projects)/\\d+/persons/?$",
                 "^/api/organizations/@current/plugins/?$",
-                "^api/projects/@current/feature_flags/my_flags/?$",
-                "^/?api/projects/\\d+/query/?$",
+                "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
+                "^/?api/(environments|projects)/\\d+/query/?$",
                 "^/?api/instance_status/?$",
                 "^/array/.*$",
             ]
@@ -376,6 +404,7 @@ PUBLIC_EGRESS_IP_ADDRESSES = get_list(os.getenv("PUBLIC_EGRESS_IP_ADDRESSES", ""
 
 PROXY_PROVISIONER_URL = get_from_env("PROXY_PROVISIONER_URL", "")  # legacy, from before gRPC
 PROXY_PROVISIONER_ADDR = get_from_env("PROXY_PROVISIONER_ADDR", "")
+PROXY_USE_GATEWAY_API = get_from_env("PROXY_USE_GATEWAY_API", False, type_cast=str_to_bool)
 PROXY_TARGET_CNAME = get_from_env("PROXY_TARGET_CNAME", "")
 PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 
@@ -444,13 +473,6 @@ KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SEC
 # if `true` we highly increase the rate limit on /query endpoint and limit the number of concurrent queries
 API_QUERIES_ENABLED = get_from_env("API_QUERIES_ENABLED", False, type_cast=str_to_bool)
 
-####
-# Hog
-
-# Teams allowed to modify transformation code (comma-separated list of team IDs),
-# keep in sync with client-side feature flag HOG_TRANSFORMATIONS_CUSTOM_HOG_ENABLED
-HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS = get_list(os.getenv("HOG_TRANSFORMATIONS_CUSTOM_ENABLED_TEAMS", ""))
-CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG = get_from_env("CREATE_HOG_FUNCTION_FROM_PLUGIN_CONFIG", False, type_cast=bool)
 
 ####
 # Livestream
@@ -471,3 +493,57 @@ DEV_DISABLE_NAVIGATION_HOOKS = get_from_env("DEV_DISABLE_NAVIGATION_HOOKS", Fals
 # temporary flag to control new UUID version setting in posthog-js
 # is set to v7 to test new generation but can be set to "og" to revert
 POSTHOG_JS_UUID_VERSION = os.getenv("POSTHOG_JS_UUID_VERSION", "v7")
+
+# Feature flag to enable HogFunctions daily digest email for specific teams
+# Comma-separated list of team IDs that should receive the digest
+HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS = get_list(get_from_env("HOG_FUNCTIONS_DAILY_DIGEST_TEAM_IDS", ""))
+
+
+####
+# OAuth
+
+OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n")
+
+
+OAUTH_EXPIRED_TOKEN_RETENTION_PERIOD = 60 * 60 * 24 * 30  # 30 days
+
+OAUTH2_PROVIDER = {
+    "OIDC_ENABLED": True,
+    "PKCE_REQUIRED": True,  # We require PKCE for all OAuth flows - including confidential clients
+    "OIDC_RSA_PRIVATE_KEY": OIDC_RSA_PRIVATE_KEY,
+    "SCOPES": {
+        "openid": "OpenID Connect scope",
+        "profile": "Access to user's profile",
+        "email": "Access to user's email address",
+        "*": "Full access to all scopes",
+        **get_scope_descriptions(),
+    },
+    # Allow both http and https schemes to support localhost callbacks
+    # Security validation in OAuthApplication.clean() ensures http is only allowed for loopback addresses (localhost, 127.0.0.0/8) in production
+    "ALLOWED_REDIRECT_URI_SCHEMES": ["http", "https"],
+    "AUTHORIZATION_CODE_EXPIRE_SECONDS": 60
+    * 5,  # client has 5 minutes to complete the OAuth flow before the authorization code expires
+    "DEFAULT_SCOPES": ["openid"],
+    "ACCESS_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_access_token",
+    "REFRESH_TOKEN_GENERATOR": "posthog.models.utils.generate_random_oauth_refresh_token",
+    "OAUTH2_VALIDATOR_CLASS": "posthog.api.oauth.OAuthValidator",
+    "ACCESS_TOKEN_EXPIRE_SECONDS": 60 * 60,  # 1 hour
+    "ROTATE_REFRESH_TOKEN": True,  # Rotate the refresh token whenever a new access token is issued
+    "REFRESH_TOKEN_REUSE_PROTECTION": True,
+    # The default grace period where a client can attempt to use the same refresh token
+    # Using a refresh token after this will revoke all refresh and access tokens
+    "REFRESH_TOKEN_GRACE_PERIOD_SECONDS": 60 * 2,
+    "REFRESH_TOKEN_EXPIRE_SECONDS": 60 * 60 * 24 * 30,
+    "CLEAR_EXPIRED_TOKENS_BATCH_SIZE": 1000,
+    "CLEAR_EXPIRED_TOKENS_BATCH_INTERVAL": 1,
+}
+
+
+OAUTH2_PROVIDER_APPLICATION_MODEL = "posthog.OAuthApplication"
+OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
+OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
+OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
+OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+# Sharing configuration settings
+SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

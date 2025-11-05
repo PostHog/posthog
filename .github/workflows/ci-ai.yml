@@ -1,0 +1,153 @@
+name: AI
+on:
+    pull_request:
+        types: [opened, synchronize, reopened, labeled, unlabeled]
+    push:
+        branches:
+            - master
+        paths:
+            - 'ee/hogai/**'
+            - '.github/workflows/ci-ai.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }} # We only want one AI CI run per PR concurrently
+
+jobs:
+    eval:
+        timeout-minutes: 45
+        name: Run AI evals
+        runs-on: ubuntu-latest
+        # Skipping on forks as Braintrust credentials are not available there
+        if: |
+            github.repository == 'PostHog/posthog' && (
+                github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'evals-ready')
+            )
+
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  # Check out the actual branch instead of merge commit with master,
+                  # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  fetch-depth: 0
+
+            - name: Stop/Start stack with Docker Compose
+              run: |
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.8.19
+
+            - name: Install python dependencies
+              shell: bash
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Wait for Clickhouse & Kafka
+              run: bin/check_kafka_clickhouse_up
+
+            - name: Run LLM evals
+              run: pytest ee/hogai/eval/ci -vv
+              env:
+                  EVAL_MODE: ci
+                  EXPORT_EVAL_RESULTS: true
+                  BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+                  INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
+                  AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
+                  AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
+
+            - name: Post eval summary to PR
+              # always() because we want to post even if `pytest` exited with an error (likely just one eval suite errored)
+              if: always() && github.event_name == 'pull_request'
+              uses: actions/github-script@v6
+              with:
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  script: |
+                      const fs = require("fs")
+
+                      // Read the eval results
+                      const evalResults = fs
+                          .readFileSync("eval_results.jsonl", "utf8")
+                          .trim()
+                          .split("\n")
+                          .map((line) => JSON.parse(line))
+
+                      if (evalResults.length === 0) {
+                          console.log("No eval results found")
+                          return
+                      }
+
+                      // Generate concise experiment summaries
+                      const experimentSummaries = evalResults.map((result) => {
+                          // Format scores as bullet points with improvements/regressions and baseline comparison
+                          const scoresList = Object.entries(result.scores || {})
+                              .map(([key, value]) => {
+                                  const score = typeof value.score === "number" ? `${(value.score * 100).toFixed(2)}%` : value.score
+                                  let baselineComparison = null
+                                  const diffHighlight = Math.abs(value.diff) > 0.01 ? "**" : ""
+                                  let diffEmoji = "🆕"
+                                  if (result.comparison_experiment_name?.startsWith("master-")) {
+                                      baselineComparison = `${diffHighlight}${value.diff > 0 ? "+" : value.diff < 0 ? "" : "±"}${(
+                                          value.diff * 100
+                                      ).toFixed(2)}%${diffHighlight} (improvements: ${value.improvements}, regressions: ${value.regressions})`
+                                      diffEmoji = value.diff > 0.01 ? "🟢" : value.diff < -0.01 ? "🔴" : "🔵"
+                                  }
+                                  return `${diffEmoji} **${key}**: **${score}**${baselineComparison ? `, ${baselineComparison}` : ""}`
+                              })
+                              .join("\n")
+
+                          // Format key metrics concisely
+                          const metrics = result.metrics || {}
+                          const duration = metrics.duration ? `⏱️ ${metrics.duration.metric.toFixed(2)} s` : null
+                          const totalTokens = metrics.total_tokens ? `🔢 ${Math.floor(metrics.total_tokens.metric)} tokens` : null
+                          const cost = metrics.estimated_cost ? `💵 $${metrics.estimated_cost.metric.toFixed(4)} in tokens` : null
+                          const metricsText = [duration, totalTokens, cost].filter(Boolean).join(", ")
+                          const baselineLink = `[${result.comparison_experiment_name}](${result.project_url}/experiments/${result.comparison_experiment_name})`
+
+                          // Create concise experiment summary with header only showing experiment name
+                          const experimentName = result.project_name.replace(/^max-ai-/, "")
+
+                          return [
+                              `### [${experimentName}](${result.experiment_url})`,
+                              scoresList,
+                              `Baseline: ${baselineLink} • Avg. case performance: ${metricsText}`,
+                          ].join("\n\n")
+                      })
+
+                      const totalExperiments = evalResults.length
+                      const totalMetrics = evalResults.reduce((acc, result) => acc + Object.keys(result.scores || {}).length, 0)
+
+                      const body = [
+                          `## 🧠 AI eval results`,
+                          `Evaluated **${totalExperiments}** experiments, comprising **${totalMetrics}** metrics.`,
+                          ...experimentSummaries,
+                          `_Triggered by [this commit](https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.payload.pull_request.number}/commits/${context.payload.pull_request.head.sha})._`,
+                      ].join("\n\n")
+
+                      // Post comment on PR
+                      if (context.payload.pull_request) {
+                          github.rest.issues.createComment({
+                              issue_number: context.issue.number,
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              body: body,
+                          })
+                      } else {
+                          // Just log the summary if this is a push to master
+                          console.log(body)
+                      }

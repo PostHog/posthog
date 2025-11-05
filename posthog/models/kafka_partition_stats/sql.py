@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+
 from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
@@ -28,7 +29,7 @@ class PartitionStatsKafkaTable:
                 `sent_at` String,
                 `token` String
             )
-            ENGINE={kafka_engine(kafka_host=",".join(self.brokers), topic=self.topic, group=self.consumer_group)}
+            ENGINE={kafka_engine(kafka_host=",".join(self.brokers), topic=self.topic, group=self.consumer_group, use_named_collection=False)}
             SETTINGS input_format_values_interpret_expressions=0, kafka_skip_broken_messages = 100
         """
 

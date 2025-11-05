@@ -1,7 +1,9 @@
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
+
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { TrendsFormulaNode } from '~/queries/schema/schema-general'
@@ -12,7 +14,7 @@ const ALLOWED_FORMULA_CHARACTERS = /^[a-zA-Z \-*^0-9+/().]+$/
 
 export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element | null {
     const { formulaNodes, hasFormula } = useValues(insightVizDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
+    const { updateInsightFilter, removeFormulaNode } = useActions(insightVizDataLogic(insightProps))
 
     // Initialize with at least one empty value
     const [values, setValues] = useState<TrendsFormulaNode[]>(formulaNodes)
@@ -43,7 +45,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                 setLocalValues([emptyNode])
             }
         }
-    }, [formulaNodes, hasFormula])
+    }, [formulaNodes, hasFormula]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const updateFormulas = (newValues: TrendsFormulaNode[]): void => {
         // Filter out empty values when updating the query but keep them in local state
@@ -105,15 +107,8 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
 
     const removeFormula = (index: number): void => {
         const newValues = localValues.filter((_, i) => i !== index)
-        // Always ensure at least one empty value
-        if (newValues.length === 0) {
-            newValues.push({ formula: '' })
-        }
         setLocalValues(newValues)
-        // Only update if there are non-empty values
-        if (newValues.some((v) => v.formula.trim() !== '')) {
-            updateFormulas(newValues)
-        }
+        removeFormulaNode(newValues)
     }
 
     return hasFormula ? (
@@ -121,15 +116,6 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
             {localValues.map((value, index) => (
                 <div key={index} className="space-y-1">
                     <div className="flex items-center gap-2">
-                        <LemonInput
-                            className="flex-1"
-                            placeholder="Formula name (optional)"
-                            size="small"
-                            value={value.custom_name || ''}
-                            onChange={(value) => handleCustomNameChange(index, value)}
-                            onBlur={() => handleCustomNameBlur(index)}
-                            onPressEnter={handleFormulaEnter}
-                        />
                         <LemonInput
                             className="flex-1"
                             placeholder="Example: (A + B) / 100"
@@ -140,14 +126,23 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
                             onBlur={(e) => handleFormulaBlur(index, e)}
                             onPressEnter={handleFormulaEnter}
                         />
-                        {localValues.length > 1 && (
-                            <LemonButton
-                                icon={<IconTrash />}
-                                status="alt"
-                                onClick={() => removeFormula(index)}
-                                title="Remove formula"
-                            />
-                        )}
+                        <LemonInput
+                            className="flex-1"
+                            placeholder="Formula name (optional)"
+                            size="small"
+                            value={value.custom_name || ''}
+                            onChange={(value) => handleCustomNameChange(index, value)}
+                            onBlur={() => handleCustomNameBlur(index)}
+                            onPressEnter={handleFormulaEnter}
+                        />
+                        <LemonButton
+                            icon={<IconTrash />}
+                            status="alt"
+                            onClick={() => removeFormula(index)}
+                            title={
+                                localValues.length === 1 ? 'Remove formula and disable formula mode' : 'Remove formula'
+                            }
+                        />
                     </div>
                 </div>
             ))}

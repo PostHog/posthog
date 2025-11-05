@@ -1,8 +1,8 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
-import { Response } from '~/src/utils/fetch'
-
+import { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
+
 type IntercomMeta = LegacyDestinationPluginMeta & {
     global: {
         intercomUrl: string
@@ -73,7 +73,7 @@ async function searchForContactInIntercom(meta: IntercomMeta, url: string, apiKe
         },
         'POST'
     )
-    const searchContactResponseJson = (await searchContactResponse.json()) as Record<string, any>
+    const searchContactResponseJson = await searchContactResponse.json()
 
     if (!statusOk(searchContactResponse) || searchContactResponseJson.errors) {
         const errorMessage = searchContactResponseJson.errors ? searchContactResponseJson.errors[0].message : ''
@@ -130,7 +130,7 @@ async function sendEventToIntercom(
     }
 }
 
-async function fetchWithRetry(meta: IntercomMeta, url: string, options = {}, method = 'GET'): Promise<Response> {
+async function fetchWithRetry(meta: IntercomMeta, url: string, options = {}, method = 'GET'): Promise<FetchResponse> {
     try {
         const res = await meta.fetch(url, { method: method, ...options })
         return res
@@ -139,7 +139,7 @@ async function fetchWithRetry(meta: IntercomMeta, url: string, options = {}, met
     }
 }
 
-function statusOk(res: Response) {
+function statusOk(res: FetchResponse) {
     return String(res.status)[0] === '2'
 }
 

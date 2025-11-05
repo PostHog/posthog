@@ -1,62 +1,73 @@
 import './Billing.scss'
 
-import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+
+import { LemonTabs } from '@posthog/lemon-ui'
+
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { billingLogic } from './billingLogic'
-import { BillingOverview } from './BillingOverview'
+import { Billing } from './Billing'
+import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
+import { billingLogic } from './billingLogic'
+import { BillingSectionId } from './types'
 
 export const scene: SceneExport = {
     component: BillingSection,
     logic: billingLogic,
 }
 
+const tabs: { key: BillingSectionId; label: string }[] = [
+    { key: 'overview', label: 'Overview' },
+    { key: 'usage', label: 'Usage' },
+    { key: 'spend', label: 'Spend' },
+]
+
 export function BillingSection(): JSX.Element {
-    const { location } = useValues(router)
-    const { push } = useActions(router)
+    const { location, searchParams } = useValues(router)
 
-    const activeSection = location.pathname.endsWith('/usage') ? 'usage' : 'overview'
+    const section = location.pathname.includes('spend')
+        ? 'spend'
+        : location.pathname.includes('usage')
+          ? 'usage'
+          : 'overview'
 
-    useEffect(() => {
-        if (location.pathname === '/organization/billing') {
-            push(urls.organizationBillingSection('overview'))
+    const handleTabChange = (key: BillingSectionId): void => {
+        const newUrl = urls.organizationBillingSection(key)
+
+        const currentHasParams = section === 'usage' || section === 'spend'
+        const targetHasParams = key === 'usage' || key === 'spend'
+        const shouldPreserveParams = currentHasParams && targetHasParams
+
+        if (!shouldPreserveParams) {
+            router.actions.push(newUrl)
+            return
         }
-    }, [location.pathname])
+
+        const paramsToPreserve = { ...searchParams }
+
+        // When switching from spend to usage and breakdowns param is present,
+        // ensure 'type' breakdown is included, since it's required for usage
+        if (section === 'spend' && key === 'usage' && paramsToPreserve.breakdowns) {
+            const currentBreakdowns = Array.isArray(paramsToPreserve.breakdowns) ? paramsToPreserve.breakdowns : []
+
+            if (!currentBreakdowns.includes('type')) {
+                paramsToPreserve.breakdowns = ['type', ...currentBreakdowns]
+            }
+        }
+
+        router.actions.push(newUrl, paramsToPreserve)
+    }
 
     return (
-        <div className="flex gap-8 items-start mt-0">
-            <div className="sticky top-16 flex-shrink-0 w-1/5 min-w-56 max-w-80 [.SidePanel3000_&]:top-0">
-                <ul className="deprecated-space-y-px">
-                    <li>
-                        <LemonButton
-                            onClick={() => push(urls.organizationBillingSection('overview'))}
-                            active={activeSection === 'overview'}
-                            size="small"
-                            fullWidth
-                        >
-                            Overview
-                        </LemonButton>
-                    </li>
-                    <li>
-                        <LemonButton
-                            onClick={() => push(urls.organizationBillingSection('usage'))}
-                            active={activeSection === 'usage'}
-                            size="small"
-                            fullWidth
-                        >
-                            Usage
-                        </LemonButton>
-                    </li>
-                </ul>
-            </div>
-            <div className="flex-1 w-full deprecated-space-y-2 min-w-0">
-                {activeSection === 'overview' ? <BillingOverview /> : <BillingUsage />}
-            </div>
+        <div className="flex flex-col">
+            <LemonTabs activeKey={section} onChange={handleTabChange} tabs={tabs} />
+
+            {section === 'overview' && <Billing />}
+            {section === 'usage' && <BillingUsage />}
+            {section === 'spend' && <BillingSpendView />}
         </div>
     )
 }

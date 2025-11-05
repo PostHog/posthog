@@ -1,12 +1,18 @@
 from datetime import timedelta
 from math import ceil
-from typing import Optional, Any, cast
+from typing import Any, Optional, cast
 
 from django.utils.timezone import now
 
-from posthog.caching.insights_api import (
-    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+from posthog.schema import (
+    ActionsNode,
+    CachedStickinessQueryResponse,
+    DataWarehouseNode,
+    EventsNode,
+    HogQLQueryModifiers,
+    StickinessComputationMode,
+    StickinessQuery,
+    StickinessQueryResponse,
 )
 
 from posthog.hogql import ast
@@ -15,7 +21,9 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.query_runner import QueryRunner
+
+from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -23,16 +31,6 @@ from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.cohort.util import get_count_operator, get_count_operator_ast
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import (
-    ActionsNode,
-    CachedStickinessQueryResponse,
-    DataWarehouseNode,
-    EventsNode,
-    StickinessComputationMode,
-    StickinessQuery,
-    HogQLQueryModifiers,
-    StickinessQueryResponse,
-)
 
 
 class SeriesWithExtras:
@@ -51,9 +49,8 @@ class SeriesWithExtras:
         self.is_previous_period_series = is_previous_period_series
 
 
-class StickinessQueryRunner(QueryRunner):
+class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
     query: StickinessQuery
-    response: StickinessQueryResponse
     cached_response: CachedStickinessQueryResponse
     series: list[SeriesWithExtras]
 
@@ -170,7 +167,7 @@ class StickinessQueryRunner(QueryRunner):
 
         return cast(ast.SelectQuery, outer_query)
 
-    def to_query(self) -> ast.SelectSetQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return ast.SelectSetQuery.create_from_queries(self.to_queries(), "UNION ALL")
 
     def to_queries(self) -> list[ast.SelectQuery]:
@@ -253,7 +250,7 @@ class StickinessQueryRunner(QueryRunner):
 
         return ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")
 
-    def calculate(self):
+    def _calculate(self):
         queries = self.to_queries()
 
         res = []
@@ -318,6 +315,7 @@ class StickinessQueryRunner(QueryRunner):
                     "type": "events",
                     "name": series_label or "All events",
                     "id": series_label,
+                    "custom_name": series_with_extra.series.custom_name,
                 }
 
                 # Modifications for when comparing to previous period

@@ -1,17 +1,18 @@
+import { P, match } from 'ts-pattern'
+
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
-    defaultDescriber,
     Description,
-    detectBoolean,
     HumanizedChange,
+    defaultDescriber,
+    detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
 import { truncate } from 'lib/utils'
 import { urls } from 'scenes/urls'
-import { match, P } from 'ts-pattern'
 
 import {
     BasicSurveyQuestion,
@@ -191,6 +192,12 @@ const surveyActionsMapping: Record<
             zIndex: 'survey form zIndex',
             fontFamily: 'font family',
             disabledButtonOpacity: 'disabled button opacity',
+            boxPadding: 'box padding',
+            boxShadow: 'box shadow',
+            borderRadius: 'border radius',
+            maxWidth: 'max width',
+            textSubtleColor: 'text subtle color',
+            inputBackground: 'input background',
         }
 
         Object.entries(fieldNameMapping).forEach(([field, readableFieldName]) => {
@@ -269,12 +276,7 @@ const surveyActionsMapping: Record<
                 </>
             )
             if (afterFlag.filters?.groups?.length > 0) {
-                changes.push(
-                    <>
-                        set targeting conditions to:
-                        <pre>{JSON.stringify(afterFlag.filters, null, 2)}</pre>
-                    </>
-                )
+                changes.push(<>set new targeting conditions</>)
             }
         } else if (beforeFlag && !afterFlag) {
             changes.push(
@@ -305,24 +307,12 @@ const surveyActionsMapping: Record<
         const changes: Description[] = []
 
         if (!beforeFlag && afterFlag) {
-            changes.push(
-                <>
-                    added targeting flag filter with the following conditions:
-                    <pre>{JSON.stringify(afterFlag, null, 2)}</pre>
-                </>
-            )
+            changes.push(<>added a targeting flag filter</>)
         } else if (beforeFlag && !afterFlag) {
             changes.push(<>removed targeting flag filter</>)
         } else if (beforeFlag && afterFlag) {
             if (JSON.stringify(beforeFlag) !== JSON.stringify(afterFlag)) {
-                changes.push(
-                    <>
-                        changed targeting conditions from:
-                        <pre>{JSON.stringify(beforeFlag, null, 2)}</pre>
-                        to:
-                        <pre>{JSON.stringify(afterFlag, null, 2)}</pre>
-                    </>
-                )
+                changes.push(<>changed targeting conditions</>)
             }
         }
 
@@ -542,7 +532,7 @@ export function describeRatingChanges([before, after]: [RatingSurveyQuestion, Ra
 
 export function describeMultipleChoiceChanges([before, after]: [
     MultipleSurveyQuestion,
-    MultipleSurveyQuestion
+    MultipleSurveyQuestion,
 ]): JSX.Element[] {
     const changes: JSX.Element[] = []
     if (JSON.stringify(before.choices) !== JSON.stringify(after.choices)) {

@@ -1,16 +1,17 @@
 import re
 from typing import get_args
 
+from django.core.exceptions import ImproperlyConfigured
+
+from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     extend_schema,  # noqa: F401
     extend_schema_field,
+    extend_schema_serializer,  # noqa: F401
 )  # # noqa: F401 for easy import
-from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
-from django.core.exceptions import ImproperlyConfigured
-
 
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
@@ -38,10 +39,15 @@ class PersonalAPIKeyScheme(OpenApiAuthenticationExtension):
             if isinstance(permission, APIScopePermission):
                 try:
                     scopes = permission._get_required_scopes(request, view)
+                    if not scopes:
+                        return []
                     return [{self.name: scopes}]
                 except (PermissionDenied, ImproperlyConfigured):
                     # NOTE: This should never happen - it indicates that we shouldn't be including it in the docs
                     pass
+
+        # Return empty array if no scopes found
+        return []
 
     def get_security_definition(self, auto_schema):
         return {"type": "http", "scheme": "bearer"}
@@ -214,6 +220,70 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     return result
 
 
+def _fix_pydantic_schema_for_openapi(schema):
+    """
+    Recursively convert Pydantic v2 JSON Schema to OpenAPI 3.0 compatible schema.
+
+    Pydantic v2 generates valid JSON Schema but not valid OpenAPI 3.0:
+    - anyOf with {"type": "null"} -> nullable: true
+    - const: "value" -> enum: ["value"]
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    schema = dict(schema)
+
+    # Handle anyOf with null type (Pydantic's Optional fields)
+    if "anyOf" in schema:
+        any_of = schema["anyOf"]
+        non_null_schemas = [s for s in any_of if not (isinstance(s, dict) and s.get("type") == "null")]
+        has_null = any(isinstance(s, dict) and s.get("type") == "null" for s in any_of)
+
+        if has_null and non_null_schemas:
+            del schema["anyOf"]
+            if len(non_null_schemas) == 1:
+                schema.update(_fix_pydantic_schema_for_openapi(non_null_schemas[0]))
+                schema["nullable"] = True
+            else:
+                schema["anyOf"] = [_fix_pydantic_schema_for_openapi(s) for s in non_null_schemas]
+                schema["nullable"] = True
+        elif non_null_schemas:
+            if len(non_null_schemas) == 1:
+                del schema["anyOf"]
+                schema.update(_fix_pydantic_schema_for_openapi(non_null_schemas[0]))
+            else:
+                schema["anyOf"] = [_fix_pydantic_schema_for_openapi(s) for s in non_null_schemas]
+        else:  # all schemas in anyOf are null types
+            schema.clear()
+            schema.update({"type": "null", "nullable": True})
+
+    # Literals should be enums in OpenAPI 3.0
+    if "const" in schema:
+        const_value = schema.pop("const")
+        schema["enum"] = [const_value]
+
+    # Recursively fix nested schemas
+    if "properties" in schema:
+        schema["properties"] = {k: _fix_pydantic_schema_for_openapi(v) for k, v in schema["properties"].items()}
+
+    if "additionalProperties" in schema and isinstance(schema["additionalProperties"], dict):
+        schema["additionalProperties"] = _fix_pydantic_schema_for_openapi(schema["additionalProperties"])
+
+    if "items" in schema:
+        if isinstance(schema["items"], dict):
+            schema["items"] = _fix_pydantic_schema_for_openapi(schema["items"])
+        elif isinstance(schema["items"], list):
+            schema["items"] = [_fix_pydantic_schema_for_openapi(s) for s in schema["items"]]
+
+    if "allOf" in schema:
+        schema["allOf"] = [_fix_pydantic_schema_for_openapi(s) for s in schema["allOf"]]
+
+    if "oneOf" in schema:
+        schema["oneOf"] = [_fix_pydantic_schema_for_openapi(s) for s in schema["oneOf"]]
+
+    return schema
+
+
 def custom_postprocessing_hook(result, generator, request, public):
     all_tags = []
     paths: dict[str, dict] = {}
@@ -247,9 +317,16 @@ def custom_postprocessing_hook(result, generator, request, public):
                     for param in definition["parameters"]
                 ]
             paths[path][method] = definition
+
+    # Fix type schemas to be OpenAPI 3.0 compatible in a postprocessing hook
+    if "components" in result and "schemas" in result["components"]:
+        result["components"]["schemas"] = {
+            name: _fix_pydantic_schema_for_openapi(schema) for name, schema in result["components"]["schemas"].items()
+        }
+
     return {
         **result,
-        "info": {"title": "PostHog API", "version": None, "description": ""},
+        "info": {"title": "PostHog API", "version": "1.0.0", "description": ""},
         "paths": paths,
         "x-tagGroups": [{"name": "All endpoints", "tags": sorted(set(all_tags))}],
     }

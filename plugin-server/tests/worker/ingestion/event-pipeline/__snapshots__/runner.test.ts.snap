@@ -1,26 +1,9 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
-exports[`EventPipelineRunner runEventPipeline() runs steps starting from populateTeamDataStep 1`] = `
+exports[`EventPipelineRunner runEventPipeline() runs steps 1`] = `
 [
   [
-    "populateTeamDataStep",
-    [
-      {
-        "distinct_id": "my_id",
-        "event": "default event",
-        "ip": "127.0.0.1",
-        "now": "2020-02-23T02:15:00.000Z",
-        "properties": {},
-        "site_url": "http://localhost",
-        "team_id": null,
-        "timestamp": "2020-02-23T02:15:00.000Z",
-        "token": "token1",
-        "uuid": "uuid1",
-      },
-    ],
-  ],
-  [
-    "cookielessServerHashStep",
+    "dropOldEventsStep",
     [
       {
         "distinct_id": "my_id",
@@ -33,21 +16,25 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         "timestamp": "2020-02-23T02:15:00.000Z",
         "uuid": "uuid1",
       },
-    ],
-  ],
-  [
-    "pluginsProcessEventStep",
-    [
       {
-        "distinct_id": "my_id",
-        "event": "default event",
-        "ip": "127.0.0.1",
-        "now": "2020-02-23T02:15:00.000Z",
-        "properties": {},
-        "site_url": "http://localhost",
-        "team_id": 2,
-        "timestamp": "2020-02-23T02:15:00.000Z",
-        "uuid": "uuid1",
+        "anonymize_ips": true,
+        "api_token": "token1",
+        "available_features": [],
+        "cookieless_server_hash_mode": null,
+        "drop_events_older_than_seconds": null,
+        "heatmaps_opt_in": null,
+        "id": 2,
+        "ingested_event": true,
+        "name": "2",
+        "organization_id": "2",
+        "person_display_name_properties": null,
+        "person_processing_opt_out": false,
+        "project_id": 2,
+        "session_recording_opt_in": true,
+        "slack_incoming_webhook": "slack_incoming_webhook",
+        "test_account_filters": null,
+        "timezone": "UTC",
+        "uuid": "<REPLACED-UUID-0>",
       },
     ],
   ],
@@ -61,6 +48,8 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
     "normalizeEventStep",
     [
       true,
+      null,
+      0,
     ],
   ],
   [
@@ -80,11 +69,57 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         "uuid": "uuid1",
       },
       {
+        "anonymize_ips": true,
+        "api_token": "token1",
+        "available_features": [],
+        "cookieless_server_hash_mode": null,
+        "drop_events_older_than_seconds": null,
+        "heatmaps_opt_in": null,
         "id": 2,
+        "ingested_event": true,
+        "name": "2",
+        "organization_id": "2",
+        "person_display_name_properties": null,
         "person_processing_opt_out": false,
+        "project_id": 2,
+        "session_recording_opt_in": true,
+        "slack_incoming_webhook": "slack_incoming_webhook",
+        "test_account_filters": null,
+        "timezone": "UTC",
+        "uuid": "<REPLACED-UUID-0>",
       },
       "2020-02-23T02:15:00.000Z",
       true,
+      {
+        "cacheMetrics": {
+          "checkCacheHits": 0,
+          "checkCacheMisses": 0,
+          "updateCacheHits": 0,
+          "updateCacheMisses": 0,
+        },
+        "databaseOperationCountsPerDistinctId": {},
+        "distinctIdToPersonId": {},
+        "fetchPromisesForChecking": {},
+        "fetchPromisesForUpdate": {},
+        "kafkaProducer": {},
+        "methodCountsPerDistinctId": {},
+        "options": {
+          "dbWriteMode": "NO_ASSERT",
+          "maxConcurrentUpdates": 10,
+          "maxOptimisticUpdateRetries": 5,
+          "optimisticUpdateRetryInterval": 50,
+        },
+        "personCheckCache": {},
+        "personRepository": {
+          "options": {
+            "calculatePropertiesSize": 0,
+            "personPropertiesDbConstraintLimitBytes": 655360,
+            "personPropertiesTrimTargetBytes": 524288,
+          },
+        },
+        "personUpdateCache": {},
+        "updateLatencyPerDistinctIdSeconds": {},
+      },
     ],
   ],
   [
@@ -93,7 +128,7 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
       {
         "distinct_id": "my_id",
         "event": "default event",
-        "ip": null,
+        "ip": "127.0.0.1",
         "now": "2020-02-23T02:15:00.000Z",
         "properties": {
           "$ip": "127.0.0.1",
@@ -152,25 +187,6 @@ exports[`EventPipelineRunner runEventPipeline() runs steps starting from populat
         "personUpdateProperties": {},
       },
       true,
-    ],
-  ],
-  [
-    "emitEventStep",
-    [
-      {
-        "created_at": "2024-11-18 14:54:33.606",
-        "distinct_id": "my_id",
-        "elements_chain": "",
-        "event": "$pageview",
-        "person_created_at": "2024-11-18 14:54:33",
-        "person_mode": "full",
-        "person_properties": "{}",
-        "project_id": 1,
-        "properties": "{}",
-        "team_id": 2,
-        "timestamp": "2020-02-23 02:15:00.000",
-        "uuid": "uuid1",
-      },
     ],
   ],
 ]

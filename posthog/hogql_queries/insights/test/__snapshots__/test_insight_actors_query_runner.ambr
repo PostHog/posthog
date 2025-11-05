@@ -15,7 +15,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_funnels_query
@@ -96,7 +97,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_lifecycle_query
@@ -108,9 +110,9 @@
        (SELECT DISTINCT actor_id AS actor_id
         FROM
           (SELECT min(events__person.created_at) AS created_at,
-                  arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity,
-                  arrayPopFront(arrayPushBack(all_activity, toStartOfDay(toDateTime('1970-01-01 00:00:00', 'US/Pacific')))) AS following_activity,
+                  arraySort(groupUniqArray(toStartOfInterval(toTimeZone(events.timestamp, 'US/Pacific'), toIntervalDay(1)))) AS all_activity,
+                  arrayPopBack(arrayPushFront(all_activity, toStartOfInterval(created_at, toIntervalDay(1)))) AS previous_activity,
+                  arrayPopFront(arrayPushBack(all_activity, toStartOfInterval(toDateTime('1970-01-01 00:00:00', 'US/Pacific'), toIntervalDay(1)))) AS following_activity,
                   arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
                                                                    and isNull(current)), 'new', if(and(ifNull(equals(minus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)), previous), isNull(minus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)))
                                                                                                               and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status,
@@ -138,10 +140,10 @@
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-           WHERE and(equals(events.team_id, 99999), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$process_person_profile'), ''), 'null'), '^"|"$', ''), 'false'), 1), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(toStartOfDay(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(toStartOfDay(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
+           WHERE and(equals(events.team_id, 99999), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$process_person_profile'), ''), 'null'), '^"|"$', ''), 'false'), 1), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(1))), equals(events.event, '$pageview'))
            GROUP BY actor_id)
-        WHERE and(ifNull(equals(start_of_period, toStartOfDay(toDateTime('2020-01-12', 'US/Pacific'))), isNull(start_of_period)
-                         and isNull(toStartOfDay(toDateTime('2020-01-12', 'US/Pacific')))), ifNull(equals(status, 'returning'), 0))) AS source
+        WHERE and(ifNull(equals(start_of_period, toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1))), isNull(start_of_period)
+                         and isNull(toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1)))), ifNull(equals(status, 'returning'), 0))) AS source
      INNER JOIN
        (SELECT person.id AS id,
                replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '') AS properties___name
@@ -154,10 +156,10 @@
                                                                                                       FROM
                                                                                                         (SELECT DISTINCT actor_id AS actor_id
                                                                                                          FROM
-                                                                                                           (SELECT min(events__person.created_at) AS created_at, arraySort(groupUniqArray(toStartOfDay(toTimeZone(events.timestamp, 'US/Pacific')))) AS all_activity, arrayPopBack(arrayPushFront(all_activity, toStartOfDay(created_at))) AS previous_activity, arrayPopFront(arrayPushBack(all_activity, toStartOfDay(toDateTime('1970-01-01 00:00:00', 'US/Pacific')))) AS following_activity, arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   and isNull(current)), 'new', if(and(ifNull(equals(minus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)), previous), isNull(minus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status, arrayMap((current, next) -> if(ifNull(equals(plus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)), toTimeZone(next, 'US/Pacific')), isNull(plus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)))
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             and isNull(toTimeZone(next, 'US/Pacific'))), '', 'dormant'), all_activity, following_activity) AS dormant_status, arrayMap(x -> plus(toTimeZone(x, 'US/Pacific'), toIntervalDay(1)), arrayFilter((current, is_dormant) -> ifNull(equals(is_dormant, 'dormant'), 0), all_activity, dormant_status)) AS dormant_periods, arrayMap(x -> 'dormant', dormant_periods) AS dormant_label, arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat, arrayJoin(temp_concat) AS period_status_pairs, period_status_pairs.1 AS start_of_period, period_status_pairs.2 AS status, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id
+                                                                                                           (SELECT min(events__person.created_at) AS created_at, arraySort(groupUniqArray(toStartOfInterval(toTimeZone(events.timestamp, 'US/Pacific'), toIntervalDay(1)))) AS all_activity, arrayPopBack(arrayPushFront(all_activity, toStartOfInterval(created_at, toIntervalDay(1)))) AS previous_activity, arrayPopFront(arrayPushBack(all_activity, toStartOfInterval(toDateTime('1970-01-01 00:00:00', 'US/Pacific'), toIntervalDay(1)))) AS following_activity, arrayMap((previous, current, index) -> if(ifNull(equals(previous, current), isNull(previous)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        and isNull(current)), 'new', if(and(ifNull(equals(minus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)), previous), isNull(minus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   and isNull(previous)), ifNull(notEquals(index, 1), 1)), 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) AS initial_status, arrayMap((current, next) -> if(ifNull(equals(plus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)), toTimeZone(next, 'US/Pacific')), isNull(plus(toTimeZone(current, 'US/Pacific'), toIntervalDay(1)))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  and isNull(toTimeZone(next, 'US/Pacific'))), '', 'dormant'), all_activity, following_activity) AS dormant_status, arrayMap(x -> plus(toTimeZone(x, 'US/Pacific'), toIntervalDay(1)), arrayFilter((current, is_dormant) -> ifNull(equals(is_dormant, 'dormant'), 0), all_activity, dormant_status)) AS dormant_periods, arrayMap(x -> 'dormant', dormant_periods) AS dormant_label, arrayConcat(arrayZip(all_activity, initial_status), arrayZip(dormant_periods, dormant_label)) AS temp_concat, arrayJoin(temp_concat) AS period_status_pairs, period_status_pairs.1 AS start_of_period, period_status_pairs.2 AS status, if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS actor_id
                                                                                                             FROM events
                                                                                                             LEFT OUTER JOIN
                                                                                                               (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -171,10 +173,10 @@
                                                                                                                WHERE equals(person.team_id, 99999)
                                                                                                                GROUP BY person.id
                                                                                                                HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                            WHERE and(equals(events.team_id, 99999), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$process_person_profile'), ''), 'null'), '^"|"$', ''), 'false'), 1), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(toStartOfDay(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific'))), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(toStartOfDay(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), toIntervalDay(1))), equals(events.event, '$pageview'))
+                                                                                                            WHERE and(equals(events.team_id, 99999), ifNull(notEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$process_person_profile'), ''), 'null'), '^"|"$', ''), 'false'), 1), greaterOrEquals(toTimeZone(events.timestamp, 'US/Pacific'), minus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(1))), less(toTimeZone(events.timestamp, 'US/Pacific'), plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(1))), equals(events.event, '$pageview'))
                                                                                                             GROUP BY actor_id)
-                                                                                                         WHERE and(ifNull(equals(start_of_period, toStartOfDay(toDateTime('2020-01-12', 'US/Pacific'))), isNull(start_of_period)
-                                                                                                                          and isNull(toStartOfDay(toDateTime('2020-01-12', 'US/Pacific')))), ifNull(equals(status, 'returning'), 0))) AS source)))
+                                                                                                         WHERE and(ifNull(equals(start_of_period, toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1))), isNull(start_of_period)
+                                                                                                                          and isNull(toStartOfInterval(toDateTime('2020-01-12', 'US/Pacific'), toIntervalDay(1)))), ifNull(equals(status, 'returning'), 0))) AS source)))
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'US/Pacific'), person.version), plus(now64(6, 'US/Pacific'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS persons ON equals(persons.id, source.actor_id)
      ORDER BY persons.properties___name ASC SETTINGS optimize_aggregation_in_order=1,
@@ -187,7 +189,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_stickiness_groups_query
@@ -202,9 +205,9 @@
                   count() AS num_intervals
            FROM
              (SELECT e.`$group_0` AS aggregation_target,
-                     toStartOfDay(toTimeZone(e.timestamp, 'US/Pacific')) AS start_of_interval
+                     toStartOfInterval(toTimeZone(e.timestamp, 'US/Pacific'), toIntervalDay(1)) AS start_of_interval
               FROM events AS e SAMPLE 1
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfDay(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'US/Pacific')))), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'), notEquals(e.`$group_0`, ''))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-01 00:00:00', 'US/Pacific')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'), notEquals(e.`$group_0`, ''))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -228,7 +231,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_stickiness_query
@@ -243,7 +247,7 @@
                   count() AS num_intervals
            FROM
              (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
-                     toStartOfDay(toTimeZone(e.timestamp, 'US/Pacific')) AS start_of_interval
+                     toStartOfInterval(toTimeZone(e.timestamp, 'US/Pacific'), toIntervalDay(1)) AS start_of_interval
               FROM events AS e SAMPLE 1
               LEFT OUTER JOIN
                 (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -252,7 +256,7 @@
                  WHERE equals(person_distinct_id_overrides.team_id, 99999)
                  GROUP BY person_distinct_id_overrides.distinct_id
                  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfDay(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific')))), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'))
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'))
               GROUP BY aggregation_target,
                        start_of_interval
               HAVING ifNull(greater(count(), 0), 0))
@@ -272,7 +276,7 @@
                                                                                                          FROM
                                                                                                            (SELECT aggregation_target AS aggregation_target, count() AS num_intervals
                                                                                                             FROM
-                                                                                                              (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, toStartOfDay(toTimeZone(e.timestamp, 'US/Pacific')) AS start_of_interval
+                                                                                                              (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target, toStartOfInterval(toTimeZone(e.timestamp, 'US/Pacific'), toIntervalDay(1)) AS start_of_interval
                                                                                                                FROM events AS e SAMPLE 1
                                                                                                                LEFT OUTER JOIN
                                                                                                                  (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -280,7 +284,7 @@
                                                                                                                   WHERE equals(person_distinct_id_overrides.team_id, 99999)
                                                                                                                   GROUP BY person_distinct_id_overrides.distinct_id
                                                                                                                   HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-                                                                                                               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfDay(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific')))), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'))
+                                                                                                               WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), toStartOfInterval(assumeNotNull(toDateTime('2020-01-09 00:00:00', 'US/Pacific')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'US/Pacific'), assumeNotNull(toDateTime('2020-01-19 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'))
                                                                                                                GROUP BY aggregation_target, start_of_interval
                                                                                                                HAVING ifNull(greater(count(), 0), 0))
                                                                                                             GROUP BY aggregation_target)
@@ -297,7 +301,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_groups_query
@@ -333,7 +338,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV1
@@ -406,7 +412,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestInsightActorsQueryRunner.test_insight_persons_trends_query_with_argmaxV2
@@ -488,6 +495,7 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---

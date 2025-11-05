@@ -1,15 +1,17 @@
-import { IconCloud, IconExternal } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { IconCloud } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+
 import { IconWithBadge } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useState } from 'react'
 
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelLogic } from '../sidePanelLogic'
 import { SidePanelDocsSkeleton } from './SidePanelDocs'
-import { sidePanelStatusLogic, STATUS_PAGE_BASE } from './sidePanelStatusLogic'
+import { STATUS_PAGE_BASE, sidePanelStatusLogic } from './sidePanelStatusLogic'
 
 export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element => {
     const { status, statusPage } = useValues(sidePanelStatusLogic)
@@ -28,8 +30,8 @@ export const SidePanelStatusIcon = (props: { className?: string }): JSX.Element 
                         status.includes('outage')
                             ? 'danger'
                             : status.includes('degraded') || status.includes('monitoring')
-                            ? 'warning'
-                            : 'success'
+                              ? 'warning'
+                              : 'success'
                     }
                 >
                     <IconCloud />
@@ -49,7 +51,6 @@ export const SidePanelStatus = (): JSX.Element => {
                 <div className="flex-1" />
                 <LemonButton
                     size="small"
-                    sideIcon={<IconExternal />}
                     targetBlank
                     // We can't use the normal `to` property as that is intercepted to open this panel :D
                     onClick={() => {

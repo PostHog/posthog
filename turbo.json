@@ -24,6 +24,12 @@
             "cache": false,
             "passThroughEnv": ["SKIP_TYPEGEN"]
         },
+        "start-vite": {
+            "dependsOn": ["^build"],
+            "persistent": true,
+            "cache": false,
+            "passThroughEnv": ["SKIP_TYPEGEN"]
+        },
         "dev": {
             "dependsOn": ["^build"],
             "persistent": true,

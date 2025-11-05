@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -28,10 +29,11 @@ function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLi
         loginParams.idp = 'posthog_custom'
     }
     const loginUrl = combineUrl(`/login/${provider}/`, loginParams).url
+    const iframed = window !== window.parent
 
     return (
         // eslint-disable-next-line react/forbid-elements
-        <a className="block" href={loginUrl}>
+        <a className="block" href={loginUrl} {...(iframed ? { target: '_blank', rel: 'noopener' } : {})}>
             {children}
         </a>
     )

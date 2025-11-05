@@ -1,10 +1,15 @@
-from django.db import models
+from datetime import datetime
 from typing import Optional
+
+from django.db import models
+from django.db.models import Q
+from django.db.models.expressions import F
+from django.utils import timezone
+
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
-from django.db.models.expressions import F
-from django.db.models.functions import Coalesce
 
 
 class FileSystem(models.Model):
@@ -13,7 +18,6 @@ class FileSystem(models.Model):
     """
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
     id = models.UUIDField(primary_key=True, default=uuid7)
     path = models.TextField()
     depth = models.IntegerField(null=True, blank=True)
@@ -22,19 +26,18 @@ class FileSystem(models.Model):
     href = models.TextField(null=True, blank=True)
     shortcut = models.BooleanField(null=True, blank=True)
     meta = models.JSONField(default=dict, null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    # DEPRECATED/UNUSED. It's all based on just the team_id.
+    project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True)
 
     class Meta:
         indexes = [
-            # Index on project_id foreign key
-            models.Index(fields=["project"]),
             models.Index(fields=["team"]),
-            models.Index(Coalesce(F("project_id"), F("team_id")), F("path"), name="posthog_fs_project_path"),
-            models.Index(Coalesce(F("project_id"), F("team_id")), F("depth"), name="posthog_fs_project_depth"),
-            models.Index(
-                Coalesce(F("project_id"), F("team_id")), F("type"), F("ref"), name="posthog_fs_project_typeref"
-            ),
+            models.Index(F("team_id"), F("path"), name="posthog_fs_team_path"),
+            models.Index(F("team_id"), F("depth"), name="posthog_fs_team_depth"),
+            models.Index(F("team_id"), F("type"), F("ref"), name="posthog_fs_team_typeref"),
         ]
 
     def __str__(self):
@@ -50,25 +53,38 @@ def create_or_update_file(
     ref: str,
     href: str,
     meta: dict,
-    created_by: Optional[User] = None,
+    created_at: Optional[datetime] = None,
+    created_by_id: Optional[int] = None,
 ):
     has_existing = False
-    all_existing = FileSystem.objects.filter(team=team, type=file_type, ref=ref).all()
+    all_existing = FileSystem.objects.filter(team=team, type=file_type, ref=ref).filter(~Q(shortcut=True)).all()
     for existing in all_existing:
         has_existing = True
         segments = split_path(existing.path)
-        if len(segments) <= 2:
-            new_path = f"{base_folder}/{escape_path(name)}"
-        else:
-            segments[-1] = escape_path(name)
-            new_path = join_path(segments)
+        segments[-1] = escape_path(name)
+        new_path = join_path(segments)
         existing.path = new_path
-        existing.depth = len(split_path(new_path))
+        existing.depth = len(segments)
         existing.href = href
         existing.meta = meta
+        if created_at:
+            existing.created_at = created_at
+        if created_by_id and existing.created_by_id != created_by_id:
+            existing.created_by_id = created_by_id
         existing.save()
 
-    if not has_existing:
+    if has_existing:
+        path = escape_path(name)
+        shortcuts = (
+            FileSystemShortcut.objects.filter(team=team, type=file_type, ref=ref)
+            .filter(~(Q(path=path) & Q(href=href)))
+            .all()
+        )
+        for shortcut in shortcuts:
+            shortcut.path = path
+            shortcut.href = href
+            shortcut.save()
+    else:
         full_path = f"{base_folder}/{escape_path(name)}"
         FileSystem.objects.create(
             team=team,
@@ -78,13 +94,16 @@ def create_or_update_file(
             ref=ref,
             href=href,
             meta=meta,
-            created_by=created_by,
             shortcut=False,
+            created_by_id=created_by_id,
+            created_at=created_at or timezone.now(),
         )
 
 
 def delete_file(*, team: Team, file_type: str, ref: str):
-    FileSystem.objects.filter(team=team, type=file_type, ref=ref).delete()
+    count, _ = FileSystem.objects.filter(team=team, type=file_type, ref=ref).delete()
+    if count > 0:
+        FileSystemShortcut.objects.filter(team=team, type=file_type, ref=ref).delete()
 
 
 def split_path(path: str) -> list[str]:

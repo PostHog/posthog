@@ -1,22 +1,24 @@
+import { useActions, useValues } from 'kea'
+
 import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { DashboardPrivilegeLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardsFilters, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { DashboardsFilters, DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -24,7 +26,14 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
-import { AccessControlResourceType, AvailableFeature, DashboardBasicType, DashboardMode, DashboardType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AvailableFeature,
+    DashboardBasicType,
+    DashboardMode,
+    DashboardType,
+} from '~/types'
 
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 
@@ -52,7 +61,7 @@ export function DashboardsTable({
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { setFilters, tableSortingChanged } = useActions(dashboardsLogic)
-    const { tableSorting } = useValues(dashboardsLogic)
+    const { tableSorting, currentTab } = useValues(dashboardsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const { currentTeam } = useValues(teamLogic)
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
@@ -81,9 +90,13 @@ export function DashboardsTable({
             title: 'Name',
             dataIndex: 'name',
             width: '40%',
-            render: function Render(_, { id, name, description, is_shared, effective_privilege_level }) {
+            render: function Render(_, { id, name, description, is_shared, user_access_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
-                const canEditDashboard = effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+                const canEditDashboard = accessLevelSatisfied(
+                    AccessControlResourceType.Dashboard,
+                    user_access_level,
+                    AccessControlLevel.Editor
+                )
                 return (
                     <LemonTableLink
                         to={urls.dashboard(id)}
@@ -128,6 +141,10 @@ export function DashboardsTable({
             : []),
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
+        atColumn<DashboardType>('last_accessed_at', 'Last accessed at') as LemonTableColumn<
+            DashboardType,
+            keyof DashboardType | undefined
+        >,
         hideActions
             ? {}
             : {
@@ -151,22 +168,25 @@ export function DashboardsTable({
                                           View
                                       </LemonButton>
 
-                                      <AccessControlledLemonButton
-                                          userAccessLevel={user_access_level}
-                                          minAccessLevel="editor"
+                                      <AccessControlAction
                                           resourceType={AccessControlResourceType.Dashboard}
-                                          to={urls.dashboard(id)}
-                                          onClick={() => {
-                                              dashboardLogic({ id }).mount()
-                                              dashboardLogic({ id }).actions.setDashboardMode(
-                                                  DashboardMode.Edit,
-                                                  DashboardEventSource.DashboardsList
-                                              )
-                                          }}
-                                          fullWidth
+                                          minAccessLevel={AccessControlLevel.Editor}
+                                          userAccessLevel={user_access_level}
                                       >
-                                          Edit
-                                      </AccessControlledLemonButton>
+                                          <LemonButton
+                                              to={urls.dashboard(id)}
+                                              onClick={() => {
+                                                  dashboardLogic({ id }).mount()
+                                                  dashboardLogic({ id }).actions.setDashboardMode(
+                                                      DashboardMode.Edit,
+                                                      DashboardEventSource.DashboardsList
+                                                  )
+                                              }}
+                                              fullWidth
+                                          >
+                                              Edit
+                                          </LemonButton>
+                                      </AccessControlAction>
 
                                       <LemonButton
                                           onClick={() => {
@@ -189,18 +209,19 @@ export function DashboardsTable({
 
                                       <LemonDivider />
 
-                                      <AccessControlledLemonButton
-                                          userAccessLevel={user_access_level}
-                                          minAccessLevel="editor"
+                                      <AccessControlAction
                                           resourceType={AccessControlResourceType.Dashboard}
-                                          onClick={() => {
-                                              showDeleteDashboardModal(id)
-                                          }}
-                                          fullWidth
-                                          status="danger"
+                                          minAccessLevel={AccessControlLevel.Editor}
+                                          userAccessLevel={user_access_level}
                                       >
-                                          Delete dashboard
-                                      </AccessControlledLemonButton>
+                                          <LemonButton
+                                              onClick={() => showDeleteDashboardModal(id)}
+                                              fullWidth
+                                              status="danger"
+                                          >
+                                              Delete dashboard
+                                          </LemonButton>
+                                      </AccessControlAction>
                                   </>
                               }
                           />
@@ -221,17 +242,19 @@ export function DashboardsTable({
                 <div className="flex items-center gap-4 flex-wrap">
                     <div className="flex items-center gap-2">
                         <span>Filter to:</span>
-                        <div className="flex items-center gap-2">
-                            <LemonButton
-                                active={filters.pinned}
-                                type="secondary"
-                                size="small"
-                                onClick={() => setFilters({ pinned: !filters.pinned })}
-                                icon={<IconPin />}
-                            >
-                                Pinned
-                            </LemonButton>
-                        </div>
+                        {currentTab !== DashboardsTab.Pinned && (
+                            <div className="flex items-center gap-2">
+                                <LemonButton
+                                    active={filters.pinned}
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => setFilters({ pinned: !filters.pinned })}
+                                    icon={<IconPin />}
+                                >
+                                    Pinned
+                                </LemonButton>
+                            </div>
+                        )}
                         <div className="flex items-center gap-2">
                             <LemonButton
                                 active={filters.shared}
@@ -244,13 +267,15 @@ export function DashboardsTable({
                             </LemonButton>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <span>Created by:</span>
-                        <MemberSelect
-                            value={filters.createdBy === 'All users' ? null : filters.createdBy}
-                            onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
-                        />
-                    </div>
+                    {currentTab !== DashboardsTab.Yours && (
+                        <div className="flex items-center gap-2">
+                            <span>Created by:</span>
+                            <MemberSelect
+                                value={filters.createdBy === 'All users' ? null : filters.createdBy}
+                                onChange={(user) => setFilters({ createdBy: user?.uuid || 'All users' })}
+                            />
+                        </div>
+                    )}
                     {extraActions}
                 </div>
             </div>

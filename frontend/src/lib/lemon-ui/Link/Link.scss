@@ -1,7 +1,7 @@
 .Link {
     padding: 0;
     line-height: inherit;
-    color: var(--accent);
+    color: var(--color-accent);
     text-align: left;
     cursor: pointer;
     background: none;
@@ -10,11 +10,11 @@
 
     &:not(:disabled) {
         &:hover {
-            color: var(--accent-hover);
+            color: var(--color-accent-hover);
         }
 
         &:active {
-            color: var(--accent-active);
+            color: var(--color-accent-active);
         }
     }
 
@@ -31,7 +31,22 @@
         color: var(--text-3000);
 
         &:not(:disabled):hover {
-            color: var(--accent-hover);
+            color: var(--color-accent-hover);
+        }
+    }
+
+    // Tooltips are inverted, so links are too
+    .Tooltip & {
+        color: var(--color-accent-inverted);
+
+        &:not(:disabled) {
+            &:hover {
+                color: var(--color-accent-hover-inverted);
+            }
+
+            &:active {
+                color: var(--color-accent-active-inverted);
+            }
         }
     }
 }

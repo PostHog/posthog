@@ -2,27 +2,28 @@
 ViewSet for Max Support Sidebar Chat Assistant.
 """
 
-from typing import Any, Optional
+import asyncio
+import logging
 import builtins
 from collections.abc import MutableMapping
+from datetime import UTC, datetime
+from typing import Any, Optional
+
 from django.conf import settings
-import logging
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.request import Request
-from rest_framework.response import Response
+
 import anthropic
 from asgiref.sync import sync_to_async
-import asyncio
-from datetime import datetime, UTC
-
+from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from ee.support_sidebar_max.prompt import get_system_prompt
-from .sidebar_max_ai import ConversationHistory, max_search_tool_tool, RateLimitType
-from .max_search_tool import max_search_tool
 
+from .max_search_tool import max_search_tool
+from .sidebar_max_ai import ConversationHistory, RateLimitType, max_search_tool_tool
 
 # Configure logging
 django_logger = logging.getLogger("django")

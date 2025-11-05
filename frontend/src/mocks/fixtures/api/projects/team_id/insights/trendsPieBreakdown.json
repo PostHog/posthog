@@ -73,54 +73,6 @@
                 "math_group_type_index": null,
                 "properties": {}
             },
-            "label": "$pageview - 92",
-            "count": 0,
-            "data": [],
-            "labels": [],
-            "days": [
-                "2022-03-08",
-                "2022-03-09",
-                "2022-03-10",
-                "2022-03-11",
-                "2022-03-12",
-                "2022-03-13",
-                "2022-03-14",
-                "2022-03-15"
-            ],
-            "aggregated_value": 598,
-            "filter": {
-                "breakdown": "$browser_version",
-                "breakdown_type": "event",
-                "date_from": "2022-03-08T00:00:00+00:00",
-                "date_to": "2022-03-15T21:37:18.750481+00:00",
-                "display": "ActionsPie",
-                "events": "[{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0, \"name\": \"$pageview\", \"custom_name\": null, \"math\": null, \"math_property\": null, \"math_group_type_index\": null, \"properties\": {}}]",
-                "insight": "TRENDS",
-                "interval": "day"
-            },
-            "persons": {
-                "filter": {
-                    "entity_id": "$pageview",
-                    "entity_type": "events",
-                    "breakdown_value": "92",
-                    "breakdown_type": "event"
-                },
-                "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A37%3A18.750481%2B00%3A00&display=ActionsPie&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=92"
-            },
-            "breakdown_value": "92"
-        },
-        {
-            "action": {
-                "id": "$pageview",
-                "type": "events",
-                "order": 0,
-                "name": "$pageview",
-                "custom_name": null,
-                "math": null,
-                "math_property": null,
-                "math_group_type_index": null,
-                "properties": {}
-            },
             "label": "$pageview - 98",
             "count": 0,
             "data": [],
@@ -156,6 +108,54 @@
                 "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A37%3A18.750481%2B00%3A00&display=ActionsPie&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=98"
             },
             "breakdown_value": "98"
+        },
+        {
+            "action": {
+                "id": "$pageview",
+                "type": "events",
+                "order": 0,
+                "name": "$pageview",
+                "custom_name": null,
+                "math": null,
+                "math_property": null,
+                "math_group_type_index": null,
+                "properties": {}
+            },
+            "label": "$pageview - 92",
+            "count": 0,
+            "data": [],
+            "labels": [],
+            "days": [
+                "2022-03-08",
+                "2022-03-09",
+                "2022-03-10",
+                "2022-03-11",
+                "2022-03-12",
+                "2022-03-13",
+                "2022-03-14",
+                "2022-03-15"
+            ],
+            "aggregated_value": 598,
+            "filter": {
+                "breakdown": "$browser_version",
+                "breakdown_type": "event",
+                "date_from": "2022-03-08T00:00:00+00:00",
+                "date_to": "2022-03-15T21:37:18.750481+00:00",
+                "display": "ActionsPie",
+                "events": "[{\"id\": \"$pageview\", \"type\": \"events\", \"order\": 0, \"name\": \"$pageview\", \"custom_name\": null, \"math\": null, \"math_property\": null, \"math_group_type_index\": null, \"properties\": {}}]",
+                "insight": "TRENDS",
+                "interval": "day"
+            },
+            "persons": {
+                "filter": {
+                    "entity_id": "$pageview",
+                    "entity_type": "events",
+                    "breakdown_value": "92",
+                    "breakdown_type": "event"
+                },
+                "url": "api/projects/1/persons/trends/?breakdown=%24browser_version&breakdown_type=event&date_from=2022-03-08T00%3A00%3A00%2B00%3A00&date_to=2022-03-15T21%3A37%3A18.750481%2B00%3A00&display=ActionsPie&events=%5B%7B%22id%22%3A+%22%24pageview%22%2C+%22type%22%3A+%22events%22%2C+%22order%22%3A+0%2C+%22name%22%3A+%22%24pageview%22%2C+%22custom_name%22%3A+null%2C+%22math%22%3A+null%2C+%22math_property%22%3A+null%2C+%22math_group_type_index%22%3A+null%2C+%22properties%22%3A+%7B%7D%7D%5D&insight=TRENDS&interval=day&entity_id=%24pageview&entity_type=events&breakdown_value=92"
+            },
+            "breakdown_value": "92"
         }
     ],
     "created_at": "2022-03-15T21:31:00.192917Z",
@@ -180,8 +180,6 @@
         "email": "marius@posthog.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37,
     "query": {
         "kind": "InsightVizNode",
         "source": {
@@ -210,8 +208,15 @@
             ],
             "trendsFilter": {
                 "display": "ActionsPie",
-                "resultCustomizationBy": "value"
-            }
+                "resultCustomizationBy": "position",
+                "resultCustomizations": {
+                    "2": {
+                        "assignmentBy": "position",
+                        "hidden": true
+                    }
+                }
+            },
+            "version": 2
         },
         "full": true
     }

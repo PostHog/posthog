@@ -1,5 +1,6 @@
+import { HogFunctionTemplate } from '~/cdp/types'
+
 import { HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS, HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED } from '../index'
-import { HogFunctionTemplate } from '../types'
 
 describe('Transformation templates', () => {
     const allTransformationTemplates: HogFunctionTemplate[] = [

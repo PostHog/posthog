@@ -1,0 +1,157 @@
+# This workflow runs generic Python tests global to Dagster and PostHog.
+name: Python CI
+on:
+    push:
+        branches:
+            - master
+    pull_request:
+
+jobs:
+    # Job to decide if we should run python ci
+    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Determine need to run python checks
+        # Set job outputs to values from filter step
+        outputs:
+            python: ${{ steps.filter.outputs.python }}
+        steps:
+            # For pull requests it's not necessary to checkout the code, but we
+            # also want this to run on master so we need to checkout
+            - uses: actions/checkout@v4
+
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+              id: filter
+              with:
+                  filters: |
+                      python:
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - 'dags/**'
+                        - 'ee/**/*.py'
+                        - 'posthog/**/*'
+                        - 'products/**/*.py'
+                        # Make sure we run if someone is explicitly change the workflows
+                        - .github/workflows/ci-python.yml
+                        - .github/workflows/ci-dagster.yml
+                        - .github/workflows/ci-backend.yml
+                        - .flox/env/manifest.toml
+                        - bin/check_uv_python_compatibility.py
+                        # Schema changes need to trigger Python CI to validate schema.py is regenerated
+                        - 'frontend/src/queries/schema.json'
+                        # hogli CLI changes need validation
+                        - 'common/hogli/**'
+                        - 'bin/**'
+
+    code-quality:
+        needs: changes
+        if: needs.changes.outputs.python == 'true'
+        timeout-minutes: 30
+
+        name: Python code quality checks
+        runs-on: depot-ubuntu-latest
+
+        steps:
+            # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
+            # there are backend changes, cancel previous runs
+            - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
+              if: github.actor != 'posthog-bot'
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 1
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: 3.12.11
+
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.8.19
+
+            - name: Check uv and Python version compatibility
+              shell: bash
+              run: |
+                  python3 bin/check_uv_python_compatibility.py
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              shell: bash
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install Python dependencies
+              shell: bash
+              run: |
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Check for syntax errors, import sort, and code style violations
+              shell: bash
+              run: |
+                  ruff check .
+
+            - name: Check formatting
+              shell: bash
+              run: |
+                  ruff format --check --diff .
+
+            - name: Add ty Problem Matcher
+              shell: bash
+              run: |
+                  echo "::add-matcher::.github/ty-problem-matcher.json"
+
+            - name: Check ty type checking (informational)
+              shell: bash
+              continue-on-error: true
+              run: |
+                  echo "👀 Running ty type checker (informational - does not block CI)"
+                  echo "📊 Trial run to evaluate ty vs mypy. Feedback welcome in #team-devex"
+                  echo ""
+                  ./bin/ty.py check posthog ee common dags || echo "⚠️ ty found type issues (annotations below)"
+
+            - name: Add mypy Problem Matcher
+              shell: bash
+              run: |
+                  echo "::add-matcher::.github/mypy-problem-matcher.json"
+
+            - name: Restore mypy cache
+              uses: actions/cache@v4
+              with:
+                  path: .mypy_cache
+                  key: mypy-cache-${{ runner.os }}-3.12-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
+                  restore-keys: |
+                      mypy-cache-${{ runner.os }}-3.12-
+
+            - name: Check static typing
+              shell: bash -e {0}
+              run: |
+                  mypy --version && mypy --cache-fine-grained . | mypy-baseline filter || (echo "run 'pnpm run mypy-baseline-sync' to update the baseline" && exit 1)
+
+            - name: Check if "schema.py" is up to date
+              shell: bash
+              run: |
+                  npm run schema:build:python && git diff --exit-code
+
+            - name: Check hogli manifest completeness
+              shell: bash
+              run: |
+                  ./bin/hogli meta:check
+
+            - name: Run hogli tests
+              shell: bash
+              run: |
+                  pytest common/hogli/tests/ -v --cov=common/hogli --cov-report=term
+
+            # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
+            #   if: needs.changes.outputs.python == 'true'
+            #   shell: bash
+            #   run: |
+            #       npm run taxonomy:build:json && git diff --exit-code

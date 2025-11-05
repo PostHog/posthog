@@ -1,40 +1,25 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Breadcrumb, OnboardingProduct, ProductKey, SidePanelTab } from '~/types'
+import { Breadcrumb, OnboardingProduct, OnboardingStepKey, ProductKey, SidePanelTab } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
 
 export interface OnboardingLogicProps {
     onCompleteOnboarding?: (key: ProductKey) => void
-}
-
-export enum OnboardingStepKey {
-    INSTALL = 'install',
-    LINK_DATA = 'link_data',
-    PLANS = 'plans',
-    VERIFY = 'verify',
-    PRODUCT_CONFIGURATION = 'configure',
-    REVERSE_PROXY = 'proxy',
-    INVITE_TEAMMATES = 'invite_teammates',
-    DASHBOARD_TEMPLATE = 'dashboard_template',
-    DASHBOARD_TEMPLATE_CONFIGURE = 'dashboard_template_configure',
-    SESSION_REPLAY = 'session_replay',
-    AUTHORIZED_DOMAINS = 'authorized_domains',
-    SOURCE_MAPS = 'source_maps',
-    ALERTS = 'alerts',
 }
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
@@ -67,6 +52,8 @@ export const getProductUri = (productKey: ProductKey): string => {
             return urls.surveyTemplates()
         case ProductKey.ERROR_TRACKING:
             return urls.errorTracking()
+        case ProductKey.LLM_ANALYTICS:
+            return urls.llmAnalyticsDashboard()
         default:
             return urls.default()
     }
@@ -76,7 +63,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
     props({} as OnboardingLogicProps),
     path(['scenes', 'onboarding', 'onboardingLogic']),
     // connect this so we start collecting live events the whole time during onboarding
-    connect(liveEventsTableLogic({ showLiveStreamErrorToast: false })),
     connect(() => ({
         values: [
             billingLogic,
@@ -100,6 +86,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             sidePanelStateLogic,
             ['openSidePanel'],
         ],
+        logic: [liveEventsTableLogic({ tabId: 'onboarding', showLiveStreamErrorToast: false })],
     })),
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
@@ -116,6 +103,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         goToPreviousStep: true,
         resetStepKey: true,
         setOnCompleteOnboardingRedirectUrl: (url: string | null) => ({ url }),
+        skipOnboarding: true,
     }),
     reducers(() => ({
         productKey: [
@@ -173,11 +161,13 @@ export const onboardingLogic = kea<onboardingLogicType>([
                                 ?.breadcrumbsName ??
                             availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.name,
                         path: availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.url,
+                        iconType: 'action',
                     },
                     {
                         key: availableOnboardingProducts[productKey as keyof typeof availableOnboardingProducts]?.scene,
                         name: stepKeyToTitle(stepKey),
                         path: urls.onboarding(productKey ?? '', stepKey),
+                        iconType: 'action',
                     },
                 ]
             },
@@ -293,6 +283,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     return
                 case ProductKey.FEATURE_FLAGS:
                     return
+                case ProductKey.LLM_ANALYTICS:
+                    return
                 default:
                     return
             }
@@ -330,8 +322,15 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
 
             if (values.isFirstProductOnboarding && !values.modalMode) {
-                actions.openSidePanel(SidePanelTab.Activation)
+                // Because the side panel opening has its own actionToUrl,
+                // we delay opening it to avoid a race condition with the updateCurrentTeamSuccess redirect
+                setTimeout(() => {
+                    actions.openSidePanel(SidePanelTab.Activation)
+                }, 100)
             }
+        },
+        skipOnboarding: () => {
+            router.actions.push(values.onCompleteOnboardingRedirectUrl)
         },
         setAllOnboardingSteps: () => {
             if (values.isStepKeyInvalid) {
@@ -347,7 +346,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             values.allOnboardingSteps[0] && actions.setStepKey(values.allOnboardingSteps[0]?.props.stepKey)
         },
     })),
-    actionToUrl(({ values }) => ({
+    actionToUrl(({ actions, values }) => ({
         setStepKey: ({ stepKey }) => {
             if (stepKey) {
                 return [`/onboarding/${values.productKey}`, { ...router.values.searchParams, step: stepKey }]
@@ -382,7 +381,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
         },
         updateCurrentTeamSuccess(val) {
             if (values.productKey && val.payload?.has_completed_onboarding_for?.[values.productKey]) {
-                return [values.onCompleteOnboardingRedirectUrl]
+                const redirectUrl = values.onCompleteOnboardingRedirectUrl
+                actions.setOnCompleteOnboardingRedirectUrl(null)
+                return [redirectUrl]
             }
         },
     })),
@@ -398,10 +399,9 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             if (productKey !== values.productKey) {
                 actions.setProductKey(productKey as ProductKey)
+                // Reset onboarding steps so they can be populated upon render in the component.
+                actions.setAllOnboardingSteps([])
             }
-
-            // Reset onboarding steps so they can be populated upon render in the component.
-            actions.setAllOnboardingSteps([])
 
             if (step) {
                 // when loading specific steps, like plans, we need to make sure we have a billing response before we can continue

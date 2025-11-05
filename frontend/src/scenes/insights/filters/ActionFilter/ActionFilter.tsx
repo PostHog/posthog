@@ -3,15 +3,18 @@ import './ActionFilter.scss'
 import { DndContext } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { IconPlusSmall } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import React, { useEffect } from 'react'
+
+import { IconPlusSmall } from '@posthog/icons'
+
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/constants'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import React, { useEffect } from 'react'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
@@ -26,7 +29,7 @@ import {
 
 import { teamLogic } from '../../../teamLogic'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
-import { entityFilterLogic, LocalFilter, toFilters } from './entityFilterLogic'
+import { LocalFilter, entityFilterLogic, toFilters } from './entityFilterLogic'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -75,7 +78,7 @@ export interface ActionFilterProps {
     propertiesTaxonomicGroupTypes?: TaxonomicFilterGroupType[]
     /** Whether properties shown should be limited to just numerical types */
     showNumericalPropsOnly?: boolean
-    hideDeleteBtn?: boolean
+    hideDeleteBtn?: boolean | ((filter: LocalFilter, index: number) => boolean)
     readOnly?: boolean
     renderRow?: ({
         seriesIndicator,
@@ -92,6 +95,10 @@ export interface ActionFilterProps {
     dataWarehousePopoverFields?: DataWarehousePopoverField[]
     /** Whether to add left padding to the filters div to align with indented content */
     filtersLeftPadding?: boolean
+    /** Doc link to show in the tooltip of the New Filter button */
+    addFilterDocLink?: string
+    /** Properties to exclude from the properties filter */
+    excludedProperties?: TaxonomicPopoverProps['excludedProperties']
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -125,6 +132,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         allowedMathTypes,
         dataWarehousePopoverFields,
         filtersLeftPadding,
+        addFilterDocLink,
+        excludedProperties,
     },
     ref
 ): JSX.Element {
@@ -146,7 +155,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
     // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
     useEffect(() => {
         setLocalFilters(filters)
-    }, [filters])
+    }, [filters]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
         function move(arr: LocalFilter[], from: number, to: number): LocalFilter[] {
@@ -175,7 +184,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         actionsTaxonomicGroupTypes,
         propertiesTaxonomicGroupTypes,
         propertyFiltersPopover,
-        hideDeleteBtn,
         disabled,
         readOnly,
         renderRow,
@@ -187,6 +195,8 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         allowedMathTypes,
         dataWarehousePopoverFields,
         filtersLeftPadding,
+        addFilterDocLink,
+        excludedProperties,
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
@@ -233,6 +243,11 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                     showNestedArrow={showNestedArrow}
                                     singleFilter={singleFilter}
                                     hideFilter={hideFilter || readOnly}
+                                    hideDeleteBtn={
+                                        typeof hideDeleteBtn === 'function'
+                                            ? hideDeleteBtn(filter, index)
+                                            : hideDeleteBtn
+                                    }
                                     {...commonProps}
                                 />
                             ))}

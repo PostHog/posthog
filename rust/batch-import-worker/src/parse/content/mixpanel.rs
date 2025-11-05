@@ -31,7 +31,7 @@ pub struct MixpanelEvent {
 #[serde(rename_all = "snake_case")]
 pub struct MixpanelProperties {
     #[serde(rename = "time")]
-    timestamp_ms: i64,
+    timestamp: i64,
     distinct_id: Option<String>,
     #[serde(flatten)]
     other: HashMap<String, Value>,
@@ -56,8 +56,18 @@ impl MixpanelEvent {
             };
 
             let event_uuid = Uuid::now_v7();
+
+            // Was seeing timestamp values come in that were in seconds, not milliseconds
+            // Do a quick heuristic check on the size of the timestamp to determine if it's in seconds or milliseconds
+            let timestamp_value = mx.properties.timestamp;
+            let timestamp_seconds = if timestamp_value > 10_000_000_000 {
+                timestamp_value / 1000
+            } else {
+                timestamp_value
+            };
+
             // We don't support subsecond precision for historical imports
-            let timestamp = DateTime::<Utc>::from_timestamp(mx.properties.timestamp_ms / 1000, 0)
+            let timestamp = DateTime::<Utc>::from_timestamp(timestamp_seconds, 0)
                 .ok_or(Error::msg("Invalid timestamp"))?;
 
             let timestamp = timestamp + timestamp_offset;
@@ -65,7 +75,7 @@ impl MixpanelEvent {
             let properties = mx.properties.other;
             let properties = map_geoip_props(properties);
             let properties = remove_mp_props(properties);
-            let properties = add_source_data(properties);
+            let properties = add_source_data(properties, context.job_id);
 
             let raw_event = RawEvent {
                 token: Some(token.clone()),
@@ -84,18 +94,26 @@ impl MixpanelEvent {
                 return Ok(None);
             };
 
-            let inner = CapturedEvent {
-                uuid: event_uuid,
-                distinct_id,
-                ip: "127.0.0.1".to_string(),
-                data: serde_json::to_string(&raw_event)?,
-                now: Utc::now().to_rfc3339(),
-                sent_at: None,
-                token,
-                is_cookieless_mode: false,
-            };
+            // Only return the event if import_events is enabled
+            if context.import_events {
+                let inner = CapturedEvent {
+                    uuid: event_uuid,
+                    distinct_id,
+                    ip: "127.0.0.1".to_string(),
+                    data: serde_json::to_string(&raw_event)?,
+                    now: Utc::now().to_rfc3339(),
+                    sent_at: None,
+                    token,
+                    event: raw_event.event.clone(),
+                    timestamp,
+                    is_cookieless_mode: false,
+                    historical_migration: true,
+                };
 
-            Ok(Some(InternallyCapturedEvent { team_id, inner }))
+                Ok(Some(InternallyCapturedEvent { team_id, inner }))
+            } else {
+                Ok(None)
+            }
         }
     }
 }
@@ -206,11 +224,132 @@ fn remove_mp_props(mut props: HashMap<String, Value>) -> HashMap<String, Value> 
     props
 }
 
-fn add_source_data(mut props: HashMap<String, Value>) -> HashMap<String, Value> {
+fn add_source_data(
+    mut props: HashMap<String, Value>,
+    job_id: uuid::Uuid,
+) -> HashMap<String, Value> {
     props.insert("historical_migration".to_string(), Value::Bool(true));
     props.insert(
         "analytics_source".to_string(),
         Value::String("mixpanel".to_string()),
     );
+    props.insert(
+        "$import_job_id".to_string(),
+        Value::String(job_id.to_string()),
+    );
     props
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn identity_transform(event: RawEvent) -> Result<Option<RawEvent>, Error> {
+        Ok(Some(event))
+    }
+
+    #[test]
+    fn test_job_id_in_mixpanel_event() {
+        let test_job_id = Uuid::now_v7();
+
+        let mx_event = MixpanelEvent {
+            event: "test_event".to_string(),
+            properties: MixpanelProperties {
+                timestamp: 1697379000,
+                distinct_id: Some("user123".to_string()),
+                other: HashMap::new(),
+            },
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: std::sync::Arc::new(crate::cache::MockIdentifyCache::new()),
+            group_cache: std::sync::Arc::new(crate::cache::MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: false,
+        };
+
+        let parser =
+            MixpanelEvent::parse_fn(context, false, Duration::seconds(0), identity_transform);
+        let result = parser(mx_event).unwrap().unwrap();
+
+        let data: RawEvent = serde_json::from_str(&result.inner.data).unwrap();
+        assert_eq!(
+            data.properties.get("$import_job_id"),
+            Some(&json!(test_job_id.to_string()))
+        );
+        assert_eq!(
+            data.properties.get("historical_migration"),
+            Some(&json!(true))
+        );
+        assert_eq!(
+            data.properties.get("analytics_source"),
+            Some(&json!("mixpanel"))
+        );
+    }
+
+    #[test]
+    fn test_mixpanel_event_has_historical_migration_and_now_fields() {
+        let test_job_id = Uuid::now_v7();
+        let before_test = Utc::now();
+
+        let mx_event = MixpanelEvent {
+            event: "test_event".to_string(),
+            properties: MixpanelProperties {
+                timestamp: 1697379000,
+                distinct_id: Some("user123".to_string()),
+                other: HashMap::new(),
+            },
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            job_id: test_job_id,
+            identify_cache: std::sync::Arc::new(crate::cache::MockIdentifyCache::new()),
+            group_cache: std::sync::Arc::new(crate::cache::MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: false,
+        };
+
+        let parser =
+            MixpanelEvent::parse_fn(context, false, Duration::seconds(0), identity_transform);
+        let result = parser(mx_event).unwrap().unwrap();
+
+        let after_test = Utc::now();
+
+        assert!(
+            result.inner.historical_migration,
+            "historical_migration field must be true for batch import events"
+        );
+
+        assert!(
+            !result.inner.now.is_empty(),
+            "now field must be set for events"
+        );
+
+        let now_timestamp = chrono::DateTime::parse_from_rfc3339(&result.inner.now)
+            .expect("now should be valid RFC3339 timestamp")
+            .with_timezone(&Utc);
+        assert!(
+            now_timestamp >= before_test && now_timestamp <= after_test,
+            "now timestamp should be current (between test start and end)"
+        );
+
+        let serialized = serde_json::to_value(&result.inner).unwrap();
+        assert_eq!(
+            serialized["historical_migration"],
+            json!(true),
+            "historical_migration must be in serialized output"
+        );
+        assert!(
+            serialized["now"].is_string(),
+            "now must be a string in serialized output"
+        );
+    }
 }

@@ -1,24 +1,18 @@
-import './ButtonPrimitives.css'
+import './ButtonPrimitives.scss'
 
-import { cva, type VariantProps } from 'cva'
+import { type VariantProps, cva } from 'cva'
+import React, { ReactNode, createContext, forwardRef, useContext } from 'react'
+
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 
 /* -------------------------------------------------------------------------- */
 /*                           Props & Contexts & Hooks                         */
 /* -------------------------------------------------------------------------- */
 
-type ButtonVariant = 'default' | 'outline' | 'default-group' | 'side-action-group'
+type ButtonVariant = 'default' | 'outline' | 'danger' | 'panel'
 
-const BUTTON_HEIGHT_SM = 'h-[var(--button-height-sm)]'
-const BUTTON_ICON_WIDTH_SM = 'w-[var(--button-height-sm)]'
-const BUTTON_HEIGHT_BASE = 'h-[var(--button-height-base)]'
-const BUTTON_ICON_WIDTH_BASE = 'w-[var(--button-height-base)]'
-const BUTTON_HEIGHT_LG = 'h-[var(--button-height-lg)]'
-const BUTTON_ICON_WIDTH_LG = 'w-[var(--button-height-lg)]'
-
-export type ButtonSize = 'sm' | 'base' | 'lg' | 'fit'
+export type ButtonSize = 'xxs' | 'xs' | 'sm' | 'base' | 'lg' | 'fit' | 'base-tall'
 
 interface ButtonGroupContextValue {
     sizeContext: ButtonSize
@@ -32,22 +26,32 @@ function useButtonGroupContext(): ButtonGroupContextValue | null {
     return context
 }
 
+export type DisabledReasonsObject = Record<string, boolean>
+
 type ButtonGroupProps = {
     children: ReactNode
     className?: string
     groupVariant?: ButtonVariant
-} & VariantProps<typeof buttonVariants>
+} & VariantProps<typeof buttonPrimitiveVariants>
 
 type ButtonBaseProps = {
     iconOnly?: boolean
     showDivider?: boolean
-    external?: boolean
     disabled?: boolean
+    // Like clsx, but for disabled reasons
+    // Takes precedence over tooltip
+    // Example: { 'Save the cohort first': isNewCohort, 'Cohort must be static to duplicate': !cohort.is_static }
+    disabledReasons?: DisabledReasonsObject
     active?: boolean
     tooltip?: TooltipProps['title']
+    tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
+    tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
+    tooltipVisible?: boolean
     buttonWrapper?: (button: JSX.Element) => JSX.Element
-} & VariantProps<typeof buttonVariants>
+    // Like disabled but doesn't show the disabled state or focus state (still shows tooltip)
+    inert?: boolean
+} & VariantProps<typeof buttonPrimitiveVariants>
 
 /* -------------------------------------------------------------------------- */
 /*                              Button Group Variants                         */
@@ -60,7 +64,7 @@ type ButtonBaseProps = {
 export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>((props, ref) => {
     const {
         className,
-        groupVariant = 'default-group',
+        groupVariant = 'default',
         variant = 'default',
         size = 'base',
         fullWidth = false,
@@ -74,16 +78,16 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
         sizeContext: size,
     }
 
-    let buttonHeight = ''
+    let buttonHeight = 'button-primitive--height-base'
     switch (size) {
         case 'sm':
-            buttonHeight = BUTTON_HEIGHT_SM
+            buttonHeight = 'button-primitive--height-sm'
             break
-        case 'base':
-            buttonHeight = BUTTON_HEIGHT_BASE
+        case 'base-tall':
+            buttonHeight = 'button-primitive--height-base-tall'
             break
         case 'lg':
-            buttonHeight = BUTTON_HEIGHT_LG
+            buttonHeight = 'button-primitive--height-lg'
             break
         case 'fit':
             buttonHeight = ''
@@ -94,7 +98,8 @@ export const ButtonGroupPrimitive = forwardRef<HTMLDivElement, ButtonGroupProps>
         <ButtonContext.Provider value={setContext}>
             <Comp
                 className={cn(
-                    buttonVariants({
+                    'button-primitive-group',
+                    buttonPrimitiveVariants({
                         size: 'fit',
                         variant: groupVariant,
                         fullWidth,
@@ -118,89 +123,54 @@ ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 /*                              Button Base Component                         */
 /* -------------------------------------------------------------------------- */
 
-interface ButtonAsButtonProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {
-    href?: never
+export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {
+    'data-attr'?: string
 }
 
-interface ButtonAsAnchorProps extends ButtonBaseProps, Omit<React.AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> {
-    href: string
-}
-
-type ButtonProps = ButtonAsButtonProps | ButtonAsAnchorProps
-
-const buttonVariants = cva({
-    base: `
-        button-primitive
-        group/button-primitive
-        cursor-pointer
-        inline-flex
-        w-fit
-        relative
-        items-center
-        rounded-md
-        font-normal
-        aria-disabled:cursor-not-allowed
-        aria-disabled:opacity-50
-        text-current
-        [&_svg]:shrink-0
-    `,
+export const buttonPrimitiveVariants = cva({
+    base: 'button-primitive group/button-primitive',
     variants: {
         variant: {
             // Bordereless variant (aka posthog tertiary button)
-            default: `
-                border border-transparent
-                text-primary 
-                max-w-full
-                not-disabled:hover:bg-fill-button-tertiary-hover 
-                not-disabled:data-[focused=true]:bg-fill-button-tertiary-hover 
-                not-disabled:data-[active=true]:bg-fill-button-tertiary-active 
-                not-disabled:data-[current=true]:bg-fill-button-tertiary-active 
-                not-disabled:data-[state=open]:bg-fill-button-tertiary-active 
-                not-disabled:data-[state=checked]:bg-fill-button-tertiary-active
-                not-disabled:data-highlighted:bg-fill-button-tertiary-active
-            `,
+            default: 'button-primitive--variant-default',
+            // Like default, but with a dark background (like active state by default)
+            panel: 'button-primitive--variant-panel',
+            // Bordereless danger variant (aka posthog danger tertiary button)
+            danger: 'button-primitive--variant-danger',
             // Outline variant (aka posthog secondary button)
-            outline: `
-                border border-secondary
-                not-disabled:hover:border-tertiary
-                hover:bg-fill-button-tertiary-active
-            `,
-            // Buttons next to each other
-            'default-group': `
-                border border-transparent
-                text-primary 
-                max-w-full
-                [&_.button-primitive]:rounded-none
-                [&_.button-primitive]:first:rounded-l-md
-                [&_.button-primitive]:last:rounded-r-md
-                [&_.button-primitive:not(:first-child)]:border-l-0
-            `,
-            'side-action-group': `
-                border border-transparent
-                text-primary 
-                max-w-full
-            `,
+            outline: 'button-primitive--variant-outline',
         },
         size: {
-            sm: `button-primitive-size-sm ${BUTTON_HEIGHT_SM} text-xs pl-[var(--button-padding-x-sm)] pr-[var(--button-padding-x-sm)]`,
-            base: `button-primitive-size-base ${BUTTON_HEIGHT_BASE} text-sm pl-[var(--button-padding-x-base)] pr-[var(--button-padding-x-base)]`,
-            lg: `button-primitive-size-lg ${BUTTON_HEIGHT_LG} text-base pl-[var(--button-padding-x-lg)] pr-[var(--button-padding-x-lg)]`,
+            xxs: `button-primitive--size-xxs button-primitive--height-xxs text-sm`,
+            xs: `button-primitive--size-xs button-primitive--height-xs text-sm`,
+            sm: `button-primitive--size-sm button-primitive--height-sm text-sm`,
+            base: `button-primitive--size-base button-primitive--height-base text-sm`,
+            'base-tall': `button-primitive--size-base-tall button-primitive--height-base-tall text-sm`,
+            lg: `button-primitive--size-lg button-primitive--height-lg text-base`,
             fit: 'px-0',
         },
+        autoHeight: {
+            true: 'button-primitive--height-auto h-auto',
+            false: '',
+        },
         iconOnly: {
-            true: 'p-0 justify-center items-center shrink-0',
+            true: 'icon-only p-0 justify-center items-center shrink-0',
             false: '',
         },
         fullWidth: {
-            true: 'w-full',
+            true: 'button-primitive--full-width',
             false: '',
         },
         isGroup: {
             true: '',
             false: 'gap-1.5',
         },
+        active: {
+            true: 'button-primitive--active',
+            false: '',
+        },
         menuItem: {
-            true: 'w-full justify-start', // @TODO this isn't working
+            true: 'rounded button-primitive--full-width justify-start shrink-0 text-left',
             false: '',
         },
         truncate: {
@@ -208,14 +178,18 @@ const buttonVariants = cva({
             false: '',
         },
         disabled: {
-            true: 'disabled:pointer-events-none disabled:opacity-50',
+            true: 'disabled:opacity-50',
             false: '',
         },
-        sideActionLeft: {
-            true: 'rounded-md',
+        inert: {
+            true: 'cursor-default hover:bg-inherit',
             false: '',
         },
-        sideActionRight: {
+        hasSideActionRight: {
+            true: 'rounded',
+            false: '',
+        },
+        isSideActionRight: {
             true: 'absolute right-0 -top-px -bottom-px rounded-l-none',
         },
     },
@@ -225,124 +199,126 @@ const buttonVariants = cva({
         fullWidth: false,
         isGroup: false,
         menuItem: false,
+        autoHeight: false,
     },
     compoundVariants: [
         {
-            iconOnly: true,
+            hasSideActionRight: true,
             size: 'sm',
-            className: BUTTON_ICON_WIDTH_SM,
+            className: 'pr-[calc(var(--button-height-sm)+var(--button-padding-x-sm))]',
         },
         {
-            iconOnly: true,
+            hasSideActionRight: true,
             size: 'base',
-            className: BUTTON_ICON_WIDTH_BASE,
+            className: 'pr-[calc(var(--button-height-base)+var(--button-padding-x-base))]',
         },
         {
-            iconOnly: true,
+            hasSideActionRight: true,
             size: 'lg',
-            className: BUTTON_ICON_WIDTH_LG,
+            className: 'pr-[calc(var(--button-height-lg)+var(--button-padding-x-lg))]',
         },
         {
-            sideActionLeft: true,
-            size: 'sm',
-            className: `
-                pr-[calc(var(--button-height-sm)+var(--button-padding-x-sm))]
-            `,
+            hasSideActionRight: true,
+            menuItem: true,
+            className: 'rounded',
         },
-        {
-            sideActionLeft: true,
-            size: 'base',
-            className: `
-                pr-[calc(var(--button-height-base)+var(--button-padding-x-base))]
-            `,
-        },
-        {
-            sideActionLeft: true,
-            size: 'lg',
-            className: `
-                pr-[calc(var(--button-height-lg)+var(--button-padding-x-lg))]
-            `,
-        },
-        // {
-        //     sideActionRight: true,
-        //     className: `
-        //         rounded-l-none
-        //     `,
-        // },
     ],
 })
 
-export const ButtonPrimitive = forwardRef<HTMLButtonElement | HTMLAnchorElement, ButtonProps>((props, ref) => {
+// Renders the list of disabled reasons if value is true, otherwise returns null
+function renderDisabledReasons(disabledReasons: DisabledReasonsObject): JSX.Element | null {
+    const reasons = Object.entries(disabledReasons).filter(([_, value]) => value)
+
+    if (!reasons.length) {
+        return null
+    }
+
+    return (
+        <>
+            Disabled reasons:
+            <ul className="pl-3 list-disc">
+                {reasons.map(([reason]) => (
+                    <li key={reason}>{reason}</li>
+                ))}
+            </ul>
+        </>
+    )
+}
+
+export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProps>((props, ref) => {
     const {
         className,
         variant,
-        size,
+        size = 'base',
         fullWidth,
-        href,
-        external,
         children,
         iconOnly,
         menuItem,
         disabled,
+        disabledReasons,
         active,
         buttonWrapper,
-        sideActionLeft,
-        sideActionRight,
+        hasSideActionRight,
+        isSideActionRight,
         tooltip,
+        tooltipCloseDelayMs,
         tooltipPlacement,
+        tooltipDocLink,
+        tooltipVisible,
+        autoHeight,
+        inert,
         ...rest
     } = props
     // If inside a ButtonGroup, use the context values, otherwise use props
     const context = useButtonGroupContext()
     const effectiveSize = context?.sizeContext || size
     const effectiveVariant = context?.variantContext || variant
-    // Determine the component type
-    const Comp = href ? 'a' : 'button'
-    // Determine the external props
-    const externalProps = external && href ? { target: '_blank' } : {}
-    // Determine the element props
-    const elementProps = href ? { href, ...rest } : rest
-
-    // If the button is an anchor and has an onClick, and is not external, prevent the default action and call the onClick
-    if (href && rest.onClick && !external) {
-        const handleClick = (e: React.MouseEvent): void => {
-            // Allow command/ctrl click to open in new tab
-            if (!e.metaKey && !e.ctrlKey) {
-                e.preventDefault()
-            }
-            rest?.onClick?.(e as any)
-        }
-        elementProps.onClick = handleClick
-    }
+    let effectiveDisabled = disabledReasons ? Object.values(disabledReasons).some((value) => value) : disabled
 
     let buttonComponent: JSX.Element = React.createElement(
-        Comp,
+        'button',
         {
             className: cn(
-                buttonVariants({
+                buttonPrimitiveVariants({
                     variant: effectiveVariant,
                     size: effectiveSize,
                     fullWidth,
                     iconOnly,
                     menuItem,
-                    disabled,
-                    sideActionLeft,
-                    sideActionRight,
+                    disabled: effectiveDisabled,
+                    hasSideActionRight,
+                    isSideActionRight,
+                    autoHeight,
+                    inert,
                     className,
                 })
             ),
             ref,
-            ...externalProps,
-            ...elementProps,
-            'aria-disabled': disabled,
+            disabled: effectiveDisabled,
+            ...rest,
+            'aria-disabled': effectiveDisabled,
             'data-active': active,
+            style: {
+                '--button-height': `var(--button-icon-size-${effectiveSize})`,
+            },
         },
         children
     )
 
-    if (tooltip) {
+    if (tooltip || tooltipDocLink || disabledReasons) {
         buttonComponent = (
-            <Tooltip title={tooltip} placement={tooltipPlacement}>
+            <Tooltip
+                // If there are disabled reasons which are true, render them, otherwise render the tooltip
+                title={
+                    disabledReasons && Object.values(disabledReasons).some(Boolean)
+                        ? renderDisabledReasons(disabledReasons)
+                        : tooltip
+                }
+                placement={tooltipPlacement}
+                closeDelayMs={tooltipCloseDelayMs}
+                docLink={tooltipDocLink}
+                visible={tooltipVisible}
+            >
                 {buttonComponent}
             </Tooltip>
         )

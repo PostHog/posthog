@@ -1,45 +1,74 @@
 import datetime as dt
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.db import IntegrityError
 
-from posthog.constants import (
-    INSIGHT_TRENDS,
-    PAGEVIEW_EVENT,
-    RETENTION_FIRST_TIME,
-    TRENDS_LINEAR,
-    TRENDS_WORLD_MAP,
+from posthog.schema import (
+    ActionsNode,
+    BaseMathType,
+    BreakdownFilter,
+    BreakdownType,
+    ChartDisplayType,
+    CompareFilter,
+    DateRange,
+    EntityType,
+    EventPropertyFilter,
+    EventsNode,
+    FunnelsFilter,
+    FunnelsQuery,
+    FunnelVizType,
+    InsightVizNode,
+    IntervalType,
+    LifecycleFilter,
+    LifecycleQuery,
+    MrrOrGross,
+    PathsFilter,
+    PathsQuery,
+    PathType,
+    PersonPropertyFilter,
+    PropertyFilterType,
+    PropertyMathType,
+    PropertyOperator,
+    RetentionEntity,
+    RetentionFilter,
+    RetentionPeriod,
+    RetentionQuery,
+    RetentionType,
+    RevenueAnalyticsEventItem,
+    RevenueAnalyticsGoal,
+    TrendsFilter,
+    TrendsQuery,
 )
+
+from posthog.constants import PAGEVIEW_EVENT
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
-from posthog.models import (
-    Action,
-    Cohort,
-    Dashboard,
-    DashboardTile,
-    Experiment,
-    FeatureFlag,
-    Insight,
-    InsightViewed,
-)
+from posthog.models import Action, Cohort, Dashboard, DashboardTile, Experiment, FeatureFlag, Insight, InsightViewed
+from posthog.models.event_definition import EventDefinition
+from posthog.models.property_definition import PropertyType
+from posthog.models.schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (
     COMPANY_CLUSTERS_PROPORTION,
-    EVENT_SIGNED_UP,
-    EVENT_UPLOADED_FILE,
-    EVENT_DOWNLOADED_FILE,
     EVENT_DELETED_FILE,
-    EVENT_SHARED_FILE_LINK,
-    EVENT_UPGRADED_PLAN,
+    EVENT_DOWNLOADED_FILE,
     EVENT_PAID_BILL,
-    URL_HOME,
-    URL_SIGNUP,
+    EVENT_SHARED_FILE_LINK,
+    EVENT_SIGNED_UP,
+    EVENT_UPGRADED_PLAN,
+    EVENT_UPLOADED_FILE,
     FILE_PREVIEWS_FLAG_KEY,
     NEW_SIGNUP_PAGE_FLAG_KEY,
     NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+    URL_HOME,
+    URL_SIGNUP,
 )
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+    from posthog.models.user import User
 
 
 @dataclass
@@ -96,10 +125,10 @@ class HedgeboxMatrix(Matrix):
         self.new_signup_page_experiment_end = self.now - dt.timedelta(days=2, hours=3, seconds=43)
         self.new_signup_page_experiment_start = self.start + (self.new_signup_page_experiment_end - self.start) / 2
 
-    def set_project_up(self, team, user):
+    def set_project_up(self, team: "Team", user: "User"):
         super().set_project_up(team, user)
-        team.project.product_description = "Dropbox for hedgehogs. We're a file sharing and collaboration platform. Free for limited personal use, with paid plans available."
         team.autocapture_web_vitals_opt_in = True
+        team.session_recording_opt_in = True  # Also see: the hedgebox-dummy/ app
 
         # Actions
         interacted_with_file_action = Action.objects.create(
@@ -168,16 +197,6 @@ class HedgeboxMatrix(Matrix):
             ],
         )
         team.test_account_filters = [{"key": "id", "type": "cohort", "value": real_users_cohort.pk}]
-        team.revenue_tracking_config = {
-            "baseCurrency": "EUR",
-            "events": [
-                {
-                    "eventName": EVENT_PAID_BILL,
-                    "revenueProperty": "amount_usd",
-                    "revenueCurrencyProperty": {"static": "USD"},
-                }
-            ],
-        }
 
         # Dashboard: Key metrics (project home)
         key_metrics_dashboard = Dashboard.objects.create(
@@ -192,14 +211,23 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Weekly signups",
-            filters={
-                "events": [{"id": EVENT_SIGNED_UP, "type": "events", "order": 0}],
-                "actions": [],
-                "display": TRENDS_LINEAR,
-                "insight": INSIGHT_TRENDS,
-                "interval": "week",
-                "date_from": "-8w",
-            },
+            query=InsightVizNode(
+                source=TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event=EVENT_SIGNED_UP,
+                            name=EVENT_SIGNED_UP,
+                        )
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_LINE_GRAPH,
+                    ),
+                    interval=IntervalType.WEEK,
+                    dateRange=DateRange(
+                        date_from="-8w",
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=23),
             last_modified_by=user,
         )
@@ -226,15 +254,26 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Last month's signups by country",
-            filters={
-                "events": [{"id": EVENT_SIGNED_UP, "type": "events", "order": 0}],
-                "actions": [],
-                "display": TRENDS_WORLD_MAP,
-                "insight": INSIGHT_TRENDS,
-                "breakdown_type": "event",
-                "breakdown": "$geoip_country_code",
-                "date_from": "-1m",
-            },
+            query=InsightVizNode(
+                source=TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event=EVENT_SIGNED_UP,
+                            name=EVENT_SIGNED_UP,
+                        )
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.WORLD_MAP,
+                    ),
+                    breakdownFilter=BreakdownFilter(
+                        breakdown_type=BreakdownType.EVENT,
+                        breakdown="$geoip_country_code",
+                    ),
+                    dateRange=DateRange(
+                        date_from="-1m",
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=6),
             last_modified_by=user,
         )
@@ -260,38 +299,34 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Activation",
-            filters={
-                "events": [
-                    {
-                        "custom_name": "Signed up",
-                        "id": EVENT_SIGNED_UP,
-                        "name": EVENT_SIGNED_UP,
-                        "type": "events",
-                        "order": 2,
-                    },
-                    {
-                        "custom_name": "Upgraded plan",
-                        "id": EVENT_UPGRADED_PLAN,
-                        "name": EVENT_UPGRADED_PLAN,
-                        "type": "events",
-                        "order": 4,
-                    },
-                ],
-                "actions": [
-                    {
-                        "id": interacted_with_file_action.pk,
-                        "name": interacted_with_file_action.name,
-                        "type": "actions",
-                        "order": 3,
-                    }
-                ],
-                "display": "FunnelViz",
-                "insight": "FUNNELS",
-                "interval": "day",
-                "funnel_viz_type": "steps",
-                "filter_test_accounts": True,
-                "date_from": "-1m",
-            },
+            query=InsightVizNode(
+                source=FunnelsQuery(
+                    series=[
+                        EventsNode(
+                            event=EVENT_SIGNED_UP,
+                            name=EVENT_SIGNED_UP,
+                            custom_name="Signed up",
+                        ),
+                        ActionsNode(
+                            id=interacted_with_file_action.pk,
+                            name=interacted_with_file_action.name,
+                        ),
+                        EventsNode(
+                            event=EVENT_UPGRADED_PLAN,
+                            name=EVENT_UPGRADED_PLAN,
+                            custom_name="Upgraded plan",
+                        ),
+                    ],
+                    funnelsFilter=FunnelsFilter(
+                        funnelVizType=FunnelVizType.STEPS,
+                    ),
+                    interval=IntervalType.DAY,
+                    filterTestAccounts=True,
+                    dateRange=DateRange(
+                        date_from="-1m",
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=19),
             last_modified_by=user,
         )
@@ -317,41 +352,33 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="New user retention",
-            filters={
-                "period": "Week",
-                "display": "ActionsTable",
-                "insight": "RETENTION",
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "type": "person",
-                                    "value": "is_set",
-                                    "operator": "is_set",
-                                }
-                            ],
-                        }
+            query=InsightVizNode(
+                source=RetentionQuery(
+                    properties=[
+                        PersonPropertyFilter(
+                            key="email",
+                            type=PropertyFilterType.PERSON,
+                            operator=PropertyOperator.IS_SET,
+                        )
                     ],
-                },
-                "target_entity": {
-                    "id": EVENT_SIGNED_UP,
-                    "name": EVENT_SIGNED_UP,
-                    "type": "events",
-                    "order": 0,
-                },
-                "retention_type": RETENTION_FIRST_TIME,
-                "total_intervals": 9,
-                "returning_entity": {
-                    "id": interacted_with_file_action.pk,
-                    "name": interacted_with_file_action.name,
-                    "type": "actions",
-                    "order": 0,
-                },
-            },
+                    retentionFilter=RetentionFilter(
+                        period=RetentionPeriod.WEEK,
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                        retentionType=RetentionType.RETENTION_FIRST_TIME,
+                        totalIntervals=9,
+                        targetEntity=RetentionEntity(
+                            id=EVENT_SIGNED_UP,
+                            name=EVENT_SIGNED_UP,
+                            type=EntityType.EVENTS,
+                        ),
+                        returningEntity=RetentionEntity(
+                            id=str(interacted_with_file_action.pk),
+                            name=interacted_with_file_action.name,
+                            type=EntityType.ACTIONS,
+                        ),
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=34),
             last_modified_by=user,
         )
@@ -378,27 +405,23 @@ class HedgeboxMatrix(Matrix):
             saved=True,
             name="Active user lifecycle",
             description="An active user being defined by interaction with files.",
-            filters={
-                "events": [],
-                "actions": [
-                    {
-                        "id": interacted_with_file_action.pk,
-                        "math": "total",
-                        "name": interacted_with_file_action.name,
-                        "type": "actions",
-                        "order": 0,
-                    }
-                ],
-                "compare": False,
-                "display": "ActionsLineGraph",
-                "insight": "LIFECYCLE",
-                "interval": "day",
-                "shown_as": "Lifecycle",
-                "date_from": "-8w",
-                "new_entity": [],
-                "properties": [],
-                "filter_test_accounts": True,
-            },
+            query=InsightVizNode(
+                source=LifecycleQuery(
+                    series=[
+                        ActionsNode(
+                            id=interacted_with_file_action.pk,
+                            name=interacted_with_file_action.name,
+                            math=BaseMathType.TOTAL,
+                        )
+                    ],
+                    lifecycleFilter=LifecycleFilter(),
+                    interval=IntervalType.DAY,
+                    filterTestAccounts=True,
+                    dateRange=DateRange(
+                        date_from="-8w",
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=34),
             last_modified_by=user,
         )
@@ -424,36 +447,34 @@ class HedgeboxMatrix(Matrix):
             dashboard=key_metrics_dashboard,
             saved=True,
             name="Weekly file volume",
-            filters={
-                "events": [
-                    {
-                        "custom_name": "Uploaded bytes",
-                        "id": EVENT_UPLOADED_FILE,
-                        "math": "sum",
-                        "name": EVENT_UPLOADED_FILE,
-                        "type": "events",
-                        "order": 0,
-                        "math_property": "file_size_b",
-                    },
-                    {
-                        "custom_name": "Deleted bytes",
-                        "id": EVENT_DELETED_FILE,
-                        "math": "sum",
-                        "name": EVENT_DELETED_FILE,
-                        "type": "events",
-                        "order": 1,
-                        "math_property": "file_size_b",
-                    },
-                ],
-                "actions": [],
-                "display": "ActionsLineGraph",
-                "insight": "TRENDS",
-                "interval": "week",
-                "date_from": "-8w",
-                "new_entity": [],
-                "properties": [],
-                "filter_test_accounts": True,
-            },
+            query=InsightVizNode(
+                source=TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event=EVENT_UPLOADED_FILE,
+                            name=EVENT_UPLOADED_FILE,
+                            custom_name="Uploaded bytes",
+                            math=PropertyMathType.SUM,
+                            math_property="file_size_b",
+                        ),
+                        EventsNode(
+                            event=EVENT_DELETED_FILE,
+                            name=EVENT_DELETED_FILE,
+                            custom_name="Deleted bytes",
+                            math=PropertyMathType.SUM,
+                            math_property="file_size_b",
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_LINE_GRAPH,
+                    ),
+                    interval=IntervalType.WEEK,
+                    filterTestAccounts=True,
+                    dateRange=DateRange(
+                        date_from="-8w",
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=18),
             last_modified_by=user,
         )
@@ -482,22 +503,25 @@ class HedgeboxMatrix(Matrix):
             dashboard=revenue_dashboard,
             saved=True,
             name="Monthly app revenue",
-            filters={
-                "events": [
-                    {
-                        "id": EVENT_PAID_BILL,
-                        "type": "events",
-                        "order": 0,
-                        "math": "sum",
-                        "math_property": "amount_usd",
-                    }
-                ],
-                "actions": [],
-                "display": TRENDS_LINEAR,
-                "insight": INSIGHT_TRENDS,
-                "interval": "month",
-                "date_from": "-6m",
-            },
+            query=InsightVizNode(
+                source=TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event=EVENT_PAID_BILL,
+                            name=EVENT_PAID_BILL,
+                            math=PropertyMathType.SUM,
+                            math_property="amount_usd",
+                        )
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_LINE_GRAPH,
+                    ),
+                    interval=IntervalType.MONTH,
+                    dateRange=DateRange(
+                        date_from="-6m",
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=29),
             last_modified_by=user,
         )
@@ -523,27 +547,29 @@ class HedgeboxMatrix(Matrix):
             dashboard=revenue_dashboard,
             saved=True,
             name="Bills paid",
-            filters={
-                "events": [
-                    {
-                        "id": EVENT_PAID_BILL,
-                        "math": "unique_group",
-                        "name": "paid_bill",
-                        "type": "events",
-                        "order": 0,
-                        "math_group_type_index": 0,
-                    }
-                ],
-                "actions": [],
-                "compare": True,
-                "date_to": None,
-                "display": "BoldNumber",
-                "insight": "TRENDS",
-                "interval": "day",
-                "date_from": "-30d",
-                "properties": [],
-                "filter_test_accounts": True,
-            },
+            query=InsightVizNode(
+                source=TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event=EVENT_PAID_BILL,
+                            name="paid_bill",
+                            math="unique_group",
+                            math_group_type_index=0,
+                        )
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.BOLD_NUMBER,
+                    ),
+                    compareFilter=CompareFilter(
+                        compare=True,
+                    ),
+                    interval=IntervalType.DAY,
+                    filterTestAccounts=True,
+                    dateRange=DateRange(
+                        date_from="-30d",
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=29),
             last_modified_by=user,
         )
@@ -572,14 +598,24 @@ class HedgeboxMatrix(Matrix):
             dashboard=website_dashboard,
             saved=True,
             name="Daily unique visitors over time",
-            filters={
-                "events": [{"id": PAGEVIEW_EVENT, "type": "events", "order": 0, "math": "dau"}],
-                "actions": [],
-                "display": TRENDS_LINEAR,
-                "insight": INSIGHT_TRENDS,
-                "interval": "day",
-                "date_from": "-6m",
-            },
+            query=InsightVizNode(
+                source=TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event=PAGEVIEW_EVENT,
+                            name=PAGEVIEW_EVENT,
+                            math=BaseMathType.DAU,
+                        )
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_LINE_GRAPH,
+                    ),
+                    interval=IntervalType.DAY,
+                    dateRange=DateRange(
+                        date_from="-6m",
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=29),
             last_modified_by=user,
         )
@@ -605,40 +641,36 @@ class HedgeboxMatrix(Matrix):
             dashboard=website_dashboard,
             saved=True,
             name="Most popular pages",
-            filters={
-                "events": [
-                    {
-                        "id": PAGEVIEW_EVENT,
-                        "math": "total",
-                        "type": "events",
-                        "order": 0,
-                    }
-                ],
-                "actions": [],
-                "display": "ActionsTable",
-                "insight": "TRENDS",
-                "interval": "day",
-                "breakdown": "$current_url",
-                "date_from": "-6m",
-                "new_entity": [],
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$current_url",
-                                    "type": "event",
-                                    "value": "/files/",
-                                    "operator": "not_icontains",
-                                }
-                            ],
-                        }
+            query=InsightVizNode(
+                source=TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event=PAGEVIEW_EVENT,
+                            name=PAGEVIEW_EVENT,
+                            math=BaseMathType.TOTAL,
+                        )
                     ],
-                },
-                "breakdown_type": "event",
-            },
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_TABLE,
+                    ),
+                    breakdownFilter=BreakdownFilter(
+                        breakdown="$current_url",
+                        breakdown_type=BreakdownType.EVENT,
+                    ),
+                    properties=[
+                        EventPropertyFilter(
+                            key="$current_url",
+                            type=PropertyFilterType.EVENT,
+                            value="/files/",
+                            operator=PropertyOperator.NOT_ICONTAINS,
+                        )
+                    ],
+                    interval=IntervalType.DAY,
+                    dateRange=DateRange(
+                        date_from="-6m",
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=26),
             last_modified_by=user,
         )
@@ -665,54 +697,51 @@ class HedgeboxMatrix(Matrix):
             team=team,
             saved=True,
             name="Homepage view to signup conversion",
-            filters={
-                "events": [
-                    {
-                        "custom_name": "Viewed homepage",
-                        "id": "$pageview",
-                        "name": "$pageview",
-                        "type": "events",
-                        "order": 0,
-                        "properties": [
-                            {
-                                "key": "$current_url",
-                                "type": "event",
-                                "value": URL_HOME,
-                                "operator": "exact",
-                            }
-                        ],
-                    },
-                    {
-                        "custom_name": "Viewed signup page",
-                        "id": "$pageview",
-                        "name": "$pageview",
-                        "type": "events",
-                        "order": 1,
-                        "properties": [
-                            {
-                                "key": "$current_url",
-                                "type": "event",
-                                "value": URL_SIGNUP,
-                                "operator": "regex",
-                            }
-                        ],
-                    },
-                    {
-                        "custom_name": "Signed up",
-                        "id": "signed_up",
-                        "name": "signed_up",
-                        "type": "events",
-                        "order": 2,
-                    },
-                ],
-                "actions": [],
-                "display": "FunnelViz",
-                "insight": "FUNNELS",
-                "interval": "day",
-                "funnel_viz_type": "steps",
-                "filter_test_accounts": True,
-                "date_from": "-1m",
-            },
+            query=InsightVizNode(
+                source=FunnelsQuery(
+                    series=[
+                        EventsNode(
+                            event="$pageview",
+                            name="$pageview",
+                            custom_name="Viewed homepage",
+                            properties=[
+                                EventPropertyFilter(
+                                    key="$current_url",
+                                    type=PropertyFilterType.EVENT,
+                                    value=URL_HOME,
+                                    operator="exact",
+                                )
+                            ],
+                        ),
+                        EventsNode(
+                            event="$pageview",
+                            name="$pageview",
+                            custom_name="Viewed signup page",
+                            properties=[
+                                EventPropertyFilter(
+                                    key="$current_url",
+                                    type=PropertyFilterType.EVENT,
+                                    value=URL_SIGNUP,
+                                    operator="regex",
+                                )
+                            ],
+                        ),
+                        EventsNode(
+                            event="signed_up",
+                            name="signed_up",
+                            custom_name="Signed up",
+                        ),
+                    ],
+                    funnelsFilter=FunnelsFilter(
+                        funnelVizType=FunnelVizType.STEPS,
+                    ),
+                    interval=IntervalType.DAY,
+                    filterTestAccounts=True,
+                    dateRange=DateRange(
+                        date_from="-1m",
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=19),
             last_modified_by=user,
         )
@@ -720,20 +749,22 @@ class HedgeboxMatrix(Matrix):
             team=team,
             saved=True,
             name="User paths starting at homepage",
-            filters={
-                "date_to": None,
-                "insight": "PATHS",
-                "date_from": "-30d",
-                "edge_limit": 50,
-                "properties": {"type": "AND", "values": []},
-                "step_limit": 5,
-                "start_point": URL_HOME,
-                "funnel_filter": {},
-                "exclude_events": [],
-                "path_groupings": ["/files/*"],
-                "include_event_types": ["$pageview"],
-                "local_path_cleaning_filters": [],
-            },
+            query=InsightVizNode(
+                source=PathsQuery(
+                    pathsFilter=PathsFilter(
+                        edgeLimit=50,
+                        stepLimit=5,
+                        startPoint=URL_HOME,
+                        excludeEvents=[],
+                        pathGroupings=["/files/*"],
+                        includeEventTypes=[PathType.FIELD_PAGEVIEW],
+                        localPathCleaningFilters=[],
+                    ),
+                    dateRange=DateRange(
+                        date_from="-30d",
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=9),
             last_modified_by=user,
         )
@@ -741,18 +772,31 @@ class HedgeboxMatrix(Matrix):
             team=team,
             saved=True,
             name="File interactions",
-            filters={
-                "events": [
-                    {"id": EVENT_UPLOADED_FILE, "type": "events", "order": 0},
-                    {"id": EVENT_DELETED_FILE, "type": "events", "order": 2},
-                    {"id": EVENT_DOWNLOADED_FILE, "type": "events", "order": 1},
-                ],
-                "actions": [],
-                "display": TRENDS_LINEAR,
-                "insight": INSIGHT_TRENDS,
-                "interval": "day",
-                "date_from": "-30d",
-            },
+            query=InsightVizNode(
+                source=TrendsQuery(
+                    series=[
+                        EventsNode(
+                            event=EVENT_UPLOADED_FILE,
+                            name=EVENT_UPLOADED_FILE,
+                        ),
+                        EventsNode(
+                            event=EVENT_DOWNLOADED_FILE,
+                            name=EVENT_DOWNLOADED_FILE,
+                        ),
+                        EventsNode(
+                            event=EVENT_DELETED_FILE,
+                            name=EVENT_DELETED_FILE,
+                        ),
+                    ],
+                    trendsFilter=TrendsFilter(
+                        display=ChartDisplayType.ACTIONS_LINE_GRAPH,
+                    ),
+                    interval=IntervalType.DAY,
+                    dateRange=DateRange(
+                        date_from="-30d",
+                    ),
+                )
+            ).model_dump(),
             last_modified_at=self.now - dt.timedelta(days=13),
             last_modified_by=user,
         )
@@ -888,3 +932,74 @@ class HedgeboxMatrix(Matrix):
             )
         except IntegrityError:
             pass  # This can happen if demo data generation is re-run for the same project
+
+        # Configure Revenue analytics events
+        team.revenue_analytics_config.goals = [
+            RevenueAnalyticsGoal(
+                due_date=f"{dt.datetime.now().year}-12-31",
+                goal=1000,
+                mrr_or_gross=MrrOrGross.GROSS,
+                name=f"{dt.datetime.now().year} Q4",
+            )
+        ]
+        team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName=EVENT_PAID_BILL,
+                revenueProperty="amount_usd",
+                productProperty="plan",
+            )
+        ]
+        team.revenue_analytics_config.save()
+
+        # Create File Stats property group
+        try:
+            file_stats_group = SchemaPropertyGroup.objects.create(
+                team=team,
+                project=team.project,
+                name="File Stats",
+                description="",
+                created_by=user,
+            )
+
+            SchemaPropertyGroupProperty.objects.create(
+                property_group=file_stats_group,
+                name="file_size_b",
+                property_type=PropertyType.Numeric,
+                is_required=True,
+                description="",
+            )
+
+            SchemaPropertyGroupProperty.objects.create(
+                property_group=file_stats_group,
+                name="file_type",
+                property_type=PropertyType.String,
+                is_required=False,
+                description="",
+            )
+
+            SchemaPropertyGroupProperty.objects.create(
+                property_group=file_stats_group,
+                name="file_name",
+                property_type=PropertyType.String,
+                is_required=False,
+                description="",
+            )
+
+            uploaded_file_def = EventDefinition.objects.get_or_create(
+                team=team, name=EVENT_UPLOADED_FILE, defaults={"team": team}
+            )[0]
+            downloaded_file_def = EventDefinition.objects.get_or_create(
+                team=team, name=EVENT_DOWNLOADED_FILE, defaults={"team": team}
+            )[0]
+
+            EventSchema.objects.create(
+                event_definition=uploaded_file_def,
+                property_group=file_stats_group,
+            )
+
+            EventSchema.objects.create(
+                event_definition=downloaded_file_def,
+                property_group=file_stats_group,
+            )
+        except IntegrityError:
+            pass

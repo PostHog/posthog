@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+import { useCallback } from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { useCallback } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
@@ -56,25 +57,25 @@ export function FunnelStepMore({ stepIndex }: FunnelStepMoreProps): JSX.Element 
             overlay={
                 <>
                     {stepNumber > 1 && (
-                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.before)}>
+                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.before)} targetBlank>
                             Show user paths leading to step
                         </LemonButton>
                     )}
                     {stepNumber > 1 && (
-                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.between)}>
+                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.between)} targetBlank>
                             Show user paths between previous step and this step
                         </LemonButton>
                     )}
-                    <LemonButton fullWidth to={getPathUrl(FunnelPathType.after)}>
+                    <LemonButton fullWidth to={getPathUrl(FunnelPathType.after)} targetBlank>
                         Show user paths after step
                     </LemonButton>
                     {stepNumber > 1 && (
-                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.after, true)}>
+                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.after, true)} targetBlank>
                             Show user paths after dropoff
                         </LemonButton>
                     )}
                     {stepNumber > 1 && (
-                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.before, true)}>
+                        <LemonButton fullWidth to={getPathUrl(FunnelPathType.before, true)} targetBlank>
                             Show user paths before dropoff
                         </LemonButton>
                     )}

@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -13,11 +14,12 @@ import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
-import { Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActivityScope, Breadcrumb, Group, GroupTypeIndex, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { groupLogicType } from './groupLogicType'
 
@@ -182,28 +184,41 @@ export const groupLogic = kea<groupLogicType>([
             (groupTypes, index): number | null => groupTypes.get(index as GroupTypeIndex)?.detail_dashboard ?? null,
         ],
         breadcrumbs: [
-            (s, p) => [s.featureFlags, s.groupTypeName, p.groupTypeIndex, p.groupKey, s.groupData],
-            (featureFlags, groupTypeName, groupTypeIndex, groupKey, groupData): Breadcrumb[] => {
+            (s, p) => [s.groupTypeName, p.groupTypeIndex, p.groupKey, s.groupData],
+            (groupTypeName, groupTypeIndex, groupKey, groupData): Breadcrumb[] => {
                 const breadcrumbs: Breadcrumb[] = []
-                if (!featureFlags[FEATURE_FLAGS.B2B_ANALYTICS]) {
-                    breadcrumbs.push({
-                        key: Scene.DataManagement,
-                        name: 'People',
-                        path: urls.persons(),
-                    })
-                }
+                breadcrumbs.push({
+                    key: Scene.DataManagement,
+                    name: 'People',
+                    path: urls.persons(),
+                    iconType: 'persons',
+                })
                 breadcrumbs.push({
                     key: groupTypeIndex,
                     name: capitalizeFirstLetter(groupTypeName),
                     path: urls.groups(String(groupTypeIndex)),
+                    iconType: 'group',
                 })
                 breadcrumbs.push({
                     key: [Scene.Group, `${groupTypeIndex}-${groupKey}`],
                     name: groupDisplayId(groupKey, groupData?.group_properties || {}),
                     path: urls.group(String(groupTypeIndex), groupKey),
+                    iconType: 'group',
                 })
 
                 return breadcrumbs
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s, p) => [p.groupTypeIndex, p.groupKey, s.featureFlags],
+            (groupTypeIndex, groupKey, featureFlags): SidePanelSceneContext | null => {
+                if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]) {
+                    return null
+                }
+                return {
+                    activity_scope: ActivityScope.GROUP,
+                    activity_item_id: `${groupTypeIndex}-${groupKey}`,
+                }
             },
         ],
     }),

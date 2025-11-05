@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 import { FIELD_VALUES, SCALE_FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
@@ -90,9 +91,13 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
             (s) => [s.fieldOptionGroups, s.value],
             (fieldOptionGroups, value) =>
                 value && typeof value === 'string'
-                    ? fieldOptionGroups.reduce((accumulator, group) => ({ ...accumulator, ...group.values }), {})?.[
-                          value
-                      ]
+                    ? fieldOptionGroups.reduce(
+                          (accumulator, group) => {
+                              Object.assign(accumulator, group.values)
+                              return accumulator
+                          },
+                          {} as Record<string, any>
+                      )?.[value]
                     : null,
         ],
         calculatedValueLoading: [
@@ -100,7 +105,7 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                 s.value,
                 p.criteria,
                 p.fieldKey,
-                cohortsModel.selectors.cohortsLoading,
+                cohortsModel.selectors.allCohortsLoading,
                 actionsModel.selectors.actionsLoading,
             ],
             (value, criteria, fieldKey, cohortsModelLoading, actionsModelLoading) =>
@@ -121,7 +126,7 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
                 s.value,
                 p.criteria,
                 p.fieldKey,
-                cohortsModel.selectors.cohortsLoading,
+                cohortsModel.selectors.allCohortsLoading,
                 actionsModel.selectors.actionsLoading,
             ],
             (value, criteria, fieldKey, cohortsModelLoading, actionsModelLoading) =>

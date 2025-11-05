@@ -5,7 +5,7 @@ import { processEvent } from './index'
 import pluginJson from './plugin.json'
 
 const globalConfig = Object.fromEntries(pluginJson.config.filter((c) => c.key).map((c) => [c.key, c.default]))
-const makeEvent = ($pathname: string) => ({ event: '$pageview', properties: { $pathname } } as unknown as PluginEvent)
+const makeEvent = ($pathname: string) => ({ event: '$pageview', properties: { $pathname } }) as unknown as PluginEvent
 
 test('changes properties', () => {
     const matches: [string, PluginEvent['properties']][] = [

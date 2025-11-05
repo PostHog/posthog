@@ -1,18 +1,19 @@
 import { createEvent } from '@posthog/plugin-scaffold/test/utils'
 
-import { onEvent, PatternsMeta, setupPlugin } from './index'
+import { PatternsMeta, onEvent, setupPlugin } from './index'
 
 const testWebhookUrl = 'https://api-staging.patterns.app/api/app/webhooks/wh1234'
 
 describe('Patterns: onEvent', () => {
-    const fetchMock = jest.fn()
+    const mockRequest = jest.fn()
 
     beforeEach(() => {
-        fetchMock.mockReset()
+        mockRequest.mockReset()
 
-        fetchMock.mockResolvedValue({
+        mockRequest.mockResolvedValue({
             status: 200,
-            json: () => Promise.resolve({}),
+            body: JSON.stringify({}),
+            headers: {},
         })
     })
 
@@ -22,16 +23,16 @@ describe('Patterns: onEvent', () => {
                 webhookUrl: testWebhookUrl,
             },
             global: {},
-            fetch: fetchMock as unknown,
+            fetch: mockRequest as unknown,
         } as PatternsMeta
         void setupPlugin(meta)
         const event1 = createEvent({ event: '$pageView' })
 
         await onEvent(event1, meta)
 
-        expect(fetchMock.mock.calls.length).toEqual(1)
-        expect(fetchMock.mock.calls[0][0]).toEqual(testWebhookUrl)
-        expect(fetchMock.mock.calls[0][1]).toEqual({
+        expect(mockRequest.mock.calls.length).toEqual(1)
+        expect(mockRequest.mock.calls[0][0]).toEqual(testWebhookUrl)
+        expect(mockRequest.mock.calls[0][1]).toEqual({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify([event1]),
@@ -45,15 +46,15 @@ describe('Patterns: onEvent', () => {
                 allowedEventTypes: '$pageView, $autoCapture, $customEvent1',
             },
             global: {},
-            fetch: fetchMock as unknown,
+            fetch: mockRequest as unknown,
         } as PatternsMeta
         void setupPlugin(meta)
 
         const event = createEvent({ event: '$pageView' })
         void (await onEvent(event, meta))
-        expect(fetchMock.mock.calls.length).toEqual(1)
-        expect(fetchMock.mock.calls[0][0]).toEqual(testWebhookUrl)
-        expect(fetchMock.mock.calls[0][1]).toEqual({
+        expect(mockRequest.mock.calls.length).toEqual(1)
+        expect(mockRequest.mock.calls[0][0]).toEqual(testWebhookUrl)
+        expect(mockRequest.mock.calls[0][1]).toEqual({
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify([event]),
@@ -61,6 +62,6 @@ describe('Patterns: onEvent', () => {
 
         const event2 = createEvent({ event: '$pageLeave' })
         await onEvent(event2, meta)
-        expect(fetchMock.mock.calls.length).toEqual(1)
+        expect(mockRequest.mock.calls.length).toEqual(1)
     })
 })

@@ -1,27 +1,24 @@
-import dataclasses
 import json
-from datetime import datetime
-from decimal import Decimal
-from typing import Any, Literal, Optional, Union
+import dataclasses
+from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union
 from uuid import UUID
 
+from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
+from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
+from django.core.paginator import Paginator
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
-from posthog.exceptions_capture import capture_exception
-import structlog
-from django.core.paginator import Paginator
-from django.core.exceptions import ObjectDoesNotExist
-
-from django.db import models
 from django.utils import timezone
-from django.conf import settings
 
-from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import DashboardTile
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.user import User
-from posthog.models.utils import UUIDT, UUIDModel
+import structlog
 
+from posthog.exceptions_capture import capture_exception
+from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -34,13 +31,17 @@ ActivityScope = Literal[
     "Plugin",
     "PluginConfig",
     "HogFunction",
+    "HogFlow",
     "DataManagement",
     "EventDefinition",
     "PropertyDefinition",
     "Notebook",
+    "Endpoint",
     "Dashboard",
     "Replay",
     "Experiment",
+    "ExperimentHoldout",
+    "ExperimentSavedMetric",
     "Survey",
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
@@ -48,13 +49,34 @@ ActivityScope = Literal[
     "Team",
     "Project",
     "ErrorTrackingIssue",
+    "DataWarehouseSavedQuery",
+    "Organization",
+    "OrganizationDomain",
+    "OrganizationMembership",
+    "Role",
+    "UserGroup",
+    "BatchExport",
+    "BatchImport",
+    "Integration",
+    "Annotation",
+    "Tag",
+    "TaggedItem",
+    "Subscription",
+    "PersonalAPIKey",
+    "User",
+    "Action",
+    "AlertConfiguration",
+    "Threshold",
+    "AlertSubscription",
+    "ExternalDataSource",
+    "ExternalDataSchema",
 ]
-ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
+ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported", "revoked"]
 
 
 @dataclasses.dataclass(frozen=True)
 class Change:
-    type: ActivityScope
+    type: ActivityScope | str
     action: ChangeAction
     field: Optional[str] = None
     before: Optional[Any] = None
@@ -69,6 +91,15 @@ class Trigger:
 
 
 @dataclasses.dataclass(frozen=True)
+class ActivityContextBase:
+    """
+    Extend this class in specific implementations to add context-specific fields.
+    """
+
+    pass
+
+
+@dataclasses.dataclass(frozen=True)
 class Detail:
     # The display name of the item in question
     name: Optional[str] = None
@@ -77,39 +108,10 @@ class Detail:
     type: Optional[str] = None
     changes: Optional[list[Change]] = None
     trigger: Optional[Trigger] = None
+    context: Optional[ActivityContextBase] = None
 
 
-class ActivityDetailEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, Detail | Change | Trigger):
-            return obj.__dict__
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        if isinstance(obj, UUIDT):
-            return str(obj)
-        if isinstance(obj, User):
-            return {"first_name": obj.first_name, "email": obj.email}
-        if isinstance(obj, float):
-            # more precision than we'll need but avoids rounding too unnecessarily
-            return format(obj, ".6f").rstrip("0").rstrip(".")
-        if isinstance(obj, Decimal):
-            # more precision than we'll need but avoids rounding too unnecessarily
-            return format(obj, ".6f").rstrip("0").rstrip(".")
-        if isinstance(obj, FeatureFlag):
-            return {
-                "id": obj.id,
-                "key": obj.key,
-                "name": obj.name,
-                "filters": obj.filters,
-                "team_id": obj.team_id,
-                "deleted": obj.deleted,
-                "active": obj.active,
-            }
-
-        return json.JSONEncoder.default(self, obj)
-
-
-class ActivityLog(UUIDModel):
+class ActivityLog(UUIDTModel):
     class Meta:
         constraints = [
             models.CheckConstraint(
@@ -117,7 +119,50 @@ class ActivityLog(UUIDModel):
                 check=models.Q(team_id__isnull=False) | models.Q(organization_id__isnull=False),
             ),
         ]
-        indexes = [models.Index(fields=["team_id", "scope", "item_id"])]
+        indexes = [
+            models.Index(fields=["team_id", "scope", "item_id"]),
+            models.Index(
+                fields=["organization_id", "scope", "-created_at"],
+                name="idx_alog_org_scope_created_at",
+                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
+            ),
+            models.Index(
+                fields=["organization_id"],
+                name="idx_alog_org_detail_exists",
+                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
+            ),
+            # Used for searching on the detail field, e.g. containing a specific value
+            GinIndex(
+                name="activitylog_detail_gin",
+                fields=["detail"],
+                opclasses=["jsonb_ops"],
+            ),
+            # Used primarily for available_filters queries
+            GinIndex(
+                name="idx_alog_detail_gin_path_ops",
+                fields=["detail"],
+                opclasses=["jsonb_path_ops"],
+                condition=models.Q(detail__isnull=False),
+            ),
+            # User-specific filtered queries
+            models.Index(
+                fields=["team_id", "activity", "scope", "user"],
+                name="idx_alog_team_act_scope_usr",
+                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+            ),
+            # Advanced activity logs: team-scoped queries with ordering
+            models.Index(
+                fields=["team_id", "scope", "-created_at"],
+                name="idx_alog_team_scope_created",
+                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+            ),
+            # Advanced activity logs: team queries with activity filter
+            models.Index(
+                fields=["team_id", "scope", "activity", "-created_at"],
+                name="idx_alog_team_scp_act_crtd",
+                condition=models.Q(was_impersonated=False) & models.Q(is_system=False),
+            ),
+        ]
 
     team_id = models.PositiveIntegerField(null=True)
     organization_id = models.UUIDField(null=True)
@@ -159,12 +204,62 @@ field_with_masked_contents: dict[ActivityScope, list[str]] = {
     "HogFunction": [
         "encrypted_inputs",
     ],
+    "Integration": [
+        "config",
+        "sensitive_config",
+    ],
+    "BatchImport": [
+        "import_config",
+    ],
+    "Subscription": [
+        "target_value",
+    ],
+    "ExternalDataSource": [
+        "job_inputs",
+    ],
+    "OrganizationDomain": [
+        "scim_bearer_token",
+    ],
 }
 
 field_name_overrides: dict[ActivityScope, dict[str, str]] = {
     "HogFunction": {
         "execution_order": "priority",
     },
+    "Organization": {
+        "name": "organization name",
+        "enforce_2fa": "two-factor authentication requirement",
+        "members_can_invite": "member invitation permissions",
+        "members_can_use_personal_api_keys": "personal API key permissions",
+        "allow_publicly_shared_resources": "public sharing permissions",
+        "is_member_join_email_enabled": "member join email notifications",
+        "session_cookie_age": "session cookie age",
+        "default_experiment_stats_method": "default experiment stats method",
+    },
+    "BatchExport": {
+        "paused": "enabled",
+    },
+    "ExternalDataSource": {
+        "job_inputs": "configuration",
+    },
+    "ExternalDataSchema": {
+        "should_sync": "enabled",
+    },
+}
+
+# Fields that prevent activity signal triggering entirely when only these fields change
+signal_exclusions: dict[ActivityScope, list[str]] = {
+    "AlertConfiguration": [
+        "last_checked_at",
+        "next_check_at",
+        "is_calculating",
+        "last_notified_at",
+        "last_error_at",
+    ],
+    "Dashboard": ["last_accessed_at"],
+    "PersonalAPIKey": [
+        "last_used_at",
+    ],
 }
 
 field_exclusions: dict[ActivityScope, list[str]] = {
@@ -174,6 +269,7 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "count",
         "is_calculating",
         "last_calculation",
+        "last_error_at",
         "errors_calculating",
     ],
     "HogFunction": [
@@ -189,6 +285,17 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "featureflagoverride",
         "usage_dashboard",
         "analytics_dashboards",
+    ],
+    "Experiment": [
+        "feature_flag",
+        "exposure_cohort",
+        "holdout",
+        "saved_metrics",
+        "experimenttosavedmetric_set",
+    ],
+    "ExperimentSavedMetric": [
+        "experiments",
+        "experimenttosavedmetric_set",
     ],
     "Person": [
         "distinct_ids",
@@ -244,12 +351,124 @@ field_exclusions: dict[ActivityScope, list[str]] = {
         "post_to_slack",
         "property_type_format",
     ],
-    "Team": ["uuid", "updated_at", "api_token", "created_at", "id"],
+    "Team": [
+        "uuid",
+        "updated_at",
+        "created_at",
+        "id",
+        "secret_api_token",
+        "secret_api_token_backup",
+        "_old_api_token",
+    ],
     "Project": ["id", "created_at"],
+    "DataWarehouseSavedQuery": [
+        "name",
+        "columns",
+        "status",
+        "external_tables",
+        "last_run_at",
+        "latest_error",
+        "sync_frequency_interval",
+        "deleted_name",
+    ],
+    "Organization": [
+        "teams",
+        "billing",
+        "organization_billing",
+        "_billing_plan_details",
+        "usage",
+        "customer_id",
+        "customer_trust_scores",
+        "personalization",
+        "members",
+        "memberships",
+        "available_product_features",
+        "domain_whitelist",
+        "setup_section_2_completed",
+        "plugins_access_level",
+        "is_hipaa",
+        "is_ai_data_processing_approved",
+        "never_drop_data",
+    ],
+    "BatchExport": [
+        "latest_runs",
+        "last_updated_at",
+        "last_paused_at",
+        "batchexportrun_set",
+        "batchexportbackfill_set",
+    ],
+    "BatchImport": [
+        "lease_id",
+        "leased_until",
+        "status_message",
+        "state",
+        "secrets",
+        "lease_id",
+        "backoff_attempt",
+        "backoff_until",
+    ],
+    "Integration": [
+        "sensitive_config",
+        "errors",
+    ],
+    "PersonalAPIKey": [
+        "value",
+        "secure_value",
+        "last_used_at",
+        "last_rolled_at",
+    ],
+    "User": [
+        "password",
+        "current_organization_id",
+        "current_team_id",
+        "temporary_token",
+        "distinct_id",
+        "partial_notification_settings",
+        "anonymize_data",
+        "is_email_verified",
+        "_billing_plan_details",
+        "strapi_id",
+    ],
+    "AlertConfiguration": [
+        "last_checked_at",
+        "next_check_at",
+        "is_calculating",
+        "last_notified_at",
+        "last_error_at",
+    ],
+    "Action": [
+        "bytecode",
+        "bytecode_error",
+        "is_calculating",
+        "last_calculated_at",
+        "embedding_last_synced_at",
+        "embedding_version",
+        "last_summarized_at",
+        "action_steps",
+        "events",
+        "plugin_configs",
+        "tagged_items",
+        "survey",
+    ],
+    "ExternalDataSource": [
+        "connection_id",
+        "destination_id",
+        "are_tables_created",
+    ],
+    "ExternalDataSchema": [
+        "status",
+        "sync_type_config",
+        "latest_error",
+        "last_synced_at",
+    ],
 }
 
 
 def describe_change(m: Any) -> Union[str, dict]:
+    # Use lazy imports to avoid circular dependencies
+    from posthog.models.dashboard import Dashboard
+    from posthog.models.dashboard_tile import DashboardTile
+
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
     if isinstance(m, DashboardTile):
@@ -277,16 +496,37 @@ def safely_get_field_value(instance: models.Model | None, field: str):
     """Helper function to get the value of a field, handling related objects and exceptions."""
     if instance is None:
         return None
+
     try:
+        field_obj = instance._meta.get_field(field)
+
+        # For ForeignKey/OneToOneField, always access the ID first to avoid lazy loading
+        # throwing malformed UUID validation errors
+        if isinstance(field_obj, models.ForeignKey | models.OneToOneField):
+            field_id = getattr(instance, f"{field}_id", None)
+            if field_id is None:
+                return None
+            # Ensure field_id is actually an ID, not the object itself
+            if hasattr(field_id, "pk"):
+                field_id = field_id.pk
+            # Only fetch the actual object if we have a valid ID
+            related_model = field_obj.related_model
+            if isinstance(related_model, type) and issubclass(related_model, models.Model):
+                return related_model.objects.get(pk=field_id)  # type: ignore[attr-defined]
+            else:
+                return field_id
+
+        # For other fields, use normal access
         value = getattr(instance, field, None)
         if isinstance(value, models.Manager):
             value = _read_through_relation(value)
+        return value
+
     # If the field is a related field and the related object has been deleted, this will raise an ObjectDoesNotExist
     # exception. We catch this exception and return None, since the related object has been deleted, and we
     # don't need any additional information about it other than the fact that it was deleted.
-    except ObjectDoesNotExist:
-        value = None
-    return value
+    except (ObjectDoesNotExist, FieldDoesNotExist):
+        return None
 
 
 def changes_between(
@@ -407,18 +647,40 @@ def dict_changes_between(
     return changes
 
 
+def _handle_activity_log_transaction(create_fn, error_context: dict):
+    try:
+        # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
+        if not transaction.get_autocommit() and getattr(settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True):
+            transaction.on_commit(create_fn)
+            return None
+        else:
+            return create_fn()
+
+    except Exception as e:
+        logger.warn(
+            "activity_log.failed_to_write_to_activity_log",
+            **error_context,
+            exception=e,
+        )
+        capture_exception(e)
+        if settings.TEST:
+            raise
+        return None
+
+
 def log_activity(
     *,
     organization_id: Optional[UUID],
-    team_id: int,
-    user: Optional[User],
+    team_id: Optional[int],
+    user: Optional["User"],
     item_id: Optional[Union[int, str, UUID]],
     scope: str,
     activity: str,
     detail: Detail,
     was_impersonated: Optional[bool],
     force_save: bool = False,
-) -> None:
+    instance_only: bool = False,
+) -> ActivityLog | None:
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -428,7 +690,7 @@ def log_activity(
             activity=activity,
             exception=ValueError("Cannot log impersonated activity without a user"),
         )
-        return
+        return None
     try:
         if activity == "updated" and (detail.changes is None or len(detail.changes) == 0) and not force_save:
             logger.warn(
@@ -438,19 +700,48 @@ def log_activity(
                 user_id=user.id if user else None,
                 scope=scope,
             )
-            return
+            return None
 
-        ActivityLog.objects.create(
-            organization_id=organization_id,
-            team_id=team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            is_system=user is None,
-            item_id=str(item_id),
-            scope=scope,
-            activity=activity,
-            detail=detail,
+        def _create_activity_log_instance():
+            return ActivityLog(
+                organization_id=organization_id,
+                team_id=team_id,
+                user=user,
+                was_impersonated=was_impersonated,
+                is_system=user is None,
+                item_id=str(item_id),
+                scope=scope,
+                activity=activity,
+                detail=detail,
+            )
+
+        def _do_log_activity():
+            log = _create_activity_log_instance()
+            return ActivityLog.objects.create(
+                organization_id=log.organization_id,
+                team_id=log.team_id,
+                user=log.user,
+                was_impersonated=log.was_impersonated,
+                is_system=log.is_system,
+                item_id=log.item_id,
+                scope=log.scope,
+                activity=log.activity,
+                detail=log.detail,
+            )
+
+        if instance_only:
+            return _create_activity_log_instance()
+
+        return _handle_activity_log_transaction(
+            _do_log_activity,
+            {
+                "team": team_id,
+                "organization_id": organization_id,
+                "scope": scope,
+                "activity": activity,
+            },
         )
+
     except Exception as e:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -460,10 +751,70 @@ def log_activity(
             activity=activity,
             exception=e,
         )
+        capture_exception(e)
         if settings.TEST:
-            # Re-raise in tests, so that we can catch failures in test suites - but keep quiet in production,
-            # as we currently don't treat activity logs as critical
             raise
+        return None
+
+
+class LogActivityEntry(TypedDict, total=False):
+    organization_id: Optional[UUID]
+    team_id: Optional[int]
+    user: Optional["User"]
+    item_id: Optional[Union[int, str, UUID]]
+    scope: Required[str]
+    activity: Required[str]
+    detail: Required[Detail]
+    was_impersonated: Optional[bool]
+    force_save: bool
+
+
+def bulk_log_activity(log_entries: list[LogActivityEntry], batch_size: int = 500) -> list[ActivityLog]:
+    if not log_entries:
+        return []
+
+    activity_logs = []
+    dropped_count = 0
+    for entry in log_entries:
+        log = log_activity(**entry, instance_only=True)
+
+        if log:
+            activity_logs.append(log)
+        else:
+            dropped_count += 1
+            logger.info(
+                "bulk_log_activity.entry_dropped",
+                scope=entry.get("scope"),
+                activity=entry.get("activity"),
+                team_id=entry.get("team_id"),
+                organization_id=entry.get("organization_id"),
+            )
+
+    if dropped_count > 0:
+        logger.info(
+            "bulk_log_activity.entries_dropped",
+            total_entries=len(log_entries),
+            dropped_count=dropped_count,
+            created_count=len(activity_logs),
+        )
+
+    if not activity_logs:
+        return []
+
+    def _do_bulk_create():
+        return ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
+
+    result = _handle_activity_log_transaction(
+        _do_bulk_create,
+        {
+            "count": len(activity_logs),
+            "scope": "bulk_log_activity",
+            "activity": "bulk_create",
+            "log_entries": log_entries,
+        },
+    )
+
+    return result or []
 
 
 @dataclasses.dataclass(frozen=True)
@@ -517,33 +868,43 @@ def load_all_activity(scope_list: list[ActivityScope], team_id: int, limit: int 
 
 @receiver(post_save, sender=ActivityLog)
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
-    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
-    from posthog.api.activity_log import ActivityLogSerializer
+    from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
+    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
     try:
         serialized_data = ActivityLogSerializer(instance).data
+        # We need to serialize the detail object using the encoder to avoid unsupported types like timedelta
+        serialized_data["detail"] = json.loads(json.dumps(serialized_data["detail"], cls=ActivityDetailEncoder))
         # TODO: Move this into the producer to support dataclasses
-        serialized_data["detail"] = dataclasses.asdict(serialized_data["detail"])
         user_data = UserBasicSerializer(instance.user).data if instance.user else None
 
-        if created and instance.team_id is not None:
-            produce_internal_event(
-                team_id=instance.team_id,
-                event=InternalEventEvent(
-                    event="$activity_log_entry_created",
-                    distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
-                    properties=serialized_data,
-                ),
-                person=(
-                    InternalEventPerson(
-                        id=user_data["id"],
-                        properties=user_data,
-                    )
-                    if user_data
-                    else None
-                ),
-            )
+        if created:
+            if instance.team_id is not None:
+                produce_internal_event(
+                    team_id=instance.team_id,
+                    event=InternalEventEvent(
+                        event="$activity_log_entry_created",
+                        distinct_id=user_data["distinct_id"] if user_data else f"team_{instance.team_id}",
+                        properties=serialized_data,
+                    ),
+                    person=(
+                        InternalEventPerson(
+                            id=user_data["id"],
+                            properties=user_data,
+                        )
+                        if user_data
+                        else None
+                    ),
+                )
+            elif instance.organization_id is not None:
+                from posthog.tasks.activity_log import broadcast_activity_log_to_organization
+
+                broadcast_activity_log_to_organization.delay(
+                    organization_id=instance.organization_id,
+                    serialized_data=serialized_data,
+                    user_data=user_data,
+                )
     except Exception as e:
         # We don't want to hard fail here.
         logger.exception("Failed to produce internal event", data=serialized_data, error=e)

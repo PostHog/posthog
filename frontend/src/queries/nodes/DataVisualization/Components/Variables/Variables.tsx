@@ -1,5 +1,8 @@
 import './Variables.scss'
 
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
 import { IconCopy, IconGear, IconTrash } from '@posthog/icons'
 import {
     LemonButton,
@@ -10,11 +13,10 @@ import {
     LemonSwitch,
     Popover,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useRef, useState } from 'react'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -27,27 +29,27 @@ import { variableModalLogic } from './variableModalLogic'
 import { variablesLogic } from './variablesLogic'
 
 export const VariablesForDashboard = (): JSX.Element => {
-    const { dashboardVariables } = useValues(dashboardLogic)
+    const { effectiveVariablesAndAssociatedInsights } = useValues(dashboardLogic)
     const { overrideVariableValue } = useActions(dashboardLogic)
 
-    if (!dashboardVariables.length) {
+    if (!effectiveVariablesAndAssociatedInsights.length) {
         return <></>
     }
 
     return (
         <>
-            <div className="flex gap-4 flex-wrap px-px mt-4">
-                {dashboardVariables.map((n) => (
-                    <VariableComponent
-                        key={n.variable.id}
-                        variable={n.variable}
-                        showEditingUI={false}
-                        onChange={overrideVariableValue}
-                        variableOverridesAreSet={false}
-                        insightsUsingVariable={n.insights}
-                    />
-                ))}
-            </div>
+            {effectiveVariablesAndAssociatedInsights.map((n) => (
+                <VariableComponent
+                    key={n.variable.id}
+                    variable={n.variable}
+                    showEditingUI={false}
+                    onChange={(variableId, value, isNull) => overrideVariableValue(variableId, value, isNull)}
+                    variableOverridesAreSet={false}
+                    emptyState={<i className="text-xs">No override set</i>}
+                    insightsUsingVariable={n.insightNames}
+                    size="small"
+                />
+            ))}
         </>
     )
 }
@@ -108,7 +110,7 @@ const VariableInput = ({
         }
 
         if (variable.type === 'Boolean') {
-            return val ? 'true' : 'false'
+            return val === true || val === 'true' ? 'true' : 'false'
         }
 
         if (variable.type === 'Date' && !val) {
@@ -294,6 +296,8 @@ interface VariableComponentProps {
     onRemove?: (variableId: string) => void
     variableSettingsOnClick?: () => void
     insightsUsingVariable?: string[]
+    emptyState?: JSX.Element | string
+    size?: 'small' | 'medium'
 }
 
 export const VariableComponent = ({
@@ -304,6 +308,8 @@ export const VariableComponent = ({
     onRemove,
     variableSettingsOnClick,
     insightsUsingVariable,
+    emptyState = '',
+    size = 'medium',
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
@@ -318,6 +324,7 @@ export const VariableComponent = ({
         return (
             <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
                 <LemonSelect
+                    disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
                     value={variable.value ?? variable.default_value}
                     onChange={(value) => onChange(variable.id, value, variable.isNull ?? false)}
                     options={variable.values.map((n) => ({ label: n, value: n }))}
@@ -356,10 +363,13 @@ export const VariableComponent = ({
                         className="min-w-32 DataVizVariable_Button"
                         onClick={() => setPopoverOpen(!isPopoverOpen)}
                         disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
+                        size={size}
                     >
                         {variable.isNull
                             ? 'Set to null'
-                            : variable.value?.toString() ?? variable.default_value?.toString()}
+                            : (variable.value?.toString() || variable.default_value?.toString() || '') === ''
+                              ? emptyState
+                              : (variable.value?.toString() ?? variable.default_value?.toString())}
                     </LemonButton>
                 </LemonField.Pure>
             </div>

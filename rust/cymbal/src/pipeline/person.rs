@@ -1,11 +1,10 @@
 use std::{collections::HashMap, sync::Arc};
 
-use common_types::{Person, PersonMode};
+use common_types::{format::format_ch_datetime, Person, PersonMode};
 
 use crate::{
     app_context::AppContext,
     error::{PipelineFailure, PipelineResult},
-    pipeline::format_ch_timestamp,
     WithIndices,
 };
 
@@ -38,8 +37,29 @@ pub async fn add_person_properties(
         let m_context = context.clone();
         let m_distinct_id = distinct_id.clone();
         let team_id = event.team_id;
-        let fut =
-            async move { Person::from_distinct_id(&m_context.pool, team_id, &m_distinct_id).await };
+        let fut = async move {
+            let res = Person::from_distinct_id(&m_context.persons_pool, team_id, &m_distinct_id)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to fetch person {}, {:?}", m_distinct_id, e);
+                    e
+                });
+
+            match res {
+                Ok(p) => Ok(p),
+                Err(sqlx::Error::ColumnDecode { .. }) => {
+                    // If we failed to decode the person properties, we just put an empty property set on
+                    // the event, so e.g. counting exceptions by person still works
+                    Person::from_distinct_id_no_props(
+                        &m_context.persons_pool,
+                        team_id,
+                        &m_distinct_id,
+                    )
+                    .await
+                }
+                Err(e) => Err(e),
+            }
+        };
 
         let handle = tokio::spawn(fut);
 
@@ -81,7 +101,7 @@ pub async fn add_person_properties(
             continue;
         };
 
-        event.person_created_at = Some(format_ch_timestamp(person.created_at));
+        event.person_created_at = Some(format_ch_datetime(person.created_at));
         event.person_id = Some(person.uuid.to_string());
         event.person_properties =
             Some(serde_json::to_string(&person.properties).map_err(|e| (i, e.into()))?);

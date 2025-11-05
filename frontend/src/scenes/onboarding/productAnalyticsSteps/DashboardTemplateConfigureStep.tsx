@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
+
 import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
 import {
     LemonBanner,
@@ -9,22 +12,23 @@ import {
     Link,
     Spinner,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import {
-    authorizedUrlListLogic,
     AuthorizedUrlListType,
+    authorizedUrlListLogic,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { StarHog } from 'lib/components/hedgehogs'
 import { IframedToolbarBrowser } from 'lib/components/IframedToolbarBrowser/IframedToolbarBrowser'
 import { iframedToolbarBrowserLogic } from 'lib/components/IframedToolbarBrowser/iframedToolbarBrowserLogic'
-import { useEffect, useRef, useState } from 'react'
+import { StarHog } from 'lib/components/hedgehogs'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { dashboardTemplateVariablesLogic } from 'scenes/dashboard/dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { onboardingLogic, OnboardingStepKey } from '../onboardingLogic'
+import { OnboardingStepKey } from '~/types'
+
 import { OnboardingStep } from '../OnboardingStep'
+import { onboardingLogic } from '../onboardingLogic'
 import { sdksLogic } from '../sdks/sdksLogic'
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { onboardingTemplateConfigLogic } from './onboardingTemplateConfigLogic'
@@ -315,8 +319,8 @@ export const OnboardingDashboardTemplateConfigureStep = ({
                                             isLoading
                                                 ? 'Dashboard creating...'
                                                 : dashboardCreatedDuringOnboarding
-                                                ? 'Dashboard already created'
-                                                : undefined
+                                                  ? 'Dashboard already created'
+                                                  : undefined
                                         }
                                     >
                                         {hasTouchedAnyVariable ? 'Discard dashboard & skip' : 'Skip for now'}

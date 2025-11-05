@@ -1,15 +1,17 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { RecordingRow } from 'scenes/project-homepage/WatchNextPanel'
+import { RecordingRow } from 'scenes/session-recordings/components/RecordingRow'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { ReplayTile, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { ReplayTile } from 'scenes/web-analytics/common'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { ProductKey, ReplayTabs } from '~/types'
 
@@ -35,18 +37,18 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
               buttonTo: urls.settings('project-replay', 'replay'),
           }
         : webAnalyticsFilters.length > 0
-        ? {
-              title: 'There are no recordings matching the current filters',
-              description: 'Try changing the filters, or view all recordings.',
-              buttonText: 'View all',
-              buttonTo: urls.replay(),
-          }
-        : {
-              title: 'There are no recordings matching this date range',
-              description: 'Make sure you have the javascript snippet setup in your website.',
-              buttonText: 'Learn more',
-              buttonTo: 'https://posthog.com/docs/user-guides/recordings',
-          }
+          ? {
+                title: 'There are no recordings matching the current filters',
+                description: 'Try changing the filters, or view all recordings.',
+                buttonText: 'View all',
+                buttonTo: urls.replay(),
+            }
+          : {
+                title: 'There are no recordings matching this date range',
+                description: 'Make sure you have the javascript snippet setup in your website.',
+                buttonText: 'Learn more',
+                buttonTo: 'https://posthog.com/docs/user-guides/recordings',
+            }
     const to = items.length > 0 ? urls.replay(ReplayTabs.Home, replayFilters) : urls.replay()
     return (
         <>

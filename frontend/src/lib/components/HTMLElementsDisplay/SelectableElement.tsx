@@ -1,6 +1,7 @@
 import './SelectableElement.scss'
 
 import clsx from 'clsx'
+
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
 import { objectsEqual } from 'lib/utils'
 

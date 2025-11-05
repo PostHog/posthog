@@ -43,7 +43,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -104,7 +104,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_1_person_id_override_properties_on_events_filter_earlierevent
@@ -151,7 +152,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -212,7 +213,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_2_person_id_override_properties_on_events_filter_laterevent
@@ -259,7 +261,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -320,7 +322,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_3_person_id_override_properties_joined_no_filter
@@ -367,7 +370,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -438,7 +441,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_4_person_id_override_properties_joined_filter_earlierevent
@@ -485,7 +489,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -556,7 +560,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_5_person_id_override_properties_joined_filter_laterevent
@@ -603,7 +608,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -674,7 +679,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_6_person_id_no_override_properties_on_events_no_filter
@@ -721,7 +727,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -775,7 +781,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_7_person_id_no_override_properties_on_events_filter_earlierevent
@@ -822,7 +829,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -876,7 +883,8 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestExperimentFunnelsQueryRunner.test_query_runner_with_persons_on_events_mode_8_person_id_no_override_properties_on_events_filter_laterevent
@@ -923,7 +931,7 @@
                      latest_0 AS latest_0,
                      step_1 AS step_1,
                      latest_1 AS latest_1,
-                     prop AS prop,
+                     prop,
                      if(and(ifNull(lessOrEquals(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 2, 1) AS steps,
                      if(and(isNotNull(latest_1), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', latest_0, latest_1), NULL) AS step_1_conversion_time,
                      prop AS prop
@@ -977,6 +985,7 @@
                     max_bytes_before_external_group_by=23622320128,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---

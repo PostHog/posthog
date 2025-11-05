@@ -1,17 +1,19 @@
-import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useEffect } from 'react'
+
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
-import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -19,9 +21,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { PrevalidatedInvite } from '~/types'
 
+import { SupportModalButton } from './SupportModalButton'
 import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
 import { loginLogic } from './loginLogic'
-import { SupportModalButton } from './SupportModalButton'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -202,7 +204,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
 
     useEffect(() => {
         precheck({ email: invite.target_email })
-    }, [invite.target_email])
+    }, [invite.target_email]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <BridgePage

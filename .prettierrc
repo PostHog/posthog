@@ -1,7 +1,34 @@
 {
-  "trailingComma": "es5",
-  "tabWidth": 4,
-  "semi": false,
-  "singleQuote": true,
-  "printWidth": 120,
+    "trailingComma": "es5",
+    "tabWidth": 4,
+    "semi": false,
+    "singleQuote": true,
+    "printWidth": 120,
+    "plugins": ["@trivago/prettier-plugin-sort-imports"],
+    "importOrder": [
+        "~/styles$",
+        "\\.s?css$",
+        "\\.mocks?$",
+        "\\.spy$",
+        "<THIRD_PARTY_MODULES>",
+        "^@posthog.*$",
+        "^lib/(.*)$|^scenes/(.*)$",
+        "^~/(.*)$",
+        "^public/(.*)$",
+        "^products/(.*)$",
+        "^storybook/(.*)$",
+        "^\\.+/"
+    ],
+    "importOrderSeparation": true,
+    "importOrderSortSpecifiers": true,
+    "importOrderParserPlugins": ["typescript", "jsx", "classProperties", "decorators-legacy"],
+    "proseWrap": "preserve",
+    "overrides": [
+        {
+            "files": ["*.md", "*.mdx"],
+            "options": {
+                "tabWidth": 2
+            }
+        }
+    ]
 }

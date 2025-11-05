@@ -1,11 +1,23 @@
 @mixin secondary-variables {
     --button-border-color: var(--secondary-3000-button-border);
-    --lemon-button-bg-color-active: var(--bg-surface-primary);
+    --lemon-button-bg-color-active: var(--color-bg-surface-primary);
     --lemon-button-border-color-hover: var(--secondary-3000-button-border-hover);
     --lemon-button-frame-bg-color: var(--secondary-3000-frame-bg);
 }
 
 @mixin size-variables {
+    &--xxsmall {
+        --lemon-button-padding-horizontal: 0.25rem;
+        --lemon-button-padding-vertical: 0.125rem;
+        --lemon-button-padding-adjacent-icon: 0.1875rem;
+        --lemon-button-font-size: 0.6875rem;
+        --lemon-button-icon-size: 0.8125rem;
+        --lemon-button-height: 1.25rem;
+        --lemon-button-gap: 0.1875rem;
+        --lemon-button-side-action-width: 1.5rem;
+        --lemon-button-radius: var(--radius);
+    }
+
     &--xsmall {
         --lemon-button-padding-horizontal: 0.375rem;
         --lemon-button-padding-adjacent-icon: 0.25rem;
@@ -35,8 +47,10 @@
 
 @mixin shared-variables {
     --lemon-button-chrome-depth: 0.1875rem;
+    --lemon-button-padding-vertical: 0.25rem;
     --lemon-button-padding-horizontal: 0.75rem;
     --lemon-button-side-action-width: 2rem;
+    --lemon-button-radius: var(--radius);
 }
 
 .LemonButton,
@@ -57,11 +71,6 @@
     --lemon-button-icon-opacity: 0.8;
     --lemon-button-color: var(--text-3000);
 
-    // column-gap: 4px;
-    // flex-direction: row;
-    // justify-content: flex-start;
-    position: relative;
-
     // Make sure we override .Link's styles where needed, e.g. padding
     display: flex;
     flex-shrink: 0;
@@ -72,7 +81,7 @@
     cursor: pointer;
     user-select: none;
     background: none;
-    border-radius: var(--radius);
+    border-radius: var(--lemon-button-radius);
     transition: var(--lemon-button-transition);
 
     .font-normal,
@@ -92,7 +101,7 @@
         width: 100%;
         height: 100%;
         min-height: var(--lemon-button-height);
-        padding: 0.25rem var(--lemon-button-padding-horizontal);
+        padding: var(--lemon-button-padding-vertical) var(--lemon-button-padding-horizontal);
         font-size: var(--lemon-button-font-size);
         font-weight: 500;
         line-height: 1.5rem;
@@ -199,7 +208,6 @@
             --lemon-button-bg-color-active: var(--lemon-button-bg-color);
             --button-border-color: var(--primary-3000-button-border);
             --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
-            --lemon-button-frame-bg-color: var(--primary-3000-button-bg-dark);
             --lemon-button-color: var(--text-3000-light);
         }
     }
@@ -231,7 +239,7 @@
     }
 
     &.LemonButton--secondary.LemonButton--status-alt {
-        --lemon-button-color: var(--text-secondary);
+        --lemon-button-color: var(--color-text-secondary);
 
         &.LemonButton--active,
         &:hover:not([aria-disabled='true']) {
@@ -258,9 +266,9 @@
         }
 
         .LemonButton__chrome {
-            padding: calc(0.25rem - var(--lemon-button-chrome-depth) * 0.5)
+            padding: calc(var(--lemon-button-padding-vertical) - var(--lemon-button-chrome-depth) * 0.5)
                 var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal))
-                calc(0.25rem + var(--lemon-button-chrome-depth) * 0.5)
+                calc(var(--lemon-button-padding-vertical) + var(--lemon-button-chrome-depth) * 0.5)
                 var(--lemon-button-padding-left, var(--lemon-button-padding-horizontal));
             background: transparent;
 
@@ -274,7 +282,7 @@
                 z-index: 0;
                 content: '';
                 border: 1px solid var(--button-border-color);
-                border-radius: var(--radius);
+                border-radius: var(--lemon-button-radius);
             }
 
             &::after {
@@ -284,7 +292,7 @@
                 content: '';
                 background: var(--lemon-button-bg-color);
                 border: 1px solid var(--button-border-color);
-                border-radius: var(--radius);
+                border-radius: var(--lemon-button-radius);
                 box-shadow: 0 var(--lemon-button-chrome-depth) 0 -1px var(--lemon-button-frame-bg-color);
                 transition: opacity 200ms ease;
             }
@@ -313,7 +321,8 @@
                 transform: translateY(var(--lemon-button-depth));
 
                 &::after {
-                    box-shadow: 0 calc(var(--lemon-button-chrome-depth) - var(--lemon-button-depth)) 0 -1px var(--lemon-button-frame-bg-color);
+                    box-shadow: 0 calc(var(--lemon-button-chrome-depth) - var(--lemon-button-depth)) 0 -1px
+                        var(--lemon-button-frame-bg-color);
                 }
 
                 &::before {
@@ -334,12 +343,12 @@
     &.LemonButton--tertiary {
         &:not([aria-disabled='true']):hover,
         &[data-focused='true']:not([aria-disabled='true']):focus-visible {
-            background-color: var(--bg-fill-button-tertiary-hover);
+            background-color: var(--color-bg-fill-button-tertiary-hover);
         }
 
         &.LemonButton--active,
         &[aria-expanded='true'] {
-            background-color: var(--bg-fill-button-tertiary-active);
+            background-color: var(--color-bg-fill-button-tertiary-active);
 
             // When inside a LemonButtonWithSideAction, we don't want the side button to have a background color (until hovered)
             // This is because we changed the background color for tertiary to be based on a background color with opacity
@@ -358,6 +367,13 @@
 
     @include shared-variables;
     @include size-variables;
+}
+
+// Don't bleed background inside colored LemonBanners
+.LemonBanner--warning .LemonButton,
+.LemonBanner--success .LemonButton,
+.LemonBanner--error .LemonButton {
+    --lemon-button-bg-color: var(--color-bg-surface-primary);
 }
 
 .LemonButtonWithSideAction {
@@ -379,11 +395,13 @@
     & .LemonButtonWithSideAction__spacer {
         box-sizing: content-box;
         width: calc(
-            var(--lemon-button-side-action-width) -
-                var(--lemon-button-padding-right, var(--lemon-button-padding-horizontal))
+            var(--lemon-button-side-action-width) - var(
+                    --lemon-button-padding-right,
+                    var(--lemon-button-padding-horizontal)
+                )
         );
         height: calc(var(--lemon-button-height) - 1.0625rem);
-        color: var(--text-secondary);
+        color: var(--color-text-secondary);
 
         &--divider {
             padding: 0;

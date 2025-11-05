@@ -11,19 +11,6 @@ except FileNotFoundError:
     pass
 
 
-def get_git_commit_full() -> Optional[str]:
-    """Return the full hash of the last commit.
-
-    Example: get_git_commit_full() => "86a3c3b529d18a1d7400f0f4203bf6b508ba3b8e"
-    """
-    if _git_commit_baked_in:
-        return _git_commit_baked_in
-    try:
-        return subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("utf-8").strip()
-    except Exception:
-        return None
-
-
 def get_git_commit_short() -> Optional[str]:
     """Return the short hash of the last commit.
 

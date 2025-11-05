@@ -28,11 +28,7 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
-redis = { version = "0.23.3", features = [
-    "tokio-comp",
-    "cluster",
-    "cluster-async",
-] }
+redis = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_urlencoded = { workspace = true }
@@ -48,14 +44,17 @@ uuid = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 chrono = { workspace = true }
+lz-str = { workspace = true }
+multer = "3.0"
+futures = { workspace = true }
 
 [dev-dependencies]
 assert-json-diff = { workspace = true }
-axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" } # TODO: remove, directly use reqwest like capture-server tests
 anyhow = { workspace = true }
+axum-test-helper = { git = "https://github.com/posthog/axum-test-helper.git" }
 futures = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
-reqwest = { workspace = true }
+reqwest = { workspace = true, features = ["multipart"] }
 serde_json = { workspace = true }

@@ -1,14 +1,16 @@
-import { IconOpenSidebar, IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
+import type React from 'react'
+
+import { IconOpenSidebar, IconPlus } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import type React from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { PipelineStage, ProductKey } from '~/types'
+import { ProductKey } from '~/types'
 
 import { BuilderHog3 } from '../hedgehogs'
 
@@ -29,14 +31,14 @@ const EmptyState = ({ title, description, action, docsUrl, hog: Hog, groupType }
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
     return (
-        <div className="w-full p-8 rounded mt-4 flex items-center gap-4">
+        <div className="flex gap-4 items-center p-8 mt-4 w-full rounded">
             <div className="w-32 h-32">
                 <Hog className="w-full h-full" />
             </div>
             <div className="flex-1 text-center">
                 <h2 className="text-lg font-semibold">{title}</h2>
-                <p className="text-sm text-secondary mt-2">{description}</p>
-                <div className="flex items-center justify-center gap-4 mt-4">
+                <p className="mt-2 text-sm text-secondary">{description}</p>
+                <div className="flex gap-4 justify-center items-center mt-4">
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
@@ -79,7 +81,7 @@ const DataWarehouseEmptyState = (): JSX.Element => {
             groupType={TaxonomicFilterGroupType.DataWarehouse}
             description="Use data warehouse sources to import data from your external data into PostHog."
             action={{
-                to: urls.pipelineNodeNew(PipelineStage.Source),
+                to: urls.dataWarehouseSourceNew(),
                 text: 'New source',
             }}
             docsUrl="https://posthog.com/docs/data-warehouse"

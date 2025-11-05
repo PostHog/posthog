@@ -1,4 +1,5 @@
 import * as d3 from 'd3'
+
 import { FunnelLayout } from 'lib/constants'
 import { HistogramDatum } from 'scenes/insights/views/Histogram/Histogram'
 

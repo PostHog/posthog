@@ -1,4 +1,6 @@
 import clsx from 'clsx'
+
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 
@@ -19,7 +21,33 @@ export interface StackedBarSegment {
     tooltip?: string
 }
 
-export function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX.Element | null {
+export function StackedBarSkeleton({ className }: { className?: string }): JSX.Element {
+    return (
+        <div className={clsx('flex flex-col gap-2', className)}>
+            <div className="relative w-full flex mx-auto h-10">
+                <LemonSkeleton className="w-1/4 h-10 rounded-r-none opacity-60" />
+                <LemonSkeleton className="w-1/2 h-10 rounded-none opacity-80" />
+                <LemonSkeleton className="w-1/4 h-10 rounded-l-none opacity-100" />
+            </div>
+            <div className="flex items-center gap-4 justify-center">
+                {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                        <LemonSkeleton className="size-3 rounded-full" />
+                        <LemonSkeleton className="h-6 w-24" />
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+export function StackedBar({
+    segments,
+    className,
+}: {
+    segments: StackedBarSegment[]
+    className?: string
+}): JSX.Element | null {
     const total = segments.reduce((sum, segment) => sum + segment.count, 0)
     let accumulatedPercentage = 0
 
@@ -28,8 +56,8 @@ export function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX
     }
 
     return (
-        <div>
-            <div className="relative w-full mx-auto h-10 mb-4">
+        <div className={clsx('flex flex-col gap-2', className)}>
+            <div className="relative w-full mx-auto h-10">
                 {segments.map(({ count, label, colorClass, tooltip }, index) => {
                     const percentage = (count / total) * 100
                     const left = accumulatedPercentage
@@ -68,12 +96,12 @@ export function StackedBar({ segments }: { segments: StackedBarSegment[] }): JSX
                 })}
             </div>
             <div className="w-full flex justify-center">
-                <div className="flex items-center">
+                <div className="flex items-center gap-8">
                     {segments.map(
                         ({ count, label, colorClass }) =>
                             count > 0 && (
-                                <div key={`stacked-bar-legend-${label}`} className="flex items-center mr-6">
-                                    <div className={clsx('w-3 h-3 rounded-full mr-2', colorClass)} />
+                                <div key={`stacked-bar-legend-${label}`} className="flex items-center gap-2">
+                                    <div className={clsx('size-3 rounded-full', colorClass)} />
                                     <span className="font-semibold text-secondary">{`${label} (${(
                                         (count / total) *
                                         100

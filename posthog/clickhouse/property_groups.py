@@ -2,7 +2,6 @@ import dataclasses
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 
-
 TableName = str
 PropertySourceColumnName = str
 PropertyGroupName = str
@@ -109,6 +108,32 @@ class PropertyGroupManager:
 
         yield f"{prefix} " + ", ".join(commands)
 
+    def get_alter_modify_statements(
+        self,
+        table: TableName,
+        source_column: PropertySourceColumnName,
+        group_name: PropertyGroupName,
+        cluster: str | None = None,
+    ) -> Iterable[str]:
+        """
+        Returns an iterable of ALTER TABLE statements that can be used to modify the property group
+        using MODIFY COLUMN statements.
+        **Note** this does not modify the materialized data on disk for the column. This means that
+        you should only be using this for removing items out of the map, or be prepared to immediately
+        re-materialize the data and have some inconsistent/missing results in the meantime.
+        """
+        prefix = f"ALTER TABLE {table}"
+        if cluster is not None:
+            prefix += f" ON CLUSTER {cluster}"
+
+        group_definition = self.__groups[table][source_column][group_name]
+
+        commands = [f"MODIFY COLUMN {group_definition.get_column_definition(source_column, group_name)}"]
+        for index_definition in group_definition.get_index_definitions(source_column, group_name):
+            commands.append(f"ADD INDEX IF NOT EXISTS {index_definition}")
+
+        yield f"{prefix} " + ", ".join(commands)
+
 
 ignore_custom_properties = [
     # `token` & `distinct_id` properties are sent with ~50% of events and by
@@ -137,6 +162,9 @@ ignore_custom_properties = [
     "igshid",  # instagram
     "ttclid",  # tiktok
     "rdt_cid",  # reddit
+    "epik",  # pinterest
+    "qclid",  # quora
+    "sccid",  # snapchat
     "irclid",  # impact
     "_kx",  # klaviyo
 ]
@@ -146,6 +174,11 @@ event_property_group_definitions = {
         "custom": PropertyGroupDefinition(
             f"key NOT LIKE '$%' AND key NOT IN (" + f", ".join(f"'{name}'" for name in ignore_custom_properties) + f")",
             lambda key: not key.startswith("$") and key not in ignore_custom_properties,
+            column_type_name="group",
+        ),
+        "ai": PropertyGroupDefinition(
+            "key LIKE '$ai_%' AND key != '$ai_input' AND key != '$ai_output_choices'",
+            lambda key: key.startswith("$ai_") and key != "$ai_input" and key != "$ai_output_choices",
             column_type_name="group",
         ),
         "feature_flags": PropertyGroupDefinition(
@@ -173,6 +206,28 @@ property_groups = PropertyGroupManager(
                 for group_name, group_definition in column_group_definitions.items()
             }
             for column_name, column_group_definitions in event_property_group_definitions.items()
+        },
+        "logs": {
+            "attributes": {
+                "str": PropertyGroupDefinition(
+                    "key like '%__str'",
+                    lambda key: key.endswith("__str"),
+                    column_type_name="map",
+                    is_materialized=False,
+                ),
+                "float": PropertyGroupDefinition(
+                    "key like '%__float'",
+                    lambda key: key.endswith("__float"),
+                    column_type_name="map",
+                    is_materialized=False,
+                ),
+                "datetime": PropertyGroupDefinition(
+                    "key like '%__datetime'",
+                    lambda key: key.endswith("__datetime"),
+                    column_type_name="map",
+                    is_materialized=False,
+                ),
+            }
         },
     }
 )

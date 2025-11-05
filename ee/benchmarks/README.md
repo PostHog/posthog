@@ -20,8 +20,8 @@ An action will then run and comment on the benchmarks on your PR.
 
 ## Installation (local)
 
-These benchmarks are run using *airspeed velocity* so, you need to have
-``asv`` installed which in turn needs virtualenv (or an anaconda dist),
+These benchmarks are run using _airspeed velocity_ so, you need to have
+`asv` installed which in turn needs virtualenv (or an anaconda dist),
 
 ```bash
 pip install asv virtualenv
@@ -30,6 +30,7 @@ pip install asv virtualenv
 ## Running the benchmarks locally
 
 These benchmarks are mostly run in CI for:
+
 - master branch
 - PRs labeled with `performance`
 
@@ -44,7 +45,7 @@ CLICKHOUSE_HOST=X CLICKHOUSE_USER=X CLICKHOUSE_PASSWORD=X CLICKHOUSE_DATABASE=po
 
 You'll probably want to be running one test, with quick iteration. Running e.g.:
 
-```
+```bash
 asv run --config ee/benchmarks/asv.conf.json --bench track_lifecycle --quick
 ```
 

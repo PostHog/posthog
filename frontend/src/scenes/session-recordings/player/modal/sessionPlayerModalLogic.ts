@@ -48,7 +48,7 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => {
             const hashParams: HashParams = {
                 ...router.values.hashParams,

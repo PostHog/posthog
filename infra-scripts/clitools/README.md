@@ -7,6 +7,7 @@ The primary function is to help manage and connect to PostHog toolbox pods in a 
 1. Ensure you have Python 3.x installed on your system
 2. Clone this repository or download `toolbox.py`
 3. Make the script executable (Unix-based systems):
+
    ```bash
    chmod +x toolbox.py
    ```
@@ -34,6 +35,7 @@ Or directly (Unix-based systems):
 ### What it Does
 
 The toolbox CLI:
+
 1. Authenticates your AWS identity
 2. Finds an available PostHog toolbox pod or connects to one you've already claimed
 3. Claims the pod for a specified duration (default 12 hours)
@@ -42,24 +44,27 @@ The toolbox CLI:
 
 ### Available Flags
 
-| Flag | Description | Default |
-|------|-------------|---------|
-| `--claim-duration HOURS` | Number of hours to claim the pod for | 12 |
-| `--update-claim` | Update the termination time of your existing pod | False |
+| Flag                     | Description                                      | Default |
+| ------------------------ | ------------------------------------------------ | ------- |
+| `--claim-duration HOURS` | Number of hours to claim the pod for             | 12      |
+| `--update-claim`         | Update the termination time of your existing pod | False   |
 
 ### Examples
 
 1. Connect to a pod with default 12-hour claim:
+
 ```bash
 python toolbox.py
 ```
 
 2. Connect to a pod with a custom claim duration:
+
 ```bash
 python toolbox.py --claim-duration 4
 ```
 
 3. Extend the duration of your existing pod:
+
 ```bash
 python toolbox.py --update-claim --claim-duration 24
 ```

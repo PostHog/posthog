@@ -1,51 +1,45 @@
 import traceback
-
-from datetime import datetime, timedelta, UTC
-from typing import cast
+from collections import defaultdict
 from collections.abc import Callable
-from dateutil.relativedelta import relativedelta
+from datetime import UTC, datetime, timedelta
+from typing import cast
 
+from django.db import transaction
+from django.db.models import F, Q
+
+import structlog
 from celery import shared_task
 from celery.canvas import chain
-from django.db import transaction
-import structlog
-from sentry_sdk import set_tag
+from dateutil.relativedelta import relativedelta
 
+from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
+
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import (
-    conversion_to_query_based,
-)
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
-from posthog.tasks.utils import CeleryQueue
-from posthog.schema import (
-    TrendsQuery,
-    AlertCalculationInterval,
-    AlertState,
-)
-from posthog.utils import get_from_dict_or_attr
-from django.db.models import Q, F
-from collections import defaultdict
+from posthog.ph_client import ph_scoped_capture
+from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.alerts.trends import check_trends_alert
 from posthog.tasks.alerts.utils import (
+    WRAPPER_NODE_KINDS,
     AlertEvaluationResult,
     calculation_interval_to_order,
     next_check_time,
     send_notifications_for_breaches,
     send_notifications_for_errors,
     skip_because_of_weekend,
-    WRAPPER_NODE_KINDS,
 )
-from posthog.tasks.alerts.trends import check_trends_alert
-from posthog.ph_client import ph_us_client
-
+from posthog.tasks.utils import CeleryQueue
+from posthog.utils import get_from_dict_or_attr
 
 logger = structlog.get_logger(__name__)
 
 
 class AlertCheckException(Exception):
     """
-    Required for custom exceptions to pass stack trace to sentry.
+    Required for custom exceptions to pass stack trace to error tracking.
     Subclassing through other ways doesn't transfer the traceback.
     https://stackoverflow.com/a/69963663/5540417
     """
@@ -92,10 +86,10 @@ def alerts_backlog_task() -> None:
         )
     ).count()
 
-    with ph_us_client() as capture_ph_event:
+    with ph_scoped_capture() as capture_ph_event:
         capture_ph_event(
-            ANIRUDH_DISTINCT_ID,
-            "alert check backlog",
+            distinct_id=ANIRUDH_DISTINCT_ID,
+            event="alert check backlog",
             properties={
                 "calculation_interval": AlertCalculationInterval.DAILY,
                 "backlog": daily_alerts_breaching_sla,
@@ -103,8 +97,8 @@ def alerts_backlog_task() -> None:
         )
 
         capture_ph_event(
-            ANIRUDH_DISTINCT_ID,
-            "alert check backlog",
+            distinct_id=ANIRUDH_DISTINCT_ID,
+            event="alert check backlog",
             properties={
                 "calculation_interval": AlertCalculationInterval.HOURLY,
                 "backlog": hourly_alerts_breaching_sla,
@@ -134,7 +128,7 @@ def reset_stuck_alerts_task() -> None:
 
     for alert in stuck_alerts:
         # we need to check the alert, reset is_calculating
-        logger.info(f"Alert {alert.id} is stuck in is_calculating for too long, resetting is_calculating")
+        logger.info("check_alert.reset_stuck_alert", alert_id=alert.id)
         alert.is_calculating = False
         alert.save()
 
@@ -190,7 +184,7 @@ def check_alerts_task() -> None:
 )
 # @limit_concurrency(5)  Concurrency controlled by CeleryQueue.ALERTS for now
 def check_alert_task(alert_id: str) -> None:
-    with ph_us_client() as capture_ph_event:
+    with ph_scoped_capture() as capture_ph_event:
         check_alert(alert_id, capture_ph_event)
 
 
@@ -242,7 +236,7 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
             alert.state = AlertState.NOT_FIRING
 
     # we will attempt to check alert
-    logger.info(f"Checking alert id = {alert.id}")
+    logger.info("check_alert", alert_id=alert.id)
     alert.last_checked_at = datetime.now(UTC)
     alert.is_calculating = True
     alert.save()
@@ -253,8 +247,8 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
         user = cast(User, alert.created_by)
 
         capture_ph_event(
-            user.distinct_id,
-            "alert check failed",
+            distinct_id=user.distinct_id,
+            event="alert check failed",
             properties={
                 "alert_id": alert.id,
                 "error": f"AlertCheckError: {err}",
@@ -265,7 +259,7 @@ def check_alert(alert_id: str, capture_ph_event: Callable = lambda *args, **kwar
         logger.exception(AlertCheckException(err))
         capture_exception(
             AlertCheckException(err),
-            tags={
+            additional_properties={
                 "alert_configuration_id": alert_id,
             },
         )
@@ -291,13 +285,13 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
     TODO: Later separate notification mechanism from alert checking mechanism (when we move to CDP)
         so we can retry notification without re-computing insight.
     """
-    set_tag("alert_config_id", alert.id)
+    tag_queries(alert_config_id=str(alert.id))
     user = cast(User, alert.created_by)
 
     # Event to count alert checks
     capture_ph_event(
-        user.distinct_id,
-        "alert check",
+        distinct_id=user.distinct_id,
+        event="alert check",
         properties={
             "alert_id": alert.id,
             "calculation_interval": alert.calculation_interval,
@@ -319,8 +313,8 @@ def check_alert_and_notify_atomically(alert: AlertConfiguration, capture_ph_even
         error_message = f"Alert id = {alert.id}, failed to evaluate"
 
         capture_ph_event(
-            user.distinct_id,
-            "alert check failed",
+            distinct_id=user.distinct_id,
+            event="alert check failed",
             properties={
                 "alert_id": alert.id,
                 "error": error_message,
@@ -369,7 +363,7 @@ def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
     """
     insight = alert.insight
 
-    with conversion_to_query_based(insight):
+    with upgrade_query(insight):
         query = insight.query
         kind = get_from_dict_or_attr(query, "kind")
 

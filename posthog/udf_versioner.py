@@ -1,8 +1,8 @@
-import argparse
 import os
-import shutil
-import datetime
 import re
+import shutil
+import argparse
+import datetime
 import xml.etree.ElementTree as ET
 from xml import etree
 
@@ -13,10 +13,10 @@ from xml import etree
 # 4. Land a version of the posthog repo with the updated `user_scripts` folder from the new branch (make sure this PR doesn't include changes to this file with the new version)
 # 5. Run the `copy_udfs_to_clickhouse` action in the `posthog_cloud_infra` repo to deploy the `user_scripts` folder to clickhouse
 # 6. After that deploy goes out, it is safe to land and deploy the full changes to the `posthog` repo
-UDF_VERSION = 7  # Last modified by: @aspicer, 2025-04-10
+UDF_VERSION = 8  # Last modified by: @aspicer, 2025-04-16
 
 # Clean up all versions less than this
-EARLIEST_UDF_VERSION = 5
+EARLIEST_UDF_VERSION = 7
 
 CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
 ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"

@@ -10,12 +10,12 @@ use tokio::net::TcpListener;
 
 use crate::config::CaptureMode;
 use crate::config::Config;
+use crate::limiters::{is_exception_event, is_llm_event, is_survey_event};
 
 use limiters::overflow::OverflowLimiter;
-use limiters::redis::{
-    QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY,
-};
+use limiters::redis::{QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY};
 
+use crate::limiters::CaptureQuotaLimiter;
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::sinks::fallback::FallbackSink;
@@ -50,14 +50,17 @@ async fn create_sink(
                 let partition = OverflowLimiter::new(
                     config.overflow_per_second_limit,
                     config.overflow_burst_limit,
-                    config.overflow_forced_keys.clone(),
+                    config.ingestion_force_overflow_by_token_distinct_id.clone(),
+                    config.overflow_preserve_partition_locality,
                 );
+
                 if config.export_prometheus {
                     let partition = partition.clone();
                     tokio::spawn(async move {
                         partition.report_metrics().await;
                     });
                 }
+
                 {
                     // Ensure that the rate limiter state does not grow unbounded
                     let partition = partition.clone();
@@ -130,24 +133,24 @@ where
         HealthRegistry::new_with_strategy("liveness", config.healthcheck_strategy.clone());
 
     let redis_client = Arc::new(
-        RedisClient::new(config.redis_url.clone()).expect("failed to create redis client"),
+        RedisClient::new(config.redis_url.clone())
+            .await
+            .expect("failed to create redis client"),
     );
 
-    let billing_limiter = RedisLimiter::new(
-        Duration::from_secs(5),
-        redis_client.clone(),
-        QUOTA_LIMITER_CACHE_KEY.to_string(),
-        config.redis_key_prefix.clone(),
-        match config.capture_mode {
-            CaptureMode::Events => QuotaResource::Events,
-            CaptureMode::Recordings => QuotaResource::Recordings,
-        },
-        ServiceName::Capture,
-    )
-    .expect("failed to create billing limiter");
+    // add new "scoped" quota limiters here as new quota tracking buckets are added
+    // to PostHog! Here a "scoped" limiter is one that should be INDEPENDENT of the
+    // global billing limiter applied here to every event batch. You must supply the
+    // QuotaResource type and a predicate function that will match events to be limited
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&config, redis_client.clone(), Duration::from_secs(5))
+            .add_scoped_limiter(QuotaResource::Exceptions, Box::new(is_exception_event))
+            .add_scoped_limiter(QuotaResource::Surveys, Box::new(is_survey_event))
+            .add_scoped_limiter(QuotaResource::LLMEvents, Box::new(is_llm_event));
 
+    // TODO: remove this once we have a billing limiter
     let token_dropper = config
-        .dropped_keys
+        .drop_events_by_token_distinct_id
         .clone()
         .map(|k| TokenDropper::new(&k))
         .unwrap_or_default();
@@ -171,16 +174,26 @@ where
         liveness,
         sink,
         redis_client,
-        billing_limiter,
+        quota_limiter,
         token_dropper,
         config.export_prometheus,
         config.capture_mode,
         config.concurrency_limit,
         event_max_bytes,
+        config.enable_historical_rerouting,
+        config.historical_rerouting_threshold_days,
+        config.is_mirror_deploy,
+        config.verbose_sample_percent,
+        config.ai_max_sum_of_parts_bytes,
     );
 
     // run our app with hyper
     tracing::info!("listening on {:?}", listener.local_addr().unwrap());
+    tracing::info!(
+        "config: is_mirror_deploy == {:?} ; log_level == {:?}",
+        config.is_mirror_deploy,
+        config.log_level
+    );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),

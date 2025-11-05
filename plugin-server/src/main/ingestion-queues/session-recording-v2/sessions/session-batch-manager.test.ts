@@ -25,7 +25,7 @@ describe('SessionBatchManager', () => {
                 return 0
             },
             discardPartition: jest.fn(),
-        } as unknown as jest.Mocked<SessionBatchRecorder>)
+        }) as unknown as jest.Mocked<SessionBatchRecorder>
 
     beforeEach(() => {
         jest.mocked(SessionBatchRecorder).mockImplementation(() => {
@@ -59,10 +59,12 @@ describe('SessionBatchManager', () => {
         manager = new SessionBatchManager({
             maxBatchSizeBytes: 100,
             maxBatchAgeMs: 1000,
+            maxEventsPerSessionPerBatch: Number.MAX_SAFE_INTEGER,
             offsetManager: mockOffsetManager,
             fileStorage: mockFileStorage,
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
+            metadataSwitchoverDate: new Date('2025-01-02'),
         })
     })
 
@@ -79,7 +81,9 @@ describe('SessionBatchManager', () => {
             mockOffsetManager,
             mockFileStorage,
             mockMetadataStore,
-            mockConsoleLogStore
+            mockConsoleLogStore,
+            new Date('2025-01-02'),
+            Number.MAX_SAFE_INTEGER
         )
 
         const secondBatch = manager.getCurrentBatch()
@@ -144,6 +148,98 @@ describe('SessionBatchManager', () => {
             const batch = manager.getCurrentBatch()
             manager.discardPartitions([])
             expect(batch.discardPartition).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('rate limiting config', () => {
+        it('should pass maxEventsPerSessionPerBatch to new batches', () => {
+            manager = new SessionBatchManager({
+                maxBatchSizeBytes: 100,
+                maxBatchAgeMs: 1000,
+                maxEventsPerSessionPerBatch: 500,
+                offsetManager: mockOffsetManager,
+                fileStorage: mockFileStorage,
+                metadataStore: mockMetadataStore,
+                consoleLogStore: mockConsoleLogStore,
+                metadataSwitchoverDate: new Date('2025-01-02'),
+            })
+
+            expect(SessionBatchRecorder).toHaveBeenCalledWith(
+                mockOffsetManager,
+                mockFileStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02'),
+                500
+            )
+        })
+
+        it('should pass maxEventsPerSessionPerBatch to batches created after flush', async () => {
+            manager = new SessionBatchManager({
+                maxBatchSizeBytes: 100,
+                maxBatchAgeMs: 1000,
+                maxEventsPerSessionPerBatch: 250,
+                offsetManager: mockOffsetManager,
+                fileStorage: mockFileStorage,
+                metadataStore: mockMetadataStore,
+                consoleLogStore: mockConsoleLogStore,
+                metadataSwitchoverDate: new Date('2025-01-02'),
+            })
+
+            await manager.flush()
+
+            expect(SessionBatchRecorder).toHaveBeenLastCalledWith(
+                mockOffsetManager,
+                mockFileStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02'),
+                250
+            )
+        })
+
+        it('should handle maxEventsPerSessionPerBatch = 0', () => {
+            manager = new SessionBatchManager({
+                maxBatchSizeBytes: 100,
+                maxBatchAgeMs: 1000,
+                maxEventsPerSessionPerBatch: 0,
+                offsetManager: mockOffsetManager,
+                fileStorage: mockFileStorage,
+                metadataStore: mockMetadataStore,
+                consoleLogStore: mockConsoleLogStore,
+                metadataSwitchoverDate: new Date('2025-01-02'),
+            })
+
+            expect(SessionBatchRecorder).toHaveBeenCalledWith(
+                mockOffsetManager,
+                mockFileStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02'),
+                0
+            )
+        })
+
+        it('should handle maxEventsPerSessionPerBatch = MAX_SAFE_INTEGER', () => {
+            manager = new SessionBatchManager({
+                maxBatchSizeBytes: 100,
+                maxBatchAgeMs: 1000,
+                maxEventsPerSessionPerBatch: Number.MAX_SAFE_INTEGER,
+                offsetManager: mockOffsetManager,
+                fileStorage: mockFileStorage,
+                metadataStore: mockMetadataStore,
+                consoleLogStore: mockConsoleLogStore,
+                metadataSwitchoverDate: new Date('2025-01-02'),
+            })
+
+            expect(SessionBatchRecorder).toHaveBeenCalledWith(
+                mockOffsetManager,
+                mockFileStorage,
+                mockMetadataStore,
+                mockConsoleLogStore,
+                new Date('2025-01-02'),
+                Number.MAX_SAFE_INTEGER
+            )
         })
     })
 })

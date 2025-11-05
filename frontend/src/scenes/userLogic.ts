@@ -1,11 +1,12 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationBasicType, ProductKey, UserRole, UserTheme, UserType } from '~/types'
@@ -24,10 +25,17 @@ export const userLogic = kea<userLogicType>([
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
-        updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
+        updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({
+            user,
+            successCallback,
+        }),
+        cancelEmailChangeRequest: true,
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
-        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
+        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean = true) => ({ productKey, value }),
         switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
+        deleteUser: true,
+        updateWeeklyDigestForTeam: (teamId: number, enabled: boolean) => ({ teamId, enabled }),
+        updateWeeklyDigestForAllTeams: (teamIds: number[], enabled: boolean) => ({ teamIds, enabled }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -35,13 +43,13 @@ export const userLogic = kea<userLogicType>([
                 first_name: !first_name
                     ? 'You need to have a name.'
                     : first_name.length > 150
-                    ? 'This name is too long. Please keep it under 151 characters.'
-                    : null,
+                      ? 'This name is too long. Please keep it under 151 characters.'
+                      : null,
                 email: !email
                     ? 'You need to have an email.'
                     : email.length > 254
-                    ? 'This email is too long. Please keep it under 255 characters.'
-                    : null,
+                      ? 'This email is too long. Please keep it under 255 characters.'
+                      : null,
             }),
             submit: (user) => {
                 actions.updateUser(user)
@@ -75,6 +83,27 @@ export const userLogic = kea<userLogicType>([
                         actions.updateUserFailure(error.message)
                         return values.user
                     }
+                },
+                cancelEmailChangeRequest: async () => {
+                    if (!values.user) {
+                        throw new Error('Current user has not been loaded yet, so it cannot be updated!')
+                    }
+                    try {
+                        const response = await api.update<UserType>('api/users/cancel_email_change_request/', {})
+                        lemonToast.success('The email change request was cancelled successfully.')
+                        return response
+                    } catch (error: any) {
+                        console.error(error)
+                        lemonToast.error(
+                            'Failed to cancel email change request. Please try again later or contact support.'
+                        )
+                        return values.user
+                    }
+                },
+                deleteUser: async () => {
+                    return await api.delete('api/users/@me/').then(() => {
+                        return null
+                    })
                 },
                 setUserScenePersonalisation: async ({ scene, dashboard }) => {
                     if (!values.user) {
@@ -118,12 +147,6 @@ export const userLogic = kea<userLogicType>([
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
-                const Sentry = (window as any).Sentry
-                Sentry?.setUser({
-                    email: user.email,
-                    id: user.uuid,
-                })
-
                 if (posthog) {
                     posthog.identify(user.distinct_id)
                     posthog.people.set({
@@ -175,6 +198,17 @@ export const userLogic = kea<userLogicType>([
                 toastId: 'updateUser',
             })
         },
+        deleteUserSuccess: () => {
+            actions.logout()
+            lemonToast.success('Account deleted', {
+                toastId: 'deleteUser',
+            })
+        },
+        deleteUserFailure: () => {
+            lemonToast.error('Error deleting account', {
+                toastId: 'deleteUser',
+            })
+        },
         updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
             if (values.user?.organization?.id === organizationId) {
                 return
@@ -203,6 +237,40 @@ export const userLogic = kea<userLogicType>([
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
 
             window.location.href = destination || urls.project(teamId)
+        },
+        updateWeeklyDigestForTeam: ({ teamId, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    project_weekly_digest_disabled: {
+                        ...values.user.notification_settings.project_weekly_digest_disabled,
+                        [teamId]: !enabled,
+                    },
+                },
+            })
+        },
+        updateWeeklyDigestForAllTeams: ({ teamIds, enabled }) => {
+            if (!values.user?.notification_settings) {
+                return
+            }
+
+            const projectWeeklyDigestSettings = {
+                ...values.user.notification_settings.project_weekly_digest_disabled,
+            }
+            teamIds?.forEach((teamId) => {
+                projectWeeklyDigestSettings[teamId] = !enabled
+            })
+
+            actions.updateUser({
+                notification_settings: {
+                    ...values.user.notification_settings,
+                    project_weekly_digest_disabled: projectWeeklyDigestSettings,
+                },
+            })
         },
     })),
     selectors({

@@ -1,7 +1,8 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { collectAllElementsDeep } from 'query-selector-shadow-dom'
+
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
 import { debounce } from 'lib/utils'
-import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -35,6 +36,7 @@ const getMaxZIndex = (element: Element): number => {
 
 export const elementsLogic = kea<elementsLogicType>([
     path(['toolbar', 'elements', 'elementsLogic']),
+
     connect(() => ({
         values: [actionsTabLogic, ['actionForm'], currentPageLogic, ['href']],
         actions: [actionsTabLogic, ['selectAction', 'newAction']],
@@ -152,7 +154,13 @@ export const elementsLogic = kea<elementsLogicType>([
                 toolbarConfigLogic.selectors.buttonVisible,
             ],
             (countedElements) =>
-                countedElements.map((e) => ({ ...e, rect: getRectForElement(e.element) } as ElementWithMetadata)),
+                countedElements.map(
+                    (e) =>
+                        ({
+                            ...e,
+                            rect: getRectForElement(e.element),
+                        }) as ElementWithMetadata
+                ),
         ],
 
         allInspectElements: [
@@ -175,7 +183,13 @@ export const elementsLogic = kea<elementsLogicType>([
             (s) => [s.allInspectElements, s.rectUpdateCounter, toolbarConfigLogic.selectors.buttonVisible],
             (allInspectElements) =>
                 allInspectElements
-                    .map((element) => ({ element, rect: getRectForElement(element) } as ElementWithMetadata))
+                    .map(
+                        (element) =>
+                            ({
+                                element,
+                                rect: getRectForElement(element),
+                            }) as ElementWithMetadata
+                    )
                     .filter((e) => e.rect && e.rect.width * e.rect.height > 0),
         ],
 
@@ -221,14 +235,20 @@ export const elementsLogic = kea<elementsLogicType>([
             (heatmapElements, inspectElements, actionElements, actionsListElements): ElementMap => {
                 const elementMap = new Map<HTMLElement, ElementWithMetadata>()
 
-                ;[...inspectElements, ...heatmapElements, ...actionElements, ...actionsListElements].forEach((e) => {
+                const addElements = (e: ElementWithMetadata): void => {
                     const elementWithMetadata: ElementWithMetadata = { ...e }
                     if (elementMap.get(e.element)) {
                         elementMap.set(e.element, { ...elementMap.get(e.element), ...elementWithMetadata })
                     } else {
                         elementMap.set(e.element, elementWithMetadata)
                     }
-                })
+                }
+
+                inspectElements.forEach(addElements)
+                heatmapElements.forEach(addElements)
+                actionElements.forEach(addElements)
+                actionsListElements.forEach(addElements)
+
                 return elementMap
             },
         ],
@@ -309,14 +329,21 @@ export const elementsLogic = kea<elementsLogicType>([
         elementsToDisplay: [
             (s) => [s.elementsToDisplayRaw],
             (elementsToDisplayRaw) => {
-                return elementsToDisplayRaw
-                    .filter(({ rect }) => rect && (rect.width !== 0 || rect.height !== 0))
-                    .map((element) => ({
-                        ...element,
-                        // being able to hover over elements might rely on their original z-index
-                        // so we copy it over to the toolbar element
-                        apparentZIndex: getMaxZIndex(element.element),
-                    }))
+                const result: ElementWithMetadata[] = []
+                elementsToDisplayRaw.forEach((element) => {
+                    const { rect, visible } = element
+                    // visible when undefined is ignored
+                    if (rect && rect.width > 0 && rect.height > 0 && visible !== false) {
+                        result.push({
+                            ...element,
+                            // being able to hover over elements might rely on their original z-index
+                            // so we copy it over to the toolbar element
+                            apparentZIndex: getMaxZIndex(element.element),
+                        })
+                    }
+                })
+
+                return result
             },
         ],
 
@@ -456,15 +483,15 @@ export const elementsLogic = kea<elementsLogicType>([
             }
 
             toolbarPosthogJS.capture('toolbar selected HTML element', {
-                element_tag: element?.tagName.toLowerCase(),
-                element_type: (element as HTMLInputElement)?.type,
+                element_tag: element?.tagName.toLowerCase() ?? null,
+                element_type: (element as HTMLInputElement)?.type ?? null,
                 has_href: !!(element as HTMLAnchorElement)?.href,
                 has_class: !!element?.className,
                 has_id: !!element?.id,
                 has_name: !!(element as HTMLInputElement)?.name,
                 has_data_attr: data_attributes.includes('data-attr'),
                 data_attributes: data_attributes,
-                attribute_length: element?.attributes.length,
+                attribute_length: element?.attributes.length ?? null,
             })
         },
         createAction: ({ element }) => {
@@ -484,48 +511,66 @@ export const elementsLogic = kea<elementsLogicType>([
                     actions.setRelativePositionCompensation(relativePositionCompensation)
                 }
             }, 100)
-            cache.onClick = () => actions.updateRects()
-            cache.onScrollResize = () => {
-                window.clearTimeout(cache.clickDelayTimeout)
+            // Add event listeners using disposables
+            cache.disposables.add(() => {
+                const onClick = (): void => actions.updateRects()
+                window.addEventListener('click', onClick)
+                return () => window.removeEventListener('click', onClick)
+            }, 'clickListener')
+
+            const onScrollResize = (): void => {
+                // Clear any existing timeout
+                cache.disposables.dispose('clickDelayTimeout')
                 actions.updateRects()
-                cache.clickDelayTimeout = window.setTimeout(actions.updateRects, 100)
+
+                // Add new timeout
+                cache.disposables.add(() => {
+                    const timeout = window.setTimeout(actions.updateRects, 100)
+                    return () => window.clearTimeout(timeout)
+                }, 'clickDelayTimeout')
+
                 cache.updateRelativePosition()
             }
-            cache.onKeyDown = (e: KeyboardEvent) => {
-                if (e.keyCode !== 27) {
-                    return
+
+            cache.disposables.add(() => {
+                window.addEventListener('resize', onScrollResize)
+                return () => window.removeEventListener('resize', onScrollResize)
+            }, 'resizeListener')
+
+            cache.disposables.add(() => {
+                const onKeyDown = (e: KeyboardEvent): void => {
+                    if (e.keyCode !== 27) {
+                        return
+                    }
+                    if (values.hoverElement) {
+                        actions.setHoverElement(null)
+                    }
+                    if (values.selectedElement) {
+                        actions.setSelectedElement(null)
+                        return
+                    }
+                    if (values.enabledLast === 'heatmap' && values.heatmapEnabled) {
+                        heatmapToolbarMenuLogic.actions.disableHeatmap()
+                        return
+                    }
+                    if (values.inspectEnabled) {
+                        actions.disableInspect()
+                        return
+                    }
+                    if (values.heatmapEnabled) {
+                        heatmapToolbarMenuLogic.actions.disableHeatmap()
+                        return
+                    }
                 }
-                if (values.hoverElement) {
-                    actions.setHoverElement(null)
-                }
-                if (values.selectedElement) {
-                    actions.setSelectedElement(null)
-                    return
-                }
-                if (values.enabledLast === 'heatmap' && values.heatmapEnabled) {
-                    heatmapToolbarMenuLogic.actions.disableHeatmap()
-                    return
-                }
-                if (values.inspectEnabled) {
-                    actions.disableInspect()
-                    return
-                }
-                if (values.heatmapEnabled) {
-                    heatmapToolbarMenuLogic.actions.disableHeatmap()
-                    return
-                }
-            }
-            window.addEventListener('click', cache.onClick)
-            window.addEventListener('resize', cache.onScrollResize)
-            window.addEventListener('keydown', cache.onKeyDown)
-            window.document.addEventListener('scroll', cache.onScrollResize, true)
+                window.addEventListener('keydown', onKeyDown)
+                return () => window.removeEventListener('keydown', onKeyDown)
+            }, 'keydownListener')
+
+            cache.disposables.add(() => {
+                window.document.addEventListener('scroll', onScrollResize, true)
+                return () => window.document.removeEventListener('scroll', onScrollResize, true)
+            }, 'scrollListener')
             cache.updateRelativePosition()
-        },
-        beforeUnmount: () => {
-            window.removeEventListener('click', cache.onClick)
-            window.removeEventListener('resize', cache.onScrollResize)
-            window.removeEventListener('keydown', cache.onKeyDown)
-            window.document.removeEventListener('scroll', cache.onScrollResize, true)
         },
     })),
 ])

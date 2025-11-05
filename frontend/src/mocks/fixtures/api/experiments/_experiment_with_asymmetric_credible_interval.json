@@ -77,11 +77,11 @@
             "source": {
                 "type": "event",
                 "event": "experiment created"
-            }
+            },
+            "uuid": "7e16dfba-b30d-4e79-b8f9-1a38678e7de6"
         }
     ],
     "metrics_secondary": [],
-    "stats_config": {
-        "version": 2
-    }
+    "primary_metrics_ordered_uuids": ["7e16dfba-b30d-4e79-b8f9-1a38678e7de6"],
+    "secondary_metrics_ordered_uuids": []
 }

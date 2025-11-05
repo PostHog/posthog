@@ -40,7 +40,7 @@
                     vertical-align: middle;
 
                     &.taxonomy-icon-muted {
-                        color: var(--text-secondary);
+                        color: var(--color-text-secondary);
                     }
 
                     &.taxonomy-icon-verified {
@@ -48,7 +48,7 @@
                     }
 
                     &.taxonomy-icon-built-in {
-                        color: var(--accent);
+                        color: var(--color-accent);
                     }
                 }
             }
@@ -65,8 +65,9 @@
             }
         }
 
-        &.hover {
-            background-color: var(--bg-primary);
+        &.hover,
+        &.active {
+            background-color: var(--color-bg-primary);
             border-radius: var(--radius);
         }
 
@@ -75,7 +76,7 @@
         }
 
         &.expand-row {
-            color: var(--accent);
+            color: var(--color-accent);
         }
     }
 }

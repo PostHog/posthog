@@ -1,173 +1,152 @@
-import { CyclotronJob, CyclotronWorker } from '@posthog/cyclotron'
-import { Counter, Gauge } from 'prom-client'
+import { instrumented } from '~/common/tracing/tracing-utils'
 
+import { HealthCheckResult, Hub } from '../../types'
 import { logger } from '../../utils/logger'
-import { HogFunctionInvocation, HogFunctionInvocationResult, HogFunctionTypeType } from '../types'
-import { cyclotronJobToInvocation, invocationToCyclotronJobUpdate } from '../utils'
+import { captureException } from '../../utils/posthog'
+import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import {
+    CYCLOTRON_INVOCATION_JOB_QUEUES,
+    CyclotronJobInvocation,
+    CyclotronJobInvocationHogFunction,
+    CyclotronJobInvocationResult,
+    CyclotronJobQueueKind,
+} from '../types'
+import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '../utils'
 import { CdpConsumerBase } from './cdp-base.consumer'
-
-const cyclotronBatchUtilizationGauge = new Gauge({
-    name: 'cdp_cyclotron_batch_utilization',
-    help: 'Indicates how big batches are we are processing compared to the max batch size. Useful as a scaling metric',
-    labelNames: ['queue'],
-})
-
-const counterJobsProcessed = new Counter({
-    name: 'cdp_cyclotron_jobs_processed',
-    help: 'The number of jobs we are managing to process',
-    labelNames: ['queue'],
-})
 
 /**
  * The future of the CDP consumer. This will be the main consumer that will handle all hog jobs from Cyclotron
  */
 export class CdpCyclotronWorker extends CdpConsumerBase {
     protected name = 'CdpCyclotronWorker'
-    private cyclotronWorker?: CyclotronWorker
-    private runningWorker: Promise<void> | undefined
-    protected queue: 'hog' | 'fetch' | 'plugin' = 'hog'
-    protected hogTypes: HogFunctionTypeType[] = ['destination', 'internal_destination']
+    protected cyclotronJobQueue: CyclotronJobQueue
+    protected queue: CyclotronJobQueueKind
 
-    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
-        return await this.runManyWithHeartbeat(invocations, (item) => this.hogExecutor.execute(item))
-    }
+    constructor(hub: Hub, queue?: CyclotronJobQueueKind) {
+        super(hub)
+        this.queue = queue ?? hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 
-    public async processBatch(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
-        if (!invocations.length) {
-            return []
+        if (!CYCLOTRON_INVOCATION_JOB_QUEUES.includes(this.queue)) {
+            throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
         }
 
-        const invocationResults = await this.runInstrumented(
-            'handleEachBatch.executeInvocations',
-            async () => await this.processInvocations(invocations)
-        )
-
-        await this.hogWatcher.observeResults(invocationResults)
-        await this.hogFunctionMonitoringService.processInvocationResults(invocationResults)
-        await this.updateJobs(invocationResults)
-        await this.hogFunctionMonitoringService.produceQueuedMessages()
-
-        return invocationResults
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
     }
 
-    protected async updateJobs(invocations: HogFunctionInvocationResult[]) {
-        await Promise.all(
-            invocations.map((item) => {
-                if (item.invocation.queue === 'fetch') {
-                    // Track a metric purely to say a fetch was attempted (this may be what we bill on in the future)
-                    this.hogFunctionMonitoringService.produceAppMetric({
-                        team_id: item.invocation.teamId,
-                        app_source_id: item.invocation.hogFunction.id,
-                        metric_kind: 'other',
-                        metric_name: 'fetch',
-                        count: 1,
-                    })
-                }
+    @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
+    public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
+        const loadedInvocations = await this.loadHogFunctions(invocations)
 
-                const id = item.invocation.id
-                if (item.error) {
-                    logger.debug('⚡️', 'Updating job to failed', id)
-                    this.cyclotronWorker?.updateJob(id, 'failed')
-                } else if (item.finished) {
-                    logger.debug('⚡️', 'Updating job to completed', id)
-                    this.cyclotronWorker?.updateJob(id, 'completed')
+        return await Promise.all(
+            loadedInvocations.map((item) => {
+                if (isNativeHogFunction(item.hogFunction)) {
+                    return this.nativeDestinationExecutorService.execute(item)
+                } else if (isLegacyPluginHogFunction(item.hogFunction)) {
+                    return this.pluginDestinationExecutorService.execute(item)
+                } else if (isSegmentPluginHogFunction(item.hogFunction)) {
+                    return this.segmentDestinationExecutorService.execute(item)
                 } else {
-                    logger.debug('⚡️', 'Updating job to available', id)
-
-                    const updates = invocationToCyclotronJobUpdate(item.invocation)
-
-                    this.cyclotronWorker?.updateJob(id, 'available', updates)
+                    return this.hogExecutor.executeWithAsyncFunctions(item)
                 }
-                return this.cyclotronWorker?.releaseJob(id)
             })
         )
     }
 
-    private async handleJobBatch(jobs: CyclotronJob[]) {
-        cyclotronBatchUtilizationGauge
-            .labels({ queue: this.queue })
-            .set(jobs.length / this.hub.CDP_CYCLOTRON_BATCH_SIZE)
-        if (!this.cyclotronWorker) {
-            throw new Error('No cyclotron worker when trying to handle batch')
-        }
-        const invocations: HogFunctionInvocation[] = []
-        // A list of all the promises related to job releasing that we need to await
-        const failReleases: Promise<void>[] = []
+    @instrumented('cdpConsumer.handleEachBatch.loadHogFunctions')
+    protected async loadHogFunctions(
+        invocations: CyclotronJobInvocation[]
+    ): Promise<CyclotronJobInvocationHogFunction[]> {
+        const loadedInvocations: CyclotronJobInvocationHogFunction[] = []
+        const failedInvocations: CyclotronJobInvocation[] = []
 
-        const hogFunctionIds: string[] = []
+        await Promise.all(
+            invocations.map(async (item) => {
+                const hogFunction = await this.hogFunctionManager.getHogFunction(item.functionId)
+                if (!hogFunction) {
+                    logger.error('⚠️', 'Error finding hog function', {
+                        id: item.functionId,
+                    })
 
-        for (const job of jobs) {
-            if (!job.functionId) {
-                throw new Error('Bad job: ' + JSON.stringify(job))
-            }
+                    failedInvocations.push(item)
 
-            hogFunctionIds.push(job.functionId)
-        }
+                    return null
+                }
 
-        const hogFunctions = await this.hogFunctionManager.getHogFunctions(hogFunctionIds)
+                if (!hogFunction.enabled || hogFunction.deleted) {
+                    logger.info('⚠️', 'Skipping invocation due to hog function being deleted or disabled', {
+                        id: item.functionId,
+                    })
 
-        for (const job of jobs) {
-            // NOTE: This is all a bit messy and might be better to refactor into a helper
-            const hogFunction = hogFunctions[job.functionId!]
+                    failedInvocations.push(item)
 
-            if (!hogFunction) {
-                // Here we need to mark the job as failed
+                    return null
+                }
 
-                logger.error('⚠️', 'Error finding hog function', {
-                    id: job.functionId,
+                loadedInvocations.push({
+                    ...item,
+                    state: item.state as CyclotronJobInvocationHogFunction['state'],
+                    hogFunction,
                 })
-                this.cyclotronWorker.updateJob(job.id, 'failed')
-                failReleases.push(this.cyclotronWorker.releaseJob(job.id))
-                continue
-            }
+            })
+        )
 
-            const invocation = cyclotronJobToInvocation(job, hogFunction)
-            invocations.push(invocation)
+        await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
+
+        return loadedInvocations
+    }
+
+    public async processBatch(
+        invocations: CyclotronJobInvocation[]
+    ): Promise<{ backgroundTask: Promise<any>; invocationResults: CyclotronJobInvocationResult[] }> {
+        if (!invocations.length) {
+            return { backgroundTask: Promise.resolve(), invocationResults: [] }
         }
 
-        await this.processBatch(invocations)
-        await Promise.all(failReleases)
-        counterJobsProcessed.inc({ queue: this.queue }, jobs.length)
+        logger.info('🔁', `${this.name} - handling batch`, {
+            size: invocations.length,
+        })
+
+        const invocationResults = await this.processInvocations(invocations)
+
+        // NOTE: We can queue and publish all metrics in the background whilst processing the next batch of invocations
+        const backgroundTask = this.queueInvocationResults(invocationResults).then(() => {
+            // NOTE: After this point we parallelize and any issues are logged rather than thrown as retrying now would end up in duplicate messages
+            return Promise.allSettled([
+                this.hogFunctionMonitoringService
+                    .queueInvocationResults(invocationResults)
+                    .then(() => this.hogFunctionMonitoringService.flush())
+                    .catch((err) => {
+                        captureException(err)
+                        logger.error('Error processing invocation results', { err })
+                    }),
+                this.hogWatcher.observeResults(invocationResults).catch((err: any) => {
+                    captureException(err)
+                    logger.error('Error observing results', { err })
+                }),
+            ])
+        })
+
+        return { backgroundTask, invocationResults }
+    }
+
+    protected async queueInvocationResults(invocations: CyclotronJobInvocationResult[]) {
+        await this.cyclotronJobQueue.queueInvocationResults(invocations)
     }
 
     public async start() {
         await super.start()
-
-        this.cyclotronWorker = new CyclotronWorker({
-            pool: {
-                dbUrl: this.hub.CYCLOTRON_DATABASE_URL,
-                shouldCompressVmState: this.hub.CDP_CYCLOTRON_COMPRESS_VM_STATE,
-                shouldUseBulkCopyJob: this.hub.CDP_CYCLOTRON_USE_BULK_COPY_JOB,
-            },
-            queueName: this.queue,
-            includeVmState: true,
-            batchMaxSize: this.hub.CDP_CYCLOTRON_BATCH_SIZE,
-            pollDelayMs: this.hub.CDP_CYCLOTRON_BATCH_DELAY_MS,
-            includeEmptyBatches: true,
-        })
-        await this.cyclotronWorker.connect((jobs) => this.handleJobBatch(jobs))
+        await this.cyclotronJobQueue.start()
     }
 
     public async stop() {
+        logger.info('🔄', 'Stopping cyclotron worker consumer')
+        await this.cyclotronJobQueue.stop()
+
+        // IMPORTANT: super always comes last
         await super.stop()
-        await this.cyclotronWorker?.disconnect()
-        await this.runningWorker
     }
 
-    public isHealthy() {
-        return this.cyclotronWorker?.isHealthy() ?? false
-    }
-}
-
-// Mostly used for testing the fetch executor
-export class CdpCyclotronWorkerFetch extends CdpCyclotronWorker {
-    protected name = 'CdpCyclotronWorkerFetch'
-    protected queue = 'fetch' as const
-
-    public async processInvocations(invocations: HogFunctionInvocation[]): Promise<HogFunctionInvocationResult[]> {
-        // NOTE: this service will never do fetching (unless we decide we want to do it in node at some point, its only used for e2e testing)
-        return (await this.runManyWithHeartbeat(invocations, (item) => this.fetchExecutor.execute(item))).filter(
-            Boolean
-        ) as HogFunctionInvocationResult[]
+    public isHealthy(): HealthCheckResult {
+        return this.cyclotronJobQueue.isHealthy()
     }
 }

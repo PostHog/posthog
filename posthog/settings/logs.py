@@ -1,5 +1,5 @@
-import logging
 import os
+import logging
 import threading
 
 import structlog
@@ -92,5 +92,8 @@ LOGGING = {
         },  # blackhole Django autoreload logs (this is only needed in DEV)
         "kafka.conn": {"level": "WARN"},  # kafka-python logs are noisy
         "posthog.caching.warming": {"level": "INFO"},
+        "posthog.tasks.alerts": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "boto3": {"level": "WARN"},  # boto3 logs are noisy
+        "botocore": {"level": "WARN"},  # botocore logs are noisy
     },
 }

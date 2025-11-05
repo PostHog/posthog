@@ -1,32 +1,29 @@
-from typing import Union, cast, Optional, Any, Literal
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
+from typing import Any, Literal, Optional, Union, cast
+
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.constants import PropertyOperatorType, TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
+from posthog.schema import EmptyPropertyFilter, HogQLPropertyFilter, RetentionEntity
+
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import (
-    action_to_expr,
+    entity_to_expr,
     has_aggregation,
+    map_virtual_properties,
     property_to_expr,
     selector_to_expr,
     tag_name_to_expr,
-    entity_to_expr,
 )
 from posthog.hogql.visitor import clear_locations
-from posthog.models import (
-    Action,
-    Cohort,
-    Property,
-    PropertyDefinition,
-    Team,
-)
+
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
+from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
 from posthog.models.property_definition import PropertyType
-from posthog.schema import HogQLPropertyFilter, RetentionEntity, EmptyPropertyFilter
-from posthog.test.base import BaseTest, _create_event
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseJoin, DataWarehouseCredential
+
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
@@ -40,9 +37,14 @@ class TestProperty(BaseTest):
         self,
         property: Union[PropertyGroup, Property, HogQLPropertyFilter, dict, list],
         team: Optional[Team] = None,
-        scope: Optional[Literal["event", "person", "group"]] = None,
+        scope: Optional[
+            Literal["event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics"]
+        ] = None,
+        strict: bool = True,
     ):
-        return clear_locations(property_to_expr(property, team=team or self.team, scope=scope or "event"))
+        return clear_locations(
+            property_to_expr(property, team=team or self.team, scope=scope or "event", strict=strict)
+        )
 
     def _selector_to_expr(self, selector: str):
         return clear_locations(selector_to_expr(selector))
@@ -88,7 +90,10 @@ class TestProperty(BaseTest):
             self._parse_expr("group_0.properties.a in ('b', 'c')"),
         )
 
-        self.assertEqual(self._property_to_expr({"type": "group", "key": "a", "value": "b"}), self._parse_expr("1"))
+        # Missing group_type_index
+        self.assertEqual(
+            self._property_to_expr({"type": "group", "key": "a", "value": "b"}, strict=False), self._parse_expr("1")
+        )
 
     def test_property_to_expr_group_scope(self):
         self.assertEqual(
@@ -176,7 +181,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
-            self._parse_expr("ifNull(match(toString(properties.a), '.*'), false)"),
+            self._parse_expr("ifNull(match(properties.a, '.*'), 0)"),
         )
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
@@ -188,11 +193,13 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             self._parse_expr("1"),
-            self._property_to_expr({"type": "event", "key": "a", "operator": "icontains"}),  # value missing
+            self._property_to_expr(
+                {"type": "event", "key": "a", "operator": "icontains"}, strict=False
+            ),  # value missing
         )
         self.assertEqual(
             self._parse_expr("1"),
-            self._property_to_expr({}),  # incomplete event
+            self._property_to_expr({}, strict=False),  # incomplete event
         )
         self.assertEqual(
             self._parse_expr("1"),
@@ -260,9 +267,7 @@ class TestProperty(BaseTest):
         a = self._property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"})
         self.assertEqual(
             a,
-            self._parse_expr(
-                "ifNull(match(toString(properties.a), 'b'), 0) or ifNull(match(toString(properties.a), 'c'), 0)"
-            ),
+            self._parse_expr("ifNull(match(properties.a, 'b'), 0) or ifNull(match(properties.a, 'c'), 0)"),
         )
         # Want to make sure this returns 0, not false. Clickhouse uses UInt8s primarily for booleans.
         self.assertIs(0, a.exprs[1].args[1].value)
@@ -308,6 +313,60 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._property_to_expr({"type": "person", "key": "a", "value": "b", "operator": "exact"}),
             self._parse_expr("person.properties.a = 'b'"),
+        )
+
+    def test_property_to_expr_error_tracking_issue_properties(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": "ReferenceError",
+                    "operator": "icontains",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> toString(v) ilike '%ReferenceError%', JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "exact",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> v in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "event",
+                    "key": "$exception_types",
+                    "value": ["ReferenceError", "TypeError"],
+                    "operator": "is_not",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> v not in ('ReferenceError', 'TypeError'), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "key": "$exception_types",
+                    "value": "ValidationError",
+                    "operator": "not_regex",
+                    "type": "event",
+                }
+            ),
+            self._parse_expr(
+                "arrayExists(v -> ifNull(not(match(toString(v), 'ValidationError')), 1), JSONExtract(ifNull(properties.$exception_types, ''), 'Array(String)'))"
+            ),
         )
 
     def test_property_to_expr_element(self):
@@ -386,9 +445,7 @@ class TestProperty(BaseTest):
                     "operator": "regex",
                 }
             ),
-            self._parse_expr(
-                "arrayExists(text -> ifNull(match(toString(text), 'text-text.'), false), elements_chain_texts)"
-            ),
+            self._parse_expr("arrayExists(text -> ifNull(match(text, 'text-text.'), 0), elements_chain_texts)"),
         )
 
     def test_property_groups(self):
@@ -493,13 +550,15 @@ class TestProperty(BaseTest):
     def test_selector_to_expr(self):
         self.assertEqual(
             self._selector_to_expr("div"),
-            clear_locations(elements_chain_match('(^|;)div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')),
+            clear_locations(
+                elements_chain_match('(^|;)div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+            ),
         )
         self.assertEqual(
             self._selector_to_expr("div > div"),
             clear_locations(
                 elements_chain_match(
-                    '(^|;)div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*'
+                    '(^|;)div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))div([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*'
                 )
             ),
         )
@@ -510,7 +569,7 @@ class TestProperty(BaseTest):
                     "{regex} and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -519,7 +578,9 @@ class TestProperty(BaseTest):
         self.assertEqual(
             self._selector_to_expr(".class"),
             clear_locations(
-                elements_chain_match('(^|;).*?\\.class([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+                elements_chain_match(
+                    '(^|;).*?\\.class([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
         self.assertEqual(
@@ -529,7 +590,7 @@ class TestProperty(BaseTest):
                     """{regex} and indexOf(elements_chain_ids, 'withid') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a.*?attr_id="withid".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -543,7 +604,7 @@ class TestProperty(BaseTest):
                     """{regex} and indexOf(elements_chain_ids, 'with-dashed-id') > 0 and arrayCount(x -> x IN ['a'], elements_chain_elements) > 0""",
                     {
                         "regex": elements_chain_match(
-                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                            '(^|;)a.*?attr_id="with\\-dashed\\-id".*?([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
                         )
                     },
                 )
@@ -567,126 +628,36 @@ class TestProperty(BaseTest):
             ),
         )
 
-    def test_action_to_expr(self):
-        _create_event(
-            event="$autocapture", team=self.team, distinct_id="some_id", elements_chain='a.active.nav-link:text="text"'
-        )
-        action1 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$autocapture",
-                    "selector": "a.nav-link.active",
-                }
-            ],
-        )
+    def test_selector_to_expr_tailwind_classes(self):
+        """Test that selectors work with Tailwind classes that include brackets, parentheses, and commas"""
+        # Test Tailwind class with brackets (responsive design)
         self.assertEqual(
-            clear_locations(action_to_expr(action1)),
-            self._parse_expr(
-                "event = '$autocapture' and {regex1}",
-                {
-                    "regex1": ast.And(
-                        exprs=[
-                            self._parse_expr(
-                                "elements_chain =~ {regex}",
-                                {
-                                    "regex": ast.Constant(
-                                        value='(^|;)a.*?\\.active\\..*?nav\\-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
-                                    )
-                                },
-                            ),
-                            self._parse_expr("arrayCount(x -> x IN ['a'], elements_chain_elements) > 0"),
-                        ]
-                    ),
-                },
-            ),
-        )
-        resp = execute_hogql_query(
-            parse_select("select count() from events where {prop}", {"prop": action_to_expr(action1)}), self.team
-        )
-        self.assertEqual(resp.results[0][0], 1)
-
-        action2 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$pageview",
-                    "url": "https://example.com",
-                    "url_matching": "contains",
-                }
-            ],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action2)),
-            self._parse_expr("event = '$pageview' and properties.$current_url like '%https://example.com%'"),
-        )
-
-        action3 = Action.objects.create(
-            team=self.team,
-            steps_json=[
-                {
-                    "event": "$pageview",
-                    "url": "https://example2.com",
-                    "url_matching": "regex",
-                },
-                {
-                    "event": "custom",
-                    "url": "https://example3.com",
-                    "url_matching": "exact",
-                },
-            ],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action3)),
-            self._parse_expr(
-                "{s1} or {s2}",
-                {
-                    "s1": self._parse_expr("event = '$pageview' and properties.$current_url =~ 'https://example2.com'"),
-                    "s2": self._parse_expr("event = 'custom' and properties.$current_url = 'https://example3.com'"),
-                },
+            self._selector_to_expr(".sm:[max-width:640px]"),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;).*?\\.sm:\\[max\\-width:640px\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
             ),
         )
 
-        action4 = Action.objects.create(team=self.team, steps_json=[{"event": "$pageview"}, {"event": None}])
+        # Test Tailwind class with parentheses and commas (calc functions)
         self.assertEqual(
-            clear_locations(action_to_expr(action4)),
-            self._parse_expr("event = '$pageview' OR true"),  # All events just resolve to "true"
+            self._selector_to_expr(".w-[calc(100%-2rem)]"),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;).*?\\.w\\-\\[calc\\(100%\\-2rem\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
 
-        action5 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "href": "https://example4.com", "href_matching": "regex"}],
-        )
+        # Test Tailwind class with complex values including commas
         self.assertEqual(
-            clear_locations(action_to_expr(action5)),
-            self._parse_expr("event = '$autocapture' and elements_chain_href =~ 'https://example4.com'"),
-        )
-
-        action6 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "regex"}],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action6)),
-            self._parse_expr("event = '$autocapture' and arrayExists(x -> x =~ 'blabla', elements_chain_texts)"),
-        )
-
-        action7 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "contains"}],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action7)),
-            self._parse_expr("event = '$autocapture' and arrayExists(x -> x ilike '%blabla%', elements_chain_texts)"),
-        )
-
-        action8 = Action.objects.create(
-            team=self.team,
-            steps_json=[{"event": "$autocapture", "text": "blabla", "text_matching": "exact"}],
-        )
-        self.assertEqual(
-            clear_locations(action_to_expr(action8)),
-            self._parse_expr("event = '$autocapture' and arrayExists(x -> x = 'blabla', elements_chain_texts)"),
+            self._selector_to_expr(".shadow-[0_4px_6px_rgba(0,0,0,0.1)]"),
+            clear_locations(
+                elements_chain_match(
+                    '(^|;).*?\\.shadow\\-\\[0_4px_6px_rgba\\(0,0,0,0\\.1\\)\\]([-_a-zA-Z0-9\\.:"= \\[\\]\\(\\),]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                )
+            ),
         )
 
     def test_cohort_filter_static(self):
@@ -854,6 +825,34 @@ class TestProperty(BaseTest):
         self.assertEqual(compare_op_2.left.chain, ["foobars", "properties", "$feature/test"])
         self.assertEqual(compare_op_2.right.value, "test")
 
+    def test_revenue_analytics_property(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "revenue_analytics",
+                    "key": "revenue_analytics_product.name",
+                    "value": ["Product A"],
+                    "operator": "exact",
+                },
+                scope="revenue_analytics",
+            ),
+            self._parse_expr("revenue_analytics_product.name = 'Product A'"),
+        )
+
+    def test_revenue_analytics_property_multiple_values(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {
+                    "type": "revenue_analytics",
+                    "key": "revenue_analytics_product.name",
+                    "value": ["Product A", "Product C"],
+                    "operator": "exact",
+                },
+                scope="revenue_analytics",
+            ),
+            self._parse_expr("revenue_analytics_product.name IN ('Product A', 'Product C')"),
+        )
+
     def test_property_to_expr_event_metadata(self):
         self.assertEqual(
             self._property_to_expr(
@@ -880,3 +879,92 @@ class TestProperty(BaseTest):
             str(e.exception),
             "The 'event_metadata' property filter does not work in 'person' scope",
         )
+
+    def test_virtual_person_properties_on_person_scope(self):
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="person"
+        ) == self._parse_expr("$virt_initial_channel_type = 'Organic Search'")
+
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_revenue_last_30_days", "value": 100, "operator": "exact"}, scope="person"
+        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+
+    def test_virtual_group_properties_on_group_scope(self):
+        assert self._property_to_expr(
+            {
+                "type": "group",
+                "key": "$virt_revenue_last_30_days",
+                "value": 100,
+                "operator": "exact",
+                "group_type_index": 0,
+            },
+            scope="group",
+        ) == self._parse_expr("$virt_revenue_last_30_days = 100")
+
+    def test_virtual_person_properties_on_event_scope(self):
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="event"
+        ) == self._parse_expr("person.$virt_initial_channel_type = 'Organic Search'")
+        assert self._property_to_expr(
+            {"type": "person", "key": "$virt_revenue", "value": 100, "operator": "exact"}, scope="event"
+        ) == self._parse_expr("person.$virt_revenue = 100")
+
+    def test_virtual_group_properties_on_event_scope(self):
+        assert self._property_to_expr(
+            {"type": "group", "key": "$virt_revenue", "value": 100, "operator": "exact", "group_type_index": 0},
+            scope="event",
+        ) == self._parse_expr("group_0.$virt_revenue = 100")
+
+    def test_map_virtual_properties(self):
+        assert map_virtual_properties(
+            ast.Field(chain=["person", "properties", "$virt_initial_channel_type"])
+        ) == ast.Field(chain=["person", "$virt_initial_channel_type"])
+        assert map_virtual_properties(ast.Field(chain=["person", "properties", "$virt_revenue"])) == ast.Field(
+            chain=["person", "$virt_revenue"]
+        )
+
+        assert map_virtual_properties(ast.Field(chain=["properties", "$virt_initial_channel_type"])) == ast.Field(
+            chain=["$virt_initial_channel_type"]
+        )
+        assert map_virtual_properties(ast.Field(chain=["properties", "$virt_revenue"])) == ast.Field(
+            chain=["$virt_revenue"]
+        )
+
+        assert map_virtual_properties(ast.Field(chain=["person", "properties", "other property"])) == ast.Field(
+            chain=["person", "properties", "other property"]
+        )
+        assert map_virtual_properties(ast.Field(chain=["properties", "other property"])) == ast.Field(
+            chain=["properties", "other property"]
+        )
+        assert map_virtual_properties(ast.Field(chain=["person", "properties", 42])) == ast.Field(
+            chain=["person", "properties", 42]
+        )
+        assert map_virtual_properties(ast.Field(chain=["properties", 42])) == ast.Field(chain=["properties", 42])
+
+    def test_property_to_expr_event_metadata_group_scope_basic(self):
+        assert self._property_to_expr(
+            {"type": "event_metadata", "key": "$group_0", "operator": "exact", "value": "1234-abcd"},
+            scope="group",
+        ) == self._parse_expr("key = '1234-abcd' and index = 0")
+
+    def test_property_to_expr_event_metadata_group_scope_list_single_value(self):
+        assert self._property_to_expr(
+            {"type": "event_metadata", "key": "$group_2", "operator": "exact", "value": ["1"]},
+            scope="group",
+        ) == self._parse_expr("key = '1' and index = 2")
+
+    def test_property_to_expr_event_metadata_group_scope_invalid_key(self):
+        with self.assertRaisesMessage(
+            QueryError, "The 'event_metadata' property filter does not work in 'group' scope"
+        ):
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_invalid", "operator": "exact", "value": "test"}, scope="group"
+            )
+
+    def test_property_to_expr_event_metadata_group_scope_multiple_values(self):
+        with self.assertRaisesMessage(
+            QueryError, "The '$group_3' property filter only supports one value in 'group' scope"
+        ):
+            self._property_to_expr(
+                {"type": "event_metadata", "key": "$group_3", "operator": "exact", "value": ["1", "2"]}, scope="group"
+            )

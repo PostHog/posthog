@@ -1,26 +1,28 @@
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeProps } from '../Notebook/utils'
-import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { buildFlagContent } from './NotebookNodeFlag'
 import { useEffect } from 'react'
-import { NotFound } from 'lib/components/NotFound'
+
 import { IconFlag, IconFlask } from '@posthog/icons'
-import { ResultsQuery, ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
-import { SummaryTable } from 'scenes/experiments/ExperimentView/SummaryTable'
+import { LemonDivider } from '@posthog/lemon-ui'
+
+import { NotFound } from 'lib/components/NotFound'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Info } from 'scenes/experiments/ExperimentView/Info'
-import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
+import { SummaryTable } from 'scenes/experiments/ExperimentView/SummaryTable'
+import { LegacyResultsQuery, ResultsTag, StatusTag } from 'scenes/experiments/ExperimentView/components'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { getExperimentStatus } from 'scenes/experiments/experimentsLogic'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { urls } from 'scenes/urls'
+
+import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { buildFlagContent } from './NotebookNodeFlag'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { INTEGER_REGEX_MATCH_GROUPS, OPTIONAL_PROJECT_NON_CAPTURE_GROUP } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttributes>): JSX.Element => {
     const { id } = attributes
-    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, metricResults } = useValues(
-        experimentLogic({ experimentId: id })
-    )
+    const { experiment, experimentLoading, experimentMissing, isExperimentRunning, legacyPrimaryMetricsResults } =
+        useValues(experimentLogic({ experimentId: id }))
     const { loadExperiment } = useActions(experimentLogic({ experimentId: id }))
     const { expanded } = useValues(notebookNodeLogic)
     const { insertAfter, setActions } = useActions(notebookNodeLogic)
@@ -35,13 +37,15 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
         ])
 
         loadExperiment()
+
+        // oxlint-disable-next-line exhaustive-deps
     }, [id])
 
     if (experimentMissing) {
         return <NotFound object="experiment" />
     }
 
-    if (!metricResults) {
+    if (!legacyPrimaryMetricsResults) {
         return <></>
     }
 
@@ -55,7 +59,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                     ) : (
                         <>
                             <span className="flex-1 font-semibold truncate">{experiment.name}</span>
-                            <StatusTag experiment={experiment} />
+                            <StatusTag status={getExperimentStatus(experiment)} />
                             <ResultsTag />
                         </>
                     )}
@@ -83,10 +87,13 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeExperimentAttri
                                 <div className="p-2">
                                     <SummaryTable metric={experiment.metrics[0]} />
                                     {/* TODO: Only show results if the metric is a trends or funnels query. Not supported yet with new query runner */}
-                                    {metricResults[0] &&
-                                        (metricResults[0].kind === 'ExperimentTrendsQuery' ||
-                                            metricResults[0].kind === 'ExperimentFunnelsQuery') && (
-                                            <ResultsQuery result={metricResults[0]} showTable={true} />
+                                    {legacyPrimaryMetricsResults[0] &&
+                                        (legacyPrimaryMetricsResults[0].kind === 'ExperimentTrendsQuery' ||
+                                            legacyPrimaryMetricsResults[0].kind === 'ExperimentFunnelsQuery') && (
+                                            <LegacyResultsQuery
+                                                result={legacyPrimaryMetricsResults[0]}
+                                                showTable={true}
+                                            />
                                         )}
                                 </div>
                             </>
@@ -113,7 +120,7 @@ export const NotebookNodeExperiment = createPostHogWidgetNode<NotebookNodeExperi
         id: {},
     },
     pasteOptions: {
-        find: urls.experiment(INTEGER_REGEX_MATCH_GROUPS),
+        find: OPTIONAL_PROJECT_NON_CAPTURE_GROUP + urls.experiment(INTEGER_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
             return { id: parseInt(match[1]) }
         },

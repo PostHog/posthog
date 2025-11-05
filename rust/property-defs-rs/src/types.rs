@@ -2,13 +2,57 @@ use std::{fmt, hash::Hash, str::FromStr, sync::LazyLock};
 
 use chrono::{DateTime, Duration, DurationRound, RoundingError, Utc};
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{Executor, Postgres};
 use tracing::warn;
 use uuid::Uuid;
 
 use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_ISSUED, UPDATES_SKIPPED};
+
+// Custom deserializer that can handle both string and integer values
+fn deserialize_string_or_i32<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrInt {
+        String(String),
+        Int(i32),
+    }
+
+    match StringOrInt::deserialize(deserializer)? {
+        StringOrInt::String(s) => s
+            .parse::<i32>()
+            .map_err(|e| de::Error::custom(format!("Failed to parse string as i32: {e}"))),
+        StringOrInt::Int(i) => Ok(i),
+    }
+}
+
+// Custom deserializer that can handle both string and integer values for i64
+fn deserialize_string_or_i64<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de;
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrInt {
+        String(String),
+        Int(i64),
+    }
+
+    match StringOrInt::deserialize(deserializer)? {
+        StringOrInt::String(s) => s
+            .parse::<i64>()
+            .map_err(|e| de::Error::custom(format!("Failed to parse string as i64: {e}"))),
+        StringOrInt::Int(i) => Ok(i),
+    }
+}
 
 // We skip updates for events we generate
 pub const EVENTS_WITHOUT_PROPERTIES: [&str; 1] = ["$$plugin_metrics"];
@@ -50,7 +94,7 @@ static DATETIME_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     ).unwrap()
 });
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum PropertyParentType {
     Event = 1,
     Person = 2,
@@ -91,7 +135,7 @@ impl fmt::Display for PropertyValueType {
 }
 
 // The grouptypemapping table uses i32's, but we get group types by name, so we have to resolve them before DB writes, sigh
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum GroupType {
     Unresolved(String),
     Resolved(String, i32),
@@ -106,9 +150,11 @@ impl GroupType {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct PropertyDefinition {
+    #[serde(deserialize_with = "deserialize_string_or_i32")]
     pub team_id: i32,
+    #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
     pub name: String,
     pub is_numerical: bool,
@@ -120,18 +166,22 @@ pub struct PropertyDefinition {
     pub query_usage_30_day: Option<i64>,      // Deprecated
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct EventDefinition {
     pub name: String,
+    #[serde(deserialize_with = "deserialize_string_or_i32")]
     pub team_id: i32,
+    #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
     pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
 }
 
 // Derived hash since these are keyed on all fields in the DB
-#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct EventProperty {
+    #[serde(deserialize_with = "deserialize_string_or_i32")]
     pub team_id: i32,
+    #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
     pub event: String,
     pub property: String,
@@ -145,22 +195,11 @@ pub enum Update {
     EventProperty(EventProperty),
 }
 
-impl Update {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        match self {
-            Update::Event(e) => e.issue(executor).await,
-            Update::Property(p) => p.issue(executor).await,
-            Update::EventProperty(ep) => ep.issue(executor).await,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Event {
+    #[serde(deserialize_with = "deserialize_string_or_i32")]
     pub team_id: i32,
+    #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
     pub event: String,
     pub properties: Option<String>,
@@ -169,7 +208,7 @@ pub struct Event {
 impl From<&Event> for EventDefinition {
     fn from(event: &Event) -> Self {
         EventDefinition {
-            name: sanitize_event_name(&event.event),
+            name: sanitize_string(&event.event),
             team_id: event.team_id,
             project_id: event.project_id,
             last_seen_at: get_floored_last_seen(),
@@ -288,7 +327,7 @@ impl Event {
             updates.push(Update::EventProperty(EventProperty {
                 team_id: self.team_id,
                 project_id: self.project_id,
-                event: self.event.clone(),
+                event: sanitize_string(&self.event),
                 property: key.clone(),
             }));
 
@@ -412,10 +451,6 @@ fn is_likely_unix_timestamp(n: &serde_json::Number) -> bool {
     false
 }
 
-fn sanitize_event_name(event_name: &str) -> String {
-    event_name.replace('\u{0000}', "\u{FFFD}")
-}
-
 // These hash impls correspond to DB uniqueness constraints, pulled from the TS
 impl Hash for PropertyDefinition {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -473,7 +508,7 @@ fn will_fit_in_postgres_column(str: &str) -> bool {
 // Postgres doesn't like nulls in strings, so we replace them with uFFFD.
 // This allocates, so only do it right when hitting the DB. We handle nulls
 // in strings just fine.
-pub fn sanitize_string(s: String) -> String {
+pub fn sanitize_string(s: &str) -> String {
     s.replace('\u{0000}', "\u{FFFD}")
 }
 
@@ -499,79 +534,6 @@ impl EventDefinition {
         ).execute(executor).await.map(|_| ());
 
         metrics::counter!(UPDATES_ISSUED, &[("type", "event_definition")]).increment(1);
-
-        res
-    }
-}
-
-impl PropertyDefinition {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        let group_type_index = match &self.group_type_index {
-            Some(GroupType::Resolved(_, i)) => Some(*i as i16),
-            Some(GroupType::Unresolved(group_name)) => {
-                warn!(
-                    "Group type {} not resolved for property definition {} for team {}, skipping update",
-                    group_name, self.name, self.team_id
-                );
-                None
-            }
-            _ => {
-                // We don't have a group type, so we don't have a group type index
-                None
-            }
-        };
-
-        if group_type_index.is_none() && matches!(self.event_type, PropertyParentType::Group) {
-            // Some teams/users wildly misuse group-types, and if we fail to issue an update
-            // during the transaction (which we do if we don't have a group-type index for a
-            // group property), the entire transaction is aborted, so instead we just warn
-            // loudly about this (above, and at resolve time), and drop the update.
-            return Ok(());
-        }
-
-        let res = sqlx::query!(
-            r#"
-            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, project_id, property_type)
-            VALUES ($1, $2, $3, $4, $5, NULL, NULL, $6, $7, $8)
-            ON CONFLICT (coalesce(project_id, team_id::bigint), name, type, coalesce(group_type_index, -1))
-            DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
-        "#,
-            Uuid::now_v7(),
-            self.name,
-            self.event_type as i16,
-            group_type_index,
-            self.is_numerical,
-            self.team_id,
-            self.project_id,
-            self.property_type.as_ref().map(|t| t.to_string())
-        ).execute(executor).await.map(|_| ());
-
-        metrics::counter!(UPDATES_ISSUED, &[("type", "property_definition")]).increment(1);
-
-        res
-    }
-}
-
-impl EventProperty {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        let res = sqlx::query!(
-            r#"INSERT INTO posthog_eventproperty (event, property, team_id, project_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"#,
-            self.event,
-            self.property,
-            self.team_id,
-            self.project_id
-        )
-        .execute(executor)
-        .await
-        .map(|_| ());
-
-        metrics::counter!(UPDATES_ISSUED, &[("type", "event_property")]).increment(1);
 
         res
     }

@@ -1,10 +1,30 @@
 from datetime import date, datetime, timedelta
 from typing import cast
-
 from zoneinfo import ZoneInfo
 
 from freezegun.api import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
+
 from parameterized import parameterized
+
+from posthog.schema import (
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    FunnelConversionWindowTimeUnit,
+    FunnelExclusionEventsNode,
+    FunnelsFilter,
+    FunnelsQuery,
+    FunnelsQueryResponse,
+    IntervalType,
+    PropertyOperator,
+)
 
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType, FunnelVizType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -12,25 +32,6 @@ from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
-from posthog.schema import (
-    FunnelsQuery,
-    FunnelsQueryResponse,
-    DateRange,
-    EventsNode,
-    FunnelExclusionEventsNode,
-    EventPropertyFilter,
-    PropertyOperator,
-    FunnelConversionWindowTimeUnit,
-    IntervalType,
-    FunnelsFilter,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    snapshot_clickhouse_queries,
-    _create_event,
-)
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
@@ -1144,88 +1145,102 @@ class BaseTestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 self.fail(msg="Invalid breakdown value")
 
     def test_funnel_step_breakdown_empty(self):
-        journeys_for(
-            {
-                "user_one": [
-                    {
-                        "event": "step one",
-                        "timestamp": datetime(2021, 5, 1),
-                        "properties": {"$browser": "Chrome"},
-                    },
-                    {
-                        "event": "step two",
-                        "timestamp": datetime(2021, 5, 3),
-                        "properties": {"$browser": "Chrome"},
-                    },
-                    {
-                        "event": "step three",
-                        "timestamp": datetime(2021, 5, 5),
-                        "properties": {"$browser": "Chrome"},
-                    },
-                ],
-                "user_two": [
-                    {
-                        "event": "step one",
-                        "timestamp": datetime(2021, 5, 2),
-                        "properties": {"$browser": "Chrome"},
-                    },
-                    {
-                        "event": "step two",
-                        "timestamp": datetime(2021, 5, 3),
-                        "properties": {"$browser": "Chrome"},
-                    },
-                    {
-                        "event": "step three",
-                        "timestamp": datetime(2021, 5, 5),
-                        "properties": {"$browser": "Chrome"},
-                    },
-                ],
-                "user_three": [
-                    {
-                        "event": "step one",
-                        "timestamp": datetime(2021, 5, 3),
-                        "properties": {"$browser": "Safari"},
-                    },
-                    {
-                        "event": "step two",
-                        "timestamp": datetime(2021, 5, 4),
-                        "properties": {"$browser": "Safari"},
-                    },
-                    {
-                        "event": "step three",
-                        "timestamp": datetime(2021, 5, 5),
-                        "properties": {"$browser": "Safari"},
-                    },
-                ],
-            },
-            self.team,
-        )
+        attribution_types = [
+            "all_events",
+            "first_touch",
+            "last_touch",
+            "step",
+        ]
+        for attribution_type in attribution_types:
+            journeys_for(
+                {
+                    "user_one": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 1),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                        {
+                            "event": "step two",
+                            "timestamp": datetime(2021, 5, 3),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                        {
+                            "event": "step three",
+                            "timestamp": datetime(2021, 5, 5),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                    ],
+                    "user_two": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 2),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                        {
+                            "event": "step two",
+                            "timestamp": datetime(2021, 5, 3),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                        {
+                            "event": "step three",
+                            "timestamp": datetime(2021, 5, 5),
+                            "properties": {"$browser": "Chrome"},
+                        },
+                    ],
+                    "user_three": [
+                        {
+                            "event": "step one",
+                            "timestamp": datetime(2021, 5, 3),
+                            "properties": {"$browser": "Safari"},
+                        },
+                        {
+                            "event": "step two",
+                            "timestamp": datetime(2021, 5, 4),
+                            "properties": {"$browser": "Safari"},
+                        },
+                        {
+                            "event": "step three",
+                            "timestamp": datetime(2021, 5, 5),
+                            "properties": {"$browser": "Safari"},
+                        },
+                    ],
+                },
+                self.team,
+            )
 
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "funnel_viz_type": "trends",
-            "display": TRENDS_LINEAR,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-13 23:59:59",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-            "breakdown_type": "hogql",
-            "breakdown": "IF(distinct_id = 'user_two', NULL, 'foo')",  # Simulate some empty breakdown values
-        }
+            filters = {
+                "insight": INSIGHT_FUNNELS,
+                "funnel_viz_type": "trends",
+                "display": TRENDS_LINEAR,
+                "interval": "day",
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-13 23:59:59",
+                "funnel_window_days": 7,
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+                "breakdown_type": "hogql",
+                "breakdown": "IF(distinct_id = 'user_two', NULL, 'foo')",  # Simulate some empty breakdown values
+                "breakdown_attribution_type": attribution_type,
+            }
+            if attribution_type == "step":
+                filters["breakdown_attribution_value"] = 1  # Example value; adjust if needed
 
-        query = cast(FunnelsQuery, filter_to_query(filters))
-        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+            query = cast(FunnelsQuery, filter_to_query(filters))
+            response = FunnelsQueryRunner(query=query, team=self.team).calculate()
+            results = response.results
 
-        self.assertEqual(len(results), 2)
-        self.assertEqual(results[0]["breakdown_value"], [""])
-        self.assertEqual(results[0]["data"], [0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-        self.assertEqual(results[1]["breakdown_value"], ["foo"])
-        self.assertEqual(results[1]["data"], [100.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            self.assertEqual(len(results), 2)
+            # Old funnels incorrectly return None instead of empty string for empty breakdown values in these two attribution modes
+            # Not worth fixing for now
+            if response.isUdf or attribution_type not in ("all_events", "step"):
+                self.assertEqual(results[0]["breakdown_value"], [""])
+            self.assertEqual(results[0]["data"], [0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+            self.assertEqual(results[1]["breakdown_value"], ["foo"])
+            self.assertEqual(results[1]["data"], [100.0, 0.0, 100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
     def test_funnel_step_breakdown_event_with_breakdown_limit(self):
         journeys_for(

@@ -1,14 +1,15 @@
-// eslint-disable-next-line simple-import-sort/imports
-import { getParsedQueuedMessages, mockProducer } from '../helpers/mocks/producer.mock'
+import { mockProducerObserver } from '../helpers/mocks/producer.mock'
+
+// eslint-disable-next-line no-restricted-imports
+import { fetch } from 'undici'
 
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import fetch from 'node-fetch'
 
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
-import { delay, UUIDT } from '../../src/utils/utils'
+import { UUIDT, delay } from '../../src/utils/utils'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { plugin60 } from '../helpers/plugins'
@@ -46,10 +47,26 @@ describe('vm tests', () => {
 
     beforeEach(async () => {
         hub = await createHub()
+
+        jest.mocked(fetch).mockImplementation((...args) => {
+            const responsesToUrls: Record<string, any> = {
+                'https://google.com/results.json?query=fetched': { count: 2, query: 'bla', results: [true, true] },
+                'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2': { hello: 'world' },
+                'https://onevent.com/': { success: true },
+                'https://www.example.com': { example: 'data' },
+            }
+
+            const response = responsesToUrls[args[0] as unknown as string] || { fetch: 'mock' }
+
+            return Promise.resolve({
+                json: jest.fn().mockResolvedValue(response),
+            } as any)
+        })
     })
 
     afterEach(async () => {
         await closeHub(hub)
+        jest.mocked(fetch).mockClear()
     })
 
     test('empty plugins', async () => {
@@ -122,7 +139,7 @@ describe('vm tests', () => {
         })
         expect(fetch).not.toHaveBeenCalled()
         await vm.methods.teardownPlugin!()
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=hoho', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=hoho', expect.anything())
     })
 
     test('processEvent', async () => {
@@ -376,7 +393,7 @@ describe('vm tests', () => {
                 event: 'export',
             }
             await vm.methods.onEvent!(event)
-            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=export', undefined)
+            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=export', expect.anything())
         })
 
         test('export default', async () => {
@@ -395,7 +412,10 @@ describe('vm tests', () => {
                 event: 'default export',
             }
             await vm.methods.onEvent!(event)
-            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=default export', undefined)
+            expect(fetch).toHaveBeenCalledWith(
+                'https://google.com/results.json?query=default%20export',
+                expect.anything()
+            )
         })
     })
 
@@ -687,8 +707,8 @@ describe('vm tests', () => {
 
         await vm.methods.processEvent!(event)
 
-        expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
-        expect(getParsedQueuedMessages()[0]).toEqual({
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+        expect(mockProducerObserver.getParsedQueuedMessages()[0]).toEqual({
             topic: KAFKA_PLUGIN_LOG_ENTRIES,
             messages: [
                 {
@@ -725,7 +745,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', expect.anything())
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -747,7 +767,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', expect.anything())
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -768,7 +788,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', expect.anything())
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -805,7 +825,10 @@ describe('vm tests', () => {
 
         expect(event.properties?.get).toEqual({ hello: 'world' })
         expect((fetch as any).mock.calls.length).toEqual(8)
-        expect((fetch as any).mock.calls).toEqual([
+
+        // eslint-disable-next-line no-restricted-syntax
+        const details = JSON.parse(JSON.stringify((fetch as any).mock.calls))
+        expect(details).toMatchObject([
             [
                 'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
                 {
@@ -921,7 +944,7 @@ describe('vm tests', () => {
             event: 'onEvent',
         }
         await vm.methods.onEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent', expect.anything())
     })
 
     test('imports', async () => {

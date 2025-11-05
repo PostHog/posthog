@@ -1,60 +1,145 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import bigDecimal from 'js-big-decimal'
 
-import { costsByModel } from './providers'
-import { ModelRow } from './providers/types'
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
-export const processAiEvent = (event: PluginEvent): PluginEvent => {
-    if ((event.event !== '$ai_generation' && event.event !== '$ai_embedding') || !event.properties) {
+import { logger } from '../../utils/logger'
+import {
+    CostModelResult,
+    CostModelSource,
+    findCostFromModel,
+    getNewModelName,
+    requireSpecialCost,
+} from './cost-model-matching'
+import { calculateInputCost } from './input-costs'
+import { calculateOutputCost } from './output-costs'
+import { ResolvedModelCost } from './providers/types'
+import { calculateRequestCost } from './request-costs'
+import { calculateWebSearchCost } from './web-search-costs'
+
+export interface EventWithProperties extends PluginEvent {
+    properties: Properties
+}
+
+const isEventWithProperties = (event: PluginEvent): event is EventWithProperties => {
+    return event.properties !== undefined && event.properties !== null
+}
+
+export const AI_EVENT_TYPES = new Set([
+    '$ai_generation',
+    '$ai_embedding',
+    '$ai_span',
+    '$ai_trace',
+    '$ai_metric',
+    '$ai_feedback',
+])
+
+export const processAiEvent = (event: PluginEvent): PluginEvent | EventWithProperties => {
+    // If the event doesn't carry properties, there's nothing to do.
+    if (!isEventWithProperties(event)) {
         return event
     }
-    event = processCost(event)
-    event = extractCoreModelParams(event)
+
+    // Normalize trace properties for all AI events.
+    const normalized: EventWithProperties = AI_EVENT_TYPES.has(event.event) ? normalizeTraceProperties(event) : event
+
+    // Only generation/embedding events get cost processing and model param extraction.
+    const isCosted = normalized.event === '$ai_generation' || normalized.event === '$ai_embedding'
+
+    if (!isCosted) {
+        return normalized
+    }
+
+    const eventWithCosts = processCost(normalized)
+
+    return extractCoreModelParams(eventWithCosts)
+}
+
+export const normalizeTraceProperties = (event: EventWithProperties): EventWithProperties => {
+    // List of properties that should always be strings
+    const keys = ['$ai_trace_id', '$ai_parent_id', '$ai_span_id', '$ai_generation_id', '$ai_session_id']
+
+    for (const key of keys) {
+        const value: unknown = event.properties[key]
+
+        if (value === null || value === undefined) {
+            continue
+        }
+
+        const valueType = typeof value
+
+        if (valueType === 'string' || valueType === 'number' || valueType === 'boolean' || valueType === 'bigint') {
+            event.properties[key] = String(value)
+        } else {
+            event.properties[key] = undefined
+
+            logger.warn(`Unexpected type for trace property ${key}: ${valueType}`)
+        }
+    }
+
     return event
 }
 
-const calculateInputCost = (event: PluginEvent, cost: ModelRow) => {
-    if (!event.properties) {
-        return '0'
-    }
-    if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'openai') {
-        const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
-        const inputTokens = event.properties['$ai_input_tokens'] || 0
-        const difference = bigDecimal.subtract(inputTokens, cacheReadTokens)
-        const cachedCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.5), cacheReadTokens)
-        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, difference)
-        return bigDecimal.add(cachedCost, uncachedCost)
-    } else if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'anthropic') {
-        const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
-        const cacheWriteTokens = event.properties['$ai_cache_creation_input_tokens'] || 0
-        const inputTokens = event.properties['$ai_input_tokens'] || 0
-        const writeCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 1.25), cacheWriteTokens)
-        const cacheReadCost = bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.1), cacheReadTokens)
-        const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
-        const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, inputTokens)
-        return bigDecimal.add(totalCacheCost, uncachedCost)
-    }
-    return bigDecimal.multiply(cost.cost.prompt_token, event.properties['$ai_input_tokens'] || 0)
+const setCostsOnEvent = (event: EventWithProperties, cost: ResolvedModelCost): void => {
+    event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
+    event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
+    event.properties['$ai_request_cost_usd'] = parseFloat(calculateRequestCost(event, cost))
+    event.properties['$ai_web_search_cost_usd'] = parseFloat(calculateWebSearchCost(event, cost))
+
+    // Sum all cost components for total
+    let total = bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
+    total = bigDecimal.add(total, event.properties['$ai_request_cost_usd'])
+    total = bigDecimal.add(total, event.properties['$ai_web_search_cost_usd'])
+
+    event.properties['$ai_total_cost_usd'] = parseFloat(total)
 }
 
-const calculateOutputCost = (event: PluginEvent, cost: ModelRow) => {
-    if (!event.properties) {
-        return '0'
-    }
-    return bigDecimal.multiply(cost.cost.completion_token, event.properties['$ai_output_tokens'] || 0)
-}
-
-const processCost = (event: PluginEvent) => {
-    if (!event.properties) {
-        return event
-    }
-
+const processCost = (event: EventWithProperties): EventWithProperties => {
     // If we already have input and output costs, we can skip the rest of the logic
     if (event.properties['$ai_input_cost_usd'] && event.properties['$ai_output_cost_usd']) {
         if (!event.properties['$ai_total_cost_usd']) {
-            event.properties['$ai_total_cost_usd'] =
-                event.properties['$ai_input_cost_usd'] + event.properties['$ai_output_cost_usd']
+            let total = bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
+
+            // Add pre-calculated request cost if present
+            if (event.properties['$ai_request_cost_usd']) {
+                total = bigDecimal.add(total, event.properties['$ai_request_cost_usd'])
+            }
+
+            // Add pre-calculated web search cost if present
+            if (event.properties['$ai_web_search_cost_usd']) {
+                total = bigDecimal.add(total, event.properties['$ai_web_search_cost_usd'])
+            }
+
+            event.properties['$ai_total_cost_usd'] = parseFloat(total)
         }
+
+        return event
+    }
+
+    // If custom token pricing is provided, use it to calculate costs
+    const hasCustomPricing =
+        event.properties['$ai_input_token_price'] !== undefined &&
+        event.properties['$ai_output_token_price'] !== undefined
+
+    if (hasCustomPricing) {
+        const customCost: ResolvedModelCost = {
+            model: 'custom',
+            provider: 'custom',
+            cost: {
+                prompt_token: event.properties['$ai_input_token_price'],
+                completion_token: event.properties['$ai_output_token_price'],
+                cache_read_token: event.properties['$ai_cache_read_token_price'],
+                cache_write_token: event.properties['$ai_cache_write_token_price'],
+                request: event.properties['$ai_request_price'],
+                web_search: event.properties['$ai_web_search_price'],
+            },
+        }
+
+        setCostsOnEvent(event, customCost)
+
+        event.properties['$ai_model_cost_used'] = 'custom'
+        event.properties['$ai_cost_model_source'] = CostModelSource.Custom
+        event.properties['$ai_cost_model_provider'] = 'custom'
+
         return event
     }
 
@@ -62,82 +147,61 @@ const processCost = (event: PluginEvent) => {
         return event
     }
 
-    const cost = findCostFromModel(event.properties['$ai_model'])
-    if (!cost) {
+    const model: unknown = event.properties['$ai_model']
+
+    let parsedModel: string
+
+    if (!isString(model)) {
         return event
     }
 
-    event.properties['$ai_input_cost_usd'] = parseFloat(calculateInputCost(event, cost))
-    event.properties['$ai_output_cost_usd'] = parseFloat(calculateOutputCost(event, cost))
+    parsedModel = model
 
-    event.properties['$ai_total_cost_usd'] = parseFloat(
-        bigDecimal.add(event.properties['$ai_input_cost_usd'], event.properties['$ai_output_cost_usd'])
-    )
+    if (requireSpecialCost(parsedModel)) {
+        parsedModel = getNewModelName(parsedModel, event.properties['$ai_input_tokens'])
+    }
+
+    const costResult: CostModelResult | undefined = findCostFromModel(parsedModel, event.properties)
+
+    if (!costResult) {
+        return event
+    }
+
+    const { cost, source } = costResult
+
+    setCostsOnEvent(event, cost)
+
+    event.properties['$ai_model_cost_used'] = cost.model
+    event.properties['$ai_cost_model_source'] = source
+    event.properties['$ai_cost_model_provider'] = cost.provider
 
     return event
 }
 
-export const extractCoreModelParams = (event: PluginEvent): PluginEvent => {
-    if (!event.properties || !event.properties['$ai_provider'] || !event.properties['$ai_model']) {
-        return event
-    }
-    const provider = event.properties['$ai_provider'].toLowerCase()
-
+export const extractCoreModelParams = (event: EventWithProperties): EventWithProperties => {
     const params = event.properties['$ai_model_parameters']
 
     if (!params) {
         return event
     }
 
-    if (provider === 'anthropic') {
-        if (params.temperature !== undefined) {
-            event.properties.$ai_temperature = params.temperature
-        }
-        if (params.max_tokens !== undefined) {
-            event.properties.$ai_max_tokens = params.max_tokens
-        }
-        if (params.stream !== undefined) {
-            event.properties.$ai_stream = params.stream
-        }
-    } else if (provider === 'openai') {
-        if (params.temperature !== undefined) {
-            event.properties.$ai_temperature = params.temperature
-        }
-        if (params.max_completion_tokens !== undefined) {
-            event.properties.$ai_max_tokens = params.max_completion_tokens
-        }
-        if (params.stream !== undefined) {
-            event.properties.$ai_stream = params.stream
-        }
-    } else {
-        // Default to openai-like params
-        if (params.temperature !== undefined) {
-            event.properties.$ai_temperature = params.temperature
-        }
-        if (params.max_completion_tokens !== undefined) {
-            event.properties.$ai_max_tokens = params.max_completion_tokens
-        }
-        if (params.stream !== undefined) {
-            event.properties.$ai_stream = params.stream
-        }
+    if (params.temperature !== undefined) {
+        event.properties.$ai_temperature = params.temperature
+    }
+
+    if (params.stream !== undefined) {
+        event.properties.$ai_stream = params.stream
+    }
+
+    if (params.max_tokens !== undefined) {
+        event.properties.$ai_max_tokens = params.max_tokens
+    } else if (params.max_completion_tokens !== undefined) {
+        event.properties.$ai_max_tokens = params.max_completion_tokens
     }
 
     return event
 }
 
-const findCostFromModel = (aiModel: string): ModelRow | undefined => {
-    // Check if the model is an exact match
-    let cost: ModelRow | undefined = costsByModel[aiModel.toLowerCase()]
-    // Check if the model is a variant of a known model
-    if (!cost) {
-        cost = Object.values(costsByModel).find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
-    }
-    // Check if the model is a variant of a known model
-    if (!cost) {
-        cost = Object.values(costsByModel).find((cost) => aiModel.toLowerCase().includes(cost.model.toLowerCase()))
-    }
-    if (!cost) {
-        console.warn(`No cost found for model: ${aiModel}`)
-    }
-    return cost
+const isString = (property: unknown): property is string => {
+    return typeof property === 'string'
 }

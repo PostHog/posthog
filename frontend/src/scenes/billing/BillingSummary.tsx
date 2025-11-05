@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { humanFriendlyCurrency } from 'lib/utils'
 
-import { billingLogic } from './billingLogic'
 import { StripePortalButton } from './StripePortalButton'
+import { billingLogic } from './billingLogic'
 
 export const BillingSummary = (): JSX.Element => {
     const { billing } = useValues(billingLogic)
@@ -36,7 +37,16 @@ export const BillingSummary = (): JSX.Element => {
                                     parseFloat(billing.projected_total_amount_usd) > 0 && (
                                         <div>
                                             <LemonLabel
-                                                info="This is roughly calculated based on your current bill and the remaining time left in this billing period. This number updates once daily."
+                                                info={`This is roughly calculated based on your current bill${
+                                                    billing?.discount_percent ? ', discounts on your account,' : ''
+                                                } and the remaining time left in this billing period. This number updates once daily. ${
+                                                    billing.projected_total_amount_usd_with_limit !==
+                                                    billing.projected_total_amount_usd
+                                                        ? ` This value is capped at your current billing limit, we will never charge you more than your billing limit. If you did not have a billing limit set then your projected total would be ${humanFriendlyCurrency(
+                                                              parseFloat(billing.projected_total_amount_usd || '0')
+                                                          )}`
+                                                        : ''
+                                                }`}
                                                 className="text-secondary"
                                             >
                                                 Projected total
@@ -44,20 +54,22 @@ export const BillingSummary = (): JSX.Element => {
                                             <div className="font-semibold text-2xl text-secondary">
                                                 {billing.discount_percent
                                                     ? humanFriendlyCurrency(
-                                                          billing.projected_total_amount_usd_after_discount
+                                                          billing.projected_total_amount_usd_with_limit_after_discount
                                                       )
-                                                    : humanFriendlyCurrency(billing.projected_total_amount_usd)}
+                                                    : humanFriendlyCurrency(
+                                                          billing.projected_total_amount_usd_with_limit
+                                                      )}
                                             </div>
                                         </div>
                                     )}
                                 {billing.discount_amount_usd && (
                                     <div>
                                         <LemonLabel
-                                            info={`The total credits remaining in your account. ${
+                                            info={`The total credits remaining in your account.${
                                                 billing.amount_off_expires_at
-                                                    ? 'Your credits expire on ' +
+                                                    ? ' Your credits expire on ' +
                                                       billing.amount_off_expires_at.format('LL')
-                                                    : null
+                                                    : ''
                                             }`}
                                             className="text-secondary"
                                         >

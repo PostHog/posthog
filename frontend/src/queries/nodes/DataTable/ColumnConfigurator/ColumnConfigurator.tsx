@@ -4,21 +4,23 @@ import { DndContext } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconPencil, IconX } from '@posthog/icons'
 import { BindLogic, useActions, useValues } from 'kea'
+import { useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+
+import { IconPencil, IconX } from '@posthog/icons'
+
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
-import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -32,7 +34,7 @@ import {
 import { GroupTypeIndex, PropertyFilterType } from '~/types'
 
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
-import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
+import { ColumnConfiguratorLogicProps, columnConfiguratorLogic } from './columnConfiguratorLogic'
 
 let uniqueNode = 0
 
@@ -84,8 +86,8 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         context: query.context
             ? query.context
             : isGroupsQuery(query.source)
-            ? { type: 'groups', groupTypeIndex: query.source.group_type_index as GroupTypeIndex }
-            : { type: 'team_columns' },
+              ? { type: 'groups', groupTypeIndex: query.source.group_type_index as GroupTypeIndex }
+              : { type: 'team_columns' },
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
 
@@ -143,7 +145,9 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     <div className="flex-1">
                         <LemonButton
                             type="secondary"
-                            onClick={() => setColumns(defaultDataTableColumns(query.source.kind))}
+                            onClick={() =>
+                                setColumns(query.defaultColumns || defaultDataTableColumns(query.source.kind))
+                            }
                         >
                             Reset to defaults
                         </LemonButton>
@@ -220,8 +224,8 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                 context?.type === 'groups'
                                     ? 'Save as default columns for this group type'
                                     : context?.type === 'event_definition'
-                                    ? 'Save as default columns for this event type'
-                                    : 'Save as default for all project members'
+                                      ? 'Save as default columns for this event type'
+                                      : 'Save as default for all project members'
                             }
                             className="mt-2"
                             data-attr="events-table-save-columns-as-default-toggle"

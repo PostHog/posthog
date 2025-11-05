@@ -1,14 +1,17 @@
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
-import { captureException } from '@sentry/react'
-import { useActions, useValues } from 'kea'
+
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, InsightLogicProps } from '~/types'
 
+import { PathNodeData, pageUrl } from './pathUtils'
 import { pathsDataLogic } from './pathsDataLogic'
-import { pageUrl, PathNodeData } from './pathUtils'
 import { NODE_LABEL_HEIGHT, NODE_LABEL_LEFT_OFFSET, NODE_LABEL_TOP_OFFSET, NODE_LABEL_WIDTH } from './renderPaths'
 
 export type PathNodeLabelProps = {
@@ -35,7 +38,7 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
         viewPathToFunnel(node)
     }
     const copyName = (): void => {
-        void copyToClipboard(nodeName).catch(captureException)
+        void copyToClipboard(nodeName).catch((e) => posthog.captureException(e))
     }
     const openModal = (): void => openPersonsModal({ path_end_key: node.name })
 
@@ -66,7 +69,15 @@ export function PathNodeLabel({ insightProps, node }: PathNodeLabelProps): JSX.E
                                 ? [
                                       { label: 'Set as path end', onClick: setAsPathEnd },
                                       { label: 'Exclude path item', onClick: excludePathItem },
-                                      { label: 'View funnel', onClick: viewFunnel },
+                                      {
+                                          label: (
+                                              <div className="flex justify-between items-center w-full">
+                                                  <span>View funnel</span>
+                                                  <IconOpenInNew />
+                                              </div>
+                                          ),
+                                          onClick: viewFunnel,
+                                      },
                                   ]
                                 : []),
                             { label: 'Copy path item name', onClick: copyName },

@@ -1,4 +1,4 @@
-import { Group, PersonType, SearchableEntity, SearchResultType } from '~/types'
+import { Group, PersonType, SearchResultType, SearchableEntity } from '~/types'
 
 export enum BarStatus {
     HIDDEN = 'hidden',
@@ -7,7 +7,7 @@ export enum BarStatus {
     SHOW_SHORTCUTS = 'show_shortcuts',
 }
 
-export type ResultType = SearchableEntity | 'person' | 'group'
+export type ResultType = SearchableEntity | 'person' | 'group' | 'tree_item'
 
 export type PersonResult = {
     type: 'person'
@@ -23,4 +23,19 @@ export type GroupResult = {
     rank: number
 }
 
-export type SearchResult = SearchResultType | PersonResult | GroupResult
+export type TreeItemResult = {
+    type: 'tree_item'
+    result_id: string
+    extra_fields: {
+        path: string
+        category?: string
+        iconType?: string
+        href?: string
+        type?: string
+        [key: string]: any
+        icon?: JSX.Element
+    }
+    rank: number
+}
+
+export type SearchResult = SearchResultType | PersonResult | GroupResult | TreeItemResult

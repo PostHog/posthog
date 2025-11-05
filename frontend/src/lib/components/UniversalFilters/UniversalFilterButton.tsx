@@ -1,13 +1,15 @@
 import './UniversalFilterButton.scss'
 
-import { IconFilter, IconLogomark, IconX } from '@posthog/icons'
-import { LemonButton, PopoverReferenceContext } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import React from 'react'
+
+import { IconFilter, IconLogomark, IconX } from '@posthog/icons'
+import { LemonButton, PopoverReferenceContext } from '@posthog/lemon-ui'
+
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { midEllipsis } from 'lib/utils'
-import React from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -23,10 +25,11 @@ export interface UniversalFilterButtonProps {
     children?: React.ReactNode
     filter: UniversalFilterValue
     disabledReason?: string
+    className?: string
 }
 
 export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilterButtonProps>(
-    function UniversalFilterButton({ onClick, onClose, filter }, ref): JSX.Element {
+    function UniversalFilterButton({ onClick, onClose, filter, className }, ref): JSX.Element {
         const closable = onClose !== undefined
 
         const isEditable = isEditableFilter(filter)
@@ -37,7 +40,7 @@ export const UniversalFilterButton = React.forwardRef<HTMLElement, UniversalFilt
             <div
                 ref={ref as any}
                 onClick={isEditable ? onClick : undefined}
-                className={clsx('UniversalFilterButton inline-flex items-center', {
+                className={clsx('UniversalFilterButton inline-flex items-center', className, {
                     'UniversalFilterButton--clickable': isEditable,
                     'UniversalFilterButton--closeable': closable,
                     'ph-no-capture': true,

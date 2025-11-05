@@ -1,9 +1,15 @@
-import { LemonTag } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+
+import { IconCheck, IconSort } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
+
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
+import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
@@ -32,14 +38,13 @@ function CategoryPill({
 }): JSX.Element {
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalResultCount, totalListCount, isLoading, results, hasRemoteDataSource } = useValues(logic)
+    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource } = useValues(logic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
     // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
     const canInteract = totalListCount > 0 || taxonomicFilterGroupTypesWithEmptyStates.includes(groupType)
-    const hasOnlyDefaultItems = results?.length === 1 && (!results[0].id || results[0].id === '')
-    const showLoading = isLoading && (!results || results.length === 0 || hasOnlyDefaultItems) && hasRemoteDataSource
+    const showLoading = isLoading && hasRemoteDataSource
 
     return (
         <LemonTag
@@ -49,8 +54,8 @@ function CategoryPill({
             disabledReason={!canInteract ? 'No results' : null}
             className="font-normal"
         >
-            {group?.render ? (
-                group?.name
+            {group?.categoryLabel ? (
+                group.categoryLabel(totalResultCount)
             ) : (
                 <>
                     {group?.name}
@@ -66,6 +71,83 @@ function CategoryPill({
     )
 }
 
+function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType }): JSX.Element {
+    const { taxonomicGroups } = useValues(taxonomicFilterLogic)
+
+    const { eventOrdering } = useValues(taxonomicFilterPreferencesLogic)
+    const { setEventOrdering } = useActions(taxonomicFilterPreferencesLogic)
+
+    return (
+        <div className="flex flex-row justify-between items-center w-full relative pb-2">
+            {openTab === TaxonomicFilterGroupType.Events ? (
+                <>
+                    <span>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</span>
+                    <FlaggedFeature flag="taxonomic-event-sorting" match={true}>
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: (
+                                        <div className="flex flex-row gap-2">
+                                            {eventOrdering === 'name' ? <IconCheck /> : <IconBlank />}
+                                            <span>Name</span>
+                                        </div>
+                                    ),
+                                    tooltip: 'Sort events alphabetically',
+                                    onClick: () => {
+                                        setEventOrdering('name')
+                                    },
+                                    'data-attr': 'taxonomic-event-sorting-by-name',
+                                },
+                                {
+                                    label: (
+                                        <div className="flex flex-row gap-2">
+                                            {eventOrdering === '-last_seen_at' ? <IconCheck /> : <IconBlank />}
+                                            <span>Recently seen</span>
+                                        </div>
+                                    ),
+                                    tooltip: 'Show the most recent events first',
+                                    onClick: () => {
+                                        setEventOrdering('-last_seen_at')
+                                    },
+                                    'data-attr': 'taxonomic-event-sorting-by-recency',
+                                },
+                                {
+                                    label: (
+                                        <div className="flex flex-row gap-2">
+                                            {!eventOrdering ? <IconCheck /> : <IconBlank />}
+                                            <span>Both</span>
+                                        </div>
+                                    ),
+                                    tooltip:
+                                        'Sorts events by the day they were last seen, and then by name. The default option.',
+                                    onClick: () => {
+                                        setEventOrdering(null)
+                                    },
+                                    'data-attr': 'taxonomic-event-sorting-by-both',
+                                },
+                            ]}
+                        >
+                            <LemonButton
+                                icon={<IconSort />}
+                                size="small"
+                                tooltip={`Sorting by ${
+                                    eventOrdering === '-last_seen_at'
+                                        ? 'recently seen'
+                                        : eventOrdering === 'name'
+                                          ? 'name'
+                                          : 'recently seen and then name'
+                                }`}
+                            />
+                        </LemonMenu>
+                    </FlaggedFeature>
+                </>
+            ) : (
+                <>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</>
+            )}
+        </div>
+    )
+}
+
 export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
@@ -76,7 +158,8 @@ export function InfiniteSelectResults({
         useValues(taxonomicFilterLogic)
 
     const openTab = activeTab || taxonomicGroups[0].type
-    const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: openTab })
+    const infiniteListLogicProps = { ...taxonomicFilterLogicProps, listGroupType: openTab }
+    const logic = infiniteListLogic(infiniteListLogicProps)
 
     const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
 
@@ -91,12 +174,13 @@ export function InfiniteSelectResults({
             {...(activeTaxonomicGroup?.componentProps ?? {})}
             value={value}
             onChange={(newValue, item) => selectItem(activeTaxonomicGroup, newValue, item, items.originalQuery)}
+            infiniteListLogicProps={infiniteListLogicProps}
         />
     ) : (
         <>
             {hasMultipleGroups && (
-                <div className="taxonomic-group-title pb-2">
-                    {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
+                <div className="taxonomic-group-title">
+                    <TaxonomicGroupTitle openTab={openTab} />
                 </div>
             )}
             <InfiniteList popupAnchorElement={popupAnchorElement} />
@@ -115,7 +199,7 @@ export function InfiniteSelectResults({
             {hasMultipleGroups && (
                 <div
                     className={cn(
-                        useVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b mb-2',
+                        useVerticalLayout ? 'border-r pr-2 mr-2 flex-shrink-0' : 'border-b',
                         'border-primary'
                     )}
                 >
@@ -154,6 +238,17 @@ export function InfiniteSelectResults({
                             >
                                 {showEmptyState && <TaxonomicFilterEmptyState groupType={groupType} />}
                                 {!showEmptyState && listComponent}
+                                {!showEmptyState &&
+                                    (() => {
+                                        const currentGroup = taxonomicGroups.find((g) => g.type === groupType)
+                                        return (
+                                            currentGroup?.footerMessage && (
+                                                <div className="p-2 border-t border-border">
+                                                    {currentGroup.footerMessage}
+                                                </div>
+                                            )
+                                        )
+                                    })()}
                             </BindLogic>
                         </div>
                     )

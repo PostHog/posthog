@@ -1,10 +1,12 @@
-import { IconPencil, IconPlus } from '@posthog/icons'
-import { LemonInputSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { CSSProperties, useMemo } from 'react'
+
+import { IconPencil, IconPlus } from '@posthog/icons'
+import { LemonInputSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
 import { colorForString } from 'lib/utils'
-import { CSSProperties, useMemo } from 'react'
 
 import { AvailableFeature } from '~/types'
 
@@ -65,7 +67,7 @@ export function ObjectTags({
     /** Displaying nothing is confusing, so in case of empty static tags we use a dash as a placeholder */
     const showPlaceholder = staticOnly && !tags?.length
     if (showPlaceholder && !style.color) {
-        style.color = 'var(--text-secondary)'
+        style.color = 'var(--color-text-secondary)'
     }
 
     const onGuardClick = (callback: () => void): void => {
@@ -80,7 +82,7 @@ export function ObjectTags({
         <div
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
-            className={clsx(className, 'inline-flex flex-wrap deprecated-space-x-1 items-center')}
+            className={clsx(className, 'inline-flex flex-wrap gap-0.5 items-center')}
             data-attr={dataAttr}
         >
             {editingTags ? (

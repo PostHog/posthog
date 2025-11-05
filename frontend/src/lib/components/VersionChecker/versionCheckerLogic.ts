@@ -1,18 +1,18 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, sharedListeners } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { isNotNil } from 'lib/utils'
 import {
+    SemanticVersion,
     diffVersions,
     highestVersion,
     isEqualVersion,
     parseVersion,
-    SemanticVersion,
     tryParseVersion,
     versionToString,
 } from 'lib/utils/semver'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import type { versionCheckerLogicType } from './versionCheckerLogicType'
@@ -88,19 +88,17 @@ export const versionCheckerLogic = kea<versionCheckerLogicType>([
             null as SDKVersion[] | null,
             {
                 loadUsedVersions: async () => {
-                    const query: HogQLQuery = {
-                        kind: NodeKind.HogQLQuery,
-                        query: hogql`SELECT properties.$lib_version AS lib_version, max(timestamp) AS latest_timestamp, count(lib_version) as count
-                                FROM events
-                                WHERE timestamp >= now() - INTERVAL 1 DAY 
-                                AND timestamp <= now()
-                                AND properties.$lib = 'web'
-                                GROUP BY lib_version
-                                ORDER BY latest_timestamp DESC
-                                limit 10`,
-                    }
+                    const query = hogql`
+                        SELECT properties.$lib_version AS lib_version, max(timestamp) AS latest_timestamp, count(lib_version) as count
+                        FROM events
+                        WHERE timestamp >= now() - INTERVAL 1 DAY 
+                        AND timestamp <= now()
+                        AND properties.$lib = 'web'
+                        GROUP BY lib_version
+                        ORDER BY latest_timestamp DESC
+                        limit 10`
 
-                    const res = await api.query(query, undefined, undefined, 'force_blocking')
+                    const res = await api.queryHogQL(query, { refresh: 'force_blocking' })
 
                     return (
                         res.results

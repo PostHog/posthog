@@ -1,10 +1,12 @@
-import { IconEllipsis } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconSlack } from 'lib/lemon-ui/icons'
+
+import { IconEllipsis } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 
 import { SubscriptionType } from '~/types'

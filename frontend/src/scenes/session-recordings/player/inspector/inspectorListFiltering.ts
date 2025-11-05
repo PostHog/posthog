@@ -8,8 +8,6 @@ import {
     InspectorListItemEvent,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 
-import { FilterableInspectorListItemTypes } from '~/types'
-
 const PostHogMobileEvents = [
     'Deep Link Opened',
     'Application Opened',
@@ -28,7 +26,7 @@ function isPostHogEvent(item: InspectorListItem): boolean {
 }
 
 function isNetworkEvent(item: InspectorListItem): item is InspectorListItemPerformance {
-    return item.type === FilterableInspectorListItemTypes.NETWORK
+    return item.type === 'network'
 }
 
 function isNavigationEvent(item: InspectorListItem): boolean {
@@ -36,7 +34,7 @@ function isNavigationEvent(item: InspectorListItem): boolean {
 }
 
 function isEvent(item: InspectorListItem): item is InspectorListItemEvent {
-    return item.type === FilterableInspectorListItemTypes.EVENTS
+    return item.type === 'events'
 }
 
 function isPageviewOrScreen(item: InspectorListItem): boolean {
@@ -48,7 +46,7 @@ function isAutocapture(item: InspectorListItem): boolean {
 }
 
 function isConsoleEvent(item: InspectorListItem): item is InspectorListItemConsole {
-    return item.type === FilterableInspectorListItemTypes.CONSOLE
+    return item.type === 'console'
 }
 
 function isConsoleError(item: InspectorListItem): boolean {
@@ -68,7 +66,7 @@ function isDoctorEvent(item: InspectorListItem): item is InspectorListItemDoctor
 }
 
 function isContextItem(item: InspectorListItem): boolean {
-    return ['browser-visibility', 'offline-status', 'comment', 'inspector-summary', 'inactivity'].includes(item.type)
+    return ['browser-visibility', 'offline-status', 'inspector-summary', 'inactivity'].includes(item.type)
 }
 
 const eventsMatch = (
@@ -111,32 +109,25 @@ function networkMatch(
 ): SharedListMiniFilter | null {
     if (isNavigationEvent(item)) {
         return miniFiltersByKey['performance-document']
-    } else if (
-        item.data.entry_type === 'resource' &&
-        ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')
-    ) {
+    } else if (['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')) {
         return miniFiltersByKey['performance-fetch']
     } else if (
-        item.data.entry_type === 'resource' &&
-        (item.data.initiator_type === 'script' ||
-            (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.js')))
+        item.data.initiator_type === 'script' ||
+        (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.js'))
     ) {
         return miniFiltersByKey['performance-assets-js']
     } else if (
-        item.data.entry_type === 'resource' &&
-        (item.data.initiator_type === 'css' ||
-            (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.css')))
+        item.data.initiator_type === 'css' ||
+        (['link', 'other'].includes(item.data.initiator_type || '') && item.data.name?.includes('.css'))
     ) {
         return miniFiltersByKey['performance-assets-css']
     } else if (
-        item.data.entry_type === 'resource' &&
-        (item.data.initiator_type === 'img' ||
-            (['link', 'other'].includes(item.data.initiator_type || '') &&
-                !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))
+        item.data.initiator_type === 'img' ||
+        (['link', 'other'].includes(item.data.initiator_type || '') &&
+            !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`)))
     ) {
         return miniFiltersByKey['performance-assets-img']
     } else if (
-        item.data.entry_type === 'resource' &&
         ['other'].includes(item.data.initiator_type || '') &&
         ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`))
     ) {
@@ -150,13 +141,17 @@ export function itemToMiniFilter(
     miniFiltersByKey: { [p: MiniFilterKey]: SharedListMiniFilter }
 ): SharedListMiniFilter | null {
     switch (item.type) {
-        case FilterableInspectorListItemTypes.EVENTS:
+        case 'events':
             return eventsMatch(item, miniFiltersByKey)
-        case FilterableInspectorListItemTypes.CONSOLE:
+        case 'console':
             return consoleMatch(item, miniFiltersByKey)
-        case FilterableInspectorListItemTypes.NETWORK:
+        case 'network':
             return networkMatch(item, miniFiltersByKey)
-        case FilterableInspectorListItemTypes.DOCTOR:
+        case 'comment':
+            return item.type === 'comment' ? miniFiltersByKey['comment'] : null
+        case 'app-state':
+            return item.type === 'app-state' ? miniFiltersByKey['console-app-state'] : null
+        case 'doctor':
             if (isDoctorEvent(item)) {
                 return miniFiltersByKey['doctor']
             }

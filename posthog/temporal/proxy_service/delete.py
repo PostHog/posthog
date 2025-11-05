@@ -1,25 +1,30 @@
-import datetime as dt
 import json
-import typing as t
 import uuid
+import typing as t
+import datetime as dt
 from dataclasses import dataclass
+
+from django.db import connection
 
 import grpc.aio
 import temporalio.common
 from asgiref.sync import sync_to_async
-from django.db import connection
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.logger import bind_temporal_org_worker_logger
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.common import (
     NonRetriableException,
     UpdateProxyRecordInputs,
+    activity_update_proxy_record,
     get_grpc_client,
-    update_proxy_record,
+    use_gateway_api,
 )
 from posthog.temporal.proxy_service.proto import DeleteRequest
+
+LOGGER = get_logger(__name__)
 
 
 @dataclass
@@ -57,7 +62,9 @@ async def delete_proxy_record(inputs: DeleteProxyRecordInputs):
     """Activity that does a DNS lookup for the target subdomain and checks it has a CNAME
     record matching the expected value.
     """
-    logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+    bind_contextvars(organization_id=inputs.organization_id)
+    logger = LOGGER.bind()
+
     logger.info(
         "Deleting proxy record %s",
         inputs.proxy_record_id,
@@ -75,7 +82,8 @@ async def delete_proxy_record(inputs: DeleteProxyRecordInputs):
 @activity.defn
 async def delete_managed_proxy(inputs: DeleteManagedProxyInputs):
     """Activity that calls the proxy provisioner to delete the resources for a Hosted Proxy."""
-    logger = await bind_temporal_org_worker_logger(organization_id=inputs.organization_id)
+    bind_contextvars(organization_id=inputs.organization_id)
+    logger = LOGGER.bind()
     logger.info(
         "Deleting hosted proxy %s for domain %s",
         inputs.proxy_record_id,
@@ -84,11 +92,21 @@ async def delete_managed_proxy(inputs: DeleteManagedProxyInputs):
 
     client = await get_grpc_client()
 
+    # Use Gateway API (Envoy Gateway) for dev environment, Contour for others
+    use_gateway = use_gateway_api()
+
+    logger.info(
+        "Deleting proxy with use_gateway_api=%s for domain %s",
+        use_gateway,
+        inputs.domain,
+    )
+
     try:
         await client.Delete(
             DeleteRequest(
                 uuid=str(inputs.proxy_record_id),
                 domain=inputs.domain,
+                use_gateway_api=use_gateway,
             )
         )
     except grpc.aio.AioRpcError as e:
@@ -143,7 +161,7 @@ class DeleteManagedProxyWorkflow(PostHogWorkflow):
         except Exception:
             # Something went wrong - set the record to error state
             await temporalio.workflow.execute_activity(
-                update_proxy_record,
+                activity_update_proxy_record,
                 UpdateProxyRecordInputs(
                     organization_id=inputs.organization_id,
                     proxy_record_id=inputs.proxy_record_id,

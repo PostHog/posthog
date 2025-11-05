@@ -1,19 +1,39 @@
 import os
 
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings import TEST
+from posthog.settings.base_variables import DEBUG
+from posthog.settings.utils import get_from_env, str_to_bool
 
-AIRBYTE_API_KEY = os.getenv("AIRBYTE_API_KEY", None)
-AIRBYTE_BUCKET_REGION = os.getenv("AIRBYTE_BUCKET_REGION", None)
-AIRBYTE_BUCKET_KEY = os.getenv("AIRBYTE_BUCKET_KEY", None)
-AIRBYTE_BUCKET_SECRET = os.getenv("AIRBYTE_BUCKET_SECRET", None)
-AIRBYTE_BUCKET_DOMAIN = os.getenv("AIRBYTE_BUCKET_DOMAIN", None)
-# for DLT
-BUCKET_URL = os.getenv("BUCKET_URL", None)
-AIRBYTE_BUCKET_NAME = os.getenv("AIRBYTE_BUCKET_NAME", None)
-BUCKET = "test-pipeline"
+AIRBYTE_BUCKET_REGION = os.getenv("AIRBYTE_BUCKET_REGION", "us-east-1")
+AIRBYTE_BUCKET_KEY = os.getenv("AIRBYTE_BUCKET_KEY", "object_storage_root_user")
+AIRBYTE_BUCKET_SECRET = os.getenv("AIRBYTE_BUCKET_SECRET", "object_storage_root_password")
+AIRBYTE_BUCKET_DOMAIN = os.getenv("AIRBYTE_BUCKET_DOMAIN", "objectstorage:19000")
+
+DATAWAREHOUSE_BUCKET = os.getenv("DATAWAREHOUSE_BUCKET", "data-warehouse")
+BUCKET_URL = os.getenv("BUCKET_URL", "s3://data-warehouse")
+BUCKET_PATH = os.getenv("BUCKET_PATH", "data-warehouse")
+
+USE_LOCAL_SETUP = TEST or (DEBUG and len(os.getenv("OBJECT_STORAGE_ENDPOINT", "http://objectstorage:19000")) > 0)
 
 PYARROW_DEBUG_LOGGING = get_from_env("PYARROW_DEBUG_LOGGING", False, type_cast=str_to_bool)
 
-# Temporary, using it to maintain existing teams in old  bigquery source.
-# After further testing this will be removed and all teams moved to new source.
-OLD_BIGQUERY_SOURCE_TEAM_IDS: list[str] = get_list(os.getenv("OLD_BIGQUERY_SOURCE_TEAM_IDS", ""))
+GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_CLIENT_EMAIL")
+GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY")
+GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")
+GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI: str | None = os.getenv("GOOGLE_ADS_SERVICE_ACCOUNT_TOKEN_URI")
+
+GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL: str | None = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL")
+GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY: str | None = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY")
+GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID: str | None = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY_ID")
+GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI: str | None = os.getenv("GOOGLE_SHEETS_SERVICE_ACCOUNT_TOKEN_URI")
+
+DATA_WAREHOUSE_REDIS_HOST: str | None = os.getenv(
+    "DATA_WAREHOUSE_REDIS_HOST", os.getenv("POSTHOG_REDIS_HOST", "localhost")
+)
+DATA_WAREHOUSE_REDIS_PORT: str | None = os.getenv("DATA_WAREHOUSE_REDIS_PORT", os.getenv("POSTHOG_REDIS_PORT", "6379"))
+
+CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST")
+CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT")
+CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE")
+CLICKHOUSE_HOGQL_RDSPROXY_READ_USER: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_USER")
+CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD: str | None = os.getenv("CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD")

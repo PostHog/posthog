@@ -1,6 +1,7 @@
 from typing import Optional, Union
 
-from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -8,7 +9,8 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
-from posthog.schema import PersonsOnEventsMode
+
+from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 
 
 class GroupsJoinQuery:

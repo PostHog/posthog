@@ -1,9 +1,12 @@
 from django.db import transaction
-from ee.models.rbac.access_control import AccessControl
-from ee.models.explicit_team_membership import ExplicitTeamMembership
+
 import structlog
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
-from sentry_sdk import capture_exception
+
+from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.access_control import AccessControl
 
 logger = structlog.get_logger(__name__)
 
@@ -46,9 +49,9 @@ def rbac_team_access_control_migration(organization_id: int):
                             # Create access control for the team member
                             AccessControl.objects.create(
                                 team=team,
-                                access_level="admin"
-                                if team_membership.level == ExplicitTeamMembership.Level.ADMIN
-                                else "member",
+                                access_level=(
+                                    "admin" if team_membership.level == ExplicitTeamMembership.Level.ADMIN else "member"
+                                ),
                                 resource="project",
                                 resource_id=team.id,
                                 organization_member=team_membership.parent_membership,
@@ -67,7 +70,7 @@ def rbac_team_access_control_migration(organization_id: int):
                             logger.exception(error_message, exc_info=e)
                             capture_exception(
                                 e,
-                                extras={
+                                additional_properties={
                                     "team_id": team.id,
                                     "organization_id": organization_id,
                                     "team_membership_id": team_membership.id,
@@ -83,12 +86,12 @@ def rbac_team_access_control_migration(organization_id: int):
                 except Exception as e:
                     error_message = f"Failed to migrate team {team.id}"
                     logger.exception(error_message, exc_info=e)
-                    capture_exception(e, extras={"team_id": team.id, "organization_id": organization_id})
+                    capture_exception(e, additional_properties={"team_id": team.id, "organization_id": organization_id})
                     raise
 
         logger.info("Finished RBAC team migrations", organization_id=organization_id)
     except Exception as e:
         error_message = f"Failed to complete RBAC migration for organization {organization_id}"
         logger.exception(error_message, exc_info=e)
-        capture_exception(e, extras={"organization_id": organization_id})
+        capture_exception(e, additional_properties={"organization_id": organization_id})
         raise

@@ -1,12 +1,13 @@
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
-import uuid
 
 import structlog
+from rest_framework_dataclasses.serializers import DataclassSerializer
+
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_CDP_INTERNAL_EVENTS
-from rest_framework_dataclasses.serializers import DataclassSerializer
 
 logger = structlog.get_logger(__name__)
 

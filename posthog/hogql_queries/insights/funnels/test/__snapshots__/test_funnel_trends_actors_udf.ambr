@@ -9,8 +9,9 @@
             matching_events AS matching_events,
             actor_id AS id
      FROM
-       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_trends_v7(1, 2, 3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
+               [''] AS prop,
+               arrayJoin(aggregate_funnel_trends_v8(1, 2, 3, 1209600, 'first_touch', 'ordered', prop, events_array)) AS af_tuple,
                toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
                af_tuple.2 AS success_bool,
                af_tuple.3 AS breakdown,
@@ -53,7 +54,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_returns_recordings.1
@@ -69,7 +71,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_drop_off
@@ -82,8 +85,9 @@
             matching_events AS matching_events,
             actor_id AS id
      FROM
-       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_trends_v7(1, 3, 3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
+               [''] AS prop,
+               arrayJoin(aggregate_funnel_trends_v8(1, 3, 3, 1209600, 'first_touch', 'ordered', prop, events_array)) AS af_tuple,
                toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
                af_tuple.2 AS success_bool,
                af_tuple.3 AS breakdown,
@@ -126,7 +130,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_drop_off.1
@@ -142,7 +147,8 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_no_to_step
@@ -155,8 +161,9 @@
             matching_events AS matching_events,
             actor_id AS id
      FROM
-       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, [], arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
-               arrayJoin(aggregate_funnel_array_trends_v7(1, 3, 3, 1209600, 'first_touch', 'ordered', [[]], events_array)) AS af_tuple,
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), toUInt64(toDateTime(toStartOfDay(timestamp), 'UTC')), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1), multiply(3, step_2)])))) AS events_array,
+               [''] AS prop,
+               arrayJoin(aggregate_funnel_trends_v8(1, 3, 3, 1209600, 'first_touch', 'ordered', prop, events_array)) AS af_tuple,
                toTimeZone(toDateTime(toUInt64(af_tuple.1), 'UTC'), 'UTC') AS entrance_period_start,
                af_tuple.2 AS success_bool,
                af_tuple.3 AS breakdown,
@@ -199,7 +206,8 @@
                     max_bytes_before_external_group_by=0,
                     allow_experimental_analyzer=1,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestFunnelTrendsActorsUDF.test_funnel_trend_persons_with_no_to_step.1
@@ -215,6 +223,7 @@
                      max_expanded_ast_elements=4000000,
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
   '''
 # ---

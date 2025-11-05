@@ -1,9 +1,13 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { FilmCameraHog } from 'lib/components/hedgehogs'
 
-import { onboardingLogic, type OnboardingStepKey } from './onboardingLogic'
+import { OnboardingStepKey } from '~/types'
+
 import { OnboardingStep } from './OnboardingStep'
+import { onboardingLogic } from './onboardingLogic'
 
 export function OnboardingSessionReplayConfiguration({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element {
     const { goToNextStep, updateCurrentTeam } = useActions(onboardingLogic)

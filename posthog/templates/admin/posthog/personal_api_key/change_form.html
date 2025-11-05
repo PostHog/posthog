@@ -1,0 +1,23 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+  {{ block.super }}
+
+  <script nonce="{{ request.csp_nonce }}">
+    window.addEventListener("DOMContentLoaded", () => {
+        document.getElementById("roll_key_button")?.addEventListener("click", (event) => {
+            const url = window.prompt("Enter the URL where the key was exposed (optional). This will be included in the email sent to the user.");
+            if (url === null) {
+                // action was aborted
+                event.preventDefault();
+                return false;
+            }
+
+            const form = event.target.closest("form");
+            const urlField = form.querySelector('input[name="_roll_url"]');
+            urlField.value = url;
+        });
+    });
+  </script>
+{% endblock %}

@@ -2,19 +2,13 @@ from dataclasses import dataclass
 from functools import cache
 from typing import Optional, Union
 
+from posthog.schema import CustomChannelField, CustomChannelOperator, CustomChannelRule, DefaultChannelTypes
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
-from posthog.schema import (
-    CustomChannelRule,
-    CustomChannelOperator,
-    CustomChannelField,
-    DefaultChannelTypes,
-)
-
 
 # Create a virtual field that categories the type of channel that a user was acquired through. Use GA4's definitions as
 # a starting point, but also add some custom logic to handle some edge cases that GA4 doesn't handle.
@@ -45,9 +39,14 @@ class ChannelTypeExprs:
     gad_source: ast.Expr
 
 
-def create_initial_domain_type(name: str, timings: Optional[HogQLTimings] = None):
+def create_initial_domain_type(
+    name: str, timings: Optional[HogQLTimings] = None, properties_path: Optional[list[str]] = None
+) -> ExpressionField:
     if timings is None:
         timings = HogQLTimings()
+
+    if not properties_path:
+        properties_path = ["properties"]
 
     with timings.measure("initial_domain_type_expr"):
         expr = _initial_domain_type_expr()
@@ -58,58 +57,65 @@ def create_initial_domain_type(name: str, timings: Optional[HogQLTimings] = None
             expr,
             {
                 "referring_domain": ast.Call(
-                    name="toString", args=[ast.Field(chain=["properties", "$initial_referring_domain"])]
+                    name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])]
                 )
             },
         ),
+        isolate_scope=True,
     )
 
 
 @cache
-def _initial_domain_type_expr():
+def _initial_domain_type_expr() -> ast.Expr:
     return parse_expr(
         """
 if(
     {referring_domain} = '$direct',
     '$direct',
-    hogql_lookupDomainType({referring_domain})
+    lookupDomainType({referring_domain})
 )
 """
     )
 
 
 def create_initial_channel_type(
-    name: str, custom_rules: Optional[list[CustomChannelRule]] = None, timings: Optional[HogQLTimings] = None
-):
+    name: str,
+    custom_rules: Optional[list[CustomChannelRule]] = None,
+    timings: Optional[HogQLTimings] = None,
+    properties_path: Optional[list[str]] = None,
+) -> ExpressionField:
+    if not properties_path:
+        properties_path = ["properties"]
     return ExpressionField(
         name=name,
         expr=create_channel_type_expr(
             source_exprs=ChannelTypeExprs(
-                campaign=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_utm_campaign"])]),
-                medium=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_utm_medium"])]),
-                source=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_utm_source"])]),
+                campaign=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_campaign"])]),
+                medium=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_medium"])]),
+                source=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_source"])]),
                 referring_domain=ast.Call(
-                    name="toString", args=[ast.Field(chain=["properties", "$initial_referring_domain"])]
+                    name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])]
                 ),
-                url=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_url"])]),
+                url=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_url"])]),
                 hostname=ast.Call(
                     name="domain",
-                    args=[ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_hostname"])])],
+                    args=[ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_hostname"])])],
                 ),
-                pathname=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_pathname"])]),
+                pathname=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_pathname"])]),
                 has_gclid=ast.Call(
                     name="isNotNull",
-                    args=[wrap_with_null_if_empty(ast.Field(chain=["properties", "$initial_gclid"]))],
+                    args=[wrap_with_null_if_empty(ast.Field(chain=[*properties_path, "$initial_gclid"]))],
                 ),
                 has_fbclid=ast.Call(
                     name="isNotNull",
-                    args=[wrap_with_null_if_empty(ast.Field(chain=["properties", "$initial_fbclid"]))],
+                    args=[wrap_with_null_if_empty(ast.Field(chain=[*properties_path, "$initial_fbclid"]))],
                 ),
-                gad_source=ast.Call(name="toString", args=[ast.Field(chain=["properties", "$initial_gad_source"])]),
+                gad_source=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_gad_source"])]),
             ),
             custom_rules=custom_rules,
             timings=timings,
         ),
+        isolate_scope=True,
     )
 
 
@@ -281,14 +287,14 @@ def _initial_default_channel_rules_expr():
                 {gad_source} IS NOT NULL
             ),
             coalesce(
-                hogql_lookupPaidSourceType({source}),
+                lookupPaidSourceType({source}),
                 if(
                     match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
                     'Paid Shopping',
                     NULL
                 ),
-                hogql_lookupPaidMediumType({medium}),
-                hogql_lookupPaidSourceType({referring_domain}),
+                lookupPaidMediumType({medium}),
+                lookupPaidSourceType({referring_domain}),
                 multiIf (
                     {gad_source} = '1',
                     'Paid Search',
@@ -312,14 +318,14 @@ def _initial_default_channel_rules_expr():
             'Direct',
 
             coalesce(
-                hogql_lookupOrganicSourceType({source}),
+                lookupOrganicSourceType({source}),
                 if(
                     match({campaign}, '^(.*(([^a-df-z]|^)shop|shopping).*)$'),
                     'Organic Shopping',
                     NULL
                 ),
-                hogql_lookupOrganicMediumType({medium}),
-                hogql_lookupOrganicSourceType({referring_domain}),
+                lookupOrganicMediumType({medium}),
+                lookupOrganicSourceType({referring_domain}),
                 multiIf(
                     match({campaign}, '^(.*video.*)$'),
                     'Organic Video',

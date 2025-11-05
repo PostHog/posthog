@@ -1,16 +1,14 @@
 from django.utils import timezone
+
 from loginas.utils import is_impersonated_session
 from rest_framework import serializers
 
-from ee.models.property_definition import EnterprisePropertyDefinition
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.models import PropertyDefinition
-from posthog.models.activity_logging.activity_log import (
-    Detail,
-    dict_changes_between,
-    log_activity,
-)
+from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
+
+from ee.models.property_definition import EnterprisePropertyDefinition
 
 
 class EnterprisePropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):

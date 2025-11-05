@@ -1,6 +1,7 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -9,8 +10,8 @@ import { membershipLevelToName } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { OrganizationMemberType } from '~/types'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { OrganizationMemberScopedApiKeysResponse, OrganizationMemberType } from '~/types'
 
 import type { membersLogicType } from './membersLogicType'
 
@@ -27,6 +28,7 @@ export const membersLogic = kea<membersLogicType>([
         ensureAllMembersLoaded: true,
         loadAllMembers: true,
         loadMemberUpdates: true,
+        loadMemberScopedApiKeys: (member: OrganizationMemberType) => ({ member }),
         setSearch: (search) => ({ search }),
         changeMemberAccessLevel: (member: OrganizationMemberType, level: OrganizationMembershipLevel) => ({
             member,
@@ -101,6 +103,17 @@ export const membersLogic = kea<membersLogicType>([
                 return updatedMembers
             },
         },
+        scopedApiKeys: {
+            __default: null as OrganizationMemberScopedApiKeysResponse | null,
+            loadMemberScopedApiKeys: async ({ member }: { member: OrganizationMemberType }) => {
+                try {
+                    const res = await api.organizationMembers.scopedApiKeys.list(member.user.uuid)
+                    return res
+                } catch {
+                    return null
+                }
+            },
+        },
     })),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
@@ -139,7 +152,7 @@ export const membersLogic = kea<membersLogicType>([
         filteredMembers: [
             (s) => [s.meFirstMembers, s.membersFuse, s.search],
             (members, membersFuse, search): OrganizationMemberType[] =>
-                search ? membersFuse.search(search).map((result) => result.item) : members ?? [],
+                search ? membersFuse.search(search).map((result) => result.item) : (members ?? []),
         ],
         memberCount: [
             (s) => [s.user, s.sortedMembers],

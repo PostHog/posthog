@@ -1,0 +1,15 @@
+let a := [3,4,5]
+let b := (3,4,5)
+let c := {'key': 'value', 'other': 'val'}
+
+print('>> A')
+print(keys(a))
+print(values(a))
+
+print('>> B')
+print(keys(b))
+print(values(b))
+
+print('>> C')
+print(keys(c))
+print(values(c))

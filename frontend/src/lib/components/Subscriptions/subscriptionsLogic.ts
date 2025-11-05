@@ -1,5 +1,6 @@
-import { actions, afterMount, BreakPointFunction, kea, key, listeners, path, props, reducers } from 'kea'
+import { BreakPointFunction, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightId } from 'scenes/insights/utils'

@@ -52,3 +52,13 @@ Persons.args = { query: examples['Persons'] }
 
 export const PersonsTable: Story = QueryTemplate.bind({})
 PersonsTable.args = { query: examples['PersonsTable'] }
+
+export const PinnedColumnsAtTheBeginning: Story = QueryTemplate.bind({})
+PinnedColumnsAtTheBeginning.args = {
+    query: examples['PinnedColumnsAtTheBeginning'],
+}
+
+export const PinnedColumnsInTheMiddle: Story = QueryTemplate.bind({})
+PinnedColumnsInTheMiddle.args = {
+    query: examples['PinnedColumnsInTheMiddle'],
+}

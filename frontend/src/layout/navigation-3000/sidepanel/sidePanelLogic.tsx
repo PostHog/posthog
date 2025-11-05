@@ -1,25 +1,39 @@
 import { connect, kea, path, selectors } from 'kea'
+import { combineUrl, router, urlToAction } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { AvailableFeature, SidePanelTab } from '~/types'
 
-import { sidePanelActivityLogic } from './panels/activity/sidePanelActivityLogic'
 import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
+import { sidePanelSdkDoctorLogic } from './panels/sidePanelSdkDoctorLogic'
 import { sidePanelStatusLogic } from './panels/sidePanelStatusLogic'
 import type { sidePanelLogicType } from './sidePanelLogicType'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const ALWAYS_EXTRA_TABS = [
     SidePanelTab.Settings,
-    SidePanelTab.FeaturePreviews,
     SidePanelTab.Activity,
     SidePanelTab.Status,
+    SidePanelTab.Exports,
+    SidePanelTab.SdkDoctor,
+]
+
+const TABS_REQUIRING_A_TEAM = [
+    SidePanelTab.Max,
+    SidePanelTab.Notebooks,
+    SidePanelTab.Activity,
+    SidePanelTab.Activation,
+    SidePanelTab.Discussion,
+    SidePanelTab.AccessControl,
     SidePanelTab.Exports,
 ]
 
@@ -36,10 +50,12 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
             // We need to mount this to ensure that marking as read works when the panel closes
-            sidePanelActivityLogic,
+            sidePanelNotificationsLogic,
             ['unreadCount'],
             sidePanelStatusLogic,
             ['status'],
+            sidePanelSdkDoctorLogic,
+            ['needsAttention'],
             userLogic,
             ['hasAvailableFeature'],
             sidePanelContextLogic,
@@ -52,11 +68,19 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
     selectors({
         enabledTabs: [
-            (s) => [s.isCloudOrDev, s.featureFlags, s.sceneSidePanelContext, s.currentTeam],
-            (isCloudOrDev, featureflags, sceneSidePanelContext, currentTeam) => {
+            (s) => [
+                s.selectedTab,
+                s.sidePanelOpen,
+                s.isCloudOrDev,
+                s.featureFlags,
+                s.sceneSidePanelContext,
+                s.currentTeam,
+            ],
+            (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
-                if (featureflags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
+                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (sidePanelOpen && selectedTab === SidePanelTab.Max)) {
+                    // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
                     tabs.push(SidePanelTab.Max)
                 }
                 tabs.push(SidePanelTab.Notebooks)
@@ -74,25 +98,25 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
                 }
 
-                if (featureflags[FEATURE_FLAGS.DISCUSSIONS]) {
-                    tabs.push(SidePanelTab.Discussion)
-                }
+                tabs.push(SidePanelTab.Discussion)
 
-                if (
-                    featureflags[FEATURE_FLAGS.ROLE_BASED_ACCESS_CONTROL] &&
-                    sceneSidePanelContext.access_control_resource &&
-                    sceneSidePanelContext.access_control_resource_id
-                ) {
+                if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
                     tabs.push(SidePanelTab.AccessControl)
                 }
                 tabs.push(SidePanelTab.Exports)
-                tabs.push(SidePanelTab.FeaturePreviews)
                 tabs.push(SidePanelTab.Settings)
+
+                if (featureFlags[FEATURE_FLAGS.SDK_DOCTOR_BETA]) {
+                    tabs.push(SidePanelTab.SdkDoctor)
+                }
 
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Status)
                 }
 
+                if (!currentTeam) {
+                    return tabs.filter((tab) => !TABS_REQUIRING_A_TEAM.includes(tab))
+                }
                 return tabs
             },
         ],
@@ -104,6 +128,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.sidePanelOpen,
                 s.unreadCount,
                 s.status,
+                s.needsAttention,
                 s.hasAvailableFeature,
                 s.shouldShowActivationTab,
             ],
@@ -113,6 +138,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 sidePanelOpen,
                 unreadCount,
                 status,
+                needsAttention,
                 hasAvailableFeature,
                 shouldShowActivationTab
             ): SidePanelTab[] => {
@@ -130,6 +156,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     }
 
                     if (tab === SidePanelTab.Status && status !== 'operational') {
+                        return true
+                    }
+
+                    if (tab === SidePanelTab.SdkDoctor && needsAttention) {
                         return true
                     }
 
@@ -153,5 +183,25 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 return enabledTabs.filter((tab: any) => !visibleTabs.includes(tab))
             },
         ],
+    }),
+    urlToAction(() => {
+        return {
+            '/': (_, _searchParams, hashParams): void => {
+                // Redirect old feature preview side panel links to new settings page
+                if (hashParams.panel?.startsWith('feature-previews')) {
+                    // it will be encoded as %3A, so we need to split on :
+                    const parts = hashParams.panel.split(':')
+                    // from: ${url}/#panel=feature-previews
+                    // to:   ${url}/settings/user-feature-previews
+                    if (parts.length > 1) {
+                        // from: ${url}/#panel=feature-previews%3A${flagKey} or ${url}/#panel=feature-previews:${flagKey}
+                        // to:   ${url}/settings/user-feature-previews#${flagKey}
+                        router.actions.replace(combineUrl(urls.settings('user-feature-previews'), {}, parts[1]).url)
+                    } else {
+                        router.actions.replace(urls.settings('user-feature-previews'))
+                    }
+                }
+            },
+        }
     }),
 ])

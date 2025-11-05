@@ -1,5 +1,6 @@
-import { LegacyTransformationPlugin } from '../../types'
 import { processEvent } from '.'
+
+import { LegacyTransformationPlugin } from '../../types'
 
 // NOTE: This is a deprecated plugin and should never be shown to new users
 
@@ -15,7 +16,8 @@ export const flattenPropertiesPlugin: LegacyTransformationPlugin = {
             'This plugin will flatten all nested properties into a single property. You will not be billed for any events that this plugin drops.',
         icon_url: 'https://raw.githubusercontent.com/posthog/flatten-properties-plugin/main/logo.png',
         category: ['Custom'],
-        hog: `return event`,
+        code_language: 'javascript',
+        code: `return event`,
         inputs_schema: [
             {
                 key: 'separator',

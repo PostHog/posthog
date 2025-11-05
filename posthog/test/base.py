@@ -1,39 +1,78 @@
-import inspect
 import re
-import resource
-import threading
 import time
 import uuid
-import unittest
-from collections.abc import Callable, Generator, Iterator
-from contextlib import contextmanager
-from functools import wraps
+import inspect
 import datetime as dt
+import resource
+import threading
+from collections.abc import Callable, Generator, Iterator
+from contextlib import ExitStack, contextmanager
+from functools import wraps
 from typing import Any, Optional, Union
+
+import pytest
+import unittest
+import freezegun
 from unittest.mock import patch
 
-import freezegun
-
-# we have to import pendulum for the side effect of importing it
-# freezegun.FakeDateTime and pendulum don't play nicely otherwise
-import pendulum  # noqa F401
-import pytest
-import sqlparse
 from django.apps import apps
 from django.core.cache import cache
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
+
+# we have to import pendulum for the side effect of importing it
+# freezegun.FakeDateTime and pendulum don't play nicely otherwise
+import pendulum  # noqa F401
+import sqlparse
 from rest_framework.test import APITestCase as DRFTestCase
+from syrupy.extensions.amber import AmberSnapshotExtension
+
+from posthog.hogql import (
+    ast,
+    query as hogql_query_module,
+)
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.visitor import clone_expr
 
 from posthog import rate_limit, redis
+from posthog.clickhouse.adhoc_events_deletion import (
+    ADHOC_EVENTS_DELETION_TABLE_SQL,
+    DROP_ADHOC_EVENTS_DELETION_TABLE_SQL,
+)
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.custom_metrics import (
+    CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+    CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
+    CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW,
+    CUSTOM_METRICS_REPLICATION_QUEUE_VIEW,
+    CUSTOM_METRICS_TEST_VIEW,
+    CUSTOM_METRICS_VIEW,
+    TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+)
 from posthog.clickhouse.materialized_columns import MaterializedColumn
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
+from posthog.clickhouse.query_log_archive import (
+    QUERY_LOG_ARCHIVE_DATA_TABLE,
+    QUERY_LOG_ARCHIVE_MV,
+    QUERY_LOG_ARCHIVE_NEW_MV_SQL,
+    QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
+)
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.helpers.two_factor_session import email_mfa_token_generator
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
+from posthog.models.behavioral_cohorts.sql import (
+    BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
+    BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL,
+    BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
+    DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL,
+    DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL,
+    DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL,
+)
 from posthog.models.channel_type.sql import (
     CHANNEL_DEFINITION_DATA_SQL,
     CHANNEL_DEFINITION_DICTIONARY_SQL,
@@ -44,11 +83,19 @@ from posthog.models.channel_type.sql import (
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_TABLE_SQL,
-    DROP_EVENTS_TABLE_SQL,
     DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
+    DROP_EVENTS_TABLE_SQL,
     EVENTS_TABLE_SQL,
+    TRUNCATE_EVENTS_RECENT_TABLE_SQL,
 )
 from posthog.models.event.util import bulk_create_events
+from posthog.models.exchange_rate.sql import (
+    DROP_EXCHANGE_RATE_DICTIONARY_SQL,
+    DROP_EXCHANGE_RATE_TABLE_SQL,
+    EXCHANGE_RATE_DATA_BACKFILL_SQL,
+    EXCHANGE_RATE_DICTIONARY_SQL,
+    EXCHANGE_RATE_TABLE_SQL,
+)
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
@@ -57,12 +104,39 @@ from posthog.models.person.sql import (
     DROP_PERSON_TABLE_SQL,
     PERSONS_TABLE_SQL,
     TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
+    TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
     TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
-    TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
 )
 from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.project import Project
+from posthog.models.property_definition import DROP_PROPERTY_DEFINITIONS_TABLE_SQL, PROPERTY_DEFINITIONS_TABLE_SQL
+from posthog.models.raw_sessions.sessions_v2 import (
+    DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
+    DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL,
+    DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
+    DROP_RAW_SESSION_SHARDED_TABLE_SQL,
+    DROP_RAW_SESSION_VIEW_SQL,
+    DROP_RAW_SESSION_WRITABLE_TABLE_SQL,
+    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
+    RAW_SESSIONS_TABLE_MV_SQL,
+    RAW_SESSIONS_TABLE_SQL,
+    WRITABLE_RAW_SESSIONS_TABLE_SQL,
+)
+from posthog.models.raw_sessions.sessions_v3 import (
+    DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3,
+    DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3,
+    DROP_RAW_SESSION_MATERIALIZED_VIEW_RECORDINGS_SQL_V3,
+    DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3,
+    DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3,
+    DROP_RAW_SESSION_VIEW_SQL_V3,
+    DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3,
+    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3,
+    RAW_SESSIONS_TABLE_MV_RECORDINGS_SQL_V3,
+    RAW_SESSIONS_TABLE_MV_SQL_V3,
+    SHARDED_RAW_SESSIONS_TABLE_SQL_V3,
+    WRITABLE_RAW_SESSIONS_TABLE_SQL_V3,
+)
 from posthog.models.sessions.sql import (
     DISTRIBUTED_SESSIONS_TABLE_SQL,
     DROP_SESSION_MATERIALIZED_VIEW_SQL,
@@ -72,21 +146,29 @@ from posthog.models.sessions.sql import (
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
 )
-from posthog.models.exchange_rate.sql import (
-    EXCHANGE_RATE_DICTIONARY_SQL,
-    EXCHANGE_RATE_TABLE_SQL,
-    DROP_EXCHANGE_RATE_TABLE_SQL,
-    DROP_EXCHANGE_RATE_DICTIONARY_SQL,
-    EXCHANGE_RATE_DATA_BACKFILL_SQL,
+from posthog.models.web_preaggregated.sql import (
+    DROP_WEB_BOUNCES_DAILY_SQL,
+    DROP_WEB_BOUNCES_HOURLY_SQL,
+    DROP_WEB_BOUNCES_SQL,
+    DROP_WEB_BOUNCES_STAGING_SQL,
+    DROP_WEB_STATS_DAILY_SQL,
+    DROP_WEB_STATS_HOURLY_SQL,
+    DROP_WEB_STATS_SQL,
+    DROP_WEB_STATS_STAGING_SQL,
+    WEB_BOUNCES_DAILY_SQL,
+    WEB_BOUNCES_HOURLY_SQL,
+    WEB_BOUNCES_SQL,
+    WEB_STATS_COMBINED_VIEW_SQL,
+    WEB_STATS_DAILY_SQL,
+    WEB_STATS_HOURLY_SQL,
+    WEB_STATS_SQL,
 )
-from posthog.models.raw_sessions.sql import (
-    DISTRIBUTED_RAW_SESSIONS_TABLE_SQL,
-    DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
-    DROP_RAW_SESSION_TABLE_SQL,
-    DROP_RAW_SESSION_VIEW_SQL,
-    RAW_SESSIONS_TABLE_MV_SQL,
-    RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
-    RAW_SESSIONS_TABLE_SQL,
+from posthog.models.web_preaggregated.team_selection import (
+    DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
+    DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL,
+    WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL,
 )
 from posthog.session_recordings.sql.session_recording_event_sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -97,11 +179,6 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL,
     DROP_SESSION_REPLAY_EVENTS_TABLE_SQL,
     SESSION_REPLAY_EVENTS_TABLE_SQL,
-)
-from posthog.session_recordings.sql.session_replay_event_v2_test_sql import (
-    SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL,
-    DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL,
-    SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL,
 )
 from posthog.test.assert_faster_than import assert_faster_than
 
@@ -122,12 +199,12 @@ def clean_varying_query_parts(query, replace_all_numbers):
     # :TRICKY: team_id changes every test, avoid it messing with snapshots.
     if replace_all_numbers:
         query = re.sub(r"(\"?) = \d+", r"\1 = 99999", query)
-        query = re.sub(r"(\"?) IN \(\d+(, ?\d+)*\)", r"\1 IN (1, 2, 3, 4, 5 /* ... */)", query)
-        query = re.sub(r"(\"?) IN \[\d+(, ?\d+)*\]", r"\1 IN [1, 2, 3, 4, 5 /* ... */]", query)
+        query = re.sub(r"(\"?) (in|IN) \(\d+(, ?\d+)*\)", r"\1 \2 (1, 2, 3, 4, 5 /* ... */)", query)
+        query = re.sub(r"(\"?) (in|IN) \[\d+(, ?\d+)*\]", r"\1 \2 [1, 2, 3, 4, 5 /* ... */]", query)
         # replace "uuid" IN ('00000000-0000-4000-8000-000000000001'::uuid) effectively:
         query = re.sub(
-            r"\"uuid\" IN \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
-            r""""uuid" IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
+            r"\"uuid\" (in|IN) \('[0-9a-f-]{36}'(::uuid)?(, '[0-9a-f-]{36}'(::uuid)?)*\)",
+            r""""uuid" \1 ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid /* ... */)\n""",
             query,
         )
         query = re.sub(r"'[0-9a-f]{32}'::uuid", r"'00000000000000000000000000000000'::uuid", query)
@@ -140,27 +217,30 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query = re.sub(
             r".\"ref\" = '([0-9a-f]{32}|[0-9a-f-]{36}|[0-9]+|[A-Za-z0-9\_\-]+)'", """."ref" = '0001'""", query
         )
-
     else:
         query = re.sub(r"(team|project|cohort)_id(\"?) = \d+", r"\1_id\2 = 99999", query)
         query = re.sub(
-            r"(team|project|cohort)_id(\"?) IN \(\d+(, ?\d+)*\)", r"\1_id\2 IN (1, 2, 3, 4, 5 /* ... */)", query
+            r"(team|project|cohort)_id(\"?) (in|IN) \(\d+(, ?\d+)*\)", r"\1_id\2 \3 (1, 2, 3, 4, 5 /* ... */)", query
         )
         query = re.sub(
-            r"(team|project|cohort)_id(\"?) IN \[\d+(, ?\d+)*\]", r"\1_id\2 IN [1, 2, 3, 4, 5 /* ... */]", query
+            r"(team|project|cohort)_id(\"?) (in|IN) \[\d+(, ?\d+)*\]", r"\1_id\2 \3 [1, 2, 3, 4, 5 /* ... */]", query
         )
-        query = re.sub(r"\d+ as (team|project|cohort)_id(\"?)", r"99999 as \1_id\2", query)
+        query = re.sub(r"\d+ (as|AS) (team|project|cohort)_id(\"?)", r"99999 \1 \2_id\3", query)
+
     # feature flag conditions use primary keys as columns in queries, so replace those always
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
+
     # replace django cursors
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
+
     # hog ql checks some ids differently
     query = re.sub(
         r"equals\(([^.]+\.)?((team|project|cohort)_id)?, \d+\)",
         r"equals(\1\2, 99999)",
         query,
     )
+
     # replace survey uuids
     # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
     query = re.sub(
@@ -168,12 +248,14 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"survey_id in ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
         query,
     )
+
     # replace arrays like "survey_id in ['017e12ef-9c00-0000-59bf-43ddb0bddea6', '017e12ef-9c00-0001-6df6-2cf1f217757f']"
     query = re.sub(
         r"\"posthog_survey_actions\"\.\"survey_id\" IN \('[^']+'::uuid(, '[^']+'::uuid)*\)",
         r"'posthog_survey_actions'.'survey_id' IN ('00000000-0000-0000-0000-000000000000'::uuid, '00000000-0000-0000-0000-000000000001'::uuid, /* ... */])",
         query,
     )
+
     # replace session uuids
     # replace arrays like "in(s.session_id, ['ea376ce0-d365-4c75-8015-0407e71a1a28'])"
     query = re.sub(
@@ -181,6 +263,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"in(s.session_id, ['00000000-0000-0000-0000-000000000000', '00000000-0000-0000-0000-000000000001' /* ... */]",
         query,
     )
+
     #### Cohort replacements
     # replace cohort id lists in queries too
     query = re.sub(
@@ -215,20 +298,23 @@ def clean_varying_query_parts(query, replace_all_numbers):
             r"toDateTime64('explicit_redacted_timestamp', 6, '\1')",
             query,
         )
+
     # replace cohort generated conditions
     query = re.sub(
         r"_condition_\d+_level",
         r"_condition_X_level",
         query,
     )
+
     # replace cohort tuples
     # like (tuple(cohortpeople.cohort_id, cohortpeople.version), [(35, 0)])
     query = re.sub(
-        r"\(tuple\((.*)\.cohort_id, (.*)\.version\), \[\(\d+, \d+\)\]\)",
+        r"\(tuple\((.*)\.cohort_id, (.*)\.version\), \[(\(\d+, \d+\)(?:, \(\d+, \d+\))*)\]\)",
         r"(tuple(\1.cohort_id, \2.version), [(99999, 0)])",
         query,
     )
     #### Cohort replacements end
+
     # Replace organization_id and notebook_id lookups, for postgres
     query = re.sub(
         rf"""("organization_id"|"posthog_organization"\."id"|"posthog_notebook"."id") = '[^']+'::uuid""",
@@ -240,12 +326,14 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"""\1 IN ('00000000-0000-0000-0000-000000000000'::uuid)""",
         query,
     )
+
     # Replace notebook short_id lookups, for postgres
     query = re.sub(
         r"\"posthog_notebook\".\"short_id\" = '[a-zA-Z0-9]{8}'",
         '"posthog_notebook"."short_id" = \'00000000\'',
         query,
     )
+
     # Replace person id (when querying session recording replay events)
     query = re.sub(
         "and person_id = '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}'",
@@ -253,6 +341,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
         flags=re.IGNORECASE,
     )
+
     # HogQL person id in session recording queries
     # ifNull(equals(s__pdi.person_id, '0176be33-0398-0091-ec89-570d7768f2f4'), 0))
     # ifNull(equals(person_distinct_ids__person.id, '0176be33-0398-000c-0772-f78c97593bdd'), 0))))
@@ -262,6 +351,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"equals(\1person_id, '00000000-0000-0000-0000-000000000000')",
         query,
     )
+
     # equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), '0176be33-0398-0090-a0e7-7cd9139f8089')
     query = re.sub(
         r"events__override.person_id, events.person_id\), '[0-9a-f-]{36}'\)",
@@ -274,6 +364,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
         flags=re.IGNORECASE,
     )
+
     # Replace tag id lookups for postgres
     query = re.sub(
         rf"""("posthog_tag"\."id") IN \(('[^']+'::uuid)+(, ('[^']+'::uuid)+)*\)""",
@@ -290,6 +381,7 @@ def clean_varying_query_parts(query, replace_all_numbers):
         r"""user_id:0""",
         query,
     )
+
     # ee license check has varying datetime
     # e.g. WHERE "ee_license"."valid_until" >= '2023-03-02T21:13:59.298031+00:00'::timestamptz
     query = re.sub(
@@ -297,14 +389,17 @@ def clean_varying_query_parts(query, replace_all_numbers):
         '"ee_license"."valid_until">=\'LICENSE-TIMESTAMP\'::timestamptz"',
         query,
     )
+
     # insight cache key varies with team id
     query = re.sub(
         r"WHERE \(\"posthog_insightcachingstate\".\"cache_key\" = 'cache_\w{32}'",
         """WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_THE_CACHE_KEY'""",
         query,
     )
+
     # replace Savepoint numbers
     query = re.sub(r"SAVEPOINT \".+\"", "SAVEPOINT _snapshot_", query)
+
     # test_formula has some values that change on every run
     query = re.sub(
         r"\SELECT \[\d+, \d+] as breakdown_value",
@@ -325,17 +420,50 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
+    # project tree and file system related replacements
+    query = re.sub(
+        r"\"href\" = '[^']+'",
+        "\"href\" = '__skipped__'",
+        query,
+    )
+
+    # replace cohort calculation IDs in SQL comments and query content
+    query = re.sub(
+        r"/\* cohort_calculation:cohort_calc:[0-9a-f]+ \*/",
+        r"/* cohort_calculation:cohort_calc:00000000 */",
+        query,
+    )
+    query = re.sub(
+        r"cohort_calc:[0-9a-f]+",
+        r"cohort_calc:00000000",
+        query,
+    )
+
+    # Replace dynamic event_date and event_time filters in query_log_archive queries
+    query = re.sub(
+        rf"event_date >= '({days_to_sub})'",
+        r"event_date >= 'today'",
+        query,
+    )
+    query = re.sub(
+        rf"event_time >= '({days_to_sub}) \d\d:\d\d:\d\d'",
+        r"event_time >= 'today 00:00:00'",
+        query,
+    )
+
     return query
 
 
-def _setup_test_data(klass):
-    klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
-    klass.project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=klass.organization)
-    klass.team = Team.objects.create(
-        id=klass.project.id,
-        project=klass.project,
-        organization=klass.organization,
-        api_token=klass.CONFIG_API_TOKEN,
+def setup_test_organization_team_and_user(
+    organization_name: str, team_api_token: str, user_email: str | None = None, user_password: str | None = None
+) -> tuple[Organization, Project, Team, User | None, OrganizationMembership | None]:
+    organization = Organization.objects.create(name=organization_name)
+    project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
+    team = Team.objects.create(
+        id=project.id,
+        project=project,
+        organization=organization,
+        api_token=team_api_token or str(uuid.uuid4()),
         test_account_filters=[
             {
                 "key": "email",
@@ -346,9 +474,27 @@ def _setup_test_data(klass):
         ],
         has_completed_onboarding_for={"product_analytics": True},
     )
-    if klass.CONFIG_EMAIL:
-        klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
-        klass.organization_membership = klass.user.organization_memberships.get()
+    if user_email and user_password:
+        user = User.objects.create_and_join(organization, user_email, user_password)
+        organization_membership = user.organization_memberships.get()
+    else:
+        user = None
+        organization_membership = None
+    return organization, project, team, user, organization_membership
+
+
+def _setup_test_data(klass):
+    organization, project, team, user, organization_membership = setup_test_organization_team_and_user(
+        organization_name=klass.CONFIG_ORGANIZATION_NAME,
+        team_api_token=klass.CONFIG_API_TOKEN,
+        user_email=klass.CONFIG_EMAIL,
+        user_password=klass.CONFIG_PASSWORD,
+    )
+    klass.organization = organization
+    klass.project = project
+    klass.team = team
+    klass.user = user
+    klass.organization_membership = organization_membership
 
 
 class FuzzyInt(int):
@@ -506,17 +652,14 @@ class PostHogTestCase(SimpleTestCase):
 
     @contextmanager
     def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None, None, None]:
-        for _ in range(max_retries):
+        for attempt in range(max_retries):
             try:
-                yield
-                break  # If the assertion passed, break the loop
+                yield  # Only yield once per context manager instance
+                return  # If we get here, the assertions passed
             except AssertionError:
-                time.sleep(delay)  # If the assertion failed, wait before retrying
-        else:
-            # If we've exhausted all retries and the test is still failing, fail the test
-            # we want to raise the test assertion not some generic error, so run the assertion
-            # one last time
-            yield
+                if attempt == max_retries - 1:
+                    raise  # On last attempt, re-raise the assertion error
+                time.sleep(delay)  # Otherwise, wait before retrying
 
 
 class MemoryLeakTestMixin:
@@ -550,7 +693,7 @@ class MemoryLeakTestMixin:
         self.assertLessEqual(
             avg_memory_increase_factor,
             self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT,
-            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT*100:.2f}% limit of incremental memory per parse",
+            f"Possible memory leak - exceeded {self.MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT * 100:.2f}% limit of incremental memory per parse",
         )
 
 
@@ -574,6 +717,15 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
     @classmethod
     def setUpClass(cls):
         cls.setUpTestData()
+
+    def _fixture_teardown(self):
+        # Override to use CASCADE when truncating tables.
+        # Required when models are moved between Django apps, as PostgreSQL
+        # needs CASCADE to handle FK constraints across app boundaries.
+        from django.core.management import call_command
+
+        for db_name in self._databases_names(include_mirrors=False):
+            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
@@ -608,6 +760,16 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
         user = User.objects.create_user(email="testuser@example.com", first_name="Test", password="password")
         organization.members.add(user)
         return user
+
+    def complete_email_mfa(self, email: str, user: Optional[Any] = None):
+        if user is None:
+            user = User.objects.get(email=email)
+
+        token = email_mfa_token_generator.make_token(user)
+
+        response = self.client.post("/api/login/email-mfa/", {"email": email, "token": token})
+
+        return response
 
     def assertEntityResponseEqual(self, response1, response2, remove=("action", "label", "persons_urls", "filter")):
         stripped_response1 = stripResponse(response1, remove=remove)
@@ -747,10 +909,21 @@ class QueryMatchingTest:
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
         query = clean_varying_query_parts(query, replace_all_numbers)
 
-        assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
+        try:
+            assert sqlparse.format(query, reindent=True) == self.snapshot
+        except AssertionError:
+            diff_lines = "\n".join(self.snapshot.get_assert_diff())
+            error_message = f"Query does not match snapshot. Update snapshots with --snapshot-update.\n\n{diff_lines}"
+            raise AssertionError(error_message)
+
         if params is not None:
             del params["team_id"]  # Changes every run
-            assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
+            try:
+                assert params == self.snapshot
+            except AssertionError:
+                params_diff_lines = "\n".join(self.snapshot.get_assert_diff())
+                params_error_message = f"Query parameters do not match snapshot. Update snapshots with --snapshot-update.\n\n{params_diff_lines}"
+                raise AssertionError(params_error_message)
 
 
 @contextmanager
@@ -833,11 +1006,14 @@ def snapshot_postgres_queries(fn):
 class BaseTestMigrations(QueryMatchingTest):
     @property
     def app(self) -> str:
-        return apps.get_containing_app_config(type(self).__module__).name
+        _app = apps.get_containing_app_config(type(self).__module__)
+        if not _app:
+            raise ValueError(f"Failed to retrieve app from module: {type(self).__module__}")
+        return _app.label
 
     migrate_from: str
     migrate_to: str
-    apps = None
+    apps: Optional[any] = None
     assert_snapshots = False
 
     def setUp(self):
@@ -1003,7 +1179,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
         return value
 
     def capture_select_queries(self):
-        return self.capture_queries_startswith(("SELECT", "WITH", "select", "with"))
+        return self.capture_queries(lambda x: re.match(r"[\s(]*(SELECT|WITH)", x, re.I) is not None)
 
     def capture_queries_startswith(self, query_prefixes: Union[str, tuple[str, ...]]):
         return self.capture_queries(lambda x: x.startswith(query_prefixes))
@@ -1029,8 +1205,17 @@ def failhard_threadhook_context():
     """
 
     def raise_hook(args: threading.ExceptHookArgs):
-        if args.exc_value is not None:
-            raise args.exc_type(args.exc_value)
+        """Capture exceptions from threads and raise them as AssertionError"""
+        exc = args.exc_value
+        if exc is None:
+            return
+
+        # Filter out expected Kafka table errors during test setup
+        if hasattr(exc, "code") and exc.code == 60 and "kafka_" in str(exc) and "posthog_test" in str(exc):
+            return  # Silently ignore expected Kafka table errors
+
+        # For other exceptions, raise as AssertionError to fail tests
+        raise AssertionError from exc  # Must be an AssertionError to fail tests
 
     old_hook, threading.excepthook = threading.excepthook, raise_hook
     try:
@@ -1060,32 +1245,56 @@ def reset_clickhouse_database() -> None:
     run_clickhouse_statement_in_parallel(
         [
             DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
+            DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3(),
+            DROP_RAW_SESSION_MATERIALIZED_VIEW_RECORDINGS_SQL_V3(),
             DROP_RAW_SESSION_VIEW_SQL(),
+            DROP_RAW_SESSION_VIEW_SQL_V3(),
             DROP_SESSION_MATERIALIZED_VIEW_SQL(),
             DROP_SESSION_VIEW_SQL(),
             DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
             DROP_EXCHANGE_RATE_DICTIONARY_SQL(),
+            DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
+            DROP_ADHOC_EVENTS_DELETION_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
         [
             DROP_CHANNEL_DEFINITION_TABLE_SQL,
             DROP_EXCHANGE_RATE_TABLE_SQL(),
+            DROP_WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
             DROP_DISTRIBUTED_EVENTS_TABLE_SQL,
             DROP_EVENTS_TABLE_SQL(),
             DROP_PERSON_TABLE_SQL,
-            DROP_RAW_SESSION_TABLE_SQL(),
+            DROP_PROPERTY_DEFINITIONS_TABLE_SQL(),
+            DROP_RAW_SESSION_SHARDED_TABLE_SQL(),
+            DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3(),
+            DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL(),
+            DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3(),
+            DROP_RAW_SESSION_WRITABLE_TABLE_SQL(),
+            DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3(),
             DROP_SESSION_RECORDING_EVENTS_TABLE_SQL(),
             DROP_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            DROP_SESSION_REPLAY_EVENTS_V2_TEST_TABLE_SQL(),
             DROP_SESSION_TABLE_SQL(),
+            DROP_WEB_STATS_SQL(),
+            DROP_WEB_BOUNCES_SQL(),
+            DROP_WEB_STATS_DAILY_SQL(),
+            DROP_WEB_BOUNCES_DAILY_SQL(),
+            DROP_WEB_STATS_HOURLY_SQL(),
+            DROP_WEB_BOUNCES_HOURLY_SQL(),
+            DROP_WEB_STATS_STAGING_SQL(),
+            DROP_WEB_BOUNCES_STAGING_SQL(),
+            DROP_BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL(),
+            DROP_BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(),
+            DROP_BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(),
             TRUNCATE_COHORTPEOPLE_TABLE_SQL,
+            TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
             TRUNCATE_GROUPS_TABLE_SQL,
             TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
-            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL,
+            TRUNCATE_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(),
             TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
-            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
+            TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
             TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
+            TRUNCATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1094,11 +1303,25 @@ def reset_clickhouse_database() -> None:
             EXCHANGE_RATE_TABLE_SQL(),
             EVENTS_TABLE_SQL(),
             PERSONS_TABLE_SQL(),
+            PROPERTY_DEFINITIONS_TABLE_SQL(),
             RAW_SESSIONS_TABLE_SQL(),
+            SHARDED_RAW_SESSIONS_TABLE_SQL_V3(),
+            WRITABLE_RAW_SESSIONS_TABLE_SQL(),
+            WRITABLE_RAW_SESSIONS_TABLE_SQL_V3(),
             SESSIONS_TABLE_SQL(),
             SESSION_RECORDING_EVENTS_TABLE_SQL(),
             SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            SESSION_REPLAY_EVENTS_V2_TEST_DATA_TABLE_SQL(),
+            CREATE_CUSTOM_METRICS_COUNTER_EVENTS_TABLE,
+            WEB_BOUNCES_DAILY_SQL(),
+            WEB_BOUNCES_HOURLY_SQL(),
+            WEB_STATS_DAILY_SQL(),
+            WEB_STATS_HOURLY_SQL(),
+            WEB_STATS_SQL(),
+            WEB_BOUNCES_SQL(),
+            WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
+            WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
+            WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
+            QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(table_name=QUERY_LOG_ARCHIVE_DATA_TABLE),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1107,10 +1330,19 @@ def reset_clickhouse_database() -> None:
             EXCHANGE_RATE_DICTIONARY_SQL(),
             DISTRIBUTED_EVENTS_TABLE_SQL(),
             DISTRIBUTED_RAW_SESSIONS_TABLE_SQL(),
+            DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3(),
             DISTRIBUTED_SESSIONS_TABLE_SQL(),
             DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL(),
             DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
-            SESSION_REPLAY_EVENTS_V2_TEST_DISTRIBUTED_TABLE_SQL(),
+            CREATE_CUSTOM_METRICS_COUNTERS_VIEW,
+            CUSTOM_METRICS_EVENTS_RECENT_LAG_VIEW(),
+            CUSTOM_METRICS_TEST_VIEW(),
+            CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
+            WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
+            QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            BEHAVIORAL_COHORTS_MATCHES_SHARDED_TABLE_SQL(),
+            BEHAVIORAL_COHORTS_MATCHES_WRITABLE_TABLE_SQL(),
+            BEHAVIORAL_COHORTS_MATCHES_DISTRIBUTED_TABLE_SQL(),
         ]
     )
     run_clickhouse_statement_in_parallel(
@@ -1118,9 +1350,16 @@ def reset_clickhouse_database() -> None:
             CHANNEL_DEFINITION_DATA_SQL(),
             EXCHANGE_RATE_DATA_BACKFILL_SQL(),
             RAW_SESSIONS_TABLE_MV_SQL(),
+            RAW_SESSIONS_TABLE_MV_SQL_V3(),
+            RAW_SESSIONS_TABLE_MV_RECORDINGS_SQL_V3(),
             RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
+            RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3(),
             SESSIONS_TABLE_MV_SQL(),
             SESSIONS_VIEW_SQL(),
+            ADHOC_EVENTS_DELETION_TABLE_SQL(),
+            CUSTOM_METRICS_VIEW(include_counters=True),
+            WEB_STATS_COMBINED_VIEW_SQL(),
+            WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
         ]
     )
 
@@ -1165,7 +1404,8 @@ def snapshot_clickhouse_queries(fn_or_class):
 
         for query in queries:
             if "FROM system.columns" not in query:
-                self.assertQueryMatchesSnapshot(query)
+                replace_all_numbers = getattr(self, "snapshot_replace_all_numbers", False)
+                self.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
     return wrapped
 
@@ -1202,6 +1442,126 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
                 self.assertQueryMatchesSnapshot(query)
 
     return wrapped
+
+
+def snapshot_hogql_queries(fn_or_class):
+    """
+    Captures and snapshots HogQL queries from test using `syrupy` library.
+
+    This decorator captures queries at the point they are built (before resolution)
+    and converts them to simple HogQL syntax with virtual tables like session.$entry_pathname.
+
+    Snapshots are automatically saved in a __snapshot__/*.ambr file.
+    Update snapshots via --snapshot-update.
+
+    Example:
+        @snapshot_hogql_queries
+        def test_my_query(self):
+            # Your test code that executes HogQL queries
+            runner = WebOverviewQueryRunner(team=self.team, query=query)
+            runner.calculate()
+    """
+    # check if fn_or_class is a class
+    if inspect.isclass(fn_or_class):
+        # wrap every class method that starts with test_ with this decorator
+        for attr in dir(fn_or_class):
+            if callable(getattr(fn_or_class, attr)) and attr.startswith("test_"):
+                setattr(fn_or_class, attr, snapshot_hogql_queries(getattr(fn_or_class, attr)))
+        return fn_or_class
+
+    @wraps(fn_or_class)
+    def wrapped(self, *args, **kwargs):
+        captured_queries = []
+
+        # Patch the execute_hogql_query method on the paginator to capture queries before resolution
+        original_paginator_method = HogQLHasMorePaginator.execute_hogql_query
+
+        def capture_paginator_execute(paginator_self, query, **exec_kwargs):
+            # Capture the query AST before it gets resolved
+            if isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
+                captured_queries.append(clone_expr(query))
+
+            return original_paginator_method(paginator_self, query=query, **exec_kwargs)
+
+        # Patch the module-level execute_hogql_query function for direct calls
+        # We need to patch it in modules that import it directly
+        original_module_function = hogql_query_module.execute_hogql_query
+
+        def capture_module_execute(*exec_args, **exec_kwargs):
+            # Extract the query parameter - it can be positional or keyword
+            query = exec_kwargs.get("query") if "query" in exec_kwargs else (exec_args[0] if exec_args else None)
+
+            # Capture the query AST before it gets resolved
+            if query and isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
+                captured_queries.append(clone_expr(query))
+
+            return original_module_function(*exec_args, **exec_kwargs)
+
+        # Import modules that use execute_hogql_query directly
+        patches = [
+            patch.object(HogQLHasMorePaginator, "execute_hogql_query", capture_paginator_execute),
+            patch.object(hogql_query_module, "execute_hogql_query", capture_module_execute),
+        ]
+
+        # Add patches for modules that import execute_hogql_query directly
+        try:
+            from posthog.hogql_queries.web_analytics import web_overview
+
+            if hasattr(web_overview, "execute_hogql_query"):
+                patches.append(patch.object(web_overview, "execute_hogql_query", capture_module_execute))
+        except ImportError:
+            pass
+
+        try:
+            from posthog.hogql_queries.web_analytics import stats_table
+
+            if hasattr(stats_table, "execute_hogql_query"):
+                patches.append(patch.object(stats_table, "execute_hogql_query", capture_module_execute))
+        except ImportError:
+            pass
+
+        try:
+            from posthog.hogql_queries.insights.trends import trends_query_runner
+
+            if hasattr(trends_query_runner, "execute_hogql_query"):
+                patches.append(patch.object(trends_query_runner, "execute_hogql_query", capture_module_execute))
+        except ImportError:
+            pass
+
+        # Apply all patches
+        with ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+
+            fn_or_class(self, *args, **kwargs)
+
+        # Convert each captured query to HogQL and snapshot it
+        for query_ast in captured_queries:
+            # Use prepare_and_print_ast with hogql dialect to get the simple logical view
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+            hogql, _ = prepare_and_print_ast(query_ast, context=context, dialect="hogql")
+
+            # Format the HogQL query for better readability
+            formatted_hogql = hogql.strip()
+
+            # Use a custom snapshot with .hogql extension to separate from ClickHouse snapshots
+            # This creates a separate file like test_foo.hogql.ambr instead of test_foo.ambr
+            assert formatted_hogql == self.snapshot(extension_class=HogQLSnapshotExtension)
+
+    return wrapped
+
+
+class HogQLSnapshotExtension(AmberSnapshotExtension):
+    """Custom syrupy extension for HogQL snapshots to use separate files."""
+
+    _file_extension = "hogql.ambr"
+
+    @classmethod
+    def serialize(cls, data, **kwargs):
+        """Serialize the HogQL query."""
+        # Format the query for readability
+        formatted = sqlparse.format(data, reindent=True)
+        return f"'''\n{formatted}\n'''\n"
 
 
 def also_test_with_different_timezones(fn):

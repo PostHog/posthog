@@ -1,36 +1,34 @@
 import re
-from typing import cast, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, cast
+
+from posthog.schema import BounceRatePageViewMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
-    StringDatabaseField,
-    DateTimeDatabaseField,
-    IntegerDatabaseField,
-    Table,
-    FieldOrTable,
-    StringArrayDatabaseField,
-    DatabaseField,
-    LazyTable,
-    FloatDatabaseField,
     BooleanDatabaseField,
-    LazyTableToAdd,
+    DatabaseField,
+    DateTimeDatabaseField,
+    FieldOrTable,
+    FloatDatabaseField,
+    IntegerDatabaseField,
     LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
+    StringArrayDatabaseField,
+    StringDatabaseField,
+    Table,
 )
-from posthog.hogql.database.schema.channel_type import (
-    create_channel_type_expr,
-    ChannelTypeExprs,
-    DEFAULT_CHANNEL_TYPES,
-)
+from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES, ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.database.schema.util.where_clause_extractor import SessionMinTimestampWhereClauseExtractorV1
 from posthog.hogql.errors import ResolutionError
+
 from posthog.models.property_definition import PropertyType
 from posthog.models.sessions.sql import (
-    SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
     SELECT_SESSION_PROP_STRING_VALUES_SQL,
+    SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
-from posthog.schema import BounceRatePageViewMode
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

@@ -1,8 +1,9 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import posthog from 'posthog-js'
 
 import type { aiRegexHelperLogicType } from './aiRegexHelperLogicType'
 
@@ -80,7 +81,7 @@ export const aiRegexHelperLogic = kea<aiRegexHelperLogicType>([
         handleCopyToClipboard: async () => {
             try {
                 await copyToClipboard(values.generatedRegex, 'Regex copied to clipboard')
-            } catch (error) {
+            } catch {
                 lemonToast.error('Failed to copy regex to clipboard')
             }
         },

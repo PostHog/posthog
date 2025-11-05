@@ -1,13 +1,15 @@
 import json
+
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
+
 from rest_framework import status
-from posthog.exceptions_capture import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.exceptions import generate_exception_response
+from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed
-from posthog.plugins.site import get_transpiled_site_source, get_site_config_from_schema
+from posthog.plugins.site import get_site_config_from_schema, get_transpiled_site_source
 
 
 @csrf_exempt

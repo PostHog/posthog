@@ -3,22 +3,22 @@ from typing import TYPE_CHECKING, Optional
 import posthoganalytics
 from pydantic import ValidationError
 
-from posthog.cloud_utils import is_cloud
 from posthog.schema import (
+    BounceRatePageViewMode,
+    CustomChannelRule,
     HogQLQueryModifiers,
     InCohortVia,
     MaterializationMode,
     PersonsArgMaxVersion,
-    BounceRatePageViewMode,
     PropertyGroupsMode,
-    SessionTableVersion,
-    CustomChannelRule,
     SessionsV2JoinMode,
+    SessionTableVersion,
 )
 
+from posthog.cloud_utils import is_cloud
+
 if TYPE_CHECKING:
-    from posthog.models import Team
-    from posthog.models import User
+    from posthog.models import Team, User
 
 
 def create_default_modifiers_for_user(
@@ -55,7 +55,7 @@ def create_default_modifiers_for_team(
 
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
-            if getattr(modifiers, key) is None:
+            if getattr(modifiers, key, None) is None:
                 if key == "customChannelTypeRules":
                     # don't break all queries if customChannelTypeRules are invalid
                     try:
@@ -105,6 +105,9 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
 
     if modifiers.propertyGroupsMode is None and is_cloud():
         modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+
+    if modifiers.convertToProjectTimezone is None:
+        modifiers.convertToProjectTimezone = True
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:

@@ -1,18 +1,19 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { afterMount, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { rankPersons } from 'lib/components/CommandBar/searchBarLogic'
 
-import { PersonType, SearchableEntity, SearchResponse } from '~/types'
+import { PersonType, SearchResponse, SearchableEntity } from '~/types'
 
-import { panelLayoutLogic } from '../panelLayoutLogic'
 import type { personsTreeLogicType } from './personsTreeLogicType'
 
 export const personsTreeLogic = kea<personsTreeLogicType>([
     path(['layout', 'panel-layout', 'personsTreeLogic']),
-    connect(() => ({
-        values: [panelLayoutLogic, ['searchTerm']],
-    })),
+    reducers({
+        // TODO: fix when we start using this again
+        searchTerm: ['', {}],
+    }),
     loaders(({ values }) => ({
         rawSearchResponse: [
             null as SearchResponse | null,

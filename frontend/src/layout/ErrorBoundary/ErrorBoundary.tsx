@@ -1,65 +1,109 @@
 import './ErrorBoundary.scss'
 
-import { ErrorBoundary as SentryErrorBoundary, getCurrentHub } from '@sentry/react'
-import type { Primitive } from '@sentry/types'
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { supportLogic } from 'lib/components/Support/supportLogic'
+import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from 'posthog-js/react'
+
+import { SupportTicketExceptionEvent, supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import posthog from 'posthog-js'
 import { teamLogic } from 'scenes/teamLogic'
 
 interface ErrorBoundaryProps {
     children?: React.ReactNode
-    tags?: Record<string, Primitive>
+    exceptionProps?: Record<string, number | string | boolean | bigint | symbol | null | undefined>
+    className?: string
 }
 
-export function ErrorBoundary({ children, tags = {} }: ErrorBoundaryProps): JSX.Element {
-    const isSentryInitialized = !!getCurrentHub().getClient()
+export function ErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { openSupportForm } = useActions(supportLogic)
 
+    const additionalProperties = { ...exceptionProps }
+
+    if (currentTeamId !== undefined) {
+        additionalProperties.team_id = currentTeamId
+    }
+
     return (
-        <SentryErrorBoundary
-            beforeCapture={(scope, err) => {
-                posthog.captureException(err)
-                if (currentTeamId !== undefined) {
-                    scope.setTag('team_id', currentTeamId)
-                }
-                scope.setTags(tags)
-            }}
-            fallback={({ error, eventId }) => (
-                <div className="ErrorBoundary">
-                    <>
+        <PostHogErrorBoundary
+            additionalProperties={additionalProperties}
+            fallback={(props: PostHogErrorBoundaryFallbackProps) => {
+                const rawError = props.error
+                const normalizedError =
+                    rawError instanceof Error
+                        ? rawError
+                        : new Error(typeof rawError === 'string' ? rawError : 'Unknown error')
+                const { stack, name, message } = normalizedError
+
+                const exceptionEvent = props.exceptionEvent as SupportTicketExceptionEvent
+
+                return (
+                    <div className={clsx('ErrorBoundary', className)}>
                         <h2>An error has occurred</h2>
                         <pre>
                             <code>
-                                {error.stack || (
+                                {stack || (
                                     <>
-                                        {error.name}
+                                        {name}
                                         <br />
-                                        {error.message}
+                                        {message}
                                     </>
                                 )}
                             </code>
                         </pre>
-                        {isSentryInitialized && eventId?.match(/[^0]/)
-                            ? `We've registered this event for analysis (ID ${eventId}), but feel free to contact us directly too.`
-                            : 'Please help us resolve the issue by sending a screenshot of this message.'}
+                        {exceptionEvent?.uuid && (
+                            <div className="text-muted text-xs mb-2">Exception ID: {exceptionEvent.uuid}</div>
+                        )}
+                        Please help us resolve the issue by sending a screenshot of this message.
                         <LemonButton
                             type="primary"
                             fullWidth
                             center
-                            onClick={() => openSupportForm({ kind: 'bug', isEmailFormOpen: true })}
+                            onClick={() => {
+                                openSupportForm({
+                                    kind: 'bug',
+                                    isEmailFormOpen: true,
+                                    exception_event: exceptionEvent ?? null,
+                                })
+                            }}
                             targetBlank
                             className="mt-2"
                         >
                             Email an engineer
                         </LemonButton>
-                    </>
-                </div>
-            )}
+                    </div>
+                )
+            }}
         >
             {children}
-        </SentryErrorBoundary>
+        </PostHogErrorBoundary>
+    )
+}
+
+export function LightErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
+    const additionalProperties = { ...exceptionProps }
+    if (currentTeamId !== undefined) {
+        additionalProperties.team_id = currentTeamId
+    }
+    return (
+        <PostHogErrorBoundary
+            additionalProperties={additionalProperties}
+            fallback={(props: PostHogErrorBoundaryFallbackProps) => {
+                const rawError = props.error
+                const normalizedError =
+                    rawError instanceof Error
+                        ? rawError
+                        : new Error(typeof rawError === 'string' ? rawError : 'Unknown error')
+                const { stack, name, message } = normalizedError
+                return (
+                    <div className={clsx('text-danger', className)}>
+                        {stack || (name || message ? `${name}: ${message}` : 'Error')}
+                    </div>
+                )
+            }}
+        >
+            {children}
+        </PostHogErrorBoundary>
     )
 }

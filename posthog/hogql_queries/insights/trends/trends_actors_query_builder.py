@@ -6,21 +6,6 @@ from typing import Optional, cast
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.aggregation_operations import (
-    AggregationOperations,
-    FirstTimeForUserEventsQueryAlternator,
-)
-from posthog.hogql_queries.insights.trends.breakdown import Breakdown
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models import Action, Team
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -32,6 +17,24 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.hogql_queries.insights.trends.aggregation_operations import (
+    AggregationOperations,
+    FirstTimeForUserEventsQueryAlternator,
+)
+from posthog.hogql_queries.insights.trends.breakdown import Breakdown
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
+from posthog.hogql_queries.insights.trends.utils import is_groups_math
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.models import Action, Team
 
 
 class TrendsActorsQueryBuilder:
@@ -260,7 +263,7 @@ class TrendsActorsQueryBuilder:
         ]
 
     def _get_event_distinct_ids_expr(self) -> list[ast.Expr]:
-        if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
+        if is_groups_math(self.entity):
             return []
 
         return [
@@ -271,12 +274,12 @@ class TrendsActorsQueryBuilder:
         ]
 
     def _actor_id_expr(self) -> ast.Expr:
-        if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
-            return ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"])
+        if is_groups_math(self.entity):
+            return ast.Field(chain=["e", f"$group_{int(cast(int, self.entity.math_group_type_index))}"])
         return ast.Field(chain=["e", "person_id"])
 
     def _actor_distinct_id_expr(self) -> ast.Expr | None:
-        if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
+        if is_groups_math(self.entity):
             return None
         return ast.Field(chain=["e", "distinct_id"])
 
@@ -481,11 +484,11 @@ class TrendsActorsQueryBuilder:
         conditions: list[ast.Expr] = []
 
         # Ignore empty groups
-        if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
+        if is_groups_math(self.entity):
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"]),
+                    left=ast.Field(chain=["e", f"$group_{int(cast(int, self.entity.math_group_type_index))}"]),
                     right=ast.Constant(value=""),
                 )
             )

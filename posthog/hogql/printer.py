@@ -6,54 +6,8 @@ from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
-from posthog.clickhouse.materialized_columns import (
-    MaterializedColumn,
-    TablesWithMaterializedColumns,
-    get_materialized_column_for_property,
-)
-from posthog.clickhouse.property_groups import property_groups
-from posthog.hogql import ast
-from posthog.hogql.ast import StringType, Constant
-from posthog.hogql.base import _T_AST, AST
-from posthog.hogql.constants import (
-    MAX_SELECT_RETURNED_ROWS,
-    HogQLGlobalSettings,
-)
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
-from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.query_log import RawQueryLogTable
-from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
-from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
-from posthog.hogql.escape_sql import (
-    escape_clickhouse_identifier,
-    escape_clickhouse_string,
-    escape_hogql_identifier,
-    escape_hogql_string,
-)
-from posthog.hogql.functions import (
-    ADD_OR_NULL_DATETIME_FUNCTIONS,
-    FIRST_ARG_DATETIME_FUNCTIONS,
-    SURVEY_FUNCTIONS,
-    find_hogql_aggregation,
-    find_hogql_function,
-    find_hogql_posthog_function,
-)
-from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, HOGQL_COMPARISON_MAPPING, validate_function_args
-from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
-from posthog.hogql.resolver import resolve_types
-from posthog.hogql.resolver_utils import lookup_field_by_name
-from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
-from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
-from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
-from posthog.hogql.visitor import Visitor, clone_expr
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
-from posthog.models.property import PropertyName, TableColumn
-from posthog.models.surveys.util import get_survey_response_clickhouse_query
-from posthog.models.team import Team
-from posthog.models.team.team import WeekStartDay
-from posthog.models.utils import UUIDT
+from django.conf import settings
+
 from posthog.schema import (
     HogQLQueryModifiers,
     InCohortVia,
@@ -61,7 +15,67 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
-from posthog.settings import CLICKHOUSE_DATABASE
+
+from posthog.hogql import ast
+from posthog.hogql.ast import Constant, StringType
+from posthog.hogql.base import _T_AST, AST
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, FunctionCallTable, SavedQuery, Table
+from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
+from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
+from posthog.hogql.escape_sql import (
+    escape_clickhouse_identifier,
+    escape_clickhouse_string,
+    escape_hogql_identifier,
+    escape_hogql_string,
+    safe_identifier,
+)
+from posthog.hogql.functions import (
+    ADD_OR_NULL_DATETIME_FUNCTIONS,
+    FIRST_ARG_DATETIME_FUNCTIONS,
+    find_hogql_aggregation,
+    find_hogql_function,
+    find_hogql_posthog_function,
+)
+from posthog.hogql.functions.core import validate_function_args
+from posthog.hogql.functions.embed_text import resolve_embed_text
+from posthog.hogql.functions.mapping import (
+    ALL_EXPOSED_FUNCTION_NAMES,
+    HOGQL_COMPARISON_MAPPING,
+    is_allowed_parametric_function,
+)
+from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
+from posthog.hogql.resolver import resolve_types
+from posthog.hogql.resolver_utils import lookup_field_by_name
+from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
+from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.projection_pushdown import pushdown_projections
+from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
+from posthog.hogql.visitor import Visitor, clone_expr
+
+from posthog.clickhouse.materialized_columns import (
+    MaterializedColumn,
+    TablesWithMaterializedColumns,
+    get_materialized_column_for_property,
+)
+from posthog.clickhouse.property_groups import property_groups
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.property import PropertyName, TableColumn
+from posthog.models.surveys.util import (
+    filter_survey_sent_events_by_unique_submission,
+    get_survey_response_clickhouse_query,
+)
+from posthog.models.team import Team
+from posthog.models.team.team import WeekStartDay
+from posthog.models.utils import UUIDT
+
+
+def get_channel_definition_dict():
+    """Get the channel definition dictionary name with the correct database.
+    Evaluated at call time to work with test databases in Python 3.12."""
+    return f"{settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -77,9 +91,9 @@ def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType]
     )
 
 
-def to_printed_hogql(query: ast.Expr, team: Team, modifiers: Optional[HogQLQueryModifiers] = None) -> str:
+def to_printed_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
     """Prints the HogQL query without mutating the node"""
-    return print_ast(
+    return prepare_and_print_ast(
         clone_expr(query),
         dialect="hogql",
         context=HogQLContext(
@@ -88,20 +102,20 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: Optional[HogQLQuery
             modifiers=create_default_modifiers_for_team(team, modifiers),
         ),
         pretty=True,
-    )
+    )[0]
 
 
-def print_ast(
+def prepare_and_print_ast(
     node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[list[ast.SelectQuery]] = None,
-    settings: Optional[HogQLGlobalSettings] = None,
+    stack: list[ast.SelectQuery] | None = None,
+    settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
-) -> str:
+) -> tuple[str, Optional[_T_AST]]:
     prepared_ast = prepare_ast_for_printing(node=node, context=context, dialect=dialect, stack=stack, settings=settings)
     if prepared_ast is None:
-        return ""
+        return "", None
     return print_prepared_ast(
         node=prepared_ast,
         context=context,
@@ -109,20 +123,20 @@ def print_ast(
         stack=stack,
         settings=settings,
         pretty=pretty,
-    )
+    ), prepared_ast
 
 
 def prepare_ast_for_printing(
-    node: _T_AST,
+    node: _T_AST,  # node is mutated
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[list[ast.SelectQuery]] = None,
-    settings: Optional[HogQLGlobalSettings] = None,
+    stack: list[ast.SelectQuery] | None = None,
+    settings: HogQLGlobalSettings | None = None,
 ) -> _T_AST | None:
     if context.database is None:
-        with context.timings.measure("create_hogql_database"):
+        with context.timings.measure("create_hogql_database"):  # Legacy name to keep backwards compatibility
             # Passing both `team_id` and `team` because `team` is not always available in the context
-            context.database = create_hogql_database(
+            context.database = Database.create_for(
                 context.team_id,
                 modifiers=context.modifiers,
                 team=context.team,
@@ -136,6 +150,10 @@ def prepare_ast_for_printing(
             resolve_in_cohorts_conjoined(node, dialect, context, stack)
     with context.timings.measure("resolve_types"):
         node = resolve_types(node, context, dialect=dialect, scopes=[node.type for node in stack] if stack else None)
+
+    if context.modifiers.optimizeProjections:
+        with context.timings.measure("projection_pushdown"):
+            node = pushdown_projections(node, context)
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
@@ -167,7 +185,7 @@ def prepare_ast_for_printing(
                 person_properties=context.property_swapper.person_properties,
                 event_properties=context.property_swapper.event_properties,
                 context=context,
-                setTimeZones=True,
+                setTimeZones=context.modifiers.convertToProjectTimezone is not False,
             ).visit(node)
 
         # We support global query settings, and local subquery settings.
@@ -190,8 +208,8 @@ def print_prepared_ast(
     node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[list[ast.SelectQuery]] = None,
-    settings: Optional[HogQLGlobalSettings] = None,
+    stack: list[ast.SelectQuery] | None = None,
+    settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
@@ -208,12 +226,12 @@ def print_prepared_ast(
 @dataclass
 class JoinExprResponse:
     printed_sql: str
-    where: Optional[ast.Expr] = None
+    where: ast.Expr | None = None
 
 
 @dataclass
 class PrintableMaterializedColumn:
-    table: Optional[str]
+    table: str | None
     column: str
     is_nullable: bool
 
@@ -256,15 +274,15 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     return expr_type
 
 
-class _Printer(Visitor):
+class _Printer(Visitor[str]):
     # NOTE: Call "print_ast()", not this class directly.
 
     def __init__(
         self,
         context: HogQLContext,
         dialect: Literal["hogql", "clickhouse"],
-        stack: Optional[list[AST]] = None,
-        settings: Optional[HogQLGlobalSettings] = None,
+        stack: list[AST] | None = None,
+        settings: HogQLGlobalSettings | None = None,
         pretty: bool = False,
     ):
         self.context = context
@@ -326,6 +344,12 @@ class _Printer(Visitor):
         # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
         is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
+        is_last_query_in_union = (
+            part_of_select_union
+            and isinstance(self.stack[0], ast.SelectSetQuery)
+            and len(self.stack[0].subsequent_select_queries) > 0
+            and self.stack[0].subsequent_select_queries[-1].select_query is node
+        )
 
         # We will add extra clauses onto this from the joined tables
         where = node.where
@@ -385,7 +409,7 @@ class _Printer(Visitor):
                             # Non-unique hidden alias. Skip.
                             column = column.expr
                     elif isinstance(column, ast.Call):
-                        column_alias = print_prepared_ast(column, self.context, dialect="hogql")
+                        column_alias = safe_identifier(print_prepared_ast(column, self.context, dialect="hogql"))
                         column = ast.Alias(alias=column_alias, expr=column)
                     columns.append(self.visit(column))
             else:
@@ -435,16 +459,18 @@ class _Printer(Visitor):
 
         limit = node.limit
         if self.context.limit_top_select and is_top_level_query:
+            max_limit = get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
+
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
-                    limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
+                    limit.value = min(limit.value, max_limit)
                 else:
                     limit = ast.Call(
                         name="min2",
-                        args=[ast.Constant(value=MAX_SELECT_RETURNED_ROWS), limit],
+                        args=[ast.Constant(value=max_limit), limit],
                     )
             else:
-                limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
+                limit = ast.Constant(value=max_limit)
 
         if node.limit_by is not None:
             clauses.append(
@@ -458,7 +484,12 @@ class _Printer(Visitor):
             if node.offset is not None:
                 clauses.append(f"OFFSET {self.visit(node.offset)}")
 
-        if self.context.output_format and self.dialect == "clickhouse" and is_top_level_query:
+        if (
+            self.context.output_format
+            and self.dialect == "clickhouse"
+            and is_top_level_query
+            and (not part_of_select_union or is_last_query_in_union)
+        ):
             clauses.append(f"FORMAT{space}{self.context.output_format}")
 
         if node.settings is not None and self.dialect == "clickhouse":
@@ -482,7 +513,7 @@ class _Printer(Visitor):
 
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
         # return constraints we must place on the select query
-        extra_where: Optional[ast.Expr] = None
+        extra_where: ast.Expr | None = None
 
         join_strings = []
 
@@ -498,12 +529,12 @@ class _Printer(Visitor):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
 
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
-            # Skip function call tables like numbers(), s3(), etc.
+            # Skip warehouse tables and tables with an explicit skip.
             if (
                 self.dialect == "clickhouse"
-                and not isinstance(table_type.table, FunctionCallTable)
+                and not isinstance(table_type.table, DataWarehouseTable)
                 and not isinstance(table_type.table, SavedQuery)
-                and not isinstance(table_type.table, ExchangeRateTable)
+                and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
             ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
@@ -512,15 +543,15 @@ class _Printer(Visitor):
 
                 # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
                 if isinstance(table_type.table, S3Table) and (
-                    node.next_join or node.join_type == "JOIN" or node.join_type == "GLOBAL JOIN"
+                    node.next_join
+                    or node.join_type == "JOIN"
+                    or (node.join_type and node.join_type.startswith("GLOBAL "))
                 ):
                     sql = f"(SELECT * FROM {sql})"
             else:
                 sql = table_type.table.to_printed_hogql()
 
-            if isinstance(table_type.table, FunctionCallTable) and not (
-                isinstance(table_type.table, S3Table) or isinstance(table_type.table, RawQueryLogTable)
-            ):
+            if isinstance(table_type.table, FunctionCallTable) and table_type.table.requires_args:
                 if node.table_args is None:
                     raise QueryError(f"Table function '{table_type.table.name}' requires arguments")
 
@@ -568,7 +599,8 @@ class _Printer(Visitor):
 
         elif self.dialect == "hogql":
             join_strings.append(self.visit(node.table))
-
+            if node.alias is not None:
+                join_strings.append(f"AS {self._print_identifier(node.alias)}")
         else:
             raise QueryError(
                 f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
@@ -605,14 +637,54 @@ class _Printer(Visitor):
             raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
     def visit_and(self, node: ast.And):
+        """
+        optimizations:
+        1. and(expr0, 1, expr2, ...) <=> and(expr0, expr2, ...)
+        2. and(expr0, 0, expr2, ...) <=> 0
+        """
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
-        return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+        if self.dialect == "hogql":
+            return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+        exprs: list[str] = []
+        for expr in node.exprs:
+            printed = self.visit(expr)
+            if printed == "0":  # optimization 2
+                return "0"
+            if printed != "1":  # optimization 1
+                exprs.append(printed)
+        if len(exprs) == 0:
+            return "1"
+        elif len(exprs) == 1:
+            return exprs[0]
+        return f"and({', '.join(exprs)})"
 
     def visit_or(self, node: ast.Or):
+        """
+        optimizations:
+        1. or(expr0, 1, expr2, ...) <=> 1
+        2. or(expr0, 0, expr2, ...) <=> or(expr0, expr2, ...)
+        """
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
-        return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+        if self.dialect == "hogql":
+            return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
+
+        exprs: list[str] = []
+        for expr in node.exprs:
+            printed = self.visit(expr)
+            if printed == "1":
+                return "1"
+            if printed != "0":
+                exprs.append(printed)
+        if len(exprs) == 0:
+            return "0"
+        elif len(exprs) == 1:
+            return exprs[0]
+        return f"or({', '.join(exprs)})"
 
     def visit_not(self, node: ast.Not):
         return f"not({self.visit(node.expr)})"
@@ -803,9 +875,24 @@ class _Printer(Visitor):
         ):
             not_nullable = True
         hack_sessions_timestamp = (
-            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))"
+            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))",
+            "raw_sessions_v3.session_timestamp",
         )
-        if hack_sessions_timestamp == left or hack_sessions_timestamp == right:
+        if left in hack_sessions_timestamp or right in hack_sessions_timestamp:
+            not_nullable = True
+
+        # :HACK: Prevent ifNull() wrapping for $ai_trace_id and $ai_session_id to allow bloom filter index usage
+        # The materialized columns mat_$ai_trace_id and mat_$ai_session_id have bloom filter indexes for performance
+        if (
+            "mat_$ai_trace_id" in left
+            or "mat_$ai_trace_id" in right
+            or "mat_$ai_session_id" in left
+            or "mat_$ai_session_id" in right
+            or "$ai_trace_id" in left
+            or "$ai_trace_id" in right
+            or "$ai_session_id" in left
+            or "$ai_session_id" in right
+        ):
             not_nullable = True
 
         constant_lambda = None
@@ -874,6 +961,12 @@ class _Printer(Visitor):
             constant_lambda = lambda left_op, right_op: (
                 left_op <= right_op if left_op is not None and right_op is not None else False
             )
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.InCohort:
+            op = f"{left} IN COHORT {right}"
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.NotInCohort:
+            op = f"{left} NOT IN COHORT {right}"
         else:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
 
@@ -944,6 +1037,26 @@ class _Printer(Visitor):
             return f"ifNull({op}, 0)"
         else:
             raise ImpossibleASTError("Impossible")
+
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        expr = self.visit(node.expr)
+        low = self.visit(node.low)
+        high = self.visit(node.high)
+        not_kw = " NOT" if node.negated else ""
+        op = f"{expr}{not_kw} BETWEEN {low} AND {high}"
+
+        if self.dialect == "hogql":
+            return op
+
+        nullable_expr = self._is_nullable(node.expr)
+        nullable_low = self._is_nullable(node.low)
+        nullable_high = self._is_nullable(node.high)
+        not_nullable = not nullable_expr and not nullable_low and not nullable_high
+
+        if not_nullable:
+            return op
+
+        return f"ifNull({op}, 0)"
 
     def visit_constant(self, node: ast.Constant):
         if self.dialect == "hogql":
@@ -1041,6 +1154,31 @@ class _Printer(Visitor):
         if optimized_property_group_call := self.__get_optimized_property_group_call(node):
             return optimized_property_group_call
 
+        # Validate parametric arguments
+        if func_meta := (
+            find_hogql_aggregation(node.name)
+            or find_hogql_function(node.name)
+            or find_hogql_posthog_function(node.name)
+        ):
+            if func_meta.parametric_first_arg:
+                if not node.args:
+                    raise QueryError(f"Missing arguments in function '{node.name}'")
+                # Check that the first argument is a constant string
+                first_arg = node.args[0]
+                if not isinstance(first_arg, ast.Constant):
+                    raise QueryError(
+                        f"Expected constant string as first arg in function '{node.name}', got {first_arg.__class__.__name__}"
+                    )
+                if not isinstance(first_arg.type, StringType) or not isinstance(first_arg.value, str):
+                    raise QueryError(
+                        f"Expected constant string as first arg in function '{node.name}', got {first_arg.type.__class__.__name__} '{first_arg.value}'"
+                    )
+                # Check that the constant string is within our allowed set of functions
+                if not is_allowed_parametric_function(first_arg.value):
+                    raise QueryError(
+                        f"Invalid parametric function in '{node.name}', '{first_arg.value}' is not supported."
+                    )
+
         # Handle format strings in function names before checking function type
         if func_meta := (
             find_hogql_aggregation(node.name)
@@ -1136,24 +1274,6 @@ class _Printer(Visitor):
             if self.dialect == "clickhouse":
                 args_count = len(node.args) - func_meta.passthrough_suffix_args_count
                 node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
-
-                if node.name in SURVEY_FUNCTIONS:
-                    if node.name == "getSurveyResponse":
-                        question_index_obj = node_args[0]
-                        if not isinstance(question_index_obj, ast.Constant):
-                            raise QueryError("getSurveyResponse first argument must be a constant")
-                        if (
-                            not isinstance(question_index_obj.value, int | str)
-                            or not str(question_index_obj.value).lstrip("-").isdigit()
-                        ):
-                            raise QueryError("getSurveyResponse first argument must be a valid integer")
-                        second_arg = node_args[1] if len(node_args) > 1 else None
-                        third_arg = node_args[2] if len(node_args) > 2 else None
-                        question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
-                        is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
-                        return get_survey_response_clickhouse_query(
-                            int(question_index_obj.value), question_id, is_multiple_choice
-                        )
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
@@ -1256,11 +1376,16 @@ class _Printer(Visitor):
                         and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
                     ) or (
                         relevant_clickhouse_name
-                        in ("parseDateTime64BestEffortOrNull", "parseDateTime64BestEffort", "toDateTime64")
+                        in (
+                            "parseDateTime64BestEffortOrNull",
+                            "parseDateTime64BestEffortUSOrNull",
+                            "parseDateTime64BestEffort",
+                            "toDateTime64",
+                        )
                         and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
                         # These two CH functions require a precision argument before timezone
-                        args = args[:-1] + ["6"] + args[-1:]
+                        args = [*args[:-1], "6", *args[-1:]]
 
                 if node.name == "toStartOfWeek" and len(node.args) == 1:
                     # If week mode hasn't been specified, use the project's default.
@@ -1291,23 +1416,53 @@ class _Printer(Visitor):
             args = [self.visit(arg) for arg in node.args]
 
             if self.dialect == "clickhouse":
-                if node.name == "hogql_lookupDomainType":
-                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "hogql_lookupPaidSourceType":
-                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "hogql_lookupPaidMediumType":
-                    return (
-                        f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
-                    )
-                elif node.name == "hogql_lookupOrganicSourceType":
-                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
-                elif node.name == "hogql_lookupOrganicMediumType":
-                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
-                elif node.name == "convertCurrency":  # convertCurrency(from_currency, to_currency, amount, timestamp)
+                if node.name == "embedText":
+                    return self.visit_constant(resolve_embed_text(self.context.team, node))
+                elif node.name == "lookupDomainType":
+                    channel_dict = get_channel_definition_dict()
+                    return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                elif node.name == "lookupPaidSourceType":
+                    channel_dict = get_channel_definition_dict()
+                    return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{channel_dict}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                elif node.name == "lookupPaidMediumType":
+                    channel_dict = get_channel_definition_dict()
+                    return f"dictGetOrNull('{channel_dict}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
+                elif node.name == "lookupOrganicSourceType":
+                    channel_dict = get_channel_definition_dict()
+                    return f"coalesce(dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                elif node.name == "lookupOrganicMediumType":
+                    channel_dict = get_channel_definition_dict()
+                    return f"dictGetOrNull('{channel_dict}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
+                elif node.name == "convertCurrency":
+                    # convertCurrency(from_currency, to_currency, amount, timestamp?)
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"
-                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
+                    db = settings.CLICKHOUSE_DATABASE
+                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
+                elif node.name == "getSurveyResponse":
+                    question_index_obj = node.args[0]
+                    if not isinstance(question_index_obj, ast.Constant):
+                        raise QueryError("getSurveyResponse first argument must be a constant")
+                    if (
+                        not isinstance(question_index_obj.value, int | str)
+                        or not str(question_index_obj.value).lstrip("-").isdigit()
+                    ):
+                        raise QueryError("getSurveyResponse first argument must be a valid integer")
+                    second_arg = node.args[1] if len(node.args) > 1 else None
+                    third_arg = node.args[2] if len(node.args) > 2 else None
+                    question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
+                    is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
+                    return get_survey_response_clickhouse_query(
+                        int(question_index_obj.value), question_id, is_multiple_choice
+                    )
 
+                elif node.name == "uniqueSurveySubmissionsFilter":
+                    survey_id = node.args[0]
+                    if not isinstance(survey_id, ast.Constant):
+                        raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
+                    return filter_survey_sent_events_by_unique_submission(survey_id.value)
+
+                relevant_clickhouse_name = func_meta.clickhouse_name
                 if "{}" in relevant_clickhouse_name:
                     if len(args) != 1:
                         raise QueryError(f"Function '{node.name}' requires exactly one argument")
@@ -1330,7 +1485,7 @@ class _Printer(Visitor):
 
     def visit_placeholder(self, node: ast.Placeholder):
         if node.field is None:
-            raise QueryError("You can not use expressions inside placeholders")
+            raise QueryError("You can not use placeholders here")
         raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
 
     def visit_alias(self, node: ast.Alias):
@@ -1513,7 +1668,14 @@ class _Printer(Visitor):
 
         materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
+            # Special handling for $ai_trace_id and $ai_session_id to avoid nullIf wrapping for bloom filter index optimization
             if (
+                len(type.chain) == 1
+                and type.chain[0] in ("$ai_trace_id", "$ai_session_id")
+                and isinstance(materialized_property_source, PrintableMaterializedColumn)
+            ):
+                materialized_property_sql = str(materialized_property_source)
+            elif (
                 isinstance(materialized_property_source, PrintableMaterializedColumn)
                 and not materialized_property_source.is_nullable
             ):
@@ -1722,7 +1884,7 @@ class _Printer(Visitor):
             value = "{" + self.visit(node.value) + "}"
         return f"{self._print_identifier(node.name)}={value}"
 
-    def _last_select(self) -> Optional[ast.SelectQuery]:
+    def _last_select(self) -> ast.SelectQuery | None:
         """Find the last SELECT query in the stack."""
         for node in reversed(self.stack):
             if isinstance(node, ast.SelectQuery):
@@ -1758,29 +1920,37 @@ class _Printer(Visitor):
         )
 
     def _get_timezone(self) -> str:
+        if self.context.modifiers.convertToProjectTimezone is False:
+            return "UTC"
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
     def _get_week_start_day(self) -> WeekStartDay:
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
+    def _is_type_nullable(self, node_type: ast.Type) -> bool | None:
+        if isinstance(node_type, ast.PropertyType):
+            return True
+        elif isinstance(node_type, ast.ConstantType):
+            return node_type.nullable
+        elif isinstance(node_type, ast.CallType):
+            return node_type.return_type.nullable
+        elif isinstance(node_type, ast.FieldType):
+            return node_type.is_nullable(self.context)
+        return None
+
     def _is_nullable(self, node: ast.Expr) -> bool:
         if isinstance(node, ast.Constant):
             return node.value is None
-        elif isinstance(node.type, ast.PropertyType):
-            return True
-        elif isinstance(node.type, ast.ConstantType):
-            return node.type.nullable
-        elif isinstance(node.type, ast.CallType):
-            return node.type.return_type.nullable
-        elif isinstance(node.type, ast.FieldType):
-            return node.type.is_nullable(self.context)
+        elif node.type and (nullable := self._is_type_nullable(node.type)) is not None:
+            return nullable
         elif isinstance(node, ast.Alias):
             return self._is_nullable(node.expr)
-        elif isinstance(node.type, ast.FieldAliasType):
-            if (field_type := resolve_field_type(node)) and isinstance(field_type, ast.FieldType):
-                return field_type.is_nullable(self.context)
-
-        # we don't know if it's nullable, so we assume it can be
+        elif (
+            isinstance(node.type, ast.FieldAliasType)
+            and (field_type := resolve_field_type(node))
+            and (nullable := self._is_type_nullable(field_type)) is not None
+        ):
+            return nullable
         return True
 
     def _print_settings(self, settings):
@@ -1804,11 +1974,19 @@ class _Printer(Visitor):
 
     def _create_default_window_frame(self, node: ast.WindowFunction):
         # For lag/lead functions, we need to order by the first argument by default
-        order_by: Optional[list[ast.OrderExpr]] = None
-        if node.exprs is not None and len(node.exprs) > 0:
+        order_by: list[ast.OrderExpr] | None = None
+        if node.over_expr and node.over_expr.order_by:
+            order_by = [cast(ast.OrderExpr, clone_expr(expr)) for expr in node.over_expr.order_by]
+        elif node.exprs is not None and len(node.exprs) > 0:
             order_by = [ast.OrderExpr(expr=clone_expr(node.exprs[0]), order="ASC")]
 
+        # Preserve existing PARTITION BY if provided via an existing OVER () clause
+        partition_by: list[ast.Expr] | None = None
+        if node.over_expr and node.over_expr.partition_by:
+            partition_by = [cast(ast.Expr, clone_expr(expr)) for expr in node.over_expr.partition_by]
+
         return ast.WindowExpr(
+            partition_by=partition_by,
             order_by=order_by,
             frame_method="ROWS",
             frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),

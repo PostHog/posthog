@@ -1,32 +1,32 @@
-import dataclasses
-import datetime
-import math
-import time
-from typing import Any, Optional, TYPE_CHECKING
-from collections.abc import Callable
 import re
 import json
+import math
+import time
+import datetime
+import dataclasses
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Optional
 
 import pytz
 
-from .ip import isIPAddressInRange
-from .print import print_hog_string_output
+from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_error, to_hog_interval
+from ..utils import get_nested_value, like
+from .crypto import md5, sha256, sha256HmacChain
 from .date import (
-    now,
-    toUnixTimestamp,
+    formatDateTime,
     fromUnixTimestamp,
-    toUnixTimestampMilli,
     fromUnixTimestampMilli,
-    toTimeZone,
+    is_hog_date,
+    is_hog_datetime,
+    now,
     toDate,
     toDateTime,
-    formatDateTime,
-    is_hog_datetime,
-    is_hog_date,
+    toTimeZone,
+    toUnixTimestamp,
+    toUnixTimestampMilli,
 )
-from .crypto import sha256Hex, md5Hex, sha256HmacChainHex
-from ..objects import is_hog_error, new_hog_error, is_hog_callable, is_hog_closure, to_hog_interval
-from ..utils import like, get_nested_value
+from .ip import isIPAddressInRange
+from .print import print_hog_string_output
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -959,10 +959,25 @@ STL: dict[str, STLFunction] = {
     "trimRight": STLFunction(fn=trimRight, minArgs=1, maxArgs=2),
     "splitByString": STLFunction(fn=splitByString, minArgs=2, maxArgs=3),
     "generateUUIDv4": STLFunction(fn=generateUUIDv4, minArgs=0, maxArgs=0),
-    "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256Hex(args[0]), minArgs=1, maxArgs=1),
-    "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5Hex(args[0]), minArgs=1, maxArgs=1),
+    "sha256Hex": STLFunction(fn=lambda args, team, stdout, timeout: sha256(args[0]), minArgs=1, maxArgs=1),
+    "sha256": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha256(args[0], args[1] if len(args) > 1 else "hex"),
+        minArgs=1,
+        maxArgs=2,
+    ),
+    "md5Hex": STLFunction(fn=lambda args, team, stdout, timeout: md5(args[0]), minArgs=1, maxArgs=1),
+    "md5": STLFunction(
+        fn=lambda args, team, stdout, timeout: md5(args[0], args[1] if len(args) > 1 else "hex"), minArgs=1, maxArgs=2
+    ),
     "sha256HmacChainHex": STLFunction(
-        fn=lambda args, team, stdout, timeout: sha256HmacChainHex(args[0]), minArgs=1, maxArgs=1
+        fn=lambda args, team, stdout, timeout: sha256HmacChain(args[0], "hex"),
+        minArgs=1,
+        maxArgs=1,
+    ),
+    "sha256HmacChain": STLFunction(
+        fn=lambda args, team, stdout, timeout: sha256HmacChain(args[0], args[1] if len(args) > 1 else "hex"),
+        minArgs=1,
+        maxArgs=2,
     ),
     "isIPAddressInRange": STLFunction(
         fn=lambda args, team, stdout, timeout: isIPAddressInRange(args[0], args[1]), minArgs=2, maxArgs=2

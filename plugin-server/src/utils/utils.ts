@@ -1,9 +1,10 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import {
     ClickHouseTimestamp,
@@ -11,7 +12,6 @@ import {
     ISOTimestamp,
     Plugin,
     PluginConfigId,
-    PluginsServerConfig,
     TimestampFormat,
 } from '../types'
 import { logger } from './logger'
@@ -26,7 +26,10 @@ export function killGracefully(): void {
     logger.error('⏲', 'Shutting plugin server down gracefully with SIGTERM...')
     process.kill(process.pid, 'SIGTERM')
     setTimeout(() => {
-        logger.error('⏲', `Plugin server still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`)
+        logger.error(
+            '⏲',
+            `Plugin server still running after ${GRACEFUL_EXIT_PERIOD_SECONDS} s, killing it forcefully!`
+        )
         process.exit(1)
     }, GRACEFUL_EXIT_PERIOD_SECONDS * 1000)
 }
@@ -82,6 +85,12 @@ export function cloneObject<T>(obj: T): T {
     }
     if (Array.isArray(obj)) {
         return (obj as any[]).map(cloneObject) as unknown as T
+    }
+    if (obj instanceof Date) {
+        return new Date(obj.getTime()) as T
+    }
+    if (obj instanceof DateTime) {
+        return obj.toUTC() as T
     }
     const clone: Record<string, any> = {}
     for (const i in obj) {
@@ -251,7 +260,7 @@ export class UUID7 extends UUID {
             super(bufferOrUnixTimeMs)
             return
         }
-        const unixTimeMs = bufferOrUnixTimeMs ?? DateTime.utc().toMillis()
+        const unixTimeMs = (bufferOrUnixTimeMs as number | undefined) ?? DateTime.utc().toMillis()
         let unixTimeMsBig = BigInt(unixTimeMs)
 
         if (!rand) {
@@ -471,16 +480,6 @@ export function pluginConfigIdFromStack(
     }
 }
 
-export function logOrThrowJobQueueError(server: PluginsServerConfig, error: Error, message: string): void {
-    captureException(error)
-    if (server.CRASH_IF_NO_PERSISTENT_JOB_QUEUE) {
-        logger.error('🔴', message)
-        throw error
-    } else {
-        logger.info('🟡', message)
-    }
-}
-
 export function groupBy<T extends Record<string, any>, K extends keyof T>(
     objects: T[],
     key: K,
@@ -497,19 +496,25 @@ export function groupBy<T extends Record<string, any>, K extends keyof T>(
     flat = false
 ): Record<T[K], T[] | T> {
     return flat
-        ? objects.reduce((grouping, currentItem) => {
-              if (currentItem[key] in grouping) {
-                  throw new Error(
-                      `Key "${String(key)}" has more than one matching value, which is not allowed in flat groupBy!`
-                  )
-              }
-              grouping[currentItem[key]] = currentItem
-              return grouping
-          }, {} as Record<T[K], T>)
-        : objects.reduce((grouping, currentItem) => {
-              ;(grouping[currentItem[key]] = grouping[currentItem[key]] || []).push(currentItem)
-              return grouping
-          }, {} as Record<T[K], T[]>)
+        ? objects.reduce(
+              (grouping, currentItem) => {
+                  if (currentItem[key] in grouping) {
+                      throw new Error(
+                          `Key "${String(key)}" has more than one matching value, which is not allowed in flat groupBy!`
+                      )
+                  }
+                  grouping[currentItem[key]] = currentItem
+                  return grouping
+              },
+              {} as Record<T[K], T>
+          )
+        : objects.reduce(
+              (grouping, currentItem) => {
+                  ;(grouping[currentItem[key]] = grouping[currentItem[key]] || []).push(currentItem)
+                  return grouping
+              },
+              {} as Record<T[K], T[]>
+          )
 }
 
 export function clamp(value: number, min: number, max: number): number {
@@ -708,4 +713,16 @@ export const areMapsEqual = <K, V>(map1: Map<K, V>, map2: Map<K, V>): boolean =>
         }
     }
     return true
+}
+
+export function promisifyCallback<TResult>(fn: (cb: (err: any, result?: TResult) => void) => void): Promise<TResult> {
+    return new Promise<TResult>((resolve, reject) => {
+        fn((err, result) => {
+            if (err) {
+                reject(err)
+            } else {
+                resolve(result as TResult)
+            }
+        })
+    })
 }

@@ -3,6 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 import { isDev } from './utils.mjs'
+
 export const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export function writeSourceCodeEditorTypes() {

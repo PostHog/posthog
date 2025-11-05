@@ -1,8 +1,26 @@
 import DOMPurify from 'dompurify'
-import { SURVEY_RESPONSE_PROPERTY } from 'scenes/surveys/constants'
+import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import posthog from 'posthog-js'
+
+import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils'
+import { NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
-import { EventPropertyFilter, Survey, SurveyAppearance, SurveyDisplayConditions } from '~/types'
+import {
+    EventPropertyFilter,
+    QuestionProcessedResponses,
+    Survey,
+    SurveyAppearance,
+    SurveyDisplayConditions,
+    SurveyEventName,
+    SurveyEventProperties,
+    SurveyQuestion,
+    SurveyQuestionType,
+    SurveyRates,
+    SurveyStats,
+    SurveyType,
+} from '~/types'
 
 const sanitizeConfig = { ADD_ATTR: ['target'] }
 
@@ -16,24 +34,56 @@ export function sanitizeColor(color: string | undefined): string | undefined {
     }
 
     // test if the color is valid by adding a # to the beginning of the string
-    if (!validateColor(`#${color}`, 'color')) {
+    if (CSS.supports('color', `#${color}`)) {
         return `#${color}`
     }
 
     return color
 }
 
-export function validateColor(color: string | undefined, fieldName: string): string | undefined {
-    if (!color) {
+export function validateCSSProperty(property: string, value: string | undefined): string | undefined {
+    if (!value) {
         return undefined
     }
-    // Test if the color value is valid using CSS.supports
-    const isValidColor = CSS.supports('color', color)
-    return !isValidColor ? `Invalid color value for ${fieldName}. Please use a valid CSS color.` : undefined
+    const isValidCSSProperty = CSS.supports(property, value)
+    return !isValidCSSProperty ? `${value} is not a valid property for ${property}.` : undefined
+}
+
+export function validateSurveyAppearance(
+    appearance: SurveyAppearance,
+    hasRatingQuestions: boolean,
+    surveyType: SurveyType
+): DeepPartialMap<SurveyAppearance, ValidationErrorType> {
+    return {
+        backgroundColor: validateCSSProperty('background-color', appearance.backgroundColor),
+        borderColor: validateCSSProperty('border-color', appearance.borderColor),
+        // Only validate rating button colors if there's a rating question
+        ...(hasRatingQuestions && {
+            ratingButtonActiveColor: validateCSSProperty('background-color', appearance.ratingButtonActiveColor),
+            ratingButtonColor: validateCSSProperty('background-color', appearance.ratingButtonColor),
+        }),
+        submitButtonColor: validateCSSProperty('background-color', appearance.submitButtonColor),
+        submitButtonTextColor: validateCSSProperty('color', appearance.submitButtonTextColor),
+        maxWidth: validateCSSProperty('width', appearance.maxWidth),
+        boxPadding: validateCSSProperty('padding', appearance.boxPadding),
+        boxShadow: validateCSSProperty('box-shadow', appearance.boxShadow),
+        borderRadius: validateCSSProperty('border-radius', appearance.borderRadius),
+        zIndex: validateCSSProperty('z-index', appearance.zIndex),
+        widgetSelector:
+            surveyType === SurveyType.Widget && appearance?.widgetType === 'selector' && !appearance.widgetSelector
+                ? 'Please enter a CSS selector.'
+                : undefined,
+    }
 }
 
 export function getSurveyResponseKey(questionIndex: number): string {
-    return questionIndex === 0 ? SURVEY_RESPONSE_PROPERTY : `${SURVEY_RESPONSE_PROPERTY}_${questionIndex}`
+    return questionIndex === 0
+        ? SurveyEventProperties.SURVEY_RESPONSE
+        : `${SurveyEventProperties.SURVEY_RESPONSE}_${questionIndex}`
+}
+
+export function getSurveyIdBasedResponseKey(questionId: string): string {
+    return `${SurveyEventProperties.SURVEY_RESPONSE}_${questionId}`
 }
 
 // Helper function to generate the response field keys with proper typing
@@ -43,69 +93,82 @@ export const getResponseFieldWithId = (
 ): { indexBasedKey: string; idBasedKey: string | undefined } => {
     return {
         indexBasedKey: getSurveyResponseKey(questionIndex),
-        idBasedKey: questionId ? `${SURVEY_RESPONSE_PROPERTY}_${questionId}` : undefined,
+        idBasedKey: questionId ? getSurveyIdBasedResponseKey(questionId) : undefined,
     }
-}
-
-// Helper function to generate the HogQL condition for checking survey responses in both formats
-export const getResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
-    const ids = getResponseFieldWithId(questionIndex, questionId)
-
-    if (!ids.idBasedKey) {
-        return `JSONExtractString(properties, '${ids.indexBasedKey}')`
-    }
-
-    // For ClickHouse, we need to use coalesce to check both fields
-    // This will return the first non-null value, prioritizing the ID-based format if available
-    return `coalesce(
-        nullIf(JSONExtractString(properties, '${ids.idBasedKey}'), ''),
-        nullIf(JSONExtractString(properties, '${ids.indexBasedKey}'), '')
-    )`
-}
-
-// Helper function to generate the HogQL condition for checking multiple choice survey responses in both formats
-export const getMultipleChoiceResponseFieldCondition = (questionIndex: number, questionId?: string): string => {
-    const ids = getResponseFieldWithId(questionIndex, questionId)
-
-    if (!ids.idBasedKey) {
-        return `JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')`
-    }
-
-    // For multiple choice, we need to check if either field has a value and use that one
-    return `if(
-        JSONHas(properties, '${ids.idBasedKey}') AND length(JSONExtractArrayRaw(properties, '${ids.idBasedKey}')) > 0,
-        JSONExtractArrayRaw(properties, '${ids.idBasedKey}'),
-        JSONExtractArrayRaw(properties, '${ids.indexBasedKey}')
-    )`
 }
 
 export function sanitizeSurveyDisplayConditions(
-    displayConditions: SurveyDisplayConditions | null
+    displayConditions?: SurveyDisplayConditions | null,
+    surveyType?: SurveyType
 ): SurveyDisplayConditions | null {
     if (!displayConditions) {
         return null
     }
 
-    return {
-        ...displayConditions,
-        url: displayConditions.url.trim(),
-        selector: displayConditions.selector?.trim(),
+    if (surveyType === SurveyType.ExternalSurvey) {
+        return {
+            actions: {
+                values: [],
+            },
+            events: {
+                values: [],
+            },
+            deviceTypes: undefined,
+            deviceTypesMatchType: undefined,
+            linkedFlagVariant: undefined,
+            seenSurveyWaitPeriodInDays: undefined,
+            url: undefined,
+            urlMatchType: undefined,
+        }
     }
+
+    const trimmedUrl = displayConditions.url?.trim()
+    const trimmedSelector = displayConditions.selector?.trim()
+    const trimmedLinkedFlagVariant = displayConditions.linkedFlagVariant?.trim()
+
+    const sanitized: SurveyDisplayConditions = {
+        ...displayConditions,
+        ...(trimmedUrl && { url: trimmedUrl }),
+        ...(trimmedSelector && { selector: trimmedSelector }),
+        ...(trimmedLinkedFlagVariant && { linkedFlagVariant: trimmedLinkedFlagVariant }),
+    }
+
+    // Remove the original keys if they were empty after trimming
+    if (!trimmedUrl) {
+        delete sanitized.url
+    }
+    if (!trimmedSelector) {
+        delete sanitized.selector
+    }
+    if (!trimmedLinkedFlagVariant) {
+        delete sanitized.linkedFlagVariant
+    }
+
+    return sanitized
 }
 
-export function sanitizeSurveyAppearance(appearance: SurveyAppearance | null): SurveyAppearance | null {
+export function sanitizeSurveyAppearance(
+    appearance?: SurveyAppearance | null,
+    isPartialResponsesEnabled = false,
+    surveyType?: SurveyType
+): SurveyAppearance | null {
     if (!appearance) {
         return null
     }
 
     return {
         ...appearance,
+        shuffleQuestions: isPartialResponsesEnabled ? false : appearance.shuffleQuestions,
         backgroundColor: sanitizeColor(appearance.backgroundColor),
         borderColor: sanitizeColor(appearance.borderColor),
         ratingButtonActiveColor: sanitizeColor(appearance.ratingButtonActiveColor),
         ratingButtonColor: sanitizeColor(appearance.ratingButtonColor),
         submitButtonColor: sanitizeColor(appearance.submitButtonColor),
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
+        thankYouMessageHeader: sanitizeHTML(appearance.thankYouMessageHeader ?? ''),
+        thankYouMessageDescription: sanitizeHTML(appearance.thankYouMessageDescription ?? ''),
+        surveyPopupDelaySeconds:
+            surveyType === SurveyType.ExternalSurvey ? undefined : appearance.surveyPopupDelaySeconds,
     }
 }
 
@@ -114,37 +177,105 @@ export type NPSBreakdown = {
     promoters: number
     passives: number
     detractors: number
+    score: string
 }
 
-export function calculateNpsBreakdown(surveyRatingResults: SurveyRatingResults[number]): NPSBreakdown | null {
-    // Validate input structure
-    if (!surveyRatingResults.data || surveyRatingResults.data.length !== 11) {
+// NPS calculation constants
+const NPS_SCALE_SIZE = 11 // 0-10 scale
+const NPS_PROMOTER_MIN = 9 // 9-10 are promoters
+const NPS_PASSIVE_MIN = 7 // 7-8 are passives. 0-6 are detractors but we don't need a variable for that.
+
+interface NPSRawData {
+    values: number[]
+    total: number
+}
+
+/**
+ * Extracts raw NPS data from processed survey data
+ */
+function extractNPSRawData(processedData: QuestionProcessedResponses): NPSRawData | null {
+    if (
+        !processedData?.data ||
+        processedData.type !== SurveyQuestionType.Rating ||
+        !Array.isArray(processedData.data) ||
+        processedData.data.length !== NPS_SCALE_SIZE
+    ) {
         return null
     }
 
-    if (surveyRatingResults.total === 0) {
-        return { total: 0, promoters: 0, passives: 0, detractors: 0 }
+    return {
+        values: processedData.data.map((item) => item.value),
+        total: processedData.totalResponses,
     }
-
-    const PROMOTER_MIN = 9
-    const PASSIVE_MIN = 7
-
-    const promoters = surveyRatingResults.data.slice(PROMOTER_MIN, 11).reduce((a, b) => a + b, 0)
-    const passives = surveyRatingResults.data.slice(PASSIVE_MIN, PROMOTER_MIN).reduce((a, b) => a + b, 0)
-    const detractors = surveyRatingResults.data.slice(0, PASSIVE_MIN).reduce((a, b) => a + b, 0)
-    return { total: surveyRatingResults.total, promoters, passives, detractors }
 }
 
-export function calculateNpsScore(npsBreakdown: NPSBreakdown): number {
-    if (npsBreakdown.total === 0) {
-        return 0
+/**
+ * Extracts raw NPS data from legacy survey rating results
+ */
+function extractNPSRawDataFromLegacy(surveyRatingResults: SurveyRatingResults[number]): NPSRawData | null {
+    if (!surveyRatingResults?.data || surveyRatingResults.data.length !== NPS_SCALE_SIZE) {
+        return null
     }
-    return ((npsBreakdown.promoters - npsBreakdown.detractors) / npsBreakdown.total) * 100
+
+    return {
+        values: surveyRatingResults.data,
+        total: surveyRatingResults.total,
+    }
+}
+
+/**
+ * Core NPS calculation logic - works with raw data arrays
+ */
+function calculateNPSFromRawData(rawData: NPSRawData): NPSBreakdown {
+    if (rawData.total === 0) {
+        return { total: 0, promoters: 0, passives: 0, detractors: 0, score: '0.0' }
+    }
+
+    const promoters = rawData.values.slice(NPS_PROMOTER_MIN, NPS_SCALE_SIZE).reduce((acc, curr) => acc + curr, 0)
+    const passives = rawData.values.slice(NPS_PASSIVE_MIN, NPS_PROMOTER_MIN).reduce((acc, curr) => acc + curr, 0)
+    const detractors = rawData.values.slice(0, NPS_PASSIVE_MIN).reduce((acc, curr) => acc + curr, 0)
+
+    const score = ((promoters - detractors) / rawData.total) * 100
+
+    return {
+        total: rawData.total,
+        promoters,
+        passives,
+        detractors,
+        score: score.toFixed(1),
+    }
+}
+
+export function calculateNpsBreakdownFromProcessedData(processedData: QuestionProcessedResponses): NPSBreakdown | null {
+    const rawData = extractNPSRawData(processedData)
+    return rawData ? calculateNPSFromRawData(rawData) : null
+}
+
+export function calculateNpsBreakdown(surveyRatingResults: SurveyRatingResults[number]): NPSBreakdown | null {
+    const rawData = extractNPSRawDataFromLegacy(surveyRatingResults)
+    return rawData ? calculateNPSFromRawData(rawData) : null
 }
 
 // Helper to escape special characters in SQL strings
 function escapeSqlString(value: string): string {
     return value.replace(/['\\]/g, '\\$&')
+}
+
+export function getSurveyResponse(question: SurveyQuestion, index: number): string {
+    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(index, question.id)
+
+    if (question.type === SurveyQuestionType.MultipleChoice) {
+        return `if(
+        JSONHas(events.properties, '${idBasedKey}') AND length(JSONExtractArrayRaw(events.properties, '${idBasedKey}')) > 0,
+        JSONExtractArrayRaw(events.properties, '${idBasedKey}'),
+        JSONExtractArrayRaw(events.properties, '${indexBasedKey}')
+    )`
+    }
+
+    return `COALESCE(
+        NULLIF(JSONExtractString(events.properties, '${idBasedKey}'), ''),
+        NULLIF(JSONExtractString(events.properties, '${indexBasedKey}'), '')
+    )`
 }
 
 /**
@@ -153,7 +284,7 @@ function escapeSqlString(value: string): string {
  *
  * @param filters - The answer filters to convert to HogQL expressions
  * @param survey - The survey object (needed to access question IDs)
- * @returns A HogQL expression string that can be used in queries
+ * @returns A HogQL expression string that can be used in queries. If there are no filters, it returns an empty string.
  *
  * TODO: Consider leveraging the backend query builder instead of duplicating this logic in the frontend.
  * ClickHouse has powerful functions like match(), multiIf(), etc. that could be used more effectively.
@@ -189,90 +320,61 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
             continue
         }
 
-        // Extract question index from the filter key (assuming format like "$survey_response_X" or "$survey_response")
-        let questionIndex = 0
-        if (filter.key === '$survey_response') {
-            // If the key is exactly "$survey_response", it's for question index 0
-            questionIndex = 0
-        } else {
-            const questionIndexMatch = filter.key.match(/\$survey_response_(\d+)/)
-            if (!questionIndexMatch) {
-                continue // Skip if we can't determine the question index
-            }
-            questionIndex = parseInt(questionIndexMatch[1])
+        // split the string '$survey_response_' and take the last part, as that's the question id
+        const questionId = filter.key.split(`${SurveyEventProperties.SURVEY_RESPONSE}_`).at(-1)
+        const question = survey.questions.find((question) => question.id === questionId)
+        if (!questionId || !question) {
+            continue
         }
 
-        // Check if question index is valid before accessing
-        if (questionIndex >= survey.questions.length) {
-            continue // Skip if question index is out of bounds
-        }
-        const questionId = survey.questions[questionIndex]?.id
-
-        // Get both key formats
-        const { indexBasedKey, idBasedKey } = getResponseFieldWithId(questionIndex, questionId)
+        const questionIndex = survey.questions.findIndex((question) => question.id === questionId)
 
         // Create the condition for this filter
         let condition = ''
-        let escapedValue: string
-        let valueList: string
+        const escapedValue = escapeSqlString(String(filter.value))
 
         // Handle different operators
         switch (filter.operator) {
             case 'exact':
-                if (Array.isArray(filter.value)) {
-                    valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
-                    condition = `(properties['${indexBasedKey}'] IN (${valueList})`
-                    if (idBasedKey) {
-                        condition += ` OR properties['${idBasedKey}'] IN (${valueList})`
-                    }
-                } else {
-                    escapedValue = escapeSqlString(String(filter.value))
-                    condition = `(properties['${indexBasedKey}'] = '${escapedValue}'`
-                    if (idBasedKey) {
-                        condition += ` OR properties['${idBasedKey}'] = '${escapedValue}'`
-                    }
-                }
-                condition += ')'
-                break
             case 'is_not':
                 if (Array.isArray(filter.value)) {
-                    valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
-                    condition = `(properties['${indexBasedKey}'] NOT IN (${valueList})`
-                    if (idBasedKey) {
-                        condition += ` OR properties['${idBasedKey}'] NOT IN (${valueList})`
-                    }
+                    const valueList = filter.value.map((v) => `'${escapeSqlString(String(v))}'`).join(', ')
+                    condition = `(${getSurveyResponse(question, questionIndex)} ${
+                        filter.operator === 'is_not' ? 'NOT IN' : 'IN'
+                    } (${valueList}))`
                 } else {
-                    escapedValue = escapeSqlString(String(filter.value))
-                    condition = `(properties['${indexBasedKey}'] != '${escapedValue}'`
-                    if (idBasedKey) {
-                        condition += ` OR properties['${idBasedKey}'] != '${escapedValue}'`
-                    }
+                    condition = `(${getSurveyResponse(question, questionIndex)} ${
+                        filter.operator === 'is_not' ? '!=' : '='
+                    } '${escapedValue}')`
                 }
-                condition += ')'
                 break
             case 'icontains':
-                escapedValue = escapeSqlString(String(filter.value))
-                condition = `(properties['${indexBasedKey}'] ILIKE '%${escapedValue}%'`
-                if (idBasedKey) {
-                    condition += ` OR properties['${idBasedKey}'] ILIKE '%${escapedValue}%'`
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    condition = `(${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
+                } else {
+                    condition = `(arrayExists(x -> x ilike '%${escapedValue}%', ${getSurveyResponse(question, questionIndex)}))`
                 }
-                condition += ')'
+                break
+            case 'not_icontains':
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    condition = `(NOT ${getSurveyResponse(question, questionIndex)} ILIKE '%${escapedValue}%')`
+                } else {
+                    condition = `(NOT arrayExists(x -> x ilike '%${escapedValue}%', ${getSurveyResponse(question, questionIndex)}))`
+                }
                 break
             case 'regex':
-                escapedValue = escapeSqlString(String(filter.value))
-                condition = `(match(properties['${indexBasedKey}'], '${escapedValue}')`
-                if (idBasedKey) {
-                    condition += ` OR match(properties['${idBasedKey}'], '${escapedValue}')`
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    condition = `(match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
+                } else {
+                    condition = `(arrayExists(x -> match(x, '${escapedValue}'), ${getSurveyResponse(question, questionIndex)}))`
                 }
-                condition += ')'
                 break
             case 'not_regex':
-                escapedValue = escapeSqlString(String(filter.value))
-                condition = `(NOT match(properties['${indexBasedKey}'], '${escapedValue}')`
-                if (idBasedKey) {
-                    condition += ` OR NOT match(properties['${idBasedKey}'], '${escapedValue}')`
+                if (question.type !== SurveyQuestionType.MultipleChoice) {
+                    condition = `(NOT match(${getSurveyResponse(question, questionIndex)}, '${escapedValue}'))`
+                } else {
+                    condition = `(NOT arrayExists(x -> match(x, '${escapedValue}'), ${getSurveyResponse(question, questionIndex)}))`
                 }
-                condition += ')'
                 break
             // Add more operators as needed
             default:
@@ -290,4 +392,230 @@ export function createAnswerFilterHogQLExpression(filters: EventPropertyFilter[]
     }
 
     return hasValidFilter ? `AND ${filterExpression}` : ''
+}
+
+export function isSurveyRunning(survey: Survey): boolean {
+    return !!(survey.start_date && !survey.end_date)
+}
+
+export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {
+    const conditions = sanitizeSurveyDisplayConditions(survey.conditions)
+    if (!conditions) {
+        return false
+    }
+
+    // check string fields
+    if (conditions.url) {
+        return true
+    }
+
+    if (conditions.selector) {
+        return true
+    }
+
+    if (conditions.linkedFlagVariant) {
+        return true
+    }
+
+    // check numeric fields
+    if (conditions.seenSurveyWaitPeriodInDays !== undefined && conditions.seenSurveyWaitPeriodInDays !== null) {
+        return true
+    }
+
+    // check array fields
+    if (conditions.deviceTypes && conditions.deviceTypes.length > 0) {
+        return true
+    }
+
+    // check enum fields
+    if (conditions.urlMatchType !== undefined && conditions.urlMatchType !== null) {
+        return true
+    }
+
+    if (conditions.deviceTypesMatchType !== undefined && conditions.deviceTypesMatchType !== null) {
+        return true
+    }
+
+    // check complex object fields
+    if (conditions.actions && conditions.actions.values && conditions.actions.values.length > 0) {
+        return true
+    }
+
+    if (conditions.events && conditions.events.values && conditions.events.values.length > 0) {
+        return true
+    }
+
+    if (conditions.events?.repeatedActivation !== undefined && conditions.events.repeatedActivation !== null) {
+        return true
+    }
+
+    return false
+}
+
+export function buildPartialResponsesFilter(survey: Survey): string {
+    if (!survey.enable_partial_responses) {
+        return `AND (
+        NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
+        OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
+    )`
+    }
+
+    return `AND uuid in (
+        SELECT
+            argMax(uuid, timestamp)
+        FROM events
+        WHERE and(
+            equals(event, '${SurveyEventName.SENT}'),
+            equals(JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ID}'), '${survey.id}'),
+            greaterOrEquals(timestamp, '${getSurveyStartDateForQuery(survey)}'),
+            lessOrEquals(timestamp, '${getSurveyEndDateForQuery(survey)}')
+        )
+        GROUP BY
+            if(
+                JSONHas(properties, '${SurveyEventProperties.SURVEY_SUBMISSION_ID}'),
+                JSONExtractString(properties, '${SurveyEventProperties.SURVEY_SUBMISSION_ID}'),
+                toString(uuid)
+            )
+    ) --- Filter to ensure we only get one response per ${SurveyEventProperties.SURVEY_SUBMISSION_ID}`
+}
+
+interface SanitizeSurveyOptions {
+    keepEmptyConditions?: boolean
+}
+
+export function sanitizeSurvey(survey: Partial<Survey>, options?: SanitizeSurveyOptions): Partial<Survey> {
+    const sanitizedQuestions =
+        survey.questions?.map((question) => ({
+            ...question,
+            question: sanitizeHTML(question.question ?? ''),
+            description: sanitizeHTML(question.description ?? ''),
+        })) || []
+
+    const sanitizedAppearance = sanitizeSurveyAppearance(
+        survey.appearance,
+        survey.enable_partial_responses ?? false,
+        survey.type
+    )
+
+    // Remove widget-specific fields if survey type is not Widget
+    if (survey.type !== SurveyType.Widget && sanitizedAppearance) {
+        delete sanitizedAppearance.widgetType
+        delete sanitizedAppearance.widgetLabel
+        delete sanitizedAppearance.widgetColor
+    }
+
+    const conditions = sanitizeSurveyDisplayConditions(survey.conditions, survey.type)
+    const sanitized: Partial<Survey> = {
+        ...survey,
+        conditions: conditions,
+        questions: sanitizedQuestions,
+        appearance: sanitizedAppearance,
+    }
+
+    if (survey.type === SurveyType.ExternalSurvey) {
+        sanitized.remove_targeting_flag = true
+        sanitized.linked_flag_id = null
+        sanitized.targeting_flag_filters = undefined
+    }
+
+    if (options?.keepEmptyConditions !== true && (!conditions || Object.keys(conditions).length === 0)) {
+        delete sanitized.conditions
+    }
+    if (!sanitizedAppearance || Object.keys(sanitizedAppearance).length === 0) {
+        delete sanitized.appearance
+    }
+
+    return sanitized
+}
+
+export function calculateSurveyRates(stats: SurveyStats | null): SurveyRates {
+    const defaultRates: SurveyRates = {
+        response_rate: 0.0,
+        dismissal_rate: 0.0,
+        unique_users_response_rate: 0.0,
+        unique_users_dismissal_rate: 0.0,
+    }
+
+    if (!stats) {
+        return defaultRates
+    }
+
+    const shownCount = stats[SurveyEventName.SHOWN].total_count
+    if (shownCount > 0) {
+        const sentCount = stats[SurveyEventName.SENT].total_count
+        const dismissedCount = stats[SurveyEventName.DISMISSED].total_count
+        const uniqueUsersShownCount = stats[SurveyEventName.SHOWN].unique_persons
+        const uniqueUsersSentCount = stats[SurveyEventName.SENT].unique_persons
+        const uniqueUsersDismissedCount = stats[SurveyEventName.DISMISSED].unique_persons
+
+        return {
+            response_rate: parseFloat(((sentCount / shownCount) * 100).toFixed(2)),
+            dismissal_rate: parseFloat(((dismissedCount / shownCount) * 100).toFixed(2)),
+            unique_users_response_rate: parseFloat(((uniqueUsersSentCount / uniqueUsersShownCount) * 100).toFixed(2)),
+            unique_users_dismissal_rate: parseFloat(
+                ((uniqueUsersDismissedCount / uniqueUsersShownCount) * 100).toFixed(2)
+            ),
+        }
+    }
+    return defaultRates
+}
+
+export function captureMaxAISurveyCreationException(error?: string, source?: SURVEY_CREATED_SOURCE): void {
+    posthog.captureException(error || 'Undefined error when creating MaxAI survey', {
+        action: 'max-ai-survey-creation-failed',
+        source: source,
+    })
+}
+
+export const DATE_FORMAT = 'YYYY-MM-DDTHH:mm:ss'
+
+export function getSurveyStartDateForQuery(survey: Pick<Survey, 'created_at'>): string {
+    return dayjs.utc(survey.created_at).startOf('day').format(DATE_FORMAT)
+}
+
+export function getSurveyEndDateForQuery(survey: Pick<Survey, 'end_date'>): string {
+    return survey.end_date
+        ? dayjs.utc(survey.end_date).endOf('day').format(DATE_FORMAT)
+        : dayjs.utc().endOf('day').format(DATE_FORMAT)
+}
+
+export interface SurveyDateRange {
+    date_from: string | null
+    date_to: string | null
+}
+
+export function buildSurveyTimestampFilter(
+    survey: Pick<Survey, 'created_at' | 'end_date'>,
+    dateRange?: SurveyDateRange | null
+): string {
+    // If no date range provided, use the survey's default date range
+    let fromDate = getSurveyStartDateForQuery(survey)
+    let toDate = getSurveyEndDateForQuery(survey)
+
+    if (!dateRange) {
+        return `AND timestamp >= '${fromDate}'
+        AND timestamp <= '${toDate}'`
+    }
+
+    // ----- Handle FROM date -----
+    if (dateRange.date_from) {
+        // Parse user-provided date and ensure it's not before survey creation
+        const userFromDate = dateStringToDayJs(dateRange.date_from)?.startOf('day')
+
+        if (userFromDate && userFromDate.isAfter(fromDate)) {
+            fromDate = userFromDate.format(DATE_FORMAT)
+        }
+    }
+
+    // ----- Handle TO date -----
+    if (dateRange.date_to) {
+        const userToDate = dateStringToDayJs(dateRange.date_to)?.endOf('day')
+
+        if (userToDate && userToDate.isBefore(toDate)) {
+            toDate = userToDate.format(DATE_FORMAT)
+        }
+    }
+
+    return `AND timestamp >= '${fromDate}'
+    AND timestamp <= '${toDate}'`
 }

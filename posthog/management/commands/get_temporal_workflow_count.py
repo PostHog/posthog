@@ -3,6 +3,7 @@ import logging
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
+
 from prometheus_client import CollectorRegistry, Gauge, push_to_gateway
 
 from posthog.temporal.common.client import connect
@@ -92,7 +93,9 @@ class Command(BaseCommand):
         )
 
         if track_gauge and settings.PROM_PUSHGATEWAY_ADDRESS is not None:
-            logging.debug(f"Tracking count in Gauge: {track_gauge}")
+            job = f"get_temporal_workflow_count_{task_queue}"
+            logging.info(f"Tracking count in Gauge: {track_gauge}. job = {job}")
+
             registry = CollectorRegistry()
             gauge = Gauge(
                 track_gauge,
@@ -101,7 +104,7 @@ class Command(BaseCommand):
                 registry=registry,
             )
             gauge.labels(task_queue=task_queue, status=execution_status.lower()).set(result.count)
-            push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job="get_temporal_workflow_count", registry=registry)
+            push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job=job, registry=registry)
 
         logging.info(f"Count of '{execution_status.lower()}' workflows in '{task_queue}': {result.count}")
 

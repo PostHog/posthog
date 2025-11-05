@@ -1,17 +1,19 @@
+import json
 from typing import Any, Optional, Union, cast
 from urllib.parse import urlencode
 
-import structlog
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.http import HttpRequest
 from django.shortcuts import redirect
 from django.urls.base import reverse
+
+import structlog
+import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers
-from posthog.exceptions_capture import capture_exception
+from rest_framework.request import Request
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
@@ -20,42 +22,49 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.demo.matrix import MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.email import is_email_available
-from posthog.event_usage import (
-    alias_invite_id,
-    report_user_joined_organization,
-    report_user_signed_up,
-)
-from posthog.models import (
-    Organization,
-    OrganizationDomain,
-    OrganizationInvite,
-    InviteExpiredException,
-    Team,
-    User,
-)
+from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailValidationHelper
+from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.permissions import CanCreateOrg
-from posthog.utils import get_can_create_org
+from posthog.rate_limit import SignupIPThrottle
+from posthog.utils import get_can_create_org, is_relative_url
 
 logger = structlog.get_logger(__name__)
 
 
-def verify_email_or_login(request: HttpRequest, user: User) -> None:
+def verify_email_or_login(request: Request, user: User) -> None:
     if is_email_available() and not user.is_email_verified and not is_email_verification_disabled(user):
-        EmailVerifier.create_token_and_send_email_verification(user)
+        next_url = request.data.get("next_url") if request and request.data else None
+
+        # We only want to redirect to a relative url so that we don't redirect away from the current domain
+        if is_relative_url(next_url):
+            EmailVerifier.create_token_and_send_email_verification(user, next_url)
+        else:
+            EmailVerifier.create_token_and_send_email_verification(user)
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
 
-def get_redirect_url(uuid: str, is_email_verified: bool) -> str:
+def get_redirect_url(uuid: str, is_email_verified: bool, next_url: str | None = None) -> str:
     user = User.objects.get(uuid=uuid)
-    return (
-        "/verify_email/" + uuid
-        if is_email_available()
+
+    require_email_verification = (
+        is_email_available()
         and not is_email_verified
         and not is_email_verification_disabled(user)
         and not settings.DEMO
-        else "/"
     )
+
+    if require_email_verification:
+        redirect_url = "/verify_email/" + uuid
+
+        if next_url:
+            redirect_url += "?next=" + next_url
+
+        return redirect_url
+
+    return next_url or "/"
 
 
 class SignupSerializer(serializers.Serializer):
@@ -92,6 +101,11 @@ class SignupSerializer(serializers.Serializer):
             password_validation.validate_password(value)
         return value
 
+    def validate_email(self, value):
+        if not settings.DEMO and EmailValidationHelper.user_exists(value):
+            raise serializers.ValidationError("There is already an account with this email address.", code="unique")
+        return value
+
     def is_email_auto_verified(self):
         return self.is_social_signup
 
@@ -115,6 +129,7 @@ class SignupSerializer(serializers.Serializer):
                 **validated_data,
             )
         except IntegrityError:
+            # This should be rare now due to the check above, but kept for safety
             raise exceptions.ValidationError(
                 {"email": "There is already an account with this email address."},
                 code="unique",
@@ -166,8 +181,14 @@ class SignupSerializer(serializers.Serializer):
         return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
     def to_representation(self, instance) -> dict:
+        request = self.context.get("request")
+        next_url = request.data.get("next_url") if request and request.data else None
+        # We only want to redirect to a relative url so that we don't redirect away from the current domain
+        if next_url and not is_relative_url(next_url):
+            next_url = None
+
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"])
+        data["redirect_url"] = get_redirect_url(data["uuid"], data["is_email_verified"], next_url)
         return data
 
 
@@ -175,6 +196,7 @@ class SignupViewset(generics.CreateAPIView):
     serializer_class = SignupSerializer
     # Enables E2E testing of signup flow
     permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (CanCreateOrg,)
+    throttle_classes = [] if settings.E2E_TESTING else [SignupIPThrottle]
 
 
 class InviteSignupSerializer(serializers.Serializer):
@@ -457,6 +479,7 @@ def process_social_domain_jit_provisioning_signup(
             domain=domain,
             is_verified=domain_instance.is_verified,
             jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
+            scim_enabled=domain_instance.scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
@@ -491,6 +514,10 @@ def process_social_domain_jit_provisioning_signup(
                         user=user.email,
                         organization=domain_instance.organization_id,
                     )
+
+            # Existing user:
+            # Auto-join because JIT provisioning is enabled
+            # SCIM (if enabled) will update roles/groups after they join
             if not user.organizations.filter(pk=domain_instance.organization_id).exists():
                 user.join(organization=domain_instance.organization)
                 logger.info(
@@ -498,6 +525,7 @@ def process_social_domain_jit_provisioning_signup(
                     domain=domain,
                     user=user.email,
                     organization=domain_instance.organization_id,
+                    scim_enabled=domain_instance.scim_enabled,
                 )
 
     return user
@@ -513,6 +541,7 @@ def social_create_user(
     *args,
     **kwargs,
 ):
+    posthoganalytics.tag("details", json.dumps(details))
     invite_id = strategy.session_get("invite_id")
     backend_processor = "social_create_user"
     email = details["email"][0] if isinstance(details["email"], list | tuple) else details["email"]
@@ -552,6 +581,8 @@ def social_create_user(
 
     if not email or not full_name:
         missing_attr = "email" if not email else "name"
+        posthoganalytics.tag("email", email)
+        posthoganalytics.tag("name", full_name)
         raise ValidationError(
             {missing_attr: "This field is required and was not provided by the IdP."},
             code="required",
@@ -595,10 +626,13 @@ def social_create_user(
                     return redirect("/login?error_code=no_new_organizations")
             strategy.session_set("email", email)
             organization_name = strategy.session_get("organization_name")
+            next_url = strategy.session_get("next")
+
             query_params = {
                 "organization_name": organization_name or "",
                 "first_name": full_name or "",
                 "email": email or "",
+                "next": next_url or "",
             }
             query_params_string = urlencode(query_params)
             logger.info(

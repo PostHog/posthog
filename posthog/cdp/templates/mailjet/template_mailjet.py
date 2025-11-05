@@ -1,5 +1,4 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
-
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 # See https://dev.mailjet.com/email/reference/contacts/contact-list/
 
@@ -34,7 +33,7 @@ common_filters = {
 }
 
 
-template_create_contact: HogFunctionTemplate = HogFunctionTemplate(
+template_create_contact: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -43,7 +42,8 @@ template_create_contact: HogFunctionTemplate = HogFunctionTemplate(
     description="Add contacts to Mailjet",
     icon_url="/static/services/mailjet.png",
     category=["Email Marketing"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     return false
 }
@@ -88,7 +88,7 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 )
 
 
-template_update_contact_list: HogFunctionTemplate = HogFunctionTemplate(
+template_update_contact_list: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -97,7 +97,8 @@ template_update_contact_list: HogFunctionTemplate = HogFunctionTemplate(
     description="Update a Mailjet contact list",
     icon_url="/static/services/mailjet.png",
     category=["Email Marketing"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     return false
 }
@@ -155,61 +156,6 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlist
                     "value": "unsub",
                 },
             ],
-        },
-    ],
-    filters=common_filters,
-)
-
-
-template_send_email: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
-    free=False,
-    type="email",
-    id="template-mailjet-send-email",
-    name="Mailjet",
-    description="Send an email with Mailjet",
-    icon_url="/static/services/mailjet.png",
-    category=["Email Provider"],
-    hog="""
-fun sendEmail(email) {
-    fetch(f'https://api.mailjet.com/v3.1/send', {
-        'method': 'POST',
-        'headers': {
-            'Authorization': f'Basic {base64Encode(f'{inputs.api_key}:{inputs.secret_key}')}',
-            'Content-Type': 'application/json'
-        },
-        'body': {
-            'Messages': [
-                {
-                    'From': {
-                        'Email': email.from,
-                        'Name': ''
-                    },
-                    'To': [
-                        {
-                            'Email': email.to,
-                            'Name': ''
-                        }
-                    ],
-                    'Subject': email.subject,
-                    'HTMLPart': email.html
-                }
-            ]
-        }
-    })
-}
-// TODO: support the "export" keyword in front of functions
-return {'sendEmail': sendEmail}
-""".strip(),
-    inputs_schema=[
-        input_api_key,
-        input_secret_key,
-        {
-            "key": "from_email",
-            "type": "string",
-            "label": "Email to send from",
-            "secret": False,
-            "required": True,
         },
     ],
     filters=common_filters,

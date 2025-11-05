@@ -1,6 +1,8 @@
-import { LemonButton, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -26,7 +28,7 @@ export function MaxMemorySettings(): JSX.Element {
                 <LemonField name="text" label="Max’s memory">
                     <LemonTextArea
                         id="product-description-textarea" // Slightly dirty ID for .focus() elsewhere
-                        placeholder={`What's should Max know about ${
+                        placeholder={`What should PostHog AI know about ${
                             currentProject ? currentProject.name : 'your company or this product'
                         }?`}
                         maxLength={10000}

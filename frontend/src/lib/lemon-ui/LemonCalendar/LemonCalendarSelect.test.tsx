@@ -1,12 +1,13 @@
 import { render, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
+
 import { dayjs } from 'lib/dayjs'
 import {
-    getTimeElement,
     LemonCalendarSelect,
     LemonCalendarSelectProps,
+    getTimeElement,
 } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
-import { useState } from 'react'
 
 import { getByDataAttr } from '~/test/byDataAttr'
 

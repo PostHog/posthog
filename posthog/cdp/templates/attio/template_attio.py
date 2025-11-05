@@ -1,6 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -9,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Create and update contacts in Attio",
     icon_url="/static/services/attio.png",
     category=["Advertisement"],
-    hog="""
+    code_language="hog",
+    code="""
 let body := {
     'data': {
         'values': {

@@ -1,20 +1,30 @@
-import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
+import { aiSummaryMock } from './ai-summary.mock'
+
+import { createParser } from 'eventsource-parser'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+import React from 'react'
+
+import { IconClock, IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
+
 import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { capitalizeFirstLetter, ceilMsToClosestSecond, humanFriendlyDuration, percentage } from 'lib/utils'
+import {
+    capitalizeFirstLetter,
+    ceilMsToClosestSecond,
+    humanFriendlyDuration,
+    isEmptyObject,
+    percentage,
+} from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
-import posthog from 'posthog-js'
-import React from 'react'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { getCoreFilterDefinition, getFirstFilterTypeFor } from '~/taxonomy/helpers'
@@ -23,31 +33,14 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
 import type { playerMetaLogicType } from './playerMetaLogicType'
+import { sessionRecordingPinnedPropertiesLogic } from './sessionRecordingPinnedPropertiesLogic'
+import { HARDCODED_DISPLAY_LABELS } from './sessionRecordingPinnedPropertiesLogic'
+import { SessionSummaryContent } from './types'
+
 const recordingPropertyKeys = ['click_count', 'keypress_count', 'console_error_count'] as const
 
-export interface SessionSummaryResponse {
-    content: string
-}
-
-const ALLOW_LISTED_PERSON_PROPERTIES = [
-    '$os_name',
-    '$os',
-    '$browser_name',
-    '$browser',
-    '$device_type',
-    '$referrer',
-    '$geoip_country_code',
-    '$geoip_subdivision_1_name',
-    '$geoip_city_name',
-]
-
-function allowListedPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
-    const personProperties = sessionPlayerMetaData?.person?.properties ?? {}
-    return Object.fromEntries(
-        Object.entries(personProperties).filter(([key]) => {
-            return ALLOW_LISTED_PERSON_PROPERTIES.includes(key)
-        })
-    )
+function getAllPersonProperties(sessionPlayerMetaData: SessionRecordingType | null): Record<string, any> {
+    return sessionPlayerMetaData?.person?.properties ?? {}
 }
 
 function canRenderDirectly(value: any): boolean {
@@ -72,37 +65,74 @@ export function countryTitleFrom(
     return [city, subdivision, country].filter(Boolean).join(', ')
 }
 
+/**
+ * Get human-readable property label and type information
+ * @param property - The property key (e.g., '$browser', 'email')
+ * @param recordingProperties - Recording properties to determine if it's an event property
+ * @returns Object with label, originalKey, and type information
+ */
+export function getPropertyDisplayInfo(
+    property: string,
+    recordingProperties?: Record<string, any>
+): {
+    label: string
+    originalKey: string
+    type: TaxonomicFilterGroupType
+    propertyFilterType?: PropertyFilterType
+} {
+    const propertyType = recordingProperties?.[property]
+        ? // HogQL query can return multiple types, so we need to check
+          // but if it doesn't match a core definition it must be an event property
+          getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
+        : TaxonomicFilterGroupType.PersonProperties
+
+    const propertyFilterType: PropertyFilterType | undefined =
+        propertyType === TaxonomicFilterGroupType.EventProperties
+            ? PropertyFilterType.Event
+            : propertyType === TaxonomicFilterGroupType.SessionProperties
+              ? PropertyFilterType.Session
+              : PropertyFilterType.Person
+
+    const label = getCoreFilterDefinition(property, propertyType)?.label ?? property
+
+    return {
+        label,
+        originalKey: property,
+        type: propertyType,
+        propertyFilterType,
+    }
+}
+
 export const playerMetaLogic = kea<playerMetaLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerMetaLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
-            sessionRecordingDataLogic(props),
-            [
-                'urls',
-                'sessionPlayerData',
-                'sessionEventsData',
-                'sessionPlayerMetaData',
-                'sessionPlayerMetaDataLoading',
-                'snapshotsLoading',
-                'windowIds',
-                'trackedWindow',
-            ],
+            sessionRecordingDataCoordinatorLogic(props),
+            ['urls', 'sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaData', 'windowIds', 'trackedWindow'],
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
             sessionRecordingsListPropertiesLogic,
-            ['recordingPropertiesById', 'recordingPropertiesLoading'],
+            ['recordingPropertiesById'],
+            sessionRecordingPinnedPropertiesLogic,
+            ['pinnedProperties'],
         ],
         actions: [
-            sessionRecordingDataLogic(props),
+            sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingMetaSuccess', 'setTrackedWindow'],
             sessionRecordingsListPropertiesLogic,
-            ['maybeLoadPropertiesForSessions'],
+            ['maybeLoadPropertiesForSessions', 'loadPropertiesForSessionsSuccess'],
+            sessionRecordingPinnedPropertiesLogic,
+            ['setPinnedProperties', 'togglePropertyPin'],
         ],
     })),
     actions({
         sessionSummaryFeedback: (feedback: 'good' | 'bad') => ({ feedback }),
+        setSessionSummaryContent: (content: SessionSummaryContent) => ({ content }),
+        summarizeSession: () => ({}),
+        setSessionSummaryLoading: (isLoading: boolean) => ({ isLoading }),
+        setIsPropertyPopoverOpen: (isOpen: boolean) => ({ isOpen }),
     }),
     reducers(() => ({
         summaryHasHadFeedback: [
@@ -111,27 +141,35 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 sessionSummaryFeedback: () => true,
             },
         ],
-    })),
-    loaders(({ props }) => ({
-        sessionSummary: {
-            summarizeSession: async (): Promise<SessionSummaryResponse | null> => {
-                const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
-                if (!id) {
-                    return null
-                }
-                const response = await api.recordings.summarize(id)
-                if (!response.content) {
-                    lemonToast.warning('Unable to load session summary')
-                }
-                return { content: response.content }
+        sessionSummary: [
+            null as SessionSummaryContent | null,
+            {
+                setSessionSummaryContent: (_, { content }) => content,
             },
-        },
+        ],
+        sessionSummaryLoading: [
+            false,
+            {
+                summarizeSession: () => true,
+                setSessionSummaryContent: () => false,
+                setSessionSummaryLoading: (_, { isLoading }) => isLoading,
+            },
+        ],
+        isPropertyPopoverOpen: [
+            false,
+            {
+                setIsPropertyPopoverOpen: (_, { isOpen }) => isOpen,
+            },
+        ],
     })),
     selectors(() => ({
         loading: [
-            (s) => [s.sessionPlayerMetaDataLoading, s.snapshotsLoading, s.recordingPropertiesLoading],
-            (sessionPlayerMetaDataLoading, snapshotsLoading, recordingPropertiesLoading) =>
-                sessionPlayerMetaDataLoading || snapshotsLoading || recordingPropertiesLoading,
+            (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],
+            (sessionPlayerMetaData, recordingPropertiesById) => {
+                const hasSessionPlayerMetadata = !!sessionPlayerMetaData && !isEmptyObject(sessionPlayerMetaData)
+                const hasRecordingProperties = !!recordingPropertiesById && !isEmptyObject(recordingPropertiesById)
+                return !hasSessionPlayerMetadata || !hasRecordingProperties
+            },
         ],
         sessionPerson: [
             (s) => [s.sessionPlayerData],
@@ -157,14 +195,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 return sessionPlayerData.start ?? null
             },
         ],
-
         endTime: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData) => {
                 return sessionPlayerData.end ?? null
             },
         ],
-
         currentWindowIndex: [
             (s) => [s.windowIds, s.currentSegment],
             (windowIds, currentSegment) => {
@@ -195,13 +231,20 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
             },
         ],
-        overviewItems: [
-            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
-            (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
+        allOverviewItems: [
+            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById, s.pinnedProperties],
+            (
+                sessionPlayerMetaData: SessionRecordingType | null,
+                startTime: string | null,
+                recordingPropertiesById: Record<string, Record<string, any>>,
+                pinnedProperties: string[]
+            ) => {
                 const items: OverviewItem[] = []
+
                 if (startTime) {
                     items.push({
                         label: 'Start',
+                        icon: <IconClock />,
                         value: (
                             <SimpleTimeLabel
                                 muted={false}
@@ -216,13 +259,23 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 if (sessionPlayerMetaData?.recording_duration) {
                     items.push({
                         label: 'Duration',
+                        icon: <IconClock />,
                         value: humanFriendlyDuration(sessionPlayerMetaData.recording_duration),
                         type: 'text',
                     })
                 }
+                if (sessionPlayerMetaData?.retention_period_days && sessionPlayerMetaData?.recording_ttl) {
+                    items.push({
+                        icon: <IconHourglass />,
+                        label: 'TTL',
+                        value: `${sessionPlayerMetaData.recording_ttl}d / ${sessionPlayerMetaData.retention_period_days}d`,
+                        type: 'text',
+                        keyTooltip: 'The number of days left before this recording expires',
+                    })
+                }
 
                 recordingPropertyKeys.forEach((property) => {
-                    if (sessionPlayerMetaData?.[property]) {
+                    if (sessionPlayerMetaData?.[property] !== undefined) {
                         items.push({
                             icon:
                                 property === 'click_count' ? (
@@ -243,63 +296,92 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 const recordingProperties = sessionPlayerMetaData?.id
                     ? recordingPropertiesById[sessionPlayerMetaData?.id] || {}
                     : {}
-                const personProperties = allowListedPersonProperties(sessionPlayerMetaData)
+                const personProperties = getAllPersonProperties(sessionPlayerMetaData)
 
-                const shouldUsePersonProperties = Object.keys(recordingProperties).length === 0
-                const propertiesToUse = shouldUsePersonProperties ? personProperties : recordingProperties
-                if (propertiesToUse['$os_name'] && propertiesToUse['$os']) {
+                // Combine both recording and person properties
+                const allProperties = { ...recordingProperties, ...personProperties }
+                if (allProperties['$os_name'] && allProperties['$os']) {
                     // we don't need both, prefer $os_name in case mobile sends better value in that field
-                    delete propertiesToUse['$os']
+                    delete allProperties['$os']
                 }
-                Object.entries(propertiesToUse).forEach(([property, value]) => {
-                    if (value == null) {
-                        return
+
+                const allPropertyKeys = new Set(Object.keys(allProperties))
+
+                // There may be pinned properties that don't exist as keys on this specific user,
+                // we still want to show them, albeit with a value of '-'.
+                // However, we don't want to add duplicates for hardcoded processed properties like "Start", "Duration", "TTL"...
+                pinnedProperties.forEach((property: string) => {
+                    if (!allPropertyKeys.has(property) && !HARDCODED_DISPLAY_LABELS.includes(property as any)) {
+                        allPropertyKeys.add(property)
                     }
+                })
+
+                Array.from(allPropertyKeys).forEach((property) => {
                     if (property === '$geoip_subdivision_1_name' || property === '$geoip_city_name') {
                         // they're just shown in the title for Country
                         return
                     }
 
-                    const propertyType = recordingProperties[property]
-                        ? // HogQL query can return multiple types, so we need to check
-                          // but if it doesn't match a core definition it must be an event property
-                          getFirstFilterTypeFor(property) || TaxonomicFilterGroupType.EventProperties
-                        : TaxonomicFilterGroupType.PersonProperties
+                    // Skip recording property keys that we've already processed
+                    if (recordingPropertyKeys.includes(property as any)) {
+                        return
+                    }
+
+                    const propertyInfo = getPropertyDisplayInfo(property, recordingProperties)
+                    const value = allProperties[property]
 
                     const safeValue =
-                        typeof value === 'string'
-                            ? value
-                            : typeof value === 'number'
-                            ? value.toString()
-                            : JSON.stringify(value, null, 2)
+                        value == null
+                            ? '-'
+                            : typeof value === 'string'
+                              ? value
+                              : typeof value === 'number'
+                                ? value.toString()
+                                : JSON.stringify(value, null, 2)
 
-                    const calculatedPropertyType: PropertyFilterType | undefined = shouldUsePersonProperties
-                        ? PropertyFilterType.Person
-                        : propertyType === TaxonomicFilterGroupType.EventProperties
-                        ? PropertyFilterType.Event
-                        : TaxonomicFilterGroupType.SessionProperties
-                        ? PropertyFilterType.Session
-                        : PropertyFilterType.Person
                     items.push({
-                        icon: <PropertyFilterIcon type={calculatedPropertyType} />,
-                        label: getCoreFilterDefinition(property, propertyType)?.label ?? property,
+                        icon: <PropertyFilterIcon type={propertyInfo.propertyFilterType} />,
+                        label: propertyInfo.label,
                         value: safeValue,
-                        keyTooltip: calculatedPropertyType
-                            ? `${capitalizeFirstLetter(calculatedPropertyType)} property`
-                            : undefined,
+                        keyTooltip:
+                            propertyInfo.label !== propertyInfo.originalKey
+                                ? `Sent as: ${propertyInfo.originalKey}`
+                                : propertyInfo.propertyFilterType
+                                  ? `${capitalizeFirstLetter(propertyInfo.propertyFilterType)} property`
+                                  : undefined,
                         valueTooltip:
                             property === '$geoip_country_code' && safeValue in COUNTRY_CODE_TO_LONG_NAME
                                 ? countryTitleFrom(recordingProperties, personProperties)
                                 : // we don't want to pass arbitrary objects to the overview grid's tooltip here, so we stringify them
-                                canRenderDirectly(value)
-                                ? value
-                                : JSON.stringify(value),
+                                  canRenderDirectly(value)
+                                  ? value
+                                  : JSON.stringify(value),
                         type: 'property',
                         property,
                     })
                 })
 
                 return items
+            },
+        ],
+        displayOverviewItems: [
+            (s) => [s.allOverviewItems, s.pinnedProperties],
+            (allOverviewItems, pinnedProperties) => {
+                // Filter to show only pinned properties and sort by pinned order
+                const pinnedItems = allOverviewItems.filter((item) => {
+                    const key = item.type === 'property' ? item.property : item.label
+                    return pinnedProperties.includes(String(key))
+                })
+
+                // Sort by the order in pinnedProperties array
+                // without this pins jump around as they load in
+                return pinnedItems.sort((a, b) => {
+                    const aKey = a.type === 'property' ? a.property : a.label
+                    const bKey = b.type === 'property' ? b.property : b.label
+                    const aIndex = pinnedProperties.indexOf(String(aKey))
+                    const bIndex = pinnedProperties.indexOf(String(bKey))
+                    return aIndex - bIndex
+                })
             },
         ],
     })),
@@ -315,6 +397,61 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 session_summary: values.sessionSummary,
                 summarized_session_id: props.sessionRecordingId,
             })
+        },
+        // Using listener instead of loader to be able to stream the summary chunks (as loaders wait for the whole response)
+        summarizeSession: async () => {
+            // TODO: Remove after testing
+            const local = false
+            if (local) {
+                actions.setSessionSummaryContent(aiSummaryMock)
+                return
+            }
+            // TODO: Stop loading/reset the state when failing to avoid endless "thinking" state
+            const id = props.sessionRecordingId || props.sessionRecordingData?.sessionRecordingId
+            if (!id) {
+                return
+            }
+            try {
+                const response = await api.recordings.summarizeStream(id)
+                const reader = response.body?.getReader()
+                if (!reader) {
+                    throw new Error('No reader available')
+                }
+                const decoder = new TextDecoder()
+                const parser = createParser({
+                    onEvent: ({ event, data }) => {
+                        try {
+                            // Stop loading and show error if encountered an error event
+                            if (event === 'session-summary-error') {
+                                lemonToast.error(data)
+                                actions.setSessionSummaryLoading(false)
+                                return
+                            }
+                            const parsedData = JSON.parse(data)
+                            if (parsedData) {
+                                actions.setSessionSummaryContent(parsedData)
+                            }
+                        } catch {
+                            // Don't handle errors as we can afford to fail some chunks silently.
+                            // However, there should not be any unparseable chunks coming from the server as they are validated before being sent.
+                        }
+                    },
+                })
+                // Consume stream until exhausted
+                while (true) {
+                    const { done, value } = await reader.read()
+                    if (done) {
+                        break
+                    }
+                    const decodedValue = decoder.decode(value)
+                    parser.feed(decodedValue)
+                }
+            } catch (err) {
+                lemonToast.error('Failed to load session summary. Please, contact us, and try again in a few minutes.')
+                throw err
+            } finally {
+                actions.setSessionSummaryLoading(false)
+            }
         },
     })),
 ])

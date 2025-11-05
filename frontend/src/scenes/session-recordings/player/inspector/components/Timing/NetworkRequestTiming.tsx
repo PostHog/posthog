@@ -1,8 +1,9 @@
+import { useState } from 'react'
+
+import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { useState } from 'react'
-import { convertForTimelineView, TimeLineView } from 'scenes/session-recordings/apm/waterfall/TimeLineView'
-import { SimpleKeyValueList } from 'scenes/session-recordings/player/inspector/components/SimpleKeyValueList'
+import { TimeLineView, convertForTimelineView } from 'scenes/session-recordings/apm/waterfall/TimeLineView'
 
 import { PerformanceEvent } from '~/types'
 

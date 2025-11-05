@@ -2,13 +2,14 @@ import dataclasses
 from datetime import datetime
 from typing import Any, Optional, Union, cast
 
+from django.conf import settings
+
 import structlog
 from dateutil import parser
-from django.conf import settings
 from posthoganalytics.client import Client
-from posthog.exceptions_capture import capture_exception
 
 from posthog.cloud_utils import is_cloud
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -68,17 +69,17 @@ def capture_event(
 
     if is_cloud():
         pha_client.capture(
-            distinct_id,
-            name,
-            {**properties, "scope": "user"},
+            distinct_id=distinct_id,
+            event=name,
+            properties={**properties, "scope": "user"},
             groups={"organization": str(organization_id), "instance": settings.SITE_URL},
             timestamp=timestamp,
         )
     else:
         pha_client.capture(
-            get_machine_id(),
-            name,
-            {**properties, "scope": "machine"},
+            distinct_id=get_machine_id(),
+            event=name,
+            properties={**properties, "scope": "machine"},
             groups={"instance": settings.SITE_URL},
             timestamp=timestamp,
         )

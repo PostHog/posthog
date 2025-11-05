@@ -1,4 +1,6 @@
-import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+
+import { makeNavigateWrapper } from '~/toolbar/utils'
 
 import type { currentPageLogicType } from './currentPageLogicType'
 
@@ -45,6 +47,7 @@ export function withoutPostHogInit(href: string): string {
 
 export const currentPageLogic = kea<currentPageLogicType>([
     path(['toolbar', 'stats', 'currentPageLogic']),
+
     actions(() => ({
         setHref: (href: string) => ({ href }),
         setWildcardHref: (href: string) => ({ href }),
@@ -75,11 +78,13 @@ export const currentPageLogic = kea<currentPageLogicType>([
             // Iterate over query params and do the same for their values
             if (urlParts.length > 1) {
                 const queryParams = urlParts[1].split('&')
+
                 for (let i = 0; i < queryParams.length; i++) {
                     const [key, value] = queryParams[i].split('=')
                     queryParams[i] = `${key}=${replaceWithWildcard(value)}`
                 }
-                url = `${url}?${queryParams.join('&')}`
+
+                url = `${url}\\?${queryParams.join('&')}`
             }
 
             actions.setWildcardHref(url)
@@ -89,14 +94,13 @@ export const currentPageLogic = kea<currentPageLogicType>([
     afterMount(({ actions, values, cache }) => {
         actions.setHref(withoutPostHogInit(values.href))
 
-        cache.interval = window.setInterval(() => {
-            if (window.location.href !== values.href) {
-                actions.setHref(withoutPostHogInit(window.location.href))
-            }
-        }, 500)
-    }),
-
-    beforeUnmount(({ cache }) => {
-        window.clearInterval(cache.interval)
+        cache.disposables.add(
+            makeNavigateWrapper((): void => {
+                if (window.location.href !== values.href) {
+                    actions.setHref(withoutPostHogInit(window.location.href))
+                }
+            }, '__ph_current_page_logic_wrapped__'),
+            'historyProxy'
+        )
     }),
 ])

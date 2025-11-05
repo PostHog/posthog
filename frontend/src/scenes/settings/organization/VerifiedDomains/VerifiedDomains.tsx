@@ -1,10 +1,11 @@
-import { IconCheckCircle, IconInfo, IconLock, IconTrash, IconWarning } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconCheckCircle, IconInfo, IconLock, IconTrash, IconWarning } from '@posthog/icons'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -13,6 +14,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -20,9 +22,10 @@ import { AvailableFeature, OrganizationDomainType } from '~/types'
 
 import { AddDomainModal } from './AddDomainModal'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
+import { ConfigureSCIMModal } from './ConfigureSCIMModal'
 import { SSOSelect } from './SSOSelect'
-import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { VerifyDomainModal } from './VerifyDomainModal'
+import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
 
@@ -63,8 +66,9 @@ function VerifiedDomainsTable(): JSX.Element {
         updatingDomainLoading,
         isSSOEnforcementAvailable,
         isSAMLAvailable,
+        isSCIMAvailable,
     } = useValues(verifiedDomainsLogic)
-    const { updateDomain, deleteVerifiedDomain, setVerifyModal, setConfigureSAMLModalId } =
+    const { updateDomain, deleteVerifiedDomain, setVerifyModal, setConfigureSAMLModalId, setConfigureSCIMModalId } =
         useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -236,16 +240,28 @@ function VerifiedDomainsTable(): JSX.Element {
                         overlay={
                             <>
                                 {is_verified && (
-                                    <LemonButton
-                                        onClick={() => setConfigureSAMLModalId(id)}
-                                        fullWidth
-                                        disabledReason={
-                                            restrictionReason ||
-                                            (!isSAMLAvailable ? 'Upgrade to enable SAML' : undefined)
-                                        }
-                                    >
-                                        Configure SAML
-                                    </LemonButton>
+                                    <>
+                                        <LemonButton
+                                            onClick={() => setConfigureSAMLModalId(id)}
+                                            fullWidth
+                                            disabledReason={
+                                                restrictionReason ||
+                                                (!isSAMLAvailable ? 'Upgrade to enable SAML' : undefined)
+                                            }
+                                        >
+                                            Configure SAML
+                                        </LemonButton>
+                                        {/* TODO: After SCIM is fully rolled out, show the Configure SCIM button with 'Upgrade to enable SCIM' disabledReason */}
+                                        {isSCIMAvailable && (
+                                            <LemonButton
+                                                onClick={() => setConfigureSCIMModalId(id)}
+                                                fullWidth
+                                                disabledReason={restrictionReason}
+                                            >
+                                                Configure SCIM
+                                            </LemonButton>
+                                        )}
+                                    </>
                                 )}
                                 <LemonButton
                                     status="danger"
@@ -288,6 +304,7 @@ function VerifiedDomainsTable(): JSX.Element {
             />
             <AddDomainModal />
             <ConfigureSAMLModal />
+            <ConfigureSCIMModal />
             <VerifyDomainModal />
         </div>
     )

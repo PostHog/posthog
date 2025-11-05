@@ -1,10 +1,11 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+import { objectsEqual } from 'lib/utils'
+import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { FilterableInspectorListItemTypes } from '~/types'
-
 import type { miniFiltersLogicType } from './miniFiltersLogicType'
+import { FilterableInspectorListItemTypes } from './playerInspectorLogic'
 
 export type SharedListMiniFilter = {
     type: FilterableInspectorListItemTypes
@@ -14,99 +15,111 @@ export type SharedListMiniFilter = {
     enabled?: boolean
 }
 
-const MiniFilters: SharedListMiniFilter[] = [
+export const MiniFilters: SharedListMiniFilter[] = [
     {
-        type: FilterableInspectorListItemTypes.EVENTS,
+        type: 'events',
         key: 'events-posthog',
         name: 'PostHog',
         tooltip: 'Standard PostHog events except Pageviews, Autocapture, and Exceptions.',
     },
     {
-        type: FilterableInspectorListItemTypes.EVENTS,
+        type: 'events',
         key: 'events-custom',
         name: 'Custom',
         tooltip: 'Custom events tracked by your app',
     },
     {
-        type: FilterableInspectorListItemTypes.EVENTS,
+        type: 'events',
         key: 'events-pageview',
         name: 'Pageview / Screen',
         tooltip: 'Pageview (or Screen for mobile) events',
     },
     {
-        type: FilterableInspectorListItemTypes.EVENTS,
+        type: 'events',
         key: 'events-autocapture',
         name: 'Autocapture',
         tooltip: 'Autocapture events such as clicks and inputs',
     },
     {
-        type: FilterableInspectorListItemTypes.EVENTS,
+        type: 'events',
         key: 'events-exceptions',
         name: 'Exceptions',
         tooltip: 'Exception events from PostHog or its Sentry integration',
     },
     {
-        type: FilterableInspectorListItemTypes.CONSOLE,
+        type: 'console',
         key: 'console-info',
         name: 'Info',
     },
     {
-        type: FilterableInspectorListItemTypes.CONSOLE,
+        type: 'console',
         key: 'console-warn',
         name: 'Warn',
     },
     {
-        type: FilterableInspectorListItemTypes.CONSOLE,
+        type: 'console',
         key: 'console-error',
         name: 'Error',
     },
     {
-        type: FilterableInspectorListItemTypes.NETWORK,
+        type: 'console',
+        key: 'console-app-state',
+        name: 'App state',
+    },
+    {
+        type: 'network',
         key: 'performance-fetch',
         name: 'Fetch/XHR',
         tooltip: 'Requests during the session to external resources like APIs via XHR or Fetch',
     },
     {
-        type: FilterableInspectorListItemTypes.NETWORK,
+        type: 'network',
         key: 'performance-document',
         name: 'Doc',
         tooltip: 'Page load information collected on a fresh browser page load, refresh, or page paint.',
     },
     {
-        type: FilterableInspectorListItemTypes.NETWORK,
+        type: 'network',
         key: 'performance-assets-js',
         name: 'JS',
         tooltip: 'Scripts loaded during the session.',
     },
     {
-        type: FilterableInspectorListItemTypes.NETWORK,
+        type: 'network',
         key: 'performance-assets-css',
         name: 'CSS',
         tooltip: 'CSS loaded during the session.',
     },
     {
-        type: FilterableInspectorListItemTypes.NETWORK,
+        type: 'network',
         key: 'performance-assets-img',
         name: 'Img',
         tooltip: 'Images loaded during the session.',
     },
     {
-        type: FilterableInspectorListItemTypes.NETWORK,
+        type: 'network',
         key: 'performance-other',
         name: 'Other',
         tooltip: 'Any other network requests that do not fall into the other categories',
     },
     {
-        type: FilterableInspectorListItemTypes.DOCTOR,
+        type: 'doctor',
         key: 'doctor',
         name: 'Doctor',
         tooltip:
             'Doctor events are special events that are automatically detected by PostHog to help diagnose issues in replay.',
     },
+    {
+        type: 'comment',
+        key: 'comment',
+        name: 'Comments',
+        tooltip:
+            'Comments can be made using annotations or notebooks. Includes project and org level annotations that are within this session.',
+    },
 ]
 export type MiniFilterKey = (typeof MiniFilters)[number]['key']
 
-const defaulMinifilters = [
+const defaultMinifilters = [
     'events-posthog',
     'events-custom',
     'events-pageview',
@@ -115,6 +128,7 @@ const defaulMinifilters = [
     'console-info',
     'console-warn',
     'console-error',
+    'comment',
 ]
 
 export const miniFiltersLogic = kea<miniFiltersLogicType>([
@@ -128,6 +142,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
+        actions: [sessionRecordingEventUsageLogic, ['reportRecordingInspectorMiniFilterViewed']],
     })),
     reducers(() => ({
         showOnlyMatching: [
@@ -139,7 +154,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
         ],
 
         selectedMiniFilters: [
-            defaulMinifilters,
+            defaultMinifilters,
             { persist: true },
             {
                 setMiniFilter: (state, { key, enabled }) => {
@@ -159,7 +174,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     }
                     return stateWithoutKeys
                 },
-                resetMiniFilters: () => defaulMinifilters,
+                resetMiniFilters: () => defaultMinifilters,
             },
         ],
 
@@ -186,7 +201,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
 
         hasEventsFiltersSelected: [
             (s) => [s.miniFiltersForType],
-            (miniFiltersForType) => miniFiltersForType(FilterableInspectorListItemTypes.EVENTS).some((x) => x.enabled),
+            (miniFiltersForType) => miniFiltersForType('events').some((x) => x.enabled),
         ],
 
         miniFilters: [
@@ -197,6 +212,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     enabled: selectedMiniFilters.includes(x.key),
                 }))
             },
+            { resultEqualityCheck: objectsEqual },
         ],
 
         miniFiltersByKey: [
@@ -207,6 +223,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                     return acc
                 }, {})
             },
+            { resultEqualityCheck: objectsEqual },
         ],
 
         miniFiltersForTypeByKey: [
@@ -223,10 +240,10 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
             },
         ],
     }),
-    listeners(() => ({
+    listeners(({ actions }) => ({
         setMiniFilter: ({ key, enabled }) => {
             if (enabled) {
-                eventUsageLogic.actions.reportRecordingInspectorMiniFilterViewed(key, enabled)
+                actions.reportRecordingInspectorMiniFilterViewed(key, enabled)
             }
         },
     })),

@@ -1,32 +1,41 @@
-import structlog
 from typing import Optional
 
+import structlog
+import pydantic_core
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
-from common.hogvm.python.debugger import color_bytecode
-from posthog.clickhouse.query_tagging import tag_queries
-from posthog.cloud_utils import is_cloud
+from posthog.schema import (
+    DashboardFilter,
+    DatabaseSchemaQuery,
+    DatabaseSchemaQueryResponse,
+    DataWarehouseViewLink,
+    HogQLAutocomplete,
+    HogQLMetadata,
+    HogQLVariable,
+    HogQuery,
+    HogQueryResponse,
+    QuerySchemaRoot,
+)
+
+from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.compiler.bytecode import execute_hog
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.autocomplete import get_hogql_autocomplete
+from posthog.hogql.database.database import Database
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, get_query_runner
+
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.cloud_utils import is_cloud
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner
 from posthog.models import Team, User
-from posthog.schema import (
-    DatabaseSchemaQueryResponse,
-    HogQLVariable,
-    HogQuery,
-    DashboardFilter,
-    HogQLAutocomplete,
-    HogQLMetadata,
-    QuerySchemaRoot,
-    DatabaseSchemaQuery,
-    HogQueryResponse,
-)
+from posthog.schema_migrations.upgrade import upgrade
+
+from products.data_warehouse.backend.models import DataWarehouseJoin
+
+from common.hogvm.python.debugger import color_bytecode
 
 logger = structlog.get_logger(__name__)
 
@@ -45,8 +54,35 @@ def process_query_dict(
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
 ) -> dict | BaseModel:
-    model = QuerySchemaRoot.model_validate(query_json)
-    tag_queries(query=query_json)
+    upgraded_query_json = upgrade(query_json)
+    try:
+        model = QuerySchemaRoot.model_validate(upgraded_query_json)
+    except pydantic_core.ValidationError as e:
+        logger.exception(
+            "query_validation_error",
+            team_id=team.id,
+            dashboard_id=dashboard_id,
+            insight_id=insight_id,
+            query_id=query_id,
+            validation_error=str(e),
+        )
+        capture_exception(
+            e,
+            {
+                "team_id": team.id,
+                "dashboard_id": dashboard_id,
+                "insight_id": insight_id,
+                "query_id": query_id,
+                "error_type": "query_validation_error",
+            },
+        )
+
+        if dashboard_id:
+            raise
+
+        return QueryResponse(results=None, error=str(e))
+
+    tag_queries(query=upgraded_query_json)
 
     dashboard_filters = DashboardFilter.model_validate(dashboard_filters_json) if dashboard_filters_json else None
     variables_override = (
@@ -81,6 +117,7 @@ def process_query_model(
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
+    cache_age_seconds: Optional[int] = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
@@ -100,6 +137,7 @@ def process_query_model(
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
                 is_query_service=is_query_service,
+                cache_age_seconds=cache_age_seconds,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
@@ -126,9 +164,27 @@ def process_query_model(
             metadata_response = get_hogql_metadata(query=metadata_query, team=team)
             result = metadata_response
         elif isinstance(query, DatabaseSchemaQuery):
-            database = create_hogql_database(team=team, modifiers=create_default_modifiers_for_team(team))
+            joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
+            database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team))
             context = HogQLContext(team_id=team.pk, team=team, database=database)
-            result = DatabaseSchemaQueryResponse(tables=serialize_database(context))
+            result = DatabaseSchemaQueryResponse(
+                tables=database.serialize(context),
+                joins=[
+                    DataWarehouseViewLink.model_validate(
+                        {
+                            "id": str(join.id),
+                            "source_table_name": join.source_table_name,
+                            "source_table_key": join.source_table_key,
+                            "joining_table_name": join.joining_table_name,
+                            "joining_table_key": join.joining_table_key,
+                            "field_name": join.field_name,
+                            "configuration": join.configuration,
+                            "created_at": join.created_at.isoformat(),
+                        }
+                    )
+                    for join in joins
+                ],
+            )
         else:
             raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
     else:  # Query runner available - it will handle execution as well as caching
@@ -137,12 +193,14 @@ def process_query_model(
         if variables_override:
             query_runner.apply_variable_overrides(variables_override)
         query_runner.is_query_service = is_query_service
+
         result = query_runner.run(
             execution_mode=execution_mode,
             user=user,
             query_id=query_id,
             insight_id=insight_id,
             dashboard_id=dashboard_id,
+            cache_age_seconds=cache_age_seconds,
         )
 
     return result

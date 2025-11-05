@@ -1,0 +1,32 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block after_field_sets %}
+    {{ block.super }}
+    {% if show_migration %}
+        {% if shared_metrics_status %}
+            <div class="submit-row" style="margin-top: 20px; padding: 10px; border-radius: 5px; border: 1px solid #f7a501; color: #f7a501; display: flex; align-items: center; gap: 10px;">
+                <ul style="margin: 10px 0;">
+                {% for metric in shared_metrics_status %}
+                    <li>
+                        <a href="{{ metric.migrate_url }}" target="_blank">{{ metric.name }}</a>
+                        {% if metric.is_legacy %}
+                            {% if metric.migrated %}
+                                <span style="color: green;">&#10003;</span>
+                            {% else %}
+                                <span style="color: red;">&#10007;</span>
+                            {% endif %}
+                        {% endif %}
+                    </li>
+                {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+        <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #f7a501; color: #f7a501; display: flex; align-items: center; gap: 10px;">
+            <div class="info">This experiment uses the legacy engine and can be migrated.</div>
+            <a class="button" style="padding:10px 15px;" href="{% url 'admin:experiment_migrate' object_id=original.pk %}">
+                Migrate Experiment
+            </a>
+        </div>
+    {% endif %}
+{% endblock %}

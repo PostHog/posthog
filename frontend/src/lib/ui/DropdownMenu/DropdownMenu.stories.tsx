@@ -1,6 +1,10 @@
-import { IconChevronRight, IconSearch } from '@posthog/icons'
 import { DropdownMenuCheckboxItemProps } from '@radix-ui/react-dropdown-menu'
 import type { Meta } from '@storybook/react'
+import { useState } from 'react'
+
+import { IconChevronRight, IconSearch } from '@posthog/icons'
+
+import { Link } from 'lib/lemon-ui/Link/Link'
 import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
@@ -16,7 +20,6 @@ import {
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { useState } from 'react'
 
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
 
@@ -51,38 +54,69 @@ export function Default(): JSX.Element {
                     <DropdownMenuLabel>Projects</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem asChild disabled>
-                        <ButtonPrimitive menuItem href="/" disabled>
+                        <Link
+                            to="/"
+                            buttonProps={{
+                                menuItem: true,
+                                disabled: true,
+                            }}
+                        >
                             Link 1 (disabled)
-                        </ButtonPrimitive>
+                        </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                        <ButtonPrimitive menuItem href="/">
+                        <Link
+                            to="/"
+                            buttonProps={{
+                                menuItem: true,
+                            }}
+                        >
                             Link 2
-                        </ButtonPrimitive>
+                        </Link>
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuSub>
                         <DropdownMenuSubTrigger asChild>
-                            <ButtonPrimitive menuItem href="/">
+                            <Link
+                                to="/"
+                                buttonProps={{
+                                    menuItem: true,
+                                }}
+                            >
                                 More options
                                 <IconChevronRight className="group-data-[state=open]/button-root:rotate-180" />
-                            </ButtonPrimitive>
+                            </Link>
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent>
                             <DropdownMenuItem asChild>
-                                <ButtonPrimitive menuItem href="/">
+                                <Link
+                                    to="/"
+                                    buttonProps={{
+                                        menuItem: true,
+                                    }}
+                                >
                                     Sub link 1
-                                </ButtonPrimitive>
+                                </Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
-                                <ButtonPrimitive menuItem href="/">
+                                <Link
+                                    to="/"
+                                    buttonProps={{
+                                        menuItem: true,
+                                    }}
+                                >
                                     Sub link 2
-                                </ButtonPrimitive>
+                                </Link>
                             </DropdownMenuItem>
                             <DropdownMenuItem asChild>
-                                <ButtonPrimitive menuItem href="/">
+                                <Link
+                                    to="/"
+                                    buttonProps={{
+                                        menuItem: true,
+                                    }}
+                                >
                                     Sub link 3
-                                </ButtonPrimitive>
+                                </Link>
                             </DropdownMenuItem>
                         </DropdownMenuSubContent>
                     </DropdownMenuSub>

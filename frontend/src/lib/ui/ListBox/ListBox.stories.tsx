@@ -1,10 +1,11 @@
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
-import { ListBox } from './ListBox'
+import { Link } from '@posthog/lemon-ui'
+
+import { ButtonPrimitive } from '../Button/ButtonPrimitives'
+import { ListBox, ListBoxHandle } from './ListBox'
 
 type Story = StoryObj<typeof ListBox>
 const meta: Meta<typeof ListBox> = {
@@ -17,52 +18,61 @@ export default meta
 
 const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<typeof ListBox>) => {
     const [expandedItemIds, setExpandedItemIds] = useState<string[]>([])
+    const ref = useRef<ListBoxHandle>(null)
 
     return (
         <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
-                <p className="m-0">Focus is handled with keyboard navigation.</p>
+                <p className="m-0">Listbox</p>
+                <p className="m-0">Wrap any set of elements in a Listbox to enable keyboard navigation.</p>
                 <p>
-                    all elements inside (button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])) gain
-                    focus when clicked or focused with keyboard.
+                    (button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])) gain focus when clicked
+                    or focused with keyboard, disabled elements are not focusable and skipped.
                 </p>
+                <ul className="list-disc list-inside">
+                    <li>Default (all elements gain 'real' focus)</li>
+                    <li>
+                        OR virtual focus = true (where local state keeps track of focus allowing you to navigate with
+                        keyboard but keep let's say an input focused).
+                    </li>
+                </ul>
             </div>
             <ListBox
                 className="flex flex-col gap-px max-h-[400px] overflow-y-auto border-1 border-dashed border-darkgray p-2"
                 {...props}
+                ref={ref}
             >
                 <ListBox.Item asChild className="mb-4">
-                    <LemonInput
-                        fullWidth
-                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
-                    />
+                    <input type="text" className="h-9 border border-primary rounded-md p-2" />
                 </ListBox.Item>
                 <ListBox.Item asChild>
-                    <LemonButton
+                    <Link
                         to="https://www.google.com"
-                        targetBlank
-                        fullWidth
+                        target="_blank"
+                        buttonProps={{
+                            menuItem: true,
+                        }}
                         className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 1 (Link)
-                    </LemonButton>
+                    </Link>
                 </ListBox.Item>
                 <ListBox.Item asChild onClick={() => alert('clicked')}>
-                    <LemonButton
-                        fullWidth
+                    <ButtonPrimitive
+                        menuItem
                         className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 2 (Clickable)
-                    </LemonButton>
+                    </ButtonPrimitive>
                 </ListBox.Item>
                 <ListBox.Item asChild aria-disabled>
-                    <LemonButton
-                        fullWidth
-                        disabledReason="This is a disabled reason"
+                    <ButtonPrimitive
+                        menuItem
+                        disabled
                         className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
                     >
                         Option 3
-                    </LemonButton>
+                    </ButtonPrimitive>
                 </ListBox.Item>
                 <AccordionPrimitive.Root
                     type="multiple"
@@ -75,82 +85,25 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
                     <AccordionPrimitive.Item value="one" className="flex flex-col w-full">
                         <AccordionPrimitive.Trigger className="flex items-center gap-2 w-full h-8" asChild>
                             <ListBox.Item asChild>
-                                <LemonButton
-                                    fullWidth
-                                    className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
-                                >
+                                <ButtonPrimitive menuItem fullWidth>
                                     Option 3 (Accordion)
-                                </LemonButton>
+                                </ButtonPrimitive>
                             </ListBox.Item>
                         </AccordionPrimitive.Trigger>
                         <AccordionPrimitive.Content className="ml-4">
                             <ListBox.Item asChild>
-                                <LemonButton
-                                    fullWidth
-                                    className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
-                                >
+                                <ButtonPrimitive menuItem fullWidth>
                                     Option 3 child
-                                </LemonButton>
+                                </ButtonPrimitive>
                             </ListBox.Item>
                         </AccordionPrimitive.Content>
                     </AccordionPrimitive.Item>
                 </AccordionPrimitive.Root>
 
                 <ListBox.Item asChild>
-                    <LemonButton
-                        fullWidth
-                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
-                    >
+                    <ButtonPrimitive fullWidth menuItem>
                         Option 4
-                    </LemonButton>
-                </ListBox.Item>
-                <ListBox.Item asChild>
-                    <LemonButton
-                        fullWidth
-                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
-                    >
-                        Option 5
-                    </LemonButton>
-                </ListBox.Item>
-                <ListBox.Item asChild>
-                    <LemonButton
-                        fullWidth
-                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
-                    >
-                        Option 6
-                    </LemonButton>
-                </ListBox.Item>
-                <ListBox.Item asChild>
-                    <LemonButton
-                        fullWidth
-                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
-                    >
-                        Option 7
-                    </LemonButton>
-                </ListBox.Item>
-                <ListBox.Item asChild>
-                    <LemonButton
-                        fullWidth
-                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
-                    >
-                        Option 8
-                    </LemonButton>
-                </ListBox.Item>
-                <ListBox.Item asChild>
-                    <LemonButton
-                        fullWidth
-                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
-                    >
-                        Option 9
-                    </LemonButton>
-                </ListBox.Item>
-                <ListBox.Item asChild>
-                    <LemonButton
-                        fullWidth
-                        className="data-[focused=true]:bg-fill-button-tertiary-active aria-[current=true]:bg-fill-button-tertiary-active"
-                    >
-                        Option 10
-                    </LemonButton>
+                    </ButtonPrimitive>
                 </ListBox.Item>
             </ListBox>
         </div>
@@ -158,4 +111,12 @@ const BasicTemplate: StoryFn<typeof ListBox> = (props: React.ComponentProps<type
 }
 
 export const Default: Story = BasicTemplate.bind({})
-Default.args = {}
+Default.args = {
+    title: 'List Box',
+}
+
+export const VirtualFocus: Story = BasicTemplate.bind({})
+VirtualFocus.args = {
+    title: 'List Box - Virtual Focus, the input is always focused when navigating with keyboard',
+    virtualFocus: true,
+}

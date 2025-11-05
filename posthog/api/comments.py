@@ -1,23 +1,25 @@
 from typing import Any, cast
-from django.db import transaction
-from django.db.models import QuerySet
 
-from rest_framework import exceptions, serializers, viewsets, pagination
-from posthog.api.utils import action
+from django.db import transaction
+from django.db.models import Q, QuerySet
+
+from rest_framework import exceptions, pagination, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.models.comment import Comment
+from posthog.tasks.email import send_discussions_mentioned
 
 
 class CommentSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     deleted = ClassicBehaviorBooleanFieldSerializer()
+    mentions = serializers.ListField(child=serializers.IntegerField(), write_only=True, required=False)
+    slug = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = Comment
@@ -31,18 +33,26 @@ class CommentSerializer(serializers.ModelSerializer):
         if instance:
             if instance.created_by != request.user:
                 raise exceptions.PermissionDenied("You can only modify your own comments")
-        # TODO: Ensure created_by is set
-        # And only allow updates to own comment
 
         data["created_by"] = request.user
 
         return data
 
     def create(self, validated_data: Any) -> Any:
+        mentions: list[int] = validated_data.pop("mentions", [])
+        slug: str = validated_data.pop("slug", "")
         validated_data["team_id"] = self.context["team_id"]
-        return super().create(validated_data)
+
+        comment = super().create(validated_data)
+
+        if mentions:
+            send_discussions_mentioned(comment, mentions, slug)
+
+        return comment
 
     def update(self, instance: Comment, validated_data: dict, **kwargs) -> Comment:
+        mentions: list[int] = validated_data.pop("mentions", [])
+        slug: str = validated_data.pop("slug", "")
         request = self.context["request"]
 
         with transaction.atomic():
@@ -57,6 +67,9 @@ class CommentSerializer(serializers.ModelSerializer):
                     validated_data["version"] = locked_instance.version + 1
 
                 updated_instance = super().update(locked_instance, validated_data)
+
+        if mentions:
+            send_discussions_mentioned(updated_instance, mentions, slug)
 
         return updated_instance
 
@@ -87,6 +100,14 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
         if params.get("item_id"):
             queryset = queryset.filter(item_id=params.get("item_id"))
+
+        if params.get("search"):
+            queryset = queryset.filter(content__search=params.get("search"))
+
+        if params.get("exclude_emoji_reactions") == "true":
+            queryset = queryset.filter(
+                Q(item_context__isnull=True) | ~Q(item_context__has_key="is_emoji") | Q(item_context__is_emoji=False)
+            )
 
         source_comment = params.get("source_comment")
         if self.action == "thread":

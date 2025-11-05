@@ -1,21 +1,19 @@
 import pytest
+from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
+
 from django.test import override_settings
+
+from posthog.schema import HogQLQueryModifiers, InCohortVia
 
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
+
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import UUIDT
-from posthog.schema import HogQLQueryModifiers, InCohortVia
-from posthog.test.base import (
-    BaseTest,
-    _create_person,
-    _create_event,
-    flush_persons_and_events,
-)
 
 elements_chain_match = lambda x: parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(x))})
 not_call = lambda x: ast.Call(name="not", args=[x])

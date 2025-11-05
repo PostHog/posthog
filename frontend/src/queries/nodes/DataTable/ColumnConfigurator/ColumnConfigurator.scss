@@ -4,7 +4,7 @@
         column-gap: 1rem;
         width: 700px;
         padding: 0.5rem;
-        background-color: var(--bg-primary);
+        background-color: var(--color-bg-primary);
         border-radius: var(--radius);
 
         @media (max-width: 960px) {
@@ -28,7 +28,7 @@
         padding: 0 0.5rem;
         margin: calc(var(--radius) / 2) 0;
         overflow: hidden;
-        background-color: var(--accent-highlight-secondary);
+        background-color: var(--color-accent-highlight-secondary);
         border-radius: var(--radius);
     }
 

@@ -1,9 +1,11 @@
 # Shared metrics and labels for prometheus metrics
 from contextlib import contextmanager
 
-import structlog
 from django.conf import settings
+
+import structlog
 from prometheus_client import CollectorRegistry, Counter, push_to_gateway
+
 from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
@@ -18,6 +20,7 @@ This module holds common labels, metrics and helpers for Prometheus instrumentat
 
 # Common metric labels
 LABEL_PATH = "path"
+LABEL_ROUTE = "route"
 LABEL_RESOURCE_TYPE = "resource_type"
 LABEL_TEAM_ID = "team_id"
 

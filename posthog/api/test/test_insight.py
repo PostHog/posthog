@@ -1,41 +1,31 @@
 import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
+
+from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    FuzzyInt,
+    QueryMatchingTest,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+    snapshot_postgres_queries,
+)
 from unittest import mock
 from unittest.case import skip
 from unittest.mock import ANY, patch
-from zoneinfo import ZoneInfo
 
 from django.test import override_settings
 from django.utils import timezone
-from freezegun import freeze_time
+
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog import settings
-from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.insight_cache import update_cache
-from posthog.caching.insight_caching_state import TargetCacheAge
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import (
-    Cohort,
-    Dashboard,
-    DashboardTile,
-    Filter,
-    Insight,
-    InsightViewed,
-    OrganizationMembership,
-    Person,
-    SharingConfiguration,
-    Team,
-    Text,
-    User,
-)
-from ee.models.rbac.access_control import AccessControl
-from posthog.models.insight_caching_state import InsightCachingState
-from posthog.models.insight_variable import InsightVariable
-from posthog.models.project import Project
 from posthog.schema import (
     DataTableNode,
     DataVisualizationNode,
@@ -53,19 +43,34 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     TrendsQuery,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    FuzzyInt,
-    QueryMatchingTest,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-    snapshot_postgres_queries,
+
+from posthog.hogql.query import execute_hogql_query
+
+from posthog import settings
+from posthog.api.test.dashboards import DashboardAPI
+from posthog.caching.insight_cache import update_cache
+from posthog.caching.insight_caching_state import TargetCacheAge
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import (
+    Cohort,
+    Dashboard,
+    DashboardTile,
+    Filter,
+    Insight,
+    InsightViewed,
+    OrganizationMembership,
+    Person,
+    SharingConfiguration,
+    Team,
+    Text,
+    User,
 )
+from posthog.models.insight_caching_state import InsightCachingState
+from posthog.models.insight_variable import InsightVariable
+from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -166,20 +171,20 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
             )
             self.assertEqual(response_1.status_code, status.HTTP_201_CREATED)
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2021-08-23T12:00:00Z",
                     "last_modified_at": "2021-08-23T12:00:00Z",
                     "last_modified_by": self_user_basic_serialized,
-                },
-                response_1.json(),
+                }.items(),
+                response_1.json().items(),
             )
-            mock_capture.assert_called_once_with(
-                self.user.distinct_id,
+            mock_capture.assert_any_call(
                 "insight created",
-                {
+                distinct_id=self.user.distinct_id,
+                properties={
                     "insight_id": response_1.json()["short_id"],
                     "$current_url": "https://posthog.com/my-referer",
                     "$session_id": "my-session-id",
@@ -199,21 +204,22 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 headers={"Referer": "https://posthog.com/my-referer", "X-Posthog-Session-Id": "my-session-id"},
             )
             self.assertEqual(response_2.status_code, status.HTTP_200_OK)
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2021-09-20T12:00:00Z",
                     "last_modified_at": "2021-08-23T12:00:00Z",
                     "last_modified_by": self_user_basic_serialized,
-                },
-                response_2.json(),
+                }.items(),
+                response_2.json().items(),
             )
             insight_short_id = response_2.json()["short_id"]
-            mock_capture.assert_called_once_with(
-                self.user.distinct_id,
+            # Check that "insight updated" event was called among all capture calls
+            mock_capture.assert_any_call(
                 "insight updated",
-                {
+                distinct_id=self.user.distinct_id,
+                properties={
                     "insight_id": insight_short_id,
                     "$current_url": "https://posthog.com/my-referer",
                     "$session_id": "my-session-id",
@@ -230,28 +236,28 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"filters": {"events": []}},
             )
             self.assertEqual(response_3.status_code, status.HTTP_200_OK)
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2021-10-21T12:00:00Z",
                     "last_modified_at": "2021-10-21T12:00:00Z",
                     "last_modified_by": self_user_basic_serialized,
-                },
-                response_3.json(),
+                }.items(),
+                response_3.json().items(),
             )
         with freeze_time("2021-12-23T12:00:00Z"):
             response_4 = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "XYZ"})
             self.assertEqual(response_4.status_code, status.HTTP_200_OK)
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2021-12-23T12:00:00Z",
                     "last_modified_at": "2021-12-23T12:00:00Z",
                     "last_modified_by": self_user_basic_serialized,
-                },
-                response_4.json(),
+                }.items(),
+                response_4.json().items(),
             )
 
         # Field last_modified_by is updated when another user makes a material change
@@ -262,15 +268,15 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"description": "Lorem ipsum."},
             )
             self.assertEqual(response_5.status_code, status.HTTP_200_OK)
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "created_at": "2021-08-23T12:00:00Z",
                     "created_by": self_user_basic_serialized,
                     "updated_at": "2022-01-01T12:00:00Z",
                     "last_modified_at": "2022-01-01T12:00:00Z",
                     "last_modified_by": alt_user_basic_serialized,
-                },
-                response_5.json(),
+                }.items(),
+                response_5.json().items(),
             )
 
     def test_get_saved_insight_items(self) -> None:
@@ -334,6 +340,54 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual((response.json()["results"][0]["favorited"]), True)
 
+    def test_hide_feature_flag_insights_filter(self) -> None:
+        from posthog.helpers.dashboard_templates import (
+            FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+            FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+        )
+
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        # Create feature flag insights
+        Insight.objects.create(
+            name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+            filters=Filter(data=filter_dict).to_dict(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+
+        Insight.objects.create(
+            name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+            filters=Filter(data=filter_dict).to_dict(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Create a regular insight
+        Insight.objects.create(
+            name="Regular Insight",
+            filters=Filter(data=filter_dict).to_dict(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Without filter, should return all 3 insights
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 3)
+
+        # With filter, should exclude feature flag insights
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&hide_feature_flag_insights=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["name"], "Regular Insight")
+
     def test_get_insight_in_dashboard_context(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],
@@ -383,8 +437,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 execution_mode=ExecutionMode.EXTENDED_CACHE_CALCULATE_ASYNC_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
-                filters_override=None,
-                variables_override=None,
+                filters_override={},
+                variables_override={},
+                tile_filters_override={},
             )
 
         with patch(
@@ -397,8 +452,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 team=self.team,
                 user=mock.ANY,
-                filters_override=None,
-                variables_override=None,
+                filters_override={},
+                variables_override={},
+                tile_filters_override={},
             )
 
     def test_get_insight_by_short_id(self) -> None:
@@ -472,6 +528,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "last_modified_at",
                 "tags",
                 "user_access_level",
+                "last_viewed_at",
             },
         )
 
@@ -509,11 +566,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # adding more insights doesn't change the query count
         self.assertEqual(
             [
-                FuzzyInt(12, 13),
-                FuzzyInt(12, 13),
-                FuzzyInt(12, 13),
-                FuzzyInt(12, 13),
-                FuzzyInt(12, 13),
+                FuzzyInt(13, 14),
+                FuzzyInt(13, 14),
+                FuzzyInt(13, 14),
+                FuzzyInt(13, 14),
+                FuzzyInt(13, 14),
             ],
             query_counts,
             f"received query counts\n\n{query_counts}",
@@ -869,7 +926,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                                 ],
                                 "field": "dashboards",
                                 "type": "Insight",
-                            }
+                            },
                         ],
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
@@ -894,7 +951,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                                 "after": [{"id": dashboard_one_id, "name": "dash 1"}],
                                 "field": "dashboards",
                                 "type": "Insight",
-                            }
+                            },
                         ],
                         "name": "have to have a name to hit the activity log",
                         "short_id": insight_json["short_id"],
@@ -1591,7 +1648,9 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true").json()
             self.assertNotIn("code", response)
+
             self.assertEqual(spy_execute_hogql_query.call_count, 1)
+
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
@@ -1601,9 +1660,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             update_cache(InsightCachingState.objects.get(insight_id=insight_id).id)
 
         with freeze_time("2012-01-17T06:01:34.000Z"):
+            call_count_before = spy_execute_hogql_query.call_count
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=false").json()
             self.assertNotIn("code", response)
-            self.assertEqual(spy_execute_hogql_query.call_count, 1)
+            self.assertEqual(spy_execute_hogql_query.call_count, call_count_before)
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 2, 0, 0, 0])
             self.assertEqual(response["last_refresh"], "2012-01-17T05:01:34Z")  # Got refreshed with `update_cache`!
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
@@ -2057,11 +2117,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             200,
             response_correct_token_retrieve.json(),
         )
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Foobar",
-            },
-            response_correct_token_retrieve.json(),
+            }.items(),
+            response_correct_token_retrieve.json().items(),
         )
         self.assertEqual(
             response_correct_token_list.status_code,
@@ -2070,13 +2130,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         # abcdfghi not returned as it's not related to this sharing configuration
         self.assertEqual(response_correct_token_list.json()["count"], 1)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "id": insight.id,
                 "name": "Foobar",
                 "short_id": "12345678",
-            },
-            response_correct_token_list.json()["results"][0],
+            }.items(),
+            response_correct_token_list.json()["results"][0].items(),
         )
 
     def test_logged_out_user_cannot_retrieve_deleted_insight_with_correct_insight_sharing_access_token(self) -> None:
@@ -2227,7 +2287,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             200,
             response_correct_token_retrieve.json(),
         )
-        self.assertDictContainsSubset({"name": "Foobar"}, response_correct_token_retrieve.json())
+        self.assertLessEqual({"name": "Foobar"}.items(), response_correct_token_retrieve.json().items())
         # Below checks that the deleted insight and non-deleted insight whose tile is deleted are not be retrievable
         # Also, the text tile should not affect things
         self.assertEqual(
@@ -2306,17 +2366,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(lines[2], b"Formula (A*0.5),0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.5")
         self.assertEqual(len(lines), 3, response.content)
 
-    # Extra permissioning tests here
-    def test_insight_trends_allowed_if_project_open_and_org_member(self) -> None:
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.team.access_control = False
-        self.team.save()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/trend/?events={json.dumps([{'id': '$pageview'}])}"
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
     def _create_one_person_cohort(self, properties: list[dict[str, Any]]) -> int:
         Person.objects.create(team=self.team, properties=properties)
         cohort_one_id = self.client.post(
@@ -2335,7 +2384,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             short_id="12345678",
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight.id]},
+        )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
@@ -2356,11 +2408,17 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             short_id="12345678",
         )
         with freeze_time("2022-03-22T00:00:00.000Z"):
-            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/viewed",
+                {"insight_ids": [insight.id]},
+            )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
         with freeze_time("2022-03-23T00:00:00.000Z"):
-            response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/viewed",
+                {"insight_ids": [insight.id]},
+            )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             self.assertEqual(InsightViewed.objects.count(), 1)
 
@@ -2379,15 +2437,21 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             short_id="12345678",
         )
 
-        response = self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight.id]},
+        )
 
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(InsightViewed.objects.count(), 0)
 
     def test_get_recently_viewed_insights(self) -> None:
         insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
 
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_1_id]},
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
@@ -2427,23 +2491,20 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             }
         )
 
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_2_id}/viewed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_1_id]},
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_2_id]},
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_2_id, insight_1_id]
-
-    def test_get_recently_viewed_insights_when_no_insights_viewed(self) -> None:
-        insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
-        response_data = response.json()
-        # No results if no insights have been viewed
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_data), 0)
 
     def test_recently_viewed_insights_ordered_by_view_date(self) -> None:
         insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
@@ -2451,15 +2512,30 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         insight_3_id, _ = self.dashboard_api.create_insight({"short_id": "43219876"})
 
         # multiple views of a single don't drown out other views
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_1_id]},
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_1_id]},
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_1_id]},
+        )
 
         # soft-deleted insights aren't shown
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_3_id}/viewed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_3_id]},
+        )
         self.dashboard_api.soft_delete(insight_3_id, "insights")
 
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_2_id}/viewed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_2_id]},
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
@@ -2468,7 +2544,10 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_2_id, insight_1_id]
 
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/insights/viewed",
+            {"insight_ids": [insight_1_id]},
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
@@ -2476,24 +2555,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Order updates when an insight is viewed again
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert [r["id"] for r in response_data] == [insight_1_id, insight_2_id]
-
-    def test_another_user_viewing_an_insight_does_not_impact_the_list(self) -> None:
-        insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
-
-        another_user = User.objects.create_and_join(self.organization, "team2@posthog.com", None)
-        InsightViewed.objects.create(
-            team=self.team,
-            user=another_user,
-            insight_id=insight_1_id,
-            last_viewed_at=timezone.now(),
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
-        response_data = response.json()
-
-        # Insights are ordered by most recently viewed
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_data), 0)
 
     def test_get_recent_insights_with_feature_flag(self) -> None:
         filter_dict = {
@@ -2764,7 +2825,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 response_placeholder.json(),
             )
             # With the new HogQL query runner this legacy endpoint now returns 500 instead of a proper 400.
-            # We don't really care, since this endpoint should eventually be removed alltogether.
+            # We don't really care, since this endpoint should eventually be removed altogether.
             # self.assertEqual(
             #     response_placeholder.json(),
             #     self.validation_error_response("Unresolved placeholder: {team_id}"),
@@ -3468,3 +3529,385 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn(visible_insight.id, [insight["id"] for insight in response.json()["results"]])
         self.assertIn(hidden_insight.id, [insight["id"] for insight in response.json()["results"]])
+
+    def test_create_insight_in_specific_folder(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            {
+                "name": "My test insight in folder",
+                "filters": {"events": [{"id": "$pageview"}]},
+                "_create_in_folder": "Special Folder/Subfolder",
+                "saved": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        insight_id = response.json()["short_id"]
+
+        assert insight_id is not None
+
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(insight_id), type="insight").first()
+        assert fs_entry is not None
+        assert "Special Folder/Subfolder" in fs_entry.path
+
+    def test_insight_with_variables_match_existing_variables(self):
+        """Test that variables on insights are always referencing existing variables"""
+
+        # Create an insight with a DataVisualizationNode query that references a fake variable
+        insight = Insight.objects.create(
+            team=self.team,
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT {variables.test_var}",
+                    "variables": {
+                        "123e4567-e89b-12d3-a456-426614174000": {
+                            "code_name": "test_var",
+                            "variableId": "123e4567-e89b-12d3-a456-426614174000",
+                        }
+                    },
+                },
+                "display": "ActionsTable",
+                "chartSettings": {"seriesBreakdownColumn": None},
+                "tableSettings": {"conditionalFormatting": []},
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}")
+        self.assertEqual(response.status_code, 200)
+
+        response_data = response.json()
+        self.assertIn("query", response_data)
+        self.assertIn("source", response_data["query"])
+        self.assertIn("variables", response_data["query"]["source"])
+
+        # only one variable should be included
+        self.assertEqual(len(response_data["query"]["source"]["variables"]), 0)
+
+        variable = InsightVariable.objects.create(team=self.team, code_name="test_var", name="Test Variable")
+
+        # # Get the insight via the API
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight.id}")
+        self.assertEqual(response.status_code, 200)
+
+        # # Verify both variables are properly included in the response
+        response_data = response.json()
+        self.assertIn("query", response_data)
+        self.assertIn("source", response_data["query"])
+        self.assertIn("variables", response_data["query"]["source"])
+
+        # # Check that the variable properties are included
+        variable_id = str(variable.id)
+        self.assertIn(variable_id, response_data["query"]["source"]["variables"])
+        variable_data = response_data["query"]["source"]["variables"][variable_id]
+        self.assertEqual(variable_data["code_name"], "test_var")
+        self.assertEqual(variable_data["variableId"], variable_id)
+
+    def test_list_insights_with_short_id_includes_all_if_admin(self) -> None:
+        """
+        Test that when listing insights with short_id parameter, organization admins can see all insights
+        regardless of access controls, but regular users are still filtered by access controls.
+        """
+        from posthog.models.organization import OrganizationMembership
+
+        from ee.models.rbac.access_control import AccessControl
+
+        # Create insights with different access levels
+        filter_dict = {"events": [{"id": "$pageview"}]}
+
+        # Create an insight that will be blocked for regular users
+        blocked_insight_short_id = "block123"
+        blocked_insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            short_id=blocked_insight_short_id,
+            name="Blocked Insight",
+        )
+
+        # Create an insight that will be accessible
+        accessible_insight_short_id = "access_456"
+        accessible_insight = Insight.objects.create(
+            filters=Filter(data=filter_dict).to_dict(),
+            team=self.team,
+            short_id=accessible_insight_short_id,
+            name="Accessible Insight",
+        )
+
+        # Create access control that blocks the first insight for regular users
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(blocked_insight.id),
+            access_level="none",
+        )
+
+        # Test 1: Regular user should not see blocked insight in regular list
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        insight_ids = [insight["id"] for insight in results]
+        self.assertIn(accessible_insight.id, insight_ids)
+        self.assertNotIn(blocked_insight.id, insight_ids)
+
+        # Test 2: Regular user should not see blocked insight even with short_id
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={blocked_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 0)  # Should be filtered out
+
+        # Test 3: Regular user should see accessible insight with short_id
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={accessible_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], accessible_insight.id)
+
+        # Test 4: Organization admin should see all insights regardless of access controls
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        # Admin should see only accessible insight in regular list
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        insight_ids = [insight["id"] for insight in results]
+        self.assertIn(accessible_insight.id, insight_ids)
+        self.assertNotIn(blocked_insight.id, insight_ids)
+
+        # Admin should see blocked insight with short_id (include_all_if_admin=True)
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={blocked_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], blocked_insight.id)
+        self.assertEqual(results[0]["short_id"], blocked_insight_short_id)
+
+        # Admin should see accessible insight with short_id
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?short_id={accessible_insight_short_id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], accessible_insight.id)
+        self.assertEqual(results[0]["short_id"], accessible_insight_short_id)
+
+    def test_dashboard_breakdown_filter_migration(self):
+        """Test that dashboard breakdown filters work with retention queries and single breakdowns"""
+
+        retention_query = {
+            "kind": "RetentionQuery",
+            "dateRange": {"date_from": "-30d", "date_to": None},
+            "retentionFilter": {
+                "targetEntity": {"id": "$pageview", "type": "events"},
+                "returningEntity": {"id": "$pageview", "type": "events"},
+                "totalIntervals": 7,
+            },
+        }
+
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Test Retention Insight",
+            created_by=self.user,
+            query=retention_query,
+        )
+
+        # Create dashboard with legacy breakdown filter to test single breakdown support
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={
+                "breakdown_filter": {
+                    "breakdown": "browser",
+                    "breakdown_type": "person",
+                }
+            },
+        )
+
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        # Test that retention query doesn't error when breakdown is applied
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking&from_dashboard={dashboard.id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+
+        self.assertEqual(response_data["id"], insight.id)
+        self.assertEqual(response_data["name"], "Test Retention Insight")
+
+        self.assertIn("query", response_data)
+        query_data = response_data["query"]
+        self.assertEqual(query_data["kind"], "RetentionQuery")
+
+        # Verify breakdown filter is applied correctly
+        self.assertIn("breakdownFilter", query_data)
+        breakdown_filter = query_data["breakdownFilter"]
+
+        # Should have the single breakdown applied
+        self.assertEqual(breakdown_filter.get("breakdown"), "browser")
+        self.assertEqual(breakdown_filter.get("breakdown_type"), "person")
+
+    def test_updating_query_updates_query_metadata(self):
+        """
+        Test that updating the query of an insight also updates the query metadata.
+        """
+        insight = Insight.objects.create(
+            query={
+                "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+                "source": {
+                    "filterTestAccounts": False,
+                    "kind": InsightNodeKind.TRENDS_QUERY.value,
+                    "series": [
+                        {
+                            "kind": NodeKind.EVENTS_NODE.value,
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "math": "total",
+                        }
+                    ],
+                    "interval": "day",
+                },
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Initial query metadata should not be empty
+        self.assertIsNotNone(insight.query_metadata)
+        initial_metadata = insight.query_metadata.copy()
+
+        # update the query for the insight
+        new_query = {
+            "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+            "source": {
+                "filterTestAccounts": False,
+                "kind": InsightNodeKind.TRENDS_QUERY.value,
+                "series": [
+                    {
+                        "kind": NodeKind.EVENTS_NODE.value,
+                        "event": "$exception",
+                        "name": "$exception",
+                        "math": "total",
+                    }
+                ],
+                "interval": "day",
+            },
+        }
+        insight.query = new_query
+        insight.save()
+        insight.refresh_from_db()
+
+        # Query metadata should be updated
+        updated_metadata = insight.query_metadata
+        self.assertIsNotNone(updated_metadata)
+        self.assertNotEqual(initial_metadata, updated_metadata)
+
+    def test_updating_insight_with_no_query_changes_does_not_update_query_metadata(self):
+        """
+        Test that updating an insight without changing the query does not update the query metadata.
+        """
+        insight = Insight.objects.create(
+            query={
+                "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+                "source": {
+                    "filterTestAccounts": False,
+                    "kind": InsightNodeKind.TRENDS_QUERY.value,
+                    "series": [
+                        {
+                            "kind": NodeKind.EVENTS_NODE.value,
+                            "event": "$pageview",
+                            "name": "$pageview",
+                            "math": "total",
+                        }
+                    ],
+                    "interval": "day",
+                },
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Initial query metadata should not be empty
+        self.assertIsNotNone(insight.query_metadata)
+        initial_metadata = insight.query_metadata.copy()
+
+        # update the name for the insight without changing the query
+        insight.name = "Updated Insight Name"
+        insight.save()
+        insight.refresh_from_db()
+
+        # Query metadata should remain unchanged
+        updated_metadata = insight.query_metadata
+        self.assertIsNotNone(updated_metadata)
+        self.assertEqual(initial_metadata, updated_metadata)
+
+    def test_funnel_breakdown_override(self):
+        _create_person(team=self.team, distinct_ids=["person_1"])
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person_1",
+            properties={"$browser": "Chrome", "$geoip_country_code": "US"},
+        )
+
+        insight = Insight.objects.create(
+            query={
+                "kind": NodeKind.INSIGHT_VIZ_NODE.value,
+                "source": {
+                    "kind": InsightNodeKind.FUNNELS_QUERY.value,
+                    "series": [
+                        {
+                            "kind": NodeKind.EVENTS_NODE.value,
+                            "event": "$pageview",
+                            "name": "$pageview",
+                        },
+                        {
+                            "kind": NodeKind.EVENTS_NODE.value,
+                            "event": "$pageview",
+                            "name": "$pageview",
+                        },
+                    ],
+                    "breakdownFilter": {
+                        "breakdown": "$geoip_country_code",
+                        "breakdown_type": "event",
+                    },
+                },
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Test Dashboard",
+            created_by=self.user,
+            filters={
+                "breakdown_filter": {
+                    "breakdown": "$browser",
+                    "breakdown_type": "event",
+                }
+            },
+        )
+
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/?refresh=force_blocking&from_dashboard={dashboard.id}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        response_data = response.json()
+        query_source = response_data["query"]["source"]
+
+        # Verify breakdown filter is applied correctly
+        breakdown_filter = query_source["breakdownFilter"]
+        self.assertEqual(breakdown_filter.get("breakdown"), "$browser")
+        self.assertEqual(breakdown_filter.get("breakdown_type"), "event")
+
+        # Verify the breakdown filter is applied in the result
+        self.assertIn("result", response_data)
+        self.assertEqual(response_data["result"][0][0]["breakdown"], ["Chrome"])

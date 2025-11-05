@@ -1,11 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { TZLabel } from 'lib/components/TZLabel'
 import { isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -14,9 +12,11 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { groupLogic, GroupLogicProps } from 'scenes/groups/groupLogic'
-import { RelatedGroups } from 'scenes/groups/RelatedGroups'
+import { capitalizeFirstLetter } from 'lib/utils'
+import { GroupLogicProps, groupLogic } from 'scenes/groups/groupLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
+import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
@@ -24,57 +24,36 @@ import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/util
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
+import type { ActionFilter } from '~/types'
 import {
-    ActionFilter,
     ActivityScope,
     FilterLogicalOperator,
-    Group as IGroup,
-    NotebookNodeType,
+    GroupsTabType,
     PersonsTabType,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
 
+import GroupFeedCanvas from 'products/customer_analytics/frontend/components/GroupFeedCanvas/GroupFeedCanvas'
+
 import { GroupOverview } from './GroupOverview'
+import { RelatedGroups } from './RelatedGroups'
+import { GroupNotebookCard } from './cards/GroupNotebookCard'
+import { GroupCaption } from './components/GroupCaption'
 
-interface GroupSceneProps {
-    groupTypeIndex?: string
-    groupKey?: string
-}
-
-export const scene: SceneExport = {
+export const scene: SceneExport<GroupLogicProps> = {
     component: Group,
     logic: groupLogic,
-    paramsToProps: ({ params: { groupTypeIndex, groupKey } }: { params: GroupSceneProps }): GroupLogicProps => ({
+    paramsToProps: ({ params: { groupTypeIndex, groupKey } }) => ({
         groupTypeIndex: parseInt(groupTypeIndex ?? '0'),
         groupKey: decodeURIComponent(groupKey ?? ''),
     }),
-}
-
-export function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTypeName: string }): JSX.Element {
-    return (
-        <div className="flex items-center flex-wrap">
-            <div className="mr-4">
-                <span className="text-secondary">Type:</span> {groupTypeName}
-            </div>
-            <div className="mr-4">
-                <span className="text-secondary">Key:</span>{' '}
-                <CopyToClipboardInline
-                    tooltipMessage={null}
-                    description="group key"
-                    style={{ display: 'inline-flex', justifyContent: 'flex-end' }}
-                >
-                    {groupData.group_key}
-                </CopyToClipboardInline>
-            </div>
-            <div>
-                <span className="text-secondary">First seen:</span>{' '}
-                {groupData.created_at ? <TZLabel time={groupData.created_at} /> : 'unknown'}
-            </div>
-        </div>
-    )
 }
 
 export function Group(): JSX.Element {
@@ -84,19 +63,28 @@ export function Group(): JSX.Element {
     const { setGroupEventsQuery, editProperty, deleteProperty } = useActions(groupLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { aggregationLabel } = useValues(groupsModel)
 
     if (!groupData || !groupType) {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
     }
 
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
+    const activeTab = groupTab ?? (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? 'feed' : 'overview')
 
     return (
-        <>
-            <PageHeader
-                caption={<GroupCaption groupData={groupData} groupTypeName={groupTypeName} />}
-                buttons={
+        <SceneContent>
+            <SceneTitleSection
+                name={groupDisplayId(groupData.group_key, groupData.group_properties)}
+                resourceType={{ type: 'group' }}
+                forceBackTo={{
+                    name: capitalizeFirstLetter(aggregationLabel(groupTypeIndex).plural),
+                    key: 'groups',
+                    path: urls.groups(groupTypeIndex),
+                }}
+                actions={
                     <NotebookSelectButton
+                        size="small"
                         type="secondary"
                         resource={{
                             type: NotebookNodeType.Group,
@@ -108,15 +96,37 @@ export function Group(): JSX.Element {
                     />
                 }
             />
+            <SceneDivider />
+            <GroupCaption groupData={groupData} groupTypeName={groupTypeName} />
+            <SceneDivider />
             <LemonTabs
-                activeKey={groupTab ?? PersonsTabType.PROPERTIES}
+                sceneInset
+                activeKey={activeTab}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
+                    ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]
+                        ? [
+                              {
+                                  key: GroupsTabType.FEED,
+                                  label: <span data-attr="groups-feed-tab">Feed</span>,
+                                  content: <GroupFeedCanvas group={groupData} />,
+                              },
+                          ]
+                        : []),
                     {
-                        key: 'overview',
-                        label: 'Overview',
-                        content: <GroupOverview />,
+                        key: GroupsTabType.OVERVIEW,
+                        label: <span data-attr="groups-overview-tab">Overview</span>,
+                        content: <GroupOverview groupData={groupData} />,
                     },
+                    ...(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && groupData.notebook
+                        ? [
+                              {
+                                  key: GroupsTabType.NOTES,
+                                  label: <span data-attr="groups-notes-tab">Notes</span>,
+                                  content: <GroupNotebookCard shortId={groupData.notebook} />,
+                              },
+                          ]
+                        : []),
                     {
                         key: PersonsTabType.PROPERTIES,
                         label: <span data-attr="groups-properties-tab">Properties</span>,
@@ -255,6 +265,6 @@ export function Group(): JSX.Element {
                     },
                 ]}
             />
-        </>
+        </SceneContent>
     )
 }

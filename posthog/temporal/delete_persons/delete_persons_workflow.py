@@ -1,18 +1,22 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import json
 import typing
+import asyncio
+import datetime as dt
+import dataclasses
 
-import psycopg
-import temporalio.activity
-import temporalio.common
-import temporalio.workflow
 from django.conf import settings
 
+import psycopg
+import temporalio.common
+import temporalio.activity
+import temporalio.workflow
+from structlog import get_logger
+
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_internal_logger
+
+LOGGER = get_logger(__name__)
 
 SELECT_QUERY = """
     SELECT id
@@ -67,7 +71,7 @@ class MogrifyDeleteQueriesActivityInputs:
 async def mogrify_delete_queries_activity(inputs: MogrifyDeleteQueriesActivityInputs) -> None:
     """Mogrify and log queries to delete persons and associated entities."""
     async with Heartbeater():
-        logger = get_internal_logger()
+        logger = LOGGER.bind()
 
         select_query = SELECT_QUERY.format(
             person_ids_filter=f"AND id IN {tuple(inputs.person_ids)}" if inputs.person_ids else ""
@@ -99,10 +103,10 @@ async def mogrify_delete_queries_activity(inputs: MogrifyDeleteQueriesActivityIn
                     delete_query_person,
                     {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
                 )
-        await logger.ainfo("Delete query for person distinct ids: %s", prepared_person_distinct_ids_query)
-        await logger.ainfo("Delete query for person overrides: %s", prepared_person_override_query)
-        await logger.ainfo("Delete query for cohort people: %s", prepared_cohort_people_query)
-        await logger.ainfo("Delete query for person: %s", prepared_person_query)
+        logger.info("Delete query for person distinct ids: %s", prepared_person_distinct_ids_query)
+        logger.info("Delete query for person overrides: %s", prepared_person_override_query)
+        logger.info("Delete query for cohort people: %s", prepared_cohort_people_query)
+        logger.info("Delete query for person: %s", prepared_person_query)
 
 
 @dataclasses.dataclass
@@ -129,7 +133,8 @@ class DeletePersonsActivityInputs:
 async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[int, bool]:
     """Run queries to delete persons and associated entities."""
     async with Heartbeater():
-        logger = get_internal_logger()
+        logger = LOGGER.bind()
+        tag_queries(team_id=inputs.team_id)
 
         select_query = SELECT_QUERY.format(
             person_ids_filter=f"AND id IN {tuple(inputs.person_ids)}" if inputs.person_ids else ""
@@ -142,33 +147,31 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
         conn = await psycopg.AsyncConnection.connect(settings.DATABASE_URL)
         async with conn:
             async with conn.cursor() as cursor:
-                await logger.ainfo(
-                    "Deleting batch %d of %d (%d rows)", inputs.batch_number, inputs.batches, inputs.batch_size
-                )
+                logger.info("Deleting batch %d of %d (%d rows)", inputs.batch_number, inputs.batches, inputs.batch_size)
 
                 await cursor.execute(
                     delete_query_person_distinct_ids,
                     {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
                 )
-                await logger.ainfo("Deleted %d distinct_ids", cursor.rowcount)
+                logger.info("Deleted %d distinct_ids", cursor.rowcount)
 
                 await cursor.execute(
                     delete_query_person_override,
                     {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
                 )
-                await logger.ainfo("Deleted %d person overrides", cursor.rowcount)
+                logger.info("Deleted %d person overrides", cursor.rowcount)
 
                 await cursor.execute(
                     delete_query_cohort_people,
                     {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
                 )
-                await logger.ainfo(f"Deleted %d cohort people", cursor.rowcount)
+                logger.info(f"Deleted %d cohort people", cursor.rowcount)
 
                 await cursor.execute(
                     delete_query_person,
                     {"team_id": inputs.team_id, "limit": inputs.batch_size, "person_ids": inputs.person_ids},
                 )
-                await logger.ainfo("Deleted %d persons", cursor.rowcount)
+                logger.info("Deleted %d persons", cursor.rowcount)
 
                 should_continue = True
                 if cursor.rowcount < inputs.batch_size:

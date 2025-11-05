@@ -1,9 +1,13 @@
-import { LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconRefresh } from 'lib/lemon-ui/icons'
+
+import { IconCalendar, IconRefresh } from '@posthog/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
+
+import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
 
 import { deadLetterQueueLogic } from './deadLetterQueueLogic'
@@ -13,9 +17,9 @@ const ROWS_LIMIT = 10
 
 export function MetricsTab(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { singleValueMetrics, tableMetrics, deadLetterQueueMetricsLoading, rowsPerMetric } =
+    const { singleValueMetrics, tableMetrics, deadLetterQueueMetricsLoading, rowsPerMetric, filters } =
         useValues(deadLetterQueueLogic)
-    const { loadDeadLetterQueueMetrics, loadMoreRows } = useActions(deadLetterQueueLogic)
+    const { loadDeadLetterQueueMetrics, loadMoreRows, setFilters } = useActions(deadLetterQueueLogic)
 
     if (!user?.is_staff) {
         return <></>
@@ -24,6 +28,17 @@ export function MetricsTab(): JSX.Element {
     return (
         <div>
             <br />
+            <DateFilter
+                dateTo={filters.before}
+                dateFrom={filters.after}
+                onChange={(from, to) => setFilters({ after: from || undefined, before: to || undefined })}
+                allowedRollingDateOptions={['days', 'weeks', 'months', 'years']}
+                makeLabel={(key) => (
+                    <>
+                        <IconCalendar /> {key}
+                    </>
+                )}
+            />
 
             <div className="mb-4 float-right">
                 <LemonButton
@@ -49,17 +64,31 @@ export function MetricsTab(): JSX.Element {
                 <div key={row.key}>
                     <h2>{row.metric}</h2>
                     <LemonTable
-                        columns={[
-                            {
-                                title: row.subrows?.columns[0],
-                                dataIndex: 'key',
-                            },
-                            {
-                                title: row.subrows?.columns[1],
-                                dataIndex: 'value',
-                            },
-                        ]}
-                        dataSource={rowsPerMetric[row.key].map(([key, value]) => ({ key, value })) || []}
+                        columns={
+                            row.subrows?.columns?.map((columnTitle, index) => ({
+                                title: columnTitle,
+                                dataIndex: `col${index}`,
+                                className: 'whitespace-nowrap overflow-hidden text-ellipsis max-w-xs cursor-pointer',
+                                render: (value: any) => (
+                                    <span
+                                        onClick={() => copyToClipboard(String(value), 'value')}
+                                        title="Click to copy"
+                                        className="hover:bg-gray-100 px-1 py-0.5 rounded"
+                                    >
+                                        {value}
+                                    </span>
+                                ),
+                            })) || []
+                        }
+                        dataSource={
+                            rowsPerMetric[row.key].map((rowData) => {
+                                const rowObject: Record<string, any> = {}
+                                rowData.forEach((value, index) => {
+                                    rowObject[`col${index}`] = value
+                                })
+                                return rowObject
+                            }) || []
+                        }
                         loading={deadLetterQueueMetricsLoading}
                         defaultSorting={{
                             columnKey: 'value',

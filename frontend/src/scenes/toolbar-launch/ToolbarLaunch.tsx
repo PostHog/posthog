@@ -1,18 +1,24 @@
 import './ToolbarLaunch.scss'
 
-import { IconFlag, IconPieChart, IconSearch, IconTestTube } from '@posthog/icons'
+import { IconFlag, IconPieChart, IconSearch, IconTestTube, IconToolbar } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
+
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { PageHeader } from 'lib/components/PageHeader'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Link } from 'lib/lemon-ui/Link'
+import { IconGroupedEvents, IconHeatmap } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 export const scene: SceneExport = {
     component: ToolbarLaunch,
+    settingSectionId: 'environment-details',
 }
 
 export function ToolbarLaunch(): JSX.Element {
@@ -56,31 +62,34 @@ export function ToolbarLaunch(): JSX.Element {
     ]
 
     return (
-        <div className="toolbar-launch-page">
-            <PageHeader caption="The toolbar launches PostHog right in your app or website." />
-            <LemonDivider />
+        <SceneContent>
+            <SceneTitleSection
+                name="Toolbar"
+                description="PostHog toolbar launches PostHog right in your app or website."
+                resourceType={{
+                    type: 'toolbar',
+                    forceIcon: <IconToolbar />,
+                }}
+            />
 
-            <h2 className="subtitle" id="urls">
-                Authorized URLs for Toolbar
-            </h2>
-            <p>
-                Click on the URL to launch the toolbar.{' '}
-                {window.location.host.includes('.posthog.com') && <span>Remember to disable your adblocker.</span>}
-            </p>
+            <SceneDivider />
 
-            <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />
+            <SceneSection title="Authorized URLs for Toolbar" description="Click on the URL to launch the toolbar.">
+                <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} addText="Add authorized URL" />
+                <LemonBanner type="info">
+                    Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link> or
+                    the latest <code>posthog-js</code> version.
+                </LemonBanner>
+            </SceneSection>
 
-            <div className="footer-caption text-secondary mt-4 text-center">
-                Make sure you're using the <Link to={`${urls.settings('project')}#snippet`}>HTML snippet</Link> or the
-                latest <code>posthog-js</code> version.
-            </div>
-
-            <div className="feature-highlight-list mt-8 mx-auto mb-0 flex flex-wrap items-center justify-center">
-                {features.map((feature) => (
-                    <FeatureHighlight key={feature.title} {...feature} />
-                ))}
-            </div>
-        </div>
+            <SceneSection>
+                <div className="grid grid-cols-2 gap-4 max-w-[800px] mb-6 mt-4 mx-auto">
+                    {features.map((feature) => (
+                        <FeatureHighlight key={feature.title} {...feature} />
+                    ))}
+                </div>
+            </SceneSection>
+        </SceneContent>
     )
 }
 

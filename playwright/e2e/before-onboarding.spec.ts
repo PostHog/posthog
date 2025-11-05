@@ -15,16 +15,11 @@ test.describe('Before Onboarding', () => {
         })
     })
 
-    test('Navigate to /products when a product has not been set up', async ({ page }) => {
-        await page.goto('/project/1/data-management/events')
-        await expect(page.locator('[data-attr=top-bar-name] > span')).toContainText('Products')
-    })
-
     test('Navigate to a settings page even when a product has not been set up', async ({ page }) => {
         await page.goto('/settings/user')
-        await expect(page.locator('[data-attr=top-bar-name] > span')).toContainText('User')
+        await expect(page.locator('.scene-tab-row .scene-tab-title')).toContainText('User')
 
         await page.goto('/settings/organization')
-        await expect(page.locator('[data-attr=top-bar-name] > span')).toContainText('Organization')
+        await expect(page.locator('.scene-tab-row .scene-tab-title')).toContainText('Organization')
     })
 })

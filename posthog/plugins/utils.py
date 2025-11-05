@@ -1,15 +1,16 @@
 import io
-import json
 import os
 import re
+import json
 import tarfile
 from tarfile import ReadError
 from typing import Any, Optional
 from urllib.parse import parse_qs, quote
 from zipfile import ZIP_DEFLATED, BadZipFile, Path, ZipFile
 
-import requests
 from django.conf import settings
+
+import requests
 
 
 def parse_github_url(url: str, get_latest_if_none=False) -> Optional[dict[str, Optional[str]]]:

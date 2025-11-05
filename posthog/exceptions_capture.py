@@ -1,8 +1,41 @@
-def capture_exception(error=None, sentry_scope=None, **sentry_scope_kwargs):
-    from sentry_sdk import capture_exception as sentry_capture_exception
-    from posthoganalytics import api_key, capture_exception as posthog_capture_exception
+def celery_properties() -> dict:
+    try:
+        from celery import current_task
 
-    sentry_capture_exception(error, scope=sentry_scope, **sentry_scope_kwargs)
+        task = current_task
+        if task and task.request and task.request.id is not None:
+            return {
+                "celery_task_name": task.name,
+                "celery_task_retries": task.request.retries,
+            }
+    except Exception:
+        pass
+    return {}
+
+
+def capture_exception(error=None, additional_properties=None):
+    import structlog
+    from posthoganalytics import (
+        api_key,
+        capture_exception as posthog_capture_exception,
+    )
+
+    logger = structlog.get_logger(__name__)
+
+    from posthog.clickhouse.query_tagging import get_query_tags
+
+    properties = get_query_tags().model_dump(exclude_none=True)
+
+    if additional_properties:
+        properties.update(additional_properties)
+
+    properties.update(celery_properties())
 
     if api_key:
-        posthog_capture_exception(error)
+        uuid = posthog_capture_exception(error, properties=properties)
+
+        # Only log if captured
+        if uuid is not None:
+            logger.exception(error, event_id=uuid)
+    else:
+        logger.exception(error)

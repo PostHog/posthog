@@ -7,7 +7,7 @@ import { ExperimentsImplementationSnippet } from './ExperimentsImplementationSni
 export function ExperimentsSvelteInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallSvelteJSInstructions />
+            <SDKInstallSvelteJSInstructions hideWizard />
             <h3>Client-side rendering</h3>
             <ExperimentsImplementationSnippet sdkKey={SDKKey.JS_WEB} />
             <h3>Server-side rendering</h3>

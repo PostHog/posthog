@@ -13,6 +13,7 @@
         "@posthog/frontend": "workspace:*",
         "@storybook/addon-a11y": "^7.6.4",
         "@storybook/addon-actions": "^7.6.4",
+        "@storybook/addon-docs": "^7.6.4",
         "@storybook/addon-essentials": "^7.6.4",
         "@storybook/addon-links": "^7.6.4",
         "@storybook/addon-storysource": "^7.6.4",
@@ -45,14 +46,17 @@
         "webpack-cli": "^5.1.4"
     },
     "name": "@posthog/storybook",
-    "peerDependencies": {},
     "scripts": {
-        "build": "DEBUG=0 storybook build -o dist",
-        "start": "DEBUG=0 storybook dev -p 6006",
-        "test:visual:ci:update": "test-storybook -u --no-index-json --maxWorkers=$(( $(nproc 2>/dev/null || echo 3) - 1 ))",
-        "test:visual:ci:verify": "test-storybook --ci --no-index-json --maxWorkers=$(( $(nproc 2>/dev/null || echo 3) - 1 ))",
-        "test:visual:debug": "PWDEBUG=1 NODE_OPTIONS=--max-old-space-size=16384 test-storybook --browsers chromium webkit --no-index-json",
-        "test:visual:update": "cd ../.. && rm -rf frontend/__snapshots__/__failures__/ && docker compose -f docker-compose.playwright.yml run --rm -it --build playwright pnpm test:visual:update:docker --url http://host.docker.internal:6006",
-        "test:visual:update:docker": "NODE_OPTIONS=--max-old-space-size=16384 test-storybook -u --browsers chromium webkit --no-index-json"
+        "build:products": "pnpm --filter=@posthog/frontend build:products",
+        "build": "pnpm build:products && DEBUG=0 storybook build -o dist",
+        "start": "pnpm build:products && DEBUG=0 storybook dev -p 6006",
+        "test:visual:ci:update": "pnpm build:products && test-storybook -u --no-index-json --maxWorkers=$(( $(nproc 2>/dev/null || echo 3) - 1 ))",
+        "test:visual:ci:verify": "pnpm build:products && test-storybook --ci --no-index-json --maxWorkers=$(( $(nproc 2>/dev/null || echo 3) - 1 ))",
+        "test:visual:debug": "pnpm build:products && PWDEBUG=1 NODE_OPTIONS=--max-old-space-size=16384 test-storybook --browsers chromium webkit --no-index-json",
+        "test:visual:update": "pnpm build:products && cd ../.. && rm -rf frontend/__snapshots__/__failures__/ && docker compose -f docker-compose.playwright.yml run --rm -it --build playwright pnpm test:visual:update:docker --url http://host.docker.internal:6006",
+        "test:visual:update:docker": "pnpm build:products && NODE_OPTIONS=--max-old-space-size=16384 test-storybook -u --browsers chromium webkit --no-index-json"
+    },
+    "devDependencies": {
+        "@storybook/testing-library": "^0.2.2"
     }
 }

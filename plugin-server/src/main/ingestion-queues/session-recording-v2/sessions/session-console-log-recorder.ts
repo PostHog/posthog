@@ -1,42 +1,35 @@
 import { DateTime } from 'luxon'
 
-import { TimestampFormat } from '../../../../types'
+import { eventPassesMetadataSwitchoverTest } from '~/main/utils'
+import { sanitizeForUTF8 } from '~/utils/strings'
+
+import { SessionRecordingV2MetadataSwitchoverDate, TimestampFormat } from '../../../../types'
 import { castTimestampOrNow } from '../../../../utils/utils'
 import { ConsoleLogLevel, RRWebEventType } from '../rrweb-types'
 import { MessageWithTeam } from '../teams/types'
 import { ConsoleLogEntry, SessionConsoleLogStore } from './session-console-log-store'
 
 const levelMapping: Record<string, ConsoleLogLevel> = {
-    info: ConsoleLogLevel.Log,
-    count: ConsoleLogLevel.Log,
-    timeEnd: ConsoleLogLevel.Log,
+    info: ConsoleLogLevel.Info,
+    count: ConsoleLogLevel.Info,
+    timeEnd: ConsoleLogLevel.Info,
     warn: ConsoleLogLevel.Warn,
     countReset: ConsoleLogLevel.Warn,
     error: ConsoleLogLevel.Error,
     assert: ConsoleLogLevel.Error,
-    // really these should be 'log' but we don't want users to have to think about this
-    log: ConsoleLogLevel.Log,
-    trace: ConsoleLogLevel.Log,
-    dir: ConsoleLogLevel.Log,
-    dirxml: ConsoleLogLevel.Log,
-    group: ConsoleLogLevel.Log,
-    groupCollapsed: ConsoleLogLevel.Log,
-    debug: ConsoleLogLevel.Log,
-    timeLog: ConsoleLogLevel.Log,
+    // really these should be 'info' but we don't want users to have to think about this
+    log: ConsoleLogLevel.Info,
+    trace: ConsoleLogLevel.Info,
+    dir: ConsoleLogLevel.Info,
+    dirxml: ConsoleLogLevel.Info,
+    group: ConsoleLogLevel.Info,
+    groupCollapsed: ConsoleLogLevel.Info,
+    debug: ConsoleLogLevel.Info,
+    timeLog: ConsoleLogLevel.Info,
 }
 
 function safeLevel(level: unknown): ConsoleLogLevel {
-    return levelMapping[typeof level === 'string' ? level : 'info'] || ConsoleLogLevel.Log
-}
-
-function sanitizeForUTF8(input: string): string {
-    // the JS console truncates some logs...
-    // when it does that it doesn't check if the output is valid UTF-8
-    // and so it can truncate halfway through a UTF-16 pair 🤷
-    // the simplest way to fix this is to convert to a buffer and back
-    // annoyingly Node 20 has `toWellFormed` which might have been useful
-    const buffer = Buffer.from(input)
-    return buffer.toString()
+    return levelMapping[typeof level === 'string' ? level : 'info'] || ConsoleLogLevel.Info
 }
 
 function payloadToSafeString(payload: unknown[]): string {
@@ -87,7 +80,8 @@ export class SessionConsoleLogRecorder {
         public readonly sessionId: string,
         public readonly teamId: number,
         public readonly batchId: string,
-        private readonly store: SessionConsoleLogStore
+        private readonly store: SessionConsoleLogStore,
+        private readonly metadataSwitchoverDate: SessionRecordingV2MetadataSwitchoverDate
     ) {}
 
     /**
@@ -114,12 +108,20 @@ export class SessionConsoleLogRecorder {
                     | { plugin?: unknown; payload?: { payload?: unknown; level?: unknown } }
                     | undefined
                 if (event.type === RRWebEventType.Plugin && eventData?.plugin === 'rrweb/console@1') {
+                    const timestamp = DateTime.fromMillis(event.timestamp)
+
+                    if (
+                        !eventPassesMetadataSwitchoverTest(timestamp.toJSDate().getTime(), this.metadataSwitchoverDate)
+                    ) {
+                        continue
+                    }
+
                     const level = safeLevel(eventData?.payload?.level)
                     const maybePayload = eventData?.payload?.payload
                     const payload: unknown[] = Array.isArray(maybePayload) ? maybePayload : []
                     const message = payloadToSafeString(payload)
 
-                    if (level === ConsoleLogLevel.Log) {
+                    if (level === ConsoleLogLevel.Info) {
                         this.consoleLogCount++
                     } else if (level === ConsoleLogLevel.Warn) {
                         this.consoleWarnCount++
@@ -134,7 +136,7 @@ export class SessionConsoleLogRecorder {
                         log_source: 'session_replay',
                         log_source_id: this.sessionId,
                         instance_id: null,
-                        timestamp: castTimestampOrNow(DateTime.fromMillis(event.timestamp), TimestampFormat.ClickHouse),
+                        timestamp: castTimestampOrNow(timestamp, TimestampFormat.ClickHouse),
                         batch_id: this.batchId,
                     })
                 }

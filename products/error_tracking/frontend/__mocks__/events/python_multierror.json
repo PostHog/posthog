@@ -1,0 +1,631 @@
+{
+    "uuid": "0195cc6f-c5d3-70d0-92ef-b2534a9df191",
+    "event": "$exception",
+    "properties": {
+        "$exception_list": [
+            {
+                "type": "ConnectionError",
+                "value": "Connection closed by server.",
+                "mechanism": {
+                    "handled": true,
+                    "type": "generic"
+                },
+                "module": "redis.exceptions",
+                "stacktrace": {
+                    "type": "resolved",
+                    "frames": [
+                        {
+                            "raw_id": "f9ccaaeae153d7bc644569eed3d7393dcebb0fd85fa57df7e539550311663a04d35ac1e57e354fb00e9f480a9512635c0abd48dd23a334a793536adfb0d45b9c",
+                            "mangled_name": "get_connection",
+                            "line": 1448,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "get_connection",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "90551c822f0db2c3968550cea989a35ede60f9e2541977c3970124cbdad2c95ba8d99dba6649ed4315f08b33582aaa9420b8f4da398e9f4240aca19eb5b77c92",
+                            "mangled_name": "can_read",
+                            "line": 854,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "can_read",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "f7d9158a52b607f6c228387084bdacb9da2dc6069090b7ad043e7a6ec863491326ed96a797c463ab1c3d0c2aeb9d01b4bba00ce468e5aeae87af6d15b70f61ca",
+                            "mangled_name": "can_read",
+                            "line": 341,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "can_read",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "dbe4c31e569138c2cd7ac64a7dbd110d1006c198990b62958bba3f454abccce0b6928801693b21c4c12148f4b3387bd40f7f71cc0eb866b7b36ef4a8bec24ff0",
+                            "mangled_name": "can_read",
+                            "line": 239,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "can_read",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "4c7484508b51f9633774a9394e1a43559a45140c1db8392d85e9957faeac2fe35640bf11ade4165e48329a2f45e763ee50b91f1e7214a040eaadfe877131c3cd",
+                            "mangled_name": "_read_from_socket",
+                            "line": 212,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "_read_from_socket",
+                            "lang": "python",
+                            "resolved": true
+                        }
+                    ]
+                }
+            },
+            {
+                "type": "ConnectionRefusedError",
+                "value": "[Errno 61] Connection refused",
+                "mechanism": {
+                    "handled": true,
+                    "type": "generic"
+                },
+                "stacktrace": {
+                    "type": "resolved",
+                    "frames": [
+                        {
+                            "raw_id": "c4023044a23319be4a583be74c693303f8385726a3ca4fab1293eb1ed11ab6dc6f4e2366e90e9c5691639af88831463d12ed6c50cded13ae087b16e1ab443973",
+                            "mangled_name": "connect",
+                            "line": 698,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "connect",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "3eb5f5834d7371c77fff1126f418651c50664c4a94d5461b2decfd9e66a6923974504e488115112868c9d286e2dcb523c343f9167bac889264a49765b77909f3",
+                            "mangled_name": "call_with_retry",
+                            "line": 46,
+                            "source": "redis/retry.py",
+                            "in_app": false,
+                            "resolved_name": "call_with_retry",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "dff28568094cd942b4fa71ae8e5e3711382797add487b75eda0eec4b9fd1f5f06a8e169d9b392607559514b3fe3c019dc4648f311455513c4f06dc296d0587ee",
+                            "mangled_name": "<lambda>",
+                            "line": 699,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "<lambda>",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "2974bf19e76aa9d6a74a912113682ca5aa2d89628813a5fbe581f28e90cb56ea0bb4bb9f60d476545c2b6db377cb357222d038d7badc45cda17b9424d46f689b",
+                            "mangled_name": "_connect",
+                            "line": 987,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "_connect",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "789a544262d495c627dc37117de1741a13a8fa20ee7219a489ba9b5056e28f16424f4b62ff50a58eac144eed4a594e2ac16460ea0b620a36be1660819798f7a7",
+                            "mangled_name": "_connect",
+                            "line": 975,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "_connect",
+                            "lang": "python",
+                            "resolved": true
+                        }
+                    ]
+                }
+            },
+            {
+                "type": "ConnectionError",
+                "value": "Error 61 connecting to localhost:6379. Connection refused.",
+                "mechanism": {
+                    "handled": true,
+                    "type": "generic"
+                },
+                "module": "redis.exceptions",
+                "stacktrace": {
+                    "type": "resolved",
+                    "frames": [
+                        {
+                            "raw_id": "d5308a112386de5626e733fa23bd7870ac74ada2bd4b2b23faa76c7881e22018b324d139fb50c34c8c67afbcc656a9c3e25c57dc7e073964922e2982cf546e4b",
+                            "mangled_name": "start",
+                            "line": 643,
+                            "source": "celery/beat.py",
+                            "in_app": false,
+                            "resolved_name": "start",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "d0f40afc4592c2fd724e0d490c1de19f79104aed83338c6903653d646a50bd0c6d7a3ea236682c6f012cf2f1fec136e986240541500cae46a585d7f08b65ed74",
+                            "mangled_name": "tick",
+                            "line": 476,
+                            "source": "redbeat/schedulers.py",
+                            "in_app": false,
+                            "resolved_name": "tick",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "1f864e47bb94cafb557d852b364207bf2f25d044f7f6da89516acfdca6f5e099937a6b7d111520a54129ee5ea0d3ef63fdf3cd78a09d8e7a12f474c03a83e598",
+                            "mangled_name": "extend",
+                            "line": 276,
+                            "source": "redis/lock.py",
+                            "in_app": false,
+                            "resolved_name": "extend",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "f4ab97e58da9f808bad76e493850806e0c447150f3bf0c3fc821dfe84967e76d83b87aef0c940a743e03aa9eb0d4af4d1176748bf4f883b6fc42794b6aa41047",
+                            "mangled_name": "do_extend",
+                            "line": 281,
+                            "source": "redis/lock.py",
+                            "in_app": false,
+                            "resolved_name": "do_extend",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "fe962a6dd6b55a221f346489faa36b754db79e83daf2f8fa6271753fcf81f72d2c51c5fe80c718636c6ac30cce55bd923869c52c1f6eb39a4a302eb219ab230e",
+                            "mangled_name": "__call__",
+                            "line": 5807,
+                            "source": "redis/commands/core.py",
+                            "in_app": false,
+                            "resolved_name": "__call__",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "363cf45454cf66487514286b87f1312c47881b48f3e7d2b53d1889b88ea739d1ab79f8a1e79aee2767350f7b6920218e7f60680c462d35e7dda911b2b17c3e3c",
+                            "mangled_name": "evalsha",
+                            "line": 5194,
+                            "source": "redis/commands/core.py",
+                            "in_app": false,
+                            "resolved_name": "evalsha",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "f82e014b45254d5e98f682aed6d587ee6c6ede690948a7034f2630513689886dd89869645986c798d6383905e2e814e389696a1edc6f965981be33012855406b",
+                            "mangled_name": "_evalsha",
+                            "line": 5178,
+                            "source": "redis/commands/core.py",
+                            "in_app": false,
+                            "resolved_name": "_evalsha",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "5e9cfb615e5e328de3001333db34fb5a52b411a4d58259d695753ab21885f3b92dfdd8b40ef4d416356e7c904c0872ba9d284e48ad6b97efcf97940d7acd668d",
+                            "mangled_name": "execute_command",
+                            "line": 1255,
+                            "source": "redis/client.py",
+                            "in_app": false,
+                            "resolved_name": "execute_command",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "4487855bffec61097428b7779a5a2723bdd1006e72a5de9d95c71d3c9adb947a45e8e38ea5426aa5bcb0b79e4ef0c35b8691c86708493c78c90615820e131e1a",
+                            "mangled_name": "get_connection",
+                            "line": 1452,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "get_connection",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "c5757c680c1819fc85e0dc4a09d7524febfe0cb7c7ebea8c8b1c2f343353fa823140b1bad0cde42af10e5468e3d88b159837ede5909b779f19d737e5abddf6ab",
+                            "mangled_name": "connect",
+                            "line": 704,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "connect",
+                            "lang": "python",
+                            "resolved": true
+                        }
+                    ]
+                }
+            },
+            {
+                "type": "ConnectionRefusedError",
+                "value": "[Errno 61] Connection refused",
+                "mechanism": {
+                    "handled": true,
+                    "type": "generic"
+                },
+                "stacktrace": {
+                    "type": "resolved",
+                    "frames": [
+                        {
+                            "raw_id": "c4023044a23319be4a583be74c693303f8385726a3ca4fab1293eb1ed11ab6dc6f4e2366e90e9c5691639af88831463d12ed6c50cded13ae087b16e1ab443973",
+                            "mangled_name": "connect",
+                            "line": 698,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "connect",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "3eb5f5834d7371c77fff1126f418651c50664c4a94d5461b2decfd9e66a6923974504e488115112868c9d286e2dcb523c343f9167bac889264a49765b77909f3",
+                            "mangled_name": "call_with_retry",
+                            "line": 46,
+                            "source": "redis/retry.py",
+                            "in_app": false,
+                            "resolved_name": "call_with_retry",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "dff28568094cd942b4fa71ae8e5e3711382797add487b75eda0eec4b9fd1f5f06a8e169d9b392607559514b3fe3c019dc4648f311455513c4f06dc296d0587ee",
+                            "mangled_name": "<lambda>",
+                            "line": 699,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "<lambda>",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "2974bf19e76aa9d6a74a912113682ca5aa2d89628813a5fbe581f28e90cb56ea0bb4bb9f60d476545c2b6db377cb357222d038d7badc45cda17b9424d46f689b",
+                            "mangled_name": "_connect",
+                            "line": 987,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "_connect",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "789a544262d495c627dc37117de1741a13a8fa20ee7219a489ba9b5056e28f16424f4b62ff50a58eac144eed4a594e2ac16460ea0b620a36be1660819798f7a7",
+                            "mangled_name": "_connect",
+                            "line": 975,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "_connect",
+                            "lang": "python",
+                            "resolved": true
+                        }
+                    ]
+                }
+            },
+            {
+                "type": "ConnectionError",
+                "value": "Error 61 connecting to localhost:XX. Connection refused.",
+                "mechanism": {
+                    "handled": true,
+                    "type": "generic"
+                },
+                "module": "redis.exceptions",
+                "stacktrace": {
+                    "type": "resolved",
+                    "frames": [
+                        {
+                            "raw_id": "2092d9d0f9f88ba180e60cd8fff1c3102434e0aedf8031c1443317a9d15cb2f32847c57a4f4308d91386b182ae31944f77bb4d4a9646aaadb0d486f56a1a0536",
+                            "mangled_name": "_bootstrap_inner",
+                            "line": 1045,
+                            "source": "threading.py",
+                            "in_app": false,
+                            "resolved_name": "_bootstrap_inner",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "9a22898d33dae382aa3792c0767b635cc7f0b6b3469b9d5bebf67a6a6deb7f5f5d3f352231eacdb8bfe23c191dd04f7a6d08218258dd46ac03ea8b53fa5ac332",
+                            "mangled_name": "run",
+                            "line": 982,
+                            "source": "threading.py",
+                            "in_app": false,
+                            "resolved_name": "run",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "31e77a135b786570c5558e59aea0e3e7f3f996687831e97d58b346c16a2b19b0dd817354aef0a3e8f8083cf67d1df9427abe598d57ba5060a5b1339ac6a7611c",
+                            "mangled_name": "wrapper",
+                            "line": 64,
+                            "source": "django/utils/autoreload.py",
+                            "in_app": false,
+                            "resolved_name": "wrapper",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "33e04a56c155129a4b3f2221f9c8b66d364dc280856368c09fa7110dbf56dc7ebe09a9f06152fb2bf50fb5c5f72291f6c9fc77a13e3a736ca92d3d6be226402c",
+                            "mangled_name": "<lambda>",
+                            "line": 21,
+                            "source": "posthog/management/commands/run_autoreload_celery.py",
+                            "in_app": true,
+                            "resolved_name": "<lambda>",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "d7002e6b8cf49d31fd331efca3ecfde20220074e8974c62efdc37bbdd5ef902684402e46b3435000d2e41007fe8f4ffb4c5470bc6df749f3254960d832ed6b5f",
+                            "mangled_name": "run_celery_worker",
+                            "line": 33,
+                            "source": "posthog/management/commands/run_autoreload_celery.py",
+                            "in_app": true,
+                            "resolved_name": "run_celery_worker",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "5732498322b183605f721ea4e3939996db192b1bd3eb8ff38b604622c47c78493a76daeccf8c70ab10485bf3e5fc99c964eedcf6cde09bb8aad9fe09f0cb3cb5",
+                            "mangled_name": "start",
+                            "line": 368,
+                            "source": "celery/app/base.py",
+                            "in_app": false,
+                            "resolved_name": "start",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "3e92f7521d78bc83b72187ee02502cb1a6447e6efeba0ed03de2af0ada16d5efd691239dfe94bc00716d510d3d80227c62e8dbc6a371117808b086a30bdf0ed4",
+                            "mangled_name": "main",
+                            "line": 1078,
+                            "source": "click/core.py",
+                            "in_app": false,
+                            "resolved_name": "main",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "018816dc8721e7f7c963037da7b4ec341e9e4bb9204bd205187bd7e57c9355a7f65c16c032236c7105f2068277d4bfb34047fdef43e5b3ff213c1803c8bb5c2a",
+                            "mangled_name": "invoke",
+                            "line": 1688,
+                            "source": "click/core.py",
+                            "in_app": false,
+                            "resolved_name": "invoke",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "3f45770ac4fdc77034b1dec9d51e8e915479b4a4845d962af2937a56dc621b72c22348bfc45eee204373f2e3bee9f3fb6150db616807ba201101aa8fee7139a1",
+                            "mangled_name": "invoke",
+                            "line": 1434,
+                            "source": "click/core.py",
+                            "in_app": false,
+                            "resolved_name": "invoke",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "4272fe022aec79f6d55f10953a28d9a3bddfaef37025fd2458107e865889817a897c03c6dc3d43b46175ee70a709fa1f39a322d3289dba80ea8b226e2eafd568",
+                            "mangled_name": "invoke",
+                            "line": 783,
+                            "source": "click/core.py",
+                            "in_app": false,
+                            "resolved_name": "invoke",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "ae97ecba879725a6e25d73d2c11bc209f3701a324c460ceee3e676fe57a10988fce29ae9873e80289dd410923c8306b75e9c394d41fb61cecdd234d8ca65f867",
+                            "mangled_name": "new_func",
+                            "line": 33,
+                            "source": "click/decorators.py",
+                            "in_app": false,
+                            "resolved_name": "new_func",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "207772172a8500d8189cc0d9b2795652c678dd7bb32bba231d7114543252b4556a41ed4125c9e4d0339464e0530bdfe6ce9be413220ba2f227cbadea181a3cfd",
+                            "mangled_name": "caller",
+                            "line": 134,
+                            "source": "celery/bin/base.py",
+                            "in_app": false,
+                            "resolved_name": "caller",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "0c8cdb31f80350d2148c43394b88290b629864dfc10d80c87fb82f5033610a46bf2b32a8eb1d4bbc550fd5ace616de5e718f5fe31eabb0bfa4afa2ea94a841a8",
+                            "mangled_name": "beat",
+                            "line": 72,
+                            "source": "celery/bin/beat.py",
+                            "in_app": false,
+                            "resolved_name": "beat",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "7ffa3eb859236f6d01d1876ccf80b827572fde6d80252372ac8fab5386ff5361936f6cb2ee4528411d147486235373a72a200c4efeaa7f56eaee59300ddc65fe",
+                            "mangled_name": "run",
+                            "line": 84,
+                            "source": "celery/apps/beat.py",
+                            "in_app": false,
+                            "resolved_name": "run",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "312671b14c8fb8a8420ffc045f1808c36bd2556fcad4730c3c3af7efe7ce5e0a12b85d60c1115c4676d3c869f560036711c0928afe1a4d724122caee4ab59630",
+                            "mangled_name": "start_scheduler",
+                            "line": 113,
+                            "source": "celery/apps/beat.py",
+                            "in_app": false,
+                            "resolved_name": "start_scheduler",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "7aaa763be8189bfe538a25b12416aaba13729767ad4b78acab6bfd3bb6e39a8a7f3cf1bb1c1bd8e5add360be916423bd60ee66f10ebd5875742ffd24373f86c0",
+                            "mangled_name": "start",
+                            "line": 653,
+                            "source": "celery/beat.py",
+                            "in_app": false,
+                            "resolved_name": "start",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "26e21972989b5b0c0160011bde3d501285716fdc188b037874d97a385603781b793b02f733633f24d36ea0f6e4217b7a641af2795be4240e086faafce2b24bb2",
+                            "mangled_name": "sync",
+                            "line": 656,
+                            "source": "celery/beat.py",
+                            "in_app": false,
+                            "resolved_name": "sync",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "b408377465441fe8e6bfde5aa2e9a722611740384fc8bdac890d85711addab29e40c9f5022d1ff007f908870a4160e3739e8edb34072dfdb7307f17e96068c4d",
+                            "mangled_name": "close",
+                            "line": 492,
+                            "source": "redbeat/schedulers.py",
+                            "in_app": false,
+                            "resolved_name": "close",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "e9d987b0ef20eb301552b25e190088dee913568712b3f184eca8220135a086e61ffc5d2e8b399c996e793a826f9a1caa13a52c4722dec95b5cc29c55a141bfd6",
+                            "mangled_name": "owned",
+                            "line": 237,
+                            "source": "redis/lock.py",
+                            "in_app": false,
+                            "resolved_name": "owned",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "36746c5bcea934d92fd74fc9afd4fa93bd2767a6d6a8f7daf7f547b52762f495145c67ee32c57138ecf23b9a864069a1ef0c09279bed1a905e01ffcabd9ab184",
+                            "mangled_name": "get",
+                            "line": 1790,
+                            "source": "redis/commands/core.py",
+                            "in_app": false,
+                            "resolved_name": "get",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "5e9cfb615e5e328de3001333db34fb5a52b411a4d58259d695753ab21885f3b92dfdd8b40ef4d416356e7c904c0872ba9d284e48ad6b97efcf97940d7acd668d",
+                            "mangled_name": "execute_command",
+                            "line": 1255,
+                            "source": "redis/client.py",
+                            "in_app": false,
+                            "resolved_name": "execute_command",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "90d3309ffa21f3ed8b13c48d8c5dd4637e0d91ff191ea4b5e951be974f8ade380492d0c49c6ee29abcb4ac055a1aa8c5bf4549a55bbaf6d37482bb9a5974b09a",
+                            "mangled_name": "get_connection",
+                            "line": 1442,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "get_connection",
+                            "lang": "python",
+                            "resolved": true
+                        },
+                        {
+                            "raw_id": "c5757c680c1819fc85e0dc4a09d7524febfe0cb7c7ebea8c8b1c2f343353fa823140b1bad0cde42af10e5468e3d88b159837ede5909b779f19d737e5abddf6ab",
+                            "mangled_name": "connect",
+                            "line": 704,
+                            "source": "redis/connection.py",
+                            "in_app": false,
+                            "resolved_name": "connect",
+                            "lang": "python",
+                            "resolved": true
+                        }
+                    ]
+                }
+            }
+        ],
+        "$exception_fingerprint": "32cebb0039aac597a3277326999b915c4dabc1ae2cd1e14946cadba23c07ea390265efc2f964e66d316adac2018d7b78a0aeee1346aa3559f8a0859970d84ba3",
+        "$exception_proposed_fingerprint": "32cebb0039aac597a3277326999b915c4dabc1ae2cd1e14946cadba23c07ea390265efc2f964e66d316adac2018d7b78a0aeee1346aa3559f8a0859970d84ba3",
+        "$exception_issue_id": "35f642e4-a491-46e9-a0e8-778b3c3e5b88",
+        "$os": "Mac OS X",
+        "$os_version": "15.3.1",
+        "$process_person_profile": false,
+        "$lib_version": "3.21.0",
+        "$python_version": "3.12.11",
+        "$exception_message": "Connection closed by server.",
+        "$transformations_succeeded": ["GeoIP (0195b934-6d98-0000-4d00-8163a218f25c)"],
+        "$exception_type": "ConnectionError",
+        "$geoip_disable": true,
+        "$python_runtime": "CPython",
+        "$exception_personURL": "http://localhost:8010/project/phc_ngf62dtzXeNsSZNWJ8eB5Je1l7FQoSybCZHEOggcXv7/person/a7a336a0-32a4",
+        "$lib": "posthog-python",
+        "$exception_types": ["ConnectionRefusedError", "ConnectionError"],
+        "$exception_values": [
+            "Connection closed by server.",
+            "[Errno 61] Connection refused",
+            "Error 61 connecting to localhost:XXX. Connection refused."
+        ],
+        "$exception_sources": [
+            "celery/beat.py",
+            "celery/bin/base.py",
+            "redis/commands/core.py",
+            "celery/app/base.py",
+            "click/core.py",
+            "celery/bin/beat.py",
+            "redbeat/schedulers.py",
+            "django/utils/autoreload.py",
+            "threading.py",
+            "redis/retry.py",
+            "celery/apps/beat.py",
+            "click/decorators.py",
+            "redis/connection.py",
+            "redis/lock.py",
+            "redis/client.py",
+            "posthog/management/commands/run_autoreload_celery.py"
+        ],
+        "$exception_functions": [
+            "get",
+            "connect",
+            "call_with_retry",
+            "close",
+            "__call__",
+            "start_scheduler",
+            "wrapper",
+            "_connect",
+            "owned",
+            "extend",
+            "tick",
+            "<lambda>",
+            "_evalsha",
+            "run",
+            "run_celery_worker",
+            "beat",
+            "main",
+            "caller",
+            "get_connection",
+            "_read_from_socket",
+            "start",
+            "can_read",
+            "new_func",
+            "evalsha",
+            "do_extend",
+            "_bootstrap_inner",
+            "execute_command",
+            "invoke",
+            "sync"
+        ]
+    },
+    "timestamp": "2021-03-25T08:33:40.500000Z",
+    "team_id": 1,
+    "distinct_id": "a7a336a0-32a4-4510-80f9-794b3796c63c",
+    "elements_chain": "",
+    "created_at": "2021-03-25T08:35:49.358000Z"
+}

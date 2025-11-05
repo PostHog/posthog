@@ -1,6 +1,8 @@
-import { useValues } from 'kea'
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { useActions, useValues } from 'kea'
+
 import { HeartHog, SurprisedHog } from 'lib/components/hedgehogs'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -12,12 +14,49 @@ export const scene: SceneExport = {
 }
 
 export function Wizard(): JSX.Element {
-    const { view } = useValues(wizardLogic)
+    const { view, selectedProjectId, availableProjects } = useValues(wizardLogic)
+    const { setSelectedProjectId, continueToAuthentication } = useActions(wizardLogic)
 
     return (
-        <BridgePage view="wizard" fixedWidth={false}>
+        <div className="flex h-full w-full items-center justify-center">
             <div className="px-12 py-8 text-center flex flex-col items-center max-w-160 w-full">
-                {(view === 'pending' || view === 'creating') && (
+                {view === 'project' && (
+                    <div className="max-w-xs">
+                        <div className="mb-8">
+                            <h1 className="text-3xl font-bold mb-3">AI wizard</h1>
+                            <p className="text-muted-alt">
+                                Select which project the wizard should use to install PostHog.
+                            </p>
+                        </div>
+
+                        <div className="space-y-6">
+                            <div className="justify-start items-start flex flex-col">
+                                <label className="align-start block text-sm font-medium mb-3">Project</label>
+                                <LemonSelect
+                                    value={selectedProjectId ?? undefined}
+                                    onChange={(projectId: number) => setSelectedProjectId(projectId)}
+                                    options={availableProjects}
+                                    placeholder="Choose a project..."
+                                    className="w-full"
+                                />
+                            </div>
+
+                            <div className="pt-4 flex items-center justify-center">
+                                <LemonButton
+                                    type="primary"
+                                    onClick={continueToAuthentication}
+                                    disabledReason={
+                                        !selectedProjectId ? 'Please select a project to continue.' : undefined
+                                    }
+                                    className="w-auto"
+                                >
+                                    Continue setup
+                                </LemonButton>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {view === 'pending' && (
                     <>
                         <h1 className="text-lg font-bold">Authenticating setup wizard...</h1>
                         <Spinner className="w-16 h-16 mt-12" />
@@ -42,6 +81,6 @@ export function Wizard(): JSX.Element {
                     </>
                 )}
             </div>
-        </BridgePage>
+        </div>
     )
 }

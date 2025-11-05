@@ -1,13 +1,13 @@
+import { useActions, useValues } from 'kea'
+
 import { IconFilter, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { getClampedExclusionStepRange } from 'scenes/funnels/funnelUtils'
+import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-
-import { FunnelsQuery } from '~/queries/schema/schema-general'
 
 type ExclusionRowSuffixComponentBaseProps = {
     index: number
@@ -21,7 +21,7 @@ export function ExclusionRowSuffix({
     typeKey,
 }: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, funnelsFilter, series, isFunnelWithEnoughSteps, exclusionDefaultStepRange } = useValues(
+    const { funnelsFilter, series, isFunnelWithEnoughSteps, exclusionDefaultStepRange } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
@@ -41,10 +41,7 @@ export function ExclusionRowSuffix({
     }
 
     const onChange = (funnelFromStep = stepRange.funnelFromStep, funnelToStep = stepRange.funnelToStep): void => {
-        const newStepRange = getClampedExclusionStepRange({
-            stepRange: { funnelFromStep, funnelToStep },
-            query: querySource as FunnelsQuery,
-        })
+        const newStepRange = getClampedFunnelStepRange({ funnelFromStep, funnelToStep }, series)
         const newExclusions = funnelsFilter?.exclusions?.map((exclusion, exclusionIndex) =>
             exclusionIndex === index ? { ...exclusion, ...newStepRange } : exclusion
         )

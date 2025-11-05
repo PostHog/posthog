@@ -1,8 +1,10 @@
-import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect, useState } from 'react'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { organizationLogic } from '../organizationLogic'
@@ -52,7 +54,7 @@ export function CreateProjectModal({
     // Anytime the project changes close the modal as it indicates we have created a new project
     useEffect(() => {
         closeModal()
-    }, [currentProject])
+    }, [currentProject]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <LemonModal
@@ -67,10 +69,7 @@ export function CreateProjectModal({
                     <p>
                         <strong>Tip:</strong> We recommend using the same project for both your website and app to track
                         conversion fully.{' '}
-                        <Link
-                            to="https://posthog.com/docs/settings/projects-and-environments#what-are-projects"
-                            target="_blank"
-                        >
+                        <Link to="https://posthog.com/docs/settings/projects" target="_blank" disableDocsPanel>
                             Learn more in PostHog docs.
                         </Link>
                     </p>

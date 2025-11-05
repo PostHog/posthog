@@ -1,5 +1,7 @@
-import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path } from 'kea'
+
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -15,7 +17,7 @@ export const insightsModel = kea<insightsModelType>([
     actions(() => ({
         renameInsight: (item: QueryBasedInsightModel) => ({ item }),
         renameInsightSuccess: (item: QueryBasedInsightModel) => ({ item }),
-        //TODO this duplicates the insight but not the dashboard tile (e.g. if duplicated from dashboard you lose tile color
+        // TODO: this duplicates the insight but not the dashboard tile (e.g. if duplicated from dashboard you lose tile color
         duplicateInsight: (item: QueryBasedInsightModel) => ({ item }),
         duplicateInsightSuccess: (item: QueryBasedInsightModel) => ({ item }),
         insightsAddedToDashboard: ({ dashboardId, insightIds }: { dashboardId: number; insightIds: number[] }) => ({
@@ -48,7 +50,10 @@ export const insightsModel = kea<insightsModelType>([
             })
         },
         duplicateInsight: async ({ item }) => {
-            const addedItem = await insightsApi.duplicate(item)
+            // get the insight, to ensure we duplicate it without any changes that might have been made to it
+            // e.g. any dashboard filters that were applied to it
+            const insight = await insightsApi.getByNumericId(item.id)
+            const addedItem = await insightsApi.duplicate(insight!)
 
             actions.duplicateInsightSuccess(addedItem)
             lemonToast.success('Insight duplicated')

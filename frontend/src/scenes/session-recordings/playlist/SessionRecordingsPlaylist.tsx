@@ -1,5 +1,7 @@
-import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+
+import { LemonBadge, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -9,16 +11,22 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
 
-import { RecordingsUniversalFilters } from '../filters/RecordingsUniversalFilters'
+import {
+    RecordingsUniversalFiltersEmbed,
+    RecordingsUniversalFiltersEmbedButton,
+} from '../filters/RecordingsUniversalFiltersEmbed'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
-import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
+import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export function SessionRecordingsPlaylist({
     showContent = true,
     canMixFiltersAndPinned = true,
+    type = 'filters',
+    isSynthetic = false,
+    description,
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
@@ -28,15 +36,18 @@ export function SessionRecordingsPlaylist({
      * and filters.
      *
      * This prop allows us to allow that case or not.
-     * Eventually this will be removed and we'll only allow one or the other.
+     * Eventually this will be removed, and we'll only allow one or the other.
      */
     canMixFiltersAndPinned?: boolean
+    type?: 'filters' | 'collection'
+    isSynthetic?: boolean
+    description?: string
 }): JSX.Element {
     const logicProps: SessionRecordingPlaylistLogicProps = {
         ...props,
         autoPlay: props.autoPlay ?? true,
     }
-    const logic = sessionRecordingsPlaylistLogic(logicProps)
+    const playlistLogic = sessionRecordingsPlaylistLogic(logicProps)
     const {
         filters,
         pinnedRecordings,
@@ -45,17 +56,16 @@ export function SessionRecordingsPlaylist({
         otherRecordings,
         activeSessionRecordingId,
         hasNext,
-        allowFlagsFilters,
         allowHogQLFilters,
+        allowReplayGroupsFilters,
         totalFiltersCount,
-    } = useValues(logic)
-    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(logic)
+    } = useValues(playlistLogic)
+    const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
 
     const notebookNode = useNotebookNode()
-
     const sections: PlaylistSection[] = []
 
-    if (pinnedRecordings.length) {
+    if (type === 'collection' || pinnedRecordings.length > 0) {
         sections.push({
             key: 'pinned',
             title: (
@@ -65,14 +75,10 @@ export function SessionRecordingsPlaylist({
                 </div>
             ),
             items: pinnedRecordings,
-            render: ({ item, isActive }) => (
-                <SessionRecordingPreview recording={item} isActive={isActive} pinned={true} />
-            ),
+            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} selectable />,
             initiallyOpen: true,
         })
-    }
-
-    if ((pinnedRecordings.length > 0 && canMixFiltersAndPinned) || pinnedRecordings.length === 0) {
+    } else {
         sections.push({
             key: 'other',
             title: (
@@ -83,9 +89,7 @@ export function SessionRecordingsPlaylist({
             ),
             items: otherRecordings,
             initiallyOpen: !pinnedRecordings.length,
-            render: ({ item, isActive }) => (
-                <SessionRecordingPreview recording={item} isActive={isActive} pinned={false} />
-            ),
+            render: ({ item, isActive }) => <SessionRecordingPreview recording={item} isActive={isActive} selectable />,
             footer: (
                 <div className="p-4">
                     <div className="h-10 flex items-center justify-center gap-2 text-secondary">
@@ -112,17 +116,20 @@ export function SessionRecordingsPlaylist({
                     notebooksHref={urls.replay(ReplayTabs.Home, filters)}
                     embedded={!!notebookNode}
                     sections={sections}
-                    headerActions={<SessionRecordingsPlaylistTopSettings filters={filters} setFilters={setFilters} />}
+                    headerActions={
+                        <SessionRecordingsPlaylistTopSettings
+                            filters={filters}
+                            setFilters={setFilters}
+                            type={type}
+                            shortId={props.logicKey}
+                        />
+                    }
                     filterActions={
-                        notebookNode || (!canMixFiltersAndPinned && !!pinnedRecordings.length) ? null : (
-                            <RecordingsUniversalFilters
-                                resetFilters={resetFilters}
+                        notebookNode || (!canMixFiltersAndPinned && !!logicProps.logicKey) ? null : (
+                            <RecordingsUniversalFiltersEmbedButton
                                 filters={filters}
                                 setFilters={setFilters}
                                 totalFiltersCount={totalFiltersCount}
-                                className="border-b"
-                                allowReplayHogQLFilters={allowHogQLFilters}
-                                allowReplayFlagsFilters={allowFlagsFilters}
                             />
                         )
                     }
@@ -134,7 +141,13 @@ export function SessionRecordingsPlaylist({
                             maybeLoadSessionRecordings('older')
                         }
                     }}
-                    listEmptyState={<ListEmptyState />}
+                    listEmptyState={
+                        type === 'collection' ? (
+                            <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
+                        ) : (
+                            <ListEmptyState />
+                        )
+                    }
                     onSelect={(item) => setSelectedRecordingId(item.id)}
                     activeItemId={activeSessionRecordingId}
                     content={({ activeItem }) =>
@@ -143,7 +156,7 @@ export function SessionRecordingsPlaylist({
                                 playerKey={props.logicKey ?? 'playlist'}
                                 sessionRecordingId={activeItem.id}
                                 matchingEventsMatchType={matchingEventsMatchType}
-                                playlistLogic={logic}
+                                playlistLogic={playlistLogic}
                                 noBorder
                                 pinned={!!pinnedRecordings.find((x) => x.id === activeItem.id)}
                                 setPinned={
@@ -168,6 +181,16 @@ export function SessionRecordingsPlaylist({
                             </div>
                         )
                     }
+                    filterContent={
+                        <RecordingsUniversalFiltersEmbed
+                            resetFilters={resetFilters}
+                            filters={filters}
+                            setFilters={setFilters}
+                            totalFiltersCount={totalFiltersCount}
+                            allowReplayHogQLFilters={allowHogQLFilters}
+                            allowReplayGroupsFilters={allowReplayGroupsFilters}
+                        />
+                    }
                 />
             </div>
         </BindLogic>
@@ -186,6 +209,40 @@ const ListEmptyState = (): JSX.Element => {
             ) : (
                 <div className="flex flex-col gap-2">
                     <SessionRecordingsPlaylistTroubleshooting />
+                </div>
+            )}
+        </div>
+    )
+}
+
+const CollectionEmptyState = ({
+    isSynthetic,
+    description,
+}: {
+    isSynthetic?: boolean
+    description?: string
+}): JSX.Element => {
+    const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
+
+    return (
+        <div className="p-3 text-sm text-secondary">
+            {sessionRecordingsAPIErrored ? (
+                <LemonBanner type="error">Error while trying to load recordings.</LemonBanner>
+            ) : unusableEventsInFilter.length ? (
+                <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
+            ) : isSynthetic ? (
+                <div className="flex flex-col gap-2">
+                    <h3 className="title text-secondary mb-0">No recordings yet</h3>
+                    <p>{description || 'This collection is automatically populated.'}</p>
+                </div>
+            ) : (
+                <div className="flex flex-col gap-2">
+                    <h3 className="title text-secondary mb-0">No recordings in this collection</h3>
+                    <p>
+                        To add recordings to this collection, go to the{' '}
+                        <Link to={urls.replay(ReplayTabs.Home)}>Recordings</Link> tab, click on a recording, then click
+                        "+ Add to collection" and select this collection from the list.
+                    </p>
                 </div>
             )}
         </div>

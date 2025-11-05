@@ -22,7 +22,7 @@ RS_SVC="$1"
 case "$RS_SVC" in
   property-defs-rs)
     SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
-    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
     export RUST_BACKTRACE=1
     export KAFKA_HOSTS=localhost:9092
     export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
@@ -32,6 +32,35 @@ case "$RS_SVC" in
     export DEBUG=1
     ;;
 
+  capture)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export ADDRESS=0.0.0.0:3307 # avoid port conflict in local dev
+    export KAFKA_HOSTS=localhost:9092
+    export REDIS_URL=redis://localhost:6379
+    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export CAPTURE_MODE=events
+    export LOG_LEVEL=debug
+    export DEBUG=1
+    ;;
+
+  capture-replay)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export ADDRESS=0.0.0.0:3306 # avoid port conflict in local dev
+    export KAFKA_HOSTS=localhost:9092
+    export KAFKA_TOPIC=session_recording_snapshot_item_events
+    export KAFKA_OVERFLOW_TOPIC=session_recording_snapshot_item_overflow
+    export REDIS_URL=redis://localhost:6379
+    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export CAPTURE_MODE=recordings
+    export LOG_LEVEL=debug
+    export DEBUG=1
+    export DEV_RUST_SVC_OVERRIDE=capture # we want to run the same "capture" binary in a separate mode
+    ;;
+
   cymbal)
     # NOTE: to ensure the exceptions topic exists and avoid crash loops in dev:
     # cd rust
@@ -39,27 +68,24 @@ case "$RS_SVC" in
     export RUST_LOG=debug,rdkafka=warn
     export RUST_BACKTRACE=1
     export KAFKA_CONSUMER_GROUP=cymbal
-    export KAFKA_CONSUMER_TOPIC=exception_symbolification_events
+    export KAFKA_CONSUMER_TOPIC=exceptions_ingestion
     export OBJECT_STORAGE_BUCKET=posthog
     export OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
     export OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
     export FRAME_CACHE_TTL_SECONDS=1
     export BIND_PORT=3302 # HACK! avoid local-dev clash with property-defs-rs port
     export ALLOW_INTERNAL_IPS="true"
+    export PERSONS_URL=postgres://posthog:posthog@localhost:5432/posthog_persons
     ;;
 
-  cyclotron-fetch)
-    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
-    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
+  embedding-worker)
+    export RUST_LOG=debug,rdkafka=warn
     export RUST_BACKTRACE=1
-    export KAFKA_HOSTS=localhost:9092
-    export KAFKA_TOPIC=clickhouse_app_metrics2
-    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron
-    export WORKER_ID=default_worker_id
-    export JOB_POLL_INTERVAL=1s
-    export MAX_CONCURRENT_JOBS=10
-    export DEBUG=1
-    export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
+    export KAFKA_CONSUMER_GROUP=embedding-worker
+    export KAFKA_CONSUMER_TOPIC="document_embeddings_input"
+    export FRAME_CACHE_TTL_SECONDS=1
+    export BIND_PORT=3305 # HACK! avoid local-dev clash with property-defs-rs port
+    export ALLOW_INTERNAL_IPS="true"
     ;;
 
   cyclotron-janitor)
@@ -73,11 +99,48 @@ case "$RS_SVC" in
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;
 
+  feature-flags)
+    # Download MaxMind DB if it doesn't exist
+    ./bin/download-mmdb
+
+    export RUST_LOG=debug,tower=warn,maxminddb=warn
+    export RUST_BACKTRACE=1
+    export WRITE_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export READ_DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export MAXMIND_DB_PATH=../share/GeoLite2-City.mmdb
+    export REDIS_URL=redis://localhost:6379/
+    export ADDRESS=0.0.0.0:3001
+    export DEBUG=1
+    export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
+    ;;
+
+  batch-import-worker)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export KAFKA_HOSTS=localhost:9092
+    export DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
+    export BIND_HOST=0.0.0.0
+    export BIND_PORT=3301
+    export ENCRYPTION_KEYS=00beef0000beef0000beef0000beef00
+    export KAFKA_TOPIC_MAIN=events_plugin_ingestion
+    export KAFKA_TOPIC_HISTORICAL=events_plugin_ingestion_historical
+    export KAFKA_TOPIC_OVERFLOW=events_plugin_ingestion_overflow
+    export DEBUG=1
+    ;;
+
   *)
     echo "ERROR unknown posthog/rust service '$RS_SVC' please register in: $0" >&2
     exit 1
     ;;
 esac
+
+# in some cases, we need to run the same underlying binary
+# with different configuration - if a given RS_SVC config
+# above sets the override env var, apply it here
+if [[ -n "${DEV_RUST_SVC_OVERRIDE:-}" ]]; then
+  export RS_SVC="$DEV_RUST_SVC_OVERRIDE"
+fi
 
 # ensure Rust services are in scope for "cargo run --bin <SERVICE_NAME>"
 cd rust

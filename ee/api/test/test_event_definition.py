@@ -1,20 +1,23 @@
 from datetime import datetime
 from typing import Any, Optional, cast
 
-import dateutil.parser
-from django.utils import timezone
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
+
+from django.utils import timezone
+
+import dateutil.parser
 from rest_framework import status
 
-from ee.models.event_definition import EnterpriseEventDefinition
-from ee.models.license import AvailableFeature, License, LicenseManager
 from posthog.api.test.test_event_definition import EventData, capture_event
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.models import ActivityLog, Tag, Team, User
 from posthog.models.event_definition import EventDefinition
-from posthog.test.base import APIBaseTest
+
+from ee.models.event_definition import EnterpriseEventDefinition
+from ee.models.license import AvailableFeature, License, LicenseManager
 
 
 @freeze_time("2020-01-02")
@@ -189,7 +192,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             {"official", "internal"},
         )
 
-        activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="EventDefinition").first()
         assert activity_log is not None
         self.assertEqual(activity_log.scope, "EventDefinition")
         self.assertEqual(activity_log.activity, "changed")

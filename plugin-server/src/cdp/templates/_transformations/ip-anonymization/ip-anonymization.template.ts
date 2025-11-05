@@ -1,8 +1,8 @@
-import { HogFunctionTemplate } from '../../types'
+import { HogFunctionTemplate } from '~/cdp/types'
 
 export const template: HogFunctionTemplate = {
     free: true,
-    status: 'alpha',
+    status: 'beta',
     type: 'transformation',
     id: 'template-ip-anonymization',
     name: 'IP Anonymization',
@@ -10,7 +10,8 @@ export const template: HogFunctionTemplate = {
         'This transformation sets the last octet of an IP address to zero (e.g., 12.214.31.144 → 12.214.31.0), protecting user privacy and reducing disclosure risk.',
     icon_url: '/static/hedgehog/builder-hog-01.png',
     category: ['Custom'],
-    hog: `
+    code_language: 'hog',
+    code: `
 // Check if the event has an IP address
 if (empty(event.properties?.$ip)) {
     print('No IP address found in event')

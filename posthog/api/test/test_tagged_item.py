@@ -1,8 +1,9 @@
+from posthog.test.base import APIBaseTest
+
 from rest_framework import status
 
 from posthog.models import Dashboard, Insight, Tag
 from posthog.models.tagged_item import TaggedItem
-from posthog.test.base import APIBaseTest
 
 # This serializer only tests that enterprise functionality is not exposed on non-ee requests. It uses the dashboard
 # model as an example, since model specific functionality is already tested in their models' respective serializer

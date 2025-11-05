@@ -4,7 +4,6 @@
 !bin
 !common/hogvm
 !common/esbuilder
-!common/eslint_rules
 !common/plugin_transpiler/*.*
 !common/plugin_transpiler/src
 !common/tailwind
@@ -31,6 +30,7 @@
 !plugin-server/package.json
 !plugin-server/pnpm-lock.yaml
 !plugin-server/src
+!plugin-server/assets
 !plugin-server/tsconfig.eslint.json
 !plugin-server/tsconfig.json
 !pnpm-lock.yaml
@@ -63,3 +63,9 @@ rust/cyclotron-node/index.node
 rust/cyclotron-node/node_modules
 rust/docker
 rust/target
+!docker-compose.base.yml
+!docker-compose.dev.yml
+!docker
+!.git/config
+!.git/HEAD
+!.git/refs

@@ -1,13 +1,14 @@
-import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import React, { useEffect, useRef } from 'react'
-import { pipelineDefaultEnabledLogic } from 'scenes/pipeline/pipelineDefaultEnabledLogic'
 
-import { ProductKey } from '~/types'
+import { LemonDivider, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
-import { OnboardingStepKey } from './onboardingLogic'
-import { onboardingProductConfigurationLogic, ProductConfigOption } from './onboardingProductConfigurationLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+
+import { OnboardingStepKey, ProductKey } from '~/types'
+
 import { OnboardingStep } from './OnboardingStep'
+import { ProductConfigOption, onboardingProductConfigurationLogic } from './onboardingProductConfigurationLogic'
 
 type ConfigType = 'toggle' | 'select'
 type PluginType = 'plugin'
@@ -31,7 +32,6 @@ type ConfigOption =
 export const OnboardingProductConfiguration = ({
     stepKey = OnboardingStepKey.PRODUCT_CONFIGURATION,
     options,
-    product,
 }: {
     stepKey?: OnboardingStepKey
     options: (ProductConfigOption | undefined)[]
@@ -39,9 +39,7 @@ export const OnboardingProductConfiguration = ({
     product?: ProductKey
 }): JSX.Element | null => {
     const { configOptions } = useValues(onboardingProductConfigurationLogic)
-    const { pipelineDefaultEnabled } = useValues(pipelineDefaultEnabledLogic)
     const { setConfigOptions, saveConfiguration } = useActions(onboardingProductConfigurationLogic)
-    const { toggleEnabled } = useActions(pipelineDefaultEnabledLogic)
 
     const configOptionsRef = useRef(configOptions)
 
@@ -49,52 +47,32 @@ export const OnboardingProductConfiguration = ({
         configOptionsRef.current = configOptions
     }, [configOptions])
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setConfigOptions(options.filter((option): option is ProductConfigOption => !!option))
-    }, [])
+    })
 
-    const combinedList: ConfigOption[] = [
-        ...configOptions
-            .filter((option) => option.visible)
-            .map((option) => ({
-                title: option.title,
-                description: option.description,
-                type: option.type as ConfigType,
-                selectOptions: option.selectOptions,
-                value: option.value,
-                onChange: (newValue: boolean | string | number) => {
-                    // Use the current value from the ref to ensure that onChange always accesses
-                    // the latest state of configOptions, preventing the closure from using stale data.
-                    const updatedConfigOptions = configOptionsRef.current.map((o) => {
-                        if (o.teamProperty === option.teamProperty) {
-                            return { ...o, value: newValue }
-                        }
+    const combinedList: ConfigOption[] = configOptions
+        .filter((option) => option.visible)
+        .map((option) => ({
+            title: option.title,
+            description: option.description,
+            type: option.type as ConfigType,
+            selectOptions: option.selectOptions,
+            value: option.value,
+            onChange: (newValue: boolean | string | number) => {
+                // Use the current value from the ref to ensure that onChange always accesses
+                // the latest state of configOptions, preventing the closure from using stale data.
+                const updatedConfigOptions = configOptionsRef.current.map((o) => {
+                    if (o.teamProperty === option.teamProperty) {
+                        return { ...o, value: newValue }
+                    }
 
-                        return o
-                    })
+                    return o
+                })
 
-                    setConfigOptions(updatedConfigOptions)
-                },
-            })),
-        ...pipelineDefaultEnabled
-            .filter((plugin) => {
-                return !(product && plugin?.productOnboardingDenyList?.includes(product))
-            })
-            .map((item) => {
-                return {
-                    title: item.title,
-                    description: item.description,
-                    type: 'plugin' as PluginType,
-                    value: item.enabled,
-                    onChange: (enabled: boolean) => {
-                        toggleEnabled({
-                            id: item.id,
-                            enabled: enabled,
-                        })
-                    },
-                }
-            }),
-    ]
+                setConfigOptions(updatedConfigOptions)
+            },
+        }))
 
     return combinedList.length > 0 ? (
         <OnboardingStep title="Set up your configuration" stepKey={stepKey} onContinue={saveConfiguration}>
@@ -103,10 +81,10 @@ export const OnboardingProductConfiguration = ({
                 {combinedList.map((item, idx) => (
                     <React.Fragment key={idx}>
                         <LemonDivider className="my-4" />
-                        <div className="grid gap-4 grid-cols-3">
+                        <div className="grid grid-cols-3 gap-4">
                             <div className="col-span-2">
                                 <label className="text-base font-semibold">{item.title}</label>
-                                <p className="prompt-text mt-2 mb-0 ">{item.description}</p>
+                                <p className="mt-2 mb-0 prompt-text">{item.description}</p>
                             </div>
                             <div className="flex justify-end">
                                 {item.type === 'toggle' ? (
@@ -124,7 +102,7 @@ export const OnboardingProductConfiguration = ({
                                         checked={item.value || false}
                                     />
                                 ) : (
-                                    <div className="flex justify-end items-center mb-1 gap-x-4">
+                                    <div className="flex gap-x-4 justify-end items-center mb-1">
                                         <LemonSelect
                                             dropdownMatchSelectWidth={false}
                                             onChange={item.onChange}

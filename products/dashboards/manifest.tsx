@@ -1,8 +1,10 @@
-import { IconDashboard } from '@posthog/icons'
 import { combineUrl } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
+
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Dashboards',
@@ -21,15 +23,22 @@ export const manifest: ProductManifest = {
     },
     fileSystemTypes: {
         dashboard: {
-            icon: <IconDashboard />,
+            name: 'Dashboard',
+            iconType: 'dashboard' as FileSystemIconType,
             href: (ref: string) => urls.dashboard(ref),
+            iconColor: ['var(--color-product-dashboards-light)'],
+            filterKey: 'dashboard',
         },
     },
     treeItemsNew: [
         {
             path: `Dashboard`,
             type: 'dashboard',
-            href: () => urls.dashboards() + '#newDashboard=modal',
+            href: urls.dashboards() + '#newDashboard=modal',
+            iconType: 'dashboard' as FileSystemIconType,
+            iconColor: ['var(--color-product-dashboards-light)'] as FileSystemIconColor,
+            sceneKey: 'Dashboard',
+            sceneKeys: ['Dashboards', 'Dashboard'],
         },
     ],
 }

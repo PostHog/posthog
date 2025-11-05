@@ -1,13 +1,13 @@
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.raw_sessions.migrations import (
-    WRITABLE_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL,
-    DISTRIBUTED_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL,
     BASE_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL,
+    DISTRIBUTED_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL,
+    WRITABLE_RAW_SESSIONS_ADD_VITALS_LCP_COLUMN_SQL,
 )
-from posthog.models.raw_sessions.sql import (
+from posthog.models.raw_sessions.sessions_v2 import (
     DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL,
-    RAW_SESSIONS_TABLE_MV_SQL,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
+    RAW_SESSIONS_TABLE_MV_SQL,
 )
 
 operations = [

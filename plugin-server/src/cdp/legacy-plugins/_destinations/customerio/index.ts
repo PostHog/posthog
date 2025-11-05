@@ -1,8 +1,7 @@
 import { ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { RetryError } from '@posthog/plugin-scaffold'
 
-import { Response } from '~/src/utils/fetch'
-
+import type { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 const DEFAULT_HOST = 'track.customer.io'
@@ -60,7 +59,7 @@ async function callCustomerIoApi(
         headers['Content-Type'] = 'application/json'
         bodySerialized = JSON.stringify(body)
     }
-    let response: Response
+    let response: FetchResponse
     try {
         response = await meta.fetch(`https://${host}${path}`, { method, headers, body: bodySerialized })
     } catch (e) {

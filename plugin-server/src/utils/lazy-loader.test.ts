@@ -22,6 +22,46 @@ describe('LazyLoader', () => {
         jest.spyOn(Date, 'now').mockRestore()
     })
 
+    describe('constructor', () => {
+        it('should throw if refreshBackgroundAgeMs is greater than refreshAgeMs', () => {
+            expect(
+                () =>
+                    new LazyLoader({
+                        name: 'test',
+                        loader,
+                        refreshAgeMs: 1000 * 60 * 2,
+                        refreshBackgroundAgeMs: 1000 * 60 * 3,
+                    })
+            ).toThrow('refreshBackgroundAgeMs must be smaller than refreshAgeMs')
+        })
+
+        it('should set defaults if not provided', () => {
+            const lazyLoader = new LazyLoader({
+                name: 'test',
+                loader,
+            })
+
+            expect(lazyLoader['refreshAgeMs']).toBe(300000)
+            expect(lazyLoader['refreshNullAgeMs']).toBe(300000)
+            expect(lazyLoader['refreshBackgroundAgeMs']).toBe(undefined)
+            expect(lazyLoader['refreshJitterMs']).toBe(60000)
+        })
+
+        it('should derive values based on refreshAgeMs', () => {
+            const refreshAgeMs = 1000 * 60 * 2
+            const lazyLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                refreshAgeMs,
+            })
+
+            expect(lazyLoader['refreshAgeMs']).toBe(refreshAgeMs)
+            expect(lazyLoader['refreshNullAgeMs']).toBe(refreshAgeMs)
+            expect(lazyLoader['refreshBackgroundAgeMs']).toBe(undefined)
+            expect(lazyLoader['refreshJitterMs']).toBe(refreshAgeMs / 5)
+        })
+    })
+
     describe('get', () => {
         it('loads and caches a single value', async () => {
             loader.mockResolvedValue({ key1: 'value1' })
@@ -61,7 +101,7 @@ describe('LazyLoader', () => {
             loader.mockResolvedValue({ key1: 'value1', key2: 'value2' })
             const result = await lazyLoader.get('key1')
             expect(result).toBe('value1')
-            expect(lazyLoader.cache).toEqual({ key1: 'value1', key2: 'value2' })
+            expect(lazyLoader.getCache()).toEqual({ key1: 'value1', key2: 'value2' })
             const result2 = await lazyLoader.get('key2')
             expect(result2).toBe('value2')
             expect(loader).toHaveBeenCalledTimes(1)
@@ -128,7 +168,7 @@ describe('LazyLoader', () => {
             const customLoader = new LazyLoader({
                 name: 'test',
                 loader,
-                refreshAge: 1000 * 60 * 2, // 2 minutes
+                refreshAgeMs: 1000 * 60 * 2, // 2 minutes
             })
 
             loader.mockResolvedValueOnce({ key1: 'value1' }).mockResolvedValueOnce({ key1: 'value2' })
@@ -193,10 +233,13 @@ describe('LazyLoader', () => {
         it('should load multiple values in parallel', async () => {
             loader.mockImplementation(async (keys) => {
                 await new Promise((resolve) => setTimeout(resolve, 100))
-                return keys.reduce((acc: any, key: string) => {
-                    acc[key] = { val: key }
-                    return acc
-                }, {} as Record<string, any>)
+                return keys.reduce(
+                    (acc: any, key: string) => {
+                        acc[key] = { val: key }
+                        return acc
+                    },
+                    {} as Record<string, any>
+                )
             })
 
             const result1 = lazyLoader.get('key1')
@@ -236,6 +279,116 @@ describe('LazyLoader', () => {
             expect(loader).toHaveBeenCalledTimes(2)
             expect(loader).toHaveBeenNthCalledWith(1, ['key1', 'key2'])
             expect(loader).toHaveBeenNthCalledWith(2, ['key3'])
+        })
+    })
+
+    describe('background refreshing', () => {
+        let loadSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            lazyLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                refreshAgeMs: 1000 * 60 * 2, // 2 minutes
+                refreshBackgroundAgeMs: 1000 * 60 * 1, // 1 minute
+                refreshJitterMs: 0, // Simplify the tests
+            })
+
+            loadSpy = jest.spyOn(lazyLoader as any, 'load')
+        })
+
+        it('should refresh in the background if between ages', async () => {
+            let count = 0
+            loader.mockImplementation(() => {
+                count++
+                return { key1: 'value' + count }
+            })
+
+            const result = await lazyLoader.get('key1')
+            expect(loadSpy).toHaveBeenCalledTimes(1)
+            expect(loader).toHaveBeenCalledTimes(1)
+            expect(result).toBe('value1')
+            loadSpy.mockClear()
+            loader.mockClear()
+
+            // Fast forward past refresh background age
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 1.5)
+            const result2 = await lazyLoader.get('key1')
+            expect(result2).toBe('value1') // Value should immediately be returned
+            expect(loadSpy).toHaveBeenCalledTimes(1) // Load was called
+            expect(loader).toHaveBeenCalledTimes(0) // But it didnt block
+            loadSpy.mockClear()
+            loader.mockClear()
+
+            // Check in flight cache
+            const result3 = await lazyLoader.get('key1')
+            expect(result3).toBe('value1')
+            expect(loadSpy).toHaveBeenCalledTimes(1)
+            expect(loader).toHaveBeenCalledTimes(0)
+            loadSpy.mockClear()
+            loader.mockClear()
+            // Let the background refresh complete
+            await delay(100)
+            const result4 = await lazyLoader.get('key1')
+            expect(result4).toBe('value2')
+            expect(loadSpy).toHaveBeenCalledTimes(0)
+            expect(loader).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('LRU eviction with maxSize', () => {
+        it('should evict least recently used entries when maxSize is exceeded', async () => {
+            const customLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                maxSize: 3,
+                refreshJitterMs: 0,
+            })
+
+            // Add 3 entries
+            loader.mockResolvedValueOnce({ key1: 'value1', key2: 'value2', key3: 'value3' })
+            await customLoader.getMany(['key1', 'key2', 'key3'])
+            expect(Object.keys(customLoader.getCache()).length).toBe(3)
+
+            // Access key1 and key2 to update their lastUsed times
+            jest.spyOn(Date, 'now').mockReturnValue(start + 1000)
+            await customLoader.get('key1')
+            jest.spyOn(Date, 'now').mockReturnValue(start + 2000)
+            await customLoader.get('key2')
+
+            // Add a 4th entry - should evict key3 (least recently used)
+            jest.spyOn(Date, 'now').mockReturnValue(start + 3000)
+            loader.mockResolvedValueOnce({ key4: 'value4' })
+            await customLoader.get('key4')
+
+            const cache = customLoader.getCache()
+            expect(Object.keys(cache).length).toBe(3)
+            expect(cache).toEqual({ key1: 'value1', key2: 'value2', key4: 'value4' })
+        })
+
+        it('should handle bulk additions that exceed maxSize', async () => {
+            const customLoader = new LazyLoader({
+                name: 'test',
+                loader,
+                maxSize: 2,
+                refreshJitterMs: 0,
+            })
+
+            // Add 5 entries at once - should keep only 2
+            loader.mockResolvedValueOnce({
+                key1: 'value1',
+                key2: 'value2',
+                key3: 'value3',
+                key4: 'value4',
+                key5: 'value5',
+            })
+
+            await customLoader.getMany(['key1', 'key2', 'key3', 'key4', 'key5'])
+
+            const cache = customLoader.getCache()
+            expect(Object.keys(cache).length).toBe(2)
+            // When all have the same lastUsed time, eviction order depends on iteration order
+            // Just verify we have exactly 2 entries
         })
     })
 })

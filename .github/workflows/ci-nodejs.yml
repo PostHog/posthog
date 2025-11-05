@@ -1,0 +1,253 @@
+name: Node.js CI
+on:
+    pull_request:
+    push:
+        branches:
+            - master
+
+env:
+    OBJECT_STORAGE_ENABLED: true
+    OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+    OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+    OBJECT_STORAGE_SESSION_RECORDING_FOLDER: 'session_recordings'
+    OBJECT_STORAGE_BUCKET: 'posthog'
+    # set the max buffer size small enough that the functional tests behave the same in CI as when running locally
+    SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: true
+
+jobs:
+    # Job to decide if we should run plugin server ci
+    # See https://github.com/dorny/paths-filter#conditional-execution for more details
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Determine need to run Node.js checks
+        outputs:
+            nodejs: ${{ steps.filter.outputs.nodejs }}
+        steps:
+            # For pull requests it's not necessary to checkout the code, but we
+            # also want this to run on master so we need to checkout
+            - uses: actions/checkout@v4
+
+            - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
+              id: filter
+              with:
+                  filters: |
+                      nodejs:
+                        - .github/workflows/ci-nodejs.yml
+                        - 'plugin-server/**'
+                        - 'posthog/clickhouse/**'
+                        - 'ee/migrations/**'
+                        - 'posthog/management/commands/setup_test_environment.py'
+                        - 'posthog/migrations/**'
+                        - 'posthog/plugins/**'
+                        - 'docker*.yml'
+                        - '*Dockerfile'
+
+    lint:
+        if: needs.changes.outputs.nodejs == 'true'
+        name: Node.js Code quality
+        needs: changes
+        runs-on: depot-ubuntu-24.04-4
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.17.1
+                  cache: pnpm
+
+            - name: Install package.json dependencies with pnpm
+              run: |
+                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/plugin-server prepare
+
+            - name: Check formatting with prettier
+              run: pnpm --filter=@posthog/plugin-server prettier:check
+
+            - name: Lint with ESLint
+              run: pnpm --filter=@posthog/plugin-server lint
+
+    build:
+        if: needs.changes.outputs.nodejs == 'true'
+        name: Node.js Build
+        needs: changes
+        runs-on: depot-ubuntu-24.04-4
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.17.1
+                  cache: pnpm
+
+            - name: Install package.json dependencies with pnpm
+              run: |
+                  pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/plugin-server prepare
+
+            - name: Check builds correctly
+              run: pnpm --filter=@posthog/plugin-server build
+
+            - name: Sanity check output
+              run: |
+                  cd plugin-server
+                  # We expect it to fail but check that the error isn't "MODULE_NOT_FOUND"
+                  if node dist/index.js 2>&1 | grep "MODULE_NOT_FOUND"; then
+                      echo "❌ Build is invalid - failed with 'MODULE_NOT_FOUND' error"
+                      exit 1
+                  else
+                      echo "✅ Build is valid - failed as expected without module errors"
+                  fi
+
+    tests:
+        if: needs.changes.outputs.nodejs == 'true'
+        name: Node.js Tests (${{matrix.shard}}/3)
+        needs: changes
+        runs-on: depot-ubuntu-24.04-4
+        timeout-minutes: 30 # We know tests don't take this long
+
+        strategy:
+            fail-fast: false
+            matrix:
+                shard: [1, 2, 3]
+
+        env:
+            REDIS_URL: 'redis://localhost'
+            CLICKHOUSE_HOST: 'localhost'
+            CLICKHOUSE_DATABASE: 'posthog_test'
+            KAFKA_HOSTS: 'kafka:9092'
+
+        steps:
+            - name: Code check out
+              uses: actions/checkout@v4
+
+            - name: Stop/Start stack with Docker Compose
+              run: |
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
+
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.8.19
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
+
+            - name: Install sqlx-cli
+              working-directory: rust
+              run: cargo install sqlx-cli@0.7.3 --locked --no-default-features --features native-tls,postgres
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install python dependencies
+              run: |
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.17.1
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+
+            - name: Download MaxMind Database
+              run: |
+                  ./bin/download-mmdb
+
+            - name: Install package.json dependencies with pnpm
+              run: pnpm --filter=@posthog/plugin-server... install --frozen-lockfile
+
+            - name: Wait for Clickhouse, Redis, Kafka
+              run: |
+                  docker compose -f docker-compose.dev.yml up kafka redis clickhouse maildev -d --wait
+                  bin/check_kafka_clickhouse_up
+
+            - name: Set up databases
+              env:
+                  TEST: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+
+              run: pnpm --filter=@posthog/plugin-server setup:test
+
+            - name: Test with Jest
+              env:
+                  # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
+                  PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
+                  PERSONS_READONLY_MIGRATION_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
+                  REDIS_URL: 'redis://localhost'
+                  NODE_OPTIONS: '--max_old_space_size=4096'
+                  SHARD_INDEX: ${{ matrix.shard }}
+                  SHARD_COUNT: 3
+                  LOG_LEVEL: info
+              run: bin/turbo run test --filter=@posthog/plugin-server
+
+            - name: Output logs on failure
+              if: failure()
+              run: |
+                  docker compose -f docker-compose.dev.yml logs clickhouse
+                  # Echo out the logs stored in the container
+                  docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
+
+    node_tests:
+        needs: [tests, build, lint]
+        name: Node.js Tests Pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - run: exit 0
+            - name: Check outcomes
+              run: |
+                  if [[ "${{ needs.tests.result }}" != "success" && "${{ needs.tests.result }}" != "skipped" ]]; then
+                    echo "One or more jobs in the Node.js test matrix failed."
+                    exit 1
+                  fi
+                  echo "All jobs in the Node.js test matrix passed."
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                    echo "Node.js build failed."
+                    exit 1
+                  fi
+                  echo "Node.js build passed."
+                  if [[ "${{ needs.lint.result }}" != "success" && "${{ needs.lint.result }}" != "skipped" ]]; then
+                    echo "Node.js lint failed."
+                    exit 1
+                  fi
+                  echo "Node.js lint passed."

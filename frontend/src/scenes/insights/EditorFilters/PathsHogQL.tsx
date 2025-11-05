@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'

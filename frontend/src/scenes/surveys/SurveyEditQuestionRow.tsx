@@ -2,18 +2,27 @@ import './EditSurvey.scss'
 
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
+
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { QuestionBranchingInput } from 'scenes/surveys/components/question-branching/QuestionBranchingInput'
 
-import { Survey, SurveyQuestionType, SurveyType } from '~/types'
+import {
+    MultipleSurveyQuestion,
+    RatingSurveyQuestion,
+    Survey,
+    SurveyQuestion,
+    SurveyQuestionType,
+    SurveyType,
+} from '~/types'
 
-import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
-import { QuestionBranchingInput } from './QuestionBranchingInput'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
+import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from './constants'
 import { surveyLogic } from './surveyLogic'
 
 type SurveyQuestionHeaderProps = {
@@ -59,6 +68,7 @@ export function SurveyEditQuestionHeader({
             {survey.questions.length > 1 && (
                 <LemonButton
                     icon={<IconTrash />}
+                    size="xsmall"
                     data-attr={`delete-survey-question-${index}`}
                     onClick={(e) => {
                         const deleteQuestion = (): void => {
@@ -102,9 +112,19 @@ export function SurveyEditQuestionHeader({
     )
 }
 
-export function SurveyEditQuestionGroup({ index, question }: { index: number; question: any }): JSX.Element {
+function canQuestionSkipSubmitButton(
+    question: SurveyQuestion
+): question is RatingSurveyQuestion | MultipleSurveyQuestion {
+    return (
+        question.type === SurveyQuestionType.Rating ||
+        (question.type === SurveyQuestionType.SingleChoice && !question.hasOpenChoice)
+    )
+}
+
+export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion } = useActions(surveyLogic)
+    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setMultipleSurveyQuestion } =
+        useActions(surveyLogic)
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 
@@ -125,6 +145,35 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
         handleQuestionValueChange('descriptionContentType', key)
     }
 
+    const canSkipSubmitButton = canQuestionSkipSubmitButton(question)
+
+    const confirmQuestionTypeChange = (
+        index: number,
+        question: MultipleSurveyQuestion,
+        newType: SurveyQuestionType
+    ): void => {
+        // Reset to current type first (because onSelect has already changed it)
+        setMultipleSurveyQuestion(index, question, question.type)
+
+        LemonDialog.open({
+            title: 'Changing question type',
+            description: (
+                <p className="py-2">The choices you have configured will be removed. Would you like to proceed?</p>
+            ),
+            primaryButton: {
+                children: 'Continue',
+                status: 'danger',
+                onClick: () => {
+                    setDefaultForQuestionType(index, question, newType)
+                    resetBranchingForQuestion(index)
+                },
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
+
     return (
         <Group name={`questions.${index}`} key={index}>
             <div className="flex flex-col gap-2">
@@ -132,21 +181,24 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <LemonSelect
                         data-attr={`survey-question-type-${index}`}
                         onSelect={(newType) => {
-                            const editingQuestion =
-                                defaultSurveyFieldValues[question.type].questions[0].question !== question.question
-                            const editingDescription =
-                                defaultSurveyFieldValues[question.type].questions[0].description !==
-                                question.description
-                            const editingThankYouMessage =
-                                defaultSurveyFieldValues[question.type].appearance.thankYouMessageHeader !==
-                                survey.appearance?.thankYouMessageHeader
-                            setDefaultForQuestionType(
-                                index,
-                                newType,
-                                editingQuestion,
-                                editingDescription,
-                                editingThankYouMessage
-                            )
+                            const isCurrentMultipleChoice =
+                                question.type === SurveyQuestionType.MultipleChoice ||
+                                question.type === SurveyQuestionType.SingleChoice
+                            const isNewMultipleChoice =
+                                newType === SurveyQuestionType.MultipleChoice ||
+                                newType === SurveyQuestionType.SingleChoice
+
+                            // Same multiple choice type - just update type
+                            if (isCurrentMultipleChoice && isNewMultipleChoice) {
+                                setMultipleSurveyQuestion(index, question, newType)
+                                resetBranchingForQuestion(index)
+                                return
+                            }
+                            if (isCurrentMultipleChoice && !isNewMultipleChoice) {
+                                confirmQuestionTypeChange(index, question, newType)
+                                return
+                            }
+                            setDefaultForQuestionType(index, question, newType)
                             resetBranchingForQuestion(index)
                         }}
                         options={[
@@ -165,18 +217,16 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 value: SurveyQuestionType.Rating,
                                 'data-attr': `survey-question-type-${index}-${SurveyQuestionType.Rating}`,
                             },
-                            ...[
-                                {
-                                    label: 'Single choice select',
-                                    value: SurveyQuestionType.SingleChoice,
-                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
-                                },
-                                {
-                                    label: 'Multiple choice select',
-                                    value: SurveyQuestionType.MultipleChoice,
-                                    'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
-                                },
-                            ],
+                            {
+                                label: 'Single choice select',
+                                value: SurveyQuestionType.SingleChoice,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.SingleChoice}`,
+                            },
+                            {
+                                label: 'Multiple choice select',
+                                value: SurveyQuestionType.MultipleChoice,
+                                'data-attr': `survey-question-type-${index}-${SurveyQuestionType.MultipleChoice}`,
+                            },
                         ]}
                     />
                 </LemonField>
@@ -216,7 +266,11 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                         { label: 'Emoji', value: 'emoji' },
                                     ]}
                                     onChange={(val) => {
-                                        const newQuestion = { ...survey.questions[index], display: val, scale: 5 }
+                                        const newQuestion = {
+                                            ...survey.questions[index],
+                                            display: val,
+                                            scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
+                                        }
                                         const newQuestions = [...survey.questions]
                                         newQuestions[index] = newQuestion
                                         setSurveyValue('questions', newQuestions)
@@ -230,19 +284,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                             </LemonField>
                             <LemonField name="scale" label="Scale" className="w-1/2">
                                 <LemonSelect
-                                    options={[
-                                        ...(question.display === 'emoji' ? [{ label: '1 - 3', value: 3 }] : []),
-                                        {
-                                            label: '1 - 5',
-                                            value: 5,
-                                        },
-                                        ...(question.display === 'number'
-                                            ? [
-                                                  { label: '1 - 7 (7 Point Likert Scale)', value: 7 },
-                                                  { label: '0 - 10 (Net Promoter Score)', value: 10 },
-                                              ]
-                                            : []),
-                                    ]}
+                                    options={question.display === 'emoji' ? SCALE_OPTIONS.EMOJI : SCALE_OPTIONS.NUMBER}
                                     onChange={(val) => {
                                         const newQuestion = { ...survey.questions[index], scale: val }
                                         const newQuestions = [...survey.questions]
@@ -283,15 +325,15 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                                 newChoices[index] = val
                                                                 onChange(newChoices)
                                                             }}
+                                                            suffix={
+                                                                isOpenChoice && (
+                                                                    <LemonTag type="highlight">open-ended</LemonTag>
+                                                                )
+                                                            }
                                                         />
-                                                        {isOpenChoice && (
-                                                            <span className="question-choice-open-ended-footer">
-                                                                open-ended
-                                                            </span>
-                                                        )}
                                                         <LemonButton
                                                             icon={<IconTrash />}
-                                                            size="small"
+                                                            size="xsmall"
                                                             noPadding
                                                             onClick={() => {
                                                                 const newChoices = [...value]
@@ -369,14 +411,48 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                         </LemonField>
                     </div>
                 )}
-                <LemonField name="buttonText" label="Button text">
-                    <LemonInput
-                        value={
-                            question.buttonText === undefined
-                                ? survey.appearance?.submitButtonText ?? 'Submit'
-                                : question.buttonText
-                        }
-                    />
+                <LemonField
+                    name="buttonText"
+                    label="Submit button text"
+                    className="flex-1 flex gap-1 justify-center"
+                    info={
+                        canSkipSubmitButton
+                            ? "When the 'Automatically submit on selection' option is enabled, users won't need to click a submit button - their response will be submitted immediately after selecting an option. The submit button will be hidden. Requires at least version 1.244.0 of posthog-js. Not available for the mobile SDKs at the moment."
+                            : undefined
+                    }
+                >
+                    <>
+                        {(!canSkipSubmitButton || (canSkipSubmitButton && !question.skipSubmitButton)) && (
+                            <LemonInput
+                                value={
+                                    question.buttonText === undefined
+                                        ? (survey.appearance?.submitButtonText ?? 'Submit')
+                                        : question.buttonText
+                                }
+                                onChange={(val) => handleQuestionValueChange('buttonText', val)}
+                            />
+                        )}
+                        {canSkipSubmitButton && (
+                            <LemonField
+                                name="skipSubmitButton"
+                                info={
+                                    <>
+                                        If enabled, the survey will submit immediately after the user makes a selection
+                                        (for single-choice without open-ended, or rating questions), and the submit
+                                        button will be hidden/text ignored.
+                                    </>
+                                }
+                            >
+                                {({ value: skipSubmitButtonValue, onChange: onSkipSubmitButtonChange }) => (
+                                    <LemonCheckbox
+                                        label="Automatically submit on selection"
+                                        checked={!!skipSubmitButtonValue}
+                                        onChange={onSkipSubmitButtonChange}
+                                    />
+                                )}
+                            </LemonField>
+                        )}
+                    </>
                 </LemonField>
                 <QuestionBranchingInput questionIndex={index} question={question} />
             </div>

@@ -1,7 +1,6 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
-import { Response } from '~/src/utils/fetch'
-
+import { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 const hubspotPropsMap = {
@@ -23,11 +22,11 @@ const hubspotPropsMap = {
     companyWebsite: 'website',
 }
 
-export async function setupPlugin({ config, global, fetch }: LegacyDestinationPluginMeta) {
+export async function setupPlugin({ config, global, fetch: request }: LegacyDestinationPluginMeta) {
     try {
         global.hubspotAccessToken = config.hubspotAccessToken
 
-        const authResponse = await fetch(
+        const authResponse = await request(
             `https://api.hubapi.com/crm/v3/objects/contacts?limit=1&paginateAssociations=false&archived=false`,
             {
                 headers: {
@@ -152,7 +151,7 @@ async function createHubspotContact(
     }
 }
 
-function statusOk(res: Response): boolean {
+function statusOk(res: FetchResponse): boolean {
     return String(res.status)[0] === '2'
 }
 

@@ -13,6 +13,13 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         padding-left: 1rem;
     }
 
+    // When there are optional steps, indent all content to make room for the layout
+    &.FunnelBarHorizontal--has-optional-steps {
+        .funnel-step {
+            padding-left: $series_container_width + 2rem; // Extra space for optional step positioning
+        }
+    }
+
     .funnel-step {
         position: relative;
         padding-left: $series_container_width + 0.5rem;
@@ -21,6 +28,20 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             &,
             .funnel-series-container {
                 padding-top: 0.75rem;
+            }
+        }
+
+        // Optional step styling - make it translucent to indicate it's not a real funnel step
+        &.funnel-step--optional {
+            // Don't apply opacity to the whole step, target specific elements instead
+            header,
+            .funnel-bar-wrapper,
+            .funnel-conversion-metadata {
+                opacity: 0.6;
+            }
+
+            .graph-series-glyph {
+                opacity: 0.7;
             }
         }
 
@@ -58,12 +79,45 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
                 user-select: none;
             }
 
+            // Optional step positioning
+            &.optional-step {
+                // Move the step number to the right to align with end of connector
+                .graph-series-glyph {
+                    margin-left: 3rem;
+                }
+
+                // Create the branching path using multiple pseudo-elements
+                &::before {
+                    position: absolute;
+                    top: calc(#{$glyph_height} / 2 - 2rem);
+                    left: calc(#{$series_container_width} / 2 - 1px);
+                    z-index: 1;
+                    width: 1.5rem;
+                    height: 2px;
+                    content: '';
+                    background: var(--border-primary);
+                    opacity: 0.5;
+                }
+            }
+
+            .optional-connector {
+                position: absolute;
+                top: calc(#{$glyph_height} / 2 - 2rem);
+                left: calc(#{$series_container_width} / 2 + 1.5rem - 1px);
+                z-index: 1;
+                width: 2px;
+                height: calc(1rem + #{$glyph_height});
+                content: '';
+                background: var(--border-primary);
+                opacity: 0.5;
+            }
+
             .funnel-series-linebox {
                 position: absolute;
                 left: 0;
                 box-sizing: border-box;
                 width: calc(#{$series_container_width} / 2 + 1px);
-                border-right: 2px solid var(--border-primary);
+                border-right: 2px solid var(--color-border-primary);
                 opacity: 0.5;
 
                 &.before {
@@ -100,8 +154,6 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
 
             .funnel-step-title {
                 font-weight: bold;
-
-                @extend %mixin-text-ellipsis;
             }
 
             button {
@@ -115,14 +167,17 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
         flex-direction: row;
         height: 32px;
         margin: 4px 0;
-        background-color: var(--border-primary);
+        background-color: var(--color-border-primary);
         border-radius: var(--radius);
 
         .funnel-bar {
+            container-type: inline-size;
             position: relative;
             height: 100%;
-            background: var(--accent);
-            transition: width 0.2s ease, height 0.2s ease;
+            background: var(--color-accent);
+            transition:
+                width 0.2s ease,
+                height 0.2s ease;
 
             &.first {
                 border-radius: var(--radius) 0 0 4px;
@@ -139,19 +194,45 @@ $glyph_height: 23px; // Based on .funnel-step-glyph
             .funnel-bar-percentage {
                 position: absolute;
                 top: 8px;
+                left: calc(100% + #{$label_position_offset});
                 font-weight: bold;
                 line-height: 16px;
-                color: #fff;
+                color: var(--text-3000);
+                white-space: nowrap;
 
-                &.inside {
+                // When individual bar is wide enough, position label inside
+                @container (min-width: 60px) {
                     right: $label_position_offset;
-                }
-
-                &.outside {
-                    left: calc(100% + #{$label_position_offset});
-                    color: var(--text-3000);
+                    left: auto;
+                    color: #fff;
                 }
             }
+        }
+
+        .funnel-bar-empty-space {
+            container-type: inline-size;
+            position: relative;
+
+            .funnel-bar-percentage {
+                position: absolute;
+                top: 8px;
+                left: 8px;
+                display: none;
+                font-weight: bold;
+                line-height: 16px;
+                color: var(--text-3000);
+                white-space: nowrap;
+
+                // Show breakdown summary label when empty space is wide enough
+                @container (min-width: 60px) {
+                    display: block;
+                }
+            }
+        }
+
+        // For breakdown funnels: hide individual bar labels, show summary in empty space
+        &.breakdown .funnel-bar .funnel-bar-percentage {
+            display: none;
         }
     }
 }

@@ -1,6 +1,7 @@
-import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
+
+import { PluginEvent, PostHogEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
 import { setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
@@ -173,7 +174,7 @@ export function mutatePostIngestionEventWithElementsList(event: PostIngestionEve
 /// all of the processing steps.
 ///
 /// If `formPipelineEvent` is removed this can easily be combined with `normalizeEvent`.
-export function normalizeProcessPerson(event: PluginEvent, processPerson: boolean): PluginEvent {
+export function normalizeProcessPerson<T extends PipelineEvent | PluginEvent>(event: T, processPerson: boolean): T {
     const properties = event.properties ?? {}
 
     if (!processPerson || event.event === '$groupidentify') {
@@ -204,6 +205,10 @@ export function normalizeProcessPerson(event: PluginEvent, processPerson: boolea
 
 export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T): T {
     event.distinct_id = sanitizeString(String(event.distinct_id))
+
+    if ('token' in event) {
+        event.token = sanitizeString(String(event.token))
+    }
 
     let properties = event.properties ?? {}
     if (event['$set']) {

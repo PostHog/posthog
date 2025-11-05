@@ -1,35 +1,48 @@
-import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonLabel, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+
+import { IconBalance, IconCheckCircle, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
+
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentsTabs } from '~/types'
 
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
 import { LegacySharedFunnelsMetricForm } from './LegacySharedFunnelsMetricForm'
 import { LegacySharedTrendsMetricForm } from './LegacySharedTrendsMetricForm'
-import { sharedMetricLogic } from './sharedMetricLogic'
+import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<SharedMetricLogicProps> = {
     component: SharedMetric,
     logic: sharedMetricLogic,
-    paramsToProps: ({ params: { id } }) => ({
-        sharedMetricId: id === 'new' ? 'new' : parseInt(id),
+    paramsToProps: ({ params: { id, action } }) => ({
+        sharedMetricId: id === 'new' ? null : parseInt(id),
+        action: action || (id === 'new' ? 'create' : 'update'),
     }),
 }
 
 export function SharedMetric(): JSX.Element {
-    const { sharedMetricId, sharedMetric } = useValues(sharedMetricLogic)
+    const { sharedMetric, action } = useValues(sharedMetricLogic)
     const { setSharedMetric, createSharedMetric, updateSharedMetric, deleteSharedMetric } =
         useActions(sharedMetricLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
-    const { currentTeam } = useValues(teamLogic)
 
+    const { currentTeam } = useValues(teamLogic)
     const { tags: allExistingTags } = useValues(tagsModel)
 
     if (!sharedMetric || !sharedMetric.query) {
@@ -41,7 +54,7 @@ export function SharedMetric(): JSX.Element {
     }
 
     return (
-        <div className="max-w-[800px]">
+        <SceneContent>
             {sharedMetric.query.kind !== NodeKind.ExperimentMetric && (
                 <div className="flex gap-4 mb-4">
                     <div
@@ -59,7 +72,7 @@ export function SharedMetric(): JSX.Element {
                         <div className="font-semibold flex justify-between items-center">
                             <span>Trend</span>
                             {sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery && (
-                                <IconCheckCircle fontSize={18} color="var(--accent)" />
+                                <IconCheckCircle fontSize={18} color="var(--color-accent)" />
                             )}
                         </div>
                         <div className="text-secondary text-sm leading-relaxed">
@@ -81,7 +94,7 @@ export function SharedMetric(): JSX.Element {
                         <div className="font-semibold flex justify-between items-center">
                             <span>Funnel</span>
                             {sharedMetric.query.kind === NodeKind.ExperimentFunnelsQuery && (
-                                <IconCheckCircle fontSize={18} color="var(--accent)" />
+                                <IconCheckCircle fontSize={18} color="var(--color-accent)" />
                             )}
                         </div>
                         <div className="text-secondary text-sm leading-relaxed">
@@ -90,64 +103,112 @@ export function SharedMetric(): JSX.Element {
                     </div>
                 </div>
             )}
-            <div className={`border rounded ${isDarkModeOn ? 'bg-light' : 'bg-white'} p-4`}>
-                <div className="mb-4">
-                    <LemonLabel className="mb-1">Name</LemonLabel>
-                    <LemonInput
-                        value={sharedMetric.name}
-                        onChange={(newName) => {
+
+            <ScenePanel>
+                <ScenePanelInfoSection>
+                    <SceneTags
+                        onSave={(tags) => {
                             setSharedMetric({
-                                name: newName,
+                                tags: tags,
                             })
                         }}
+                        canEdit
+                        tags={sharedMetric.tags}
+                        tagsAvailable={allExistingTags}
+                        dataAttrKey="shared-metric"
                     />
-                </div>
-                <div className="mb-4">
-                    <LemonLabel className="mb-1">Description (optional)</LemonLabel>
-                    <LemonInput
-                        value={sharedMetric.description}
-                        onChange={(newDescription) => {
-                            setSharedMetric({
-                                description: newDescription,
-                            })
-                        }}
-                    />
-                </div>
-                <div className="mb-4">
-                    <LemonLabel>Tags</LemonLabel>
-                    <div className="mt-2">
-                        <ObjectTags
-                            tags={sharedMetric.tags || []}
-                            onChange={(newTags) => {
-                                setSharedMetric({
-                                    tags: newTags,
+                </ScenePanelInfoSection>
+                <ScenePanelDivider />
+                <ScenePanelActionsSection>
+                    {action === 'update' && (
+                        <ButtonPrimitive
+                            variant="danger"
+                            menuItem
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Delete this metric?',
+                                    content: (
+                                        <div className="text-sm text-secondary">This action cannot be undone.</div>
+                                    ),
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        type: 'primary',
+                                        onClick: () => deleteSharedMetric(),
+                                        size: 'small',
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'tertiary',
+                                        size: 'small',
+                                    },
                                 })
                             }}
-                            saving={false}
-                            tagsAvailable={allExistingTags}
-                            data-attr="shared-metric-tags"
-                        />
-                    </div>
-                </div>
-                {sharedMetric.query.kind === NodeKind.ExperimentMetric ? (
-                    <ExperimentMetricForm
-                        metric={sharedMetric.query as ExperimentMetric}
-                        handleSetMetric={(newMetric) => {
-                            setSharedMetric({
-                                ...sharedMetric,
-                                query: newMetric,
-                            })
+                        >
+                            <IconTrash /> Delete
+                        </ButtonPrimitive>
+                    )}
+                </ScenePanelActionsSection>
+            </ScenePanel>
+
+            <SceneTitleSection
+                name={sharedMetric.name}
+                resourceType={{ type: 'experiment', forceIcon: <IconBalance /> }}
+                description={sharedMetric.description}
+                onNameChange={(newName) => {
+                    setSharedMetric({
+                        name: newName,
+                    })
+                }}
+                onDescriptionChange={(newDescription) => {
+                    setSharedMetric({
+                        description: newDescription,
+                    })
+                }}
+                canEdit
+                forceEdit={!sharedMetric.id}
+                forceBackTo={{
+                    name: 'Experiments / shared metrics',
+                    path: `${urls.experiments()}?tab=${ExperimentsTabs.SharedMetrics}`,
+                    key: ExperimentsTabs.SharedMetrics,
+                }}
+                actions={
+                    <LemonButton
+                        disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                        size="small"
+                        type="primary"
+                        onClick={() => {
+                            if (['create', 'duplicate'].includes(action)) {
+                                createSharedMetric()
+                                return
+                            }
+
+                            updateSharedMetric()
                         }}
-                        filterTestAccounts={currentTeam?.test_account_filters?.length ? true : false}
-                    />
-                ) : sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
-                    <LegacySharedTrendsMetricForm />
-                ) : (
-                    <LegacySharedFunnelsMetricForm />
-                )}
-            </div>
-            <div className="flex justify-between mt-4">
-                {sharedMetricId !== 'new' && (
+                    >
+                        Save
+                    </LemonButton>
+                }
+            />
+            <SceneDivider />
+
+            {sharedMetric.query.kind === NodeKind.ExperimentMetric ? (
+                <ExperimentMetricForm
+                    metric={sharedMetric.query as ExperimentMetric}
+                    handleSetMetric={(newMetric) => {
+                        setSharedMetric({
+                            ...sharedMetric,
+                            query: newMetric,
+                        })
+                    }}
+                    filterTestAccounts={currentTeam?.test_account_filters?.length ? true : false}
+                />
+            ) : sharedMetric.query.kind === NodeKind.ExperimentTrendsQuery ? (
+                <LegacySharedTrendsMetricForm />
+            ) : (
+                <LegacySharedFunnelsMetricForm />
+            )}
+            <div className="flex justify-between">
+                {/* {action === 'update' && (
                     <LemonButton
                         size="medium"
                         type="primary"
@@ -172,23 +233,23 @@ export function SharedMetric(): JSX.Element {
                     >
                         Delete
                     </LemonButton>
-                )}
+                )} */}
                 <LemonButton
-                    className="ml-auto"
                     disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
                     size="medium"
                     type="primary"
                     onClick={() => {
-                        if (sharedMetricId === 'new') {
+                        if (['create', 'duplicate'].includes(action)) {
                             createSharedMetric()
-                        } else {
-                            updateSharedMetric()
+                            return
                         }
+
+                        updateSharedMetric()
                     }}
                 >
                     Save
                 </LemonButton>
             </div>
-        </div>
+        </SceneContent>
     )
 }

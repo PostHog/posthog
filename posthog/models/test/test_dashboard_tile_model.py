@@ -1,18 +1,14 @@
 import datetime
 
+from posthog.test.base import APIBaseTest
+
 from django.core.exceptions import ValidationError
 from django.db.utils import IntegrityError
 
 from posthog.models.dashboard import Dashboard
-from posthog.models.dashboard_tile import (
-    DashboardTile,
-    Text,
-    get_tiles_ordered_by_position,
-)
+from posthog.models.dashboard_tile import DashboardTile, Text
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
-from posthog.test.base import APIBaseTest
-from posthog.test.db_context_capturing import capture_db_queries
 
 
 class TestDashboardTileModel(APIBaseTest):
@@ -29,31 +25,6 @@ class TestDashboardTileModel(APIBaseTest):
             else:
                 insight = Insight.objects.create(team=self.team, short_id=f"123456-{i}", name=f"insight-{i}")
                 DashboardTile.objects.create(dashboard=self.dashboard, insight=insight)
-
-    def test_loads_dashboard_tiles_efficiently(self) -> None:
-        with capture_db_queries() as capture_query_context:
-            tiles = get_tiles_ordered_by_position(dashboard=self.dashboard)
-
-            for tile in tiles:
-                assert tile.insight or tile.text
-
-            assert len(tiles) == 10
-
-        assert len(capture_query_context.captured_queries) == 1
-
-    def test_loads_dashboard_tiles_excludes_deleted(self) -> None:
-        tiles = get_tiles_ordered_by_position(dashboard=self.dashboard)
-        assert len(tiles) == 10
-
-        tiles[0].deleted = True
-        tiles[0].save()
-
-        insight = Insight.objects.get(team=self.team, short_id="123456-1")
-        insight.deleted = True
-        insight.save()
-
-        tiles = get_tiles_ordered_by_position(dashboard=self.dashboard)
-        assert len(tiles) == 8
 
     def test_cannot_add_a_tile_with_insight_and_text_on_validation(self) -> None:
         insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")

@@ -1,25 +1,26 @@
 import './Popover.scss'
 
 import {
-    arrow,
-    autoUpdate,
-    flip,
     FloatingPortal,
     Middleware,
     Placement,
+    UseFloatingReturn,
+    arrow,
+    autoUpdate,
+    flip,
     shift,
     size,
     useFloating,
-    UseFloatingReturn,
     useMergeRefs,
 } from '@floating-ui/react'
 import clsx from 'clsx'
+import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { CSSTransition } from 'react-transition-group'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { CLICK_OUTSIDE_BLOCK_CLASS, useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
-import React, { MouseEventHandler, ReactElement, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { CSSTransition } from 'react-transition-group'
 
 import { LemonTableLoader } from '../LemonTable/LemonTableLoader'
 
@@ -31,7 +32,7 @@ export interface PopoverProps {
     onMouseEnterInside?: MouseEventHandler<HTMLDivElement>
     onMouseLeaveInside?: MouseEventHandler<HTMLDivElement>
     /** Popover trigger element. If you pass one <Component/> child, it will get the `ref` prop automatically. */
-    children?: React.ReactChild
+    children?: React.ReactNode
     /** External reference element not passed as a direct child */
     referenceElement?: HTMLElement | null
     /** Content of the overlay. */
@@ -95,7 +96,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         onMouseEnterInside,
         onMouseLeaveInside,
         placement = 'bottom-start',
-        fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
+        fallbackPlacements = ['top-start', 'top-end', 'bottom-start', 'bottom-end'],
         className,
         padded = true,
         middleware,
@@ -134,14 +135,30 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     } = useFloating<HTMLElement>({
         open: visible,
         placement,
-        strategy: 'fixed',
+        strategy: 'absolute',
         middleware: [
-            ...(fallbackPlacements ? [flip({ fallbackPlacements, fallbackStrategy: 'initialPlacement' })] : []),
+            ...(fallbackPlacements
+                ? [
+                      flip({
+                          fallbackPlacements,
+                          fallbackStrategy: 'bestFit',
+                          padding: 20,
+                      }),
+                  ]
+                : []),
             shift({ padding: 8, boundary: document.body }), // Add padding and use document.body as boundary
             size({
                 padding: 4,
                 apply({ availableWidth, availableHeight, rects, elements: { floating } }) {
-                    floating.style.maxHeight = `${availableHeight}px`
+                    const minHeight = 200 // Minimum desired height
+
+                    // If there's insufficient height, set a reasonable max height but still allow content to be scrollable
+                    if (availableHeight < minHeight) {
+                        floating.style.maxHeight = `${Math.max(availableHeight, 150)}px`
+                    } else {
+                        floating.style.maxHeight = `${availableHeight}px`
+                    }
+
                     floating.style.maxWidth = `${Math.min(availableWidth, window.innerWidth - 16)}px` // Ensure popover doesn't extend past window edge
                     floating.style.width = 'initial'
                     if (matchWidth) {
@@ -172,7 +189,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (referenceElement) {
             setReference(referenceElement)
         }
-    }, [referenceElement])
+    }, [referenceElement]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEventListener(
         'keydown',
@@ -202,7 +219,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         if (visible && referenceRef?.current && floatingElement) {
             return autoUpdate(referenceRef.current, floatingElement, update)
         }
-    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs])
+    }, [visible, placement, referenceRef?.current, floatingElement, ...additionalRefs]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const floatingContainer = useFloatingContainer()
 
@@ -223,8 +240,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     const clonedChildren = children ? React.cloneElement(children as ReactElement, { ref: mergedReferenceRef }) : null
 
     const isAttached = clonedChildren || referenceElement
-    const top = isAttached ? y ?? 0 : undefined
-    const left = isAttached ? x ?? 0 : undefined
+    const top = isAttached ? (y ?? 0) : undefined
+    const left = isAttached ? (x ?? 0) : undefined
 
     return (
         <>

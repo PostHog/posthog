@@ -1,16 +1,19 @@
-import { kea, key, path, props, selectors } from 'kea'
+import { kea, path, props, selectors } from 'kea'
+
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { cohortsModel } from '~/models/cohortsModel'
-import { Breadcrumb, ProjectTreeRef } from '~/types'
+import { ActivityScope, Breadcrumb, ProjectTreeRef } from '~/types'
 
 import { CohortLogicProps } from './cohortEditLogic'
 import type { cohortSceneLogicType } from './cohortSceneLogicType'
 
 export const cohortSceneLogic = kea<cohortSceneLogicType>([
     props({} as CohortLogicProps),
-    key((props) => props.id || 'new'),
+    tabAwareScene(),
     path(['scenes', 'cohorts', 'cohortLogic']),
 
     selectors({
@@ -19,25 +22,33 @@ export const cohortSceneLogic = kea<cohortSceneLogicType>([
             (cohortsById, cohortId): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.PersonsManagement,
-                        name: 'People',
-                        path: urls.persons(),
-                    },
-                    {
                         key: 'cohorts',
                         name: 'Cohorts',
                         path: urls.cohorts(),
+                        iconType: 'cohort',
                     },
                     {
                         key: [Scene.Cohort, cohortId || 'loading'],
                         name: cohortId && cohortId !== 'new' ? cohortsById[cohortId]?.name || 'Untitled' : 'Untitled',
+                        iconType: 'cohort',
                     },
                 ]
             },
         ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [(_, props: CohortLogicProps) => props.id],
+            (id: CohortLogicProps['id']): SidePanelSceneContext | null => {
+                return id && id !== 'new'
+                    ? {
+                          activity_scope: ActivityScope.COHORT,
+                          activity_item_id: `${id}`,
+                      }
+                    : null
+            },
+        ],
         projectTreeRef: [
             () => [(_, props: CohortLogicProps) => props.id],
-            (id): ProjectTreeRef => ({ type: 'cohort', ref: String(id) }),
+            (id): ProjectTreeRef => ({ type: 'cohort', ref: id === 'new' ? null : String(id) }),
         ],
     }),
 ])

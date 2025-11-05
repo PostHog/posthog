@@ -2,41 +2,46 @@ import re
 from itertools import product
 from uuid import uuid4
 
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
 from freezegun import freeze_time
-from parameterized import parameterized
-
-from ee.clickhouse.materialized_columns.columns import materialize
-from posthog.clickhouse.client import sync_execute
-from posthog.hogql.ast import CompareOperation, And, SelectQuery
-from posthog.hogql.base import Expr
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.printer import print_ast
-from posthog.models import Person
-from posthog.schema import PersonsOnEventsMode, RecordingsQuery
-from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     QueryMatchingTest,
-    snapshot_clickhouse_queries,
     _create_event,
+    snapshot_clickhouse_queries,
 )
+
+from django.utils.timezone import now
+
+from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+from posthog.schema import PersonsOnEventsMode, RecordingsQuery
+
+from posthog.hogql.ast import SelectQuery
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
+
+from posthog.clickhouse.client import sync_execute
+from posthog.models import Person
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns, materialize
 
 
 # The HogQL pair of TestClickhouseSessionRecordingsListFromSessionReplay can be renamed when delete the old one
 @freeze_time("2021-01-01T13:46:23")
 class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _print_query(self, query: SelectQuery) -> str:
-        return print_ast(
+        return prepare_and_print_ast(
             query,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
             pretty=True,
-        )
+        )[0]
 
     def tearDown(self) -> None:
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
@@ -139,10 +144,6 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
             hogql_parsed_select = session_recording_list_instance.get_query()
             printed_query = self._print_query(hogql_parsed_select)
 
-            person_filtering_expr = self._matching_person_filter_expr_from(hogql_parsed_select)
-
-            self._assert_is_events_person_filter(person_filtering_expr)
-
             if poe_v1 or poe_v2:
                 # Property used directly from event (from materialized column)
                 assert "ifNull(equals(nullIf(nullIf(events.mat_pp_rgInternal, ''), 'null')" in printed_query
@@ -158,28 +159,6 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
                     printed_query,
                 )
             self.assertQueryMatchesSnapshot(printed_query)
-
-    def _assert_is_pdi_filter(self, person_filtering_expr: list[Expr]) -> None:
-        assert person_filtering_expr[0].right.select_from.table.chain == ["person_distinct_ids"]
-        assert person_filtering_expr[0].right.where.left.chain == ["person", "properties", "rgInternal"]
-
-    def _assert_is_events_person_filter(self, person_filtering_expr: list[Expr]) -> None:
-        assert person_filtering_expr[0].right.select_from.table.chain == ["events"]
-        event_person_condition = [
-            x
-            for x in person_filtering_expr[0].right.where.exprs
-            if isinstance(x, CompareOperation) and x.left.chain == ["person", "properties", "rgInternal"]
-        ]
-        assert len(event_person_condition) == 1
-
-    def _matching_person_filter_expr_from(self, hogql_parsed_select: SelectQuery) -> list[Expr]:
-        where_conditions: list[Expr] = hogql_parsed_select.where.exprs
-        ands = [x for x in where_conditions if isinstance(x, And)]
-        assert len(ands) == 1
-        and_comparisons = [x for x in ands[0].exprs if isinstance(x, CompareOperation)]
-        assert len(and_comparisons) == 1
-        assert isinstance(and_comparisons[0].right, SelectQuery)
-        return and_comparisons
 
     settings_combinations = [
         ["poe v2 and materialized columns allowed", False, True, True],
@@ -221,6 +200,16 @@ class TestClickhouseSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseT
         if materialize_person_props:
             materialize("events", "email", table_column="person_properties")
             materialize("person", "email")
+
+            @retry(wait=wait_exponential(multiplier=0.5, min=0.5, max=5), stop=stop_after_attempt(10))
+            def wait_for_materialized_columns():
+                events_col = get_materialized_columns("events").get(("email", "person_properties"))
+                person_col = get_materialized_columns("person").get(("email", "properties"))
+                if not events_col or not person_col:
+                    raise ValueError("Materialized columns not ready yet")
+                return events_col, person_col
+
+            wait_for_materialized_columns()
 
         with self.settings(
             PERSON_ON_EVENTS_OVERRIDE=poe1_enabled,

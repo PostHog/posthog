@@ -1,8 +1,9 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import React, { useState } from 'react'
+
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { LemonMenuItemList } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import React, { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -10,6 +11,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { InsightSceneSource } from '~/types'
 
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
@@ -21,11 +23,14 @@ export interface QueryCardProps extends Pick<InsightCardProps, 'highlighted' | '
     title: string
     description?: string
     context?: QueryContext
+    sceneSource?: InsightSceneSource
+    /** Attach ourselves to another logic, such as the scene logic */
+    attachTo?: BuiltLogic | LogicWrapper
 }
 
 /** This is like InsightCard, except for presentation of queries that aren't saved insights. */
 export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(function QueryCard(
-    { query, title, description, context, highlighted, ribbonColor, className, ...divProps },
+    { query, title, description, context, highlighted, ribbonColor, className, sceneSource, attachTo, ...divProps },
     ref
 ): JSX.Element {
     const { theme } = useValues(themeLogic)
@@ -38,10 +43,10 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
             data-attr="insight-card"
             {...divProps}
             // eslint-disable-next-line react/forbid-dom-props
-            style={{ ...(divProps?.style ?? {}), ...(theme?.boxStyle ?? {}) }}
+            style={{ ...divProps?.style, ...theme?.boxStyle }}
             ref={ref}
         >
-            <ErrorBoundary tags={{ feature: 'insight' }}>
+            <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                 <CardMeta
                     ribbonColor={ribbonColor}
                     setAreDetailsShown={setAreDetailsShown}
@@ -59,7 +64,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
                             items={[
                                 {
                                     label: 'Open as new insight',
-                                    to: urls.insightNew({ query }),
+                                    to: urls.insightNew({ query, sceneSource }),
                                 },
                             ]}
                         />
@@ -67,7 +72,7 @@ export const QueryCard = React.forwardRef<HTMLDivElement, QueryCardProps>(functi
                     showEditingControls
                 />
                 <div className="InsightCard__viz">
-                    <Query query={query} readOnly embedded context={context} />
+                    <Query attachTo={attachTo} query={query} readOnly embedded context={context} />
                 </div>
             </ErrorBoundary>
         </div>

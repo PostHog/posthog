@@ -1,26 +1,28 @@
 from __future__ import annotations
 
-import logging
 import re
+import logging
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any, Literal, TypeVar, cast
 
-from clickhouse_driver import Client
 from django.utils.timezone import now
 
+from clickhouse_driver import Client
+
 from posthog.cache_utils import cache_for
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.cluster import ClickhouseCluster, FuturesMap, HostInfo, get_cluster
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
-from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSONS_TABLE
 from posthog.models.property import PropertyName, TableColumn, TableWithProperties
 from posthog.models.utils import generate_random_short_suffix
 from posthog.settings import CLICKHOUSE_DATABASE, TEST
-
 
 logger = logging.getLogger(__name__)
 
@@ -67,17 +69,19 @@ class MaterializedColumn:
 
     @staticmethod
     def get_all(table: TablesWithMaterializedColumns) -> Iterator[MaterializedColumn]:
-        rows = sync_execute(
-            """
-            SELECT name, comment, type like 'Nullable(%%)' as is_nullable
-            FROM system.columns
-            WHERE database = %(database)s
-                AND table = %(table)s
-                AND comment LIKE '%%column_materializer::%%'
-                AND comment not LIKE '%%column_materializer::elements_chain::%%'
-        """,
-            {"database": CLICKHOUSE_DATABASE, "table": table},
-        )
+        with tags_context(name="get_all_materialized_columns"):
+            rows = sync_execute(
+                """
+                SELECT name, comment, type like 'Nullable(%%)' as is_nullable
+                FROM system.columns
+                WHERE database = %(database)s
+                    AND table = %(table)s
+                    AND comment LIKE '%%column_materializer::%%'
+                    AND comment not LIKE '%%column_materializer::elements_chain::%%'
+            """,
+                {"database": CLICKHOUSE_DATABASE, "table": table},
+                ch_user=ClickHouseUser.HOGQL,
+            )
 
         for name, comment, is_nullable in rows:
             yield MaterializedColumn(name, MaterializedColumnDetails.from_column_comment(comment), is_nullable)
@@ -130,6 +134,7 @@ class MaterializedColumnDetails:
                 raise ValueError(f"unexpected comment format: {comment!r}")
 
 
+@cache_for(timedelta(minutes=15), background_refresh=True)
 def get_materialized_columns(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
@@ -139,7 +144,7 @@ def get_materialized_columns(
     }
 
 
-@cache_for(timedelta(minutes=15))
+@cache_for(timedelta(minutes=15), background_refresh=True)
 def get_enabled_materialized_columns(
     table: TablesWithMaterializedColumns,
 ) -> dict[tuple[PropertyName, TableColumn], MaterializedColumn]:
@@ -190,7 +195,7 @@ class CreateColumnOnDataNodesTask:
     def execute(self, client: Client) -> None:
         expression, parameters = self.column.get_expression_and_parameters()
         actions = [
-            f"ADD COLUMN IF NOT EXISTS {self.column.name} {self.column.type} MATERIALIZED {expression}",
+            f"ADD COLUMN IF NOT EXISTS {self.column.name} {self.column.type} DEFAULT {expression}",
         ]
 
         if self.add_column_comment:
@@ -401,20 +406,6 @@ class BackfillColumnTask:
     test_settings: dict[str, Any] | None
 
     def execute(self, client: Client) -> None:
-        # Hack from https://github.com/ClickHouse/ClickHouse/issues/19785
-        # Note that for this to work all inserts should list columns explicitly
-        # Improve this if https://github.com/ClickHouse/ClickHouse/issues/27730 ever gets resolved
-        for column in self.columns:
-            expression, parameters = column.get_expression_and_parameters()
-            client.execute(
-                f"""
-                ALTER TABLE {self.table}
-                MODIFY COLUMN {column.name} {column.type} DEFAULT {expression}
-                """,
-                parameters,
-                settings=self.test_settings,
-            )
-
         # Kick off mutations which will update clickhouse partitions in the background. This will return immediately
         assignments = ", ".join(f"{column.name} = {column.name}" for column in self.columns)
 

@@ -1,12 +1,14 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
 
 export function RetentionDatePicker(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { dateRange, dateMappings } = useValues(retentionLogic(insightProps))
     const { updateDateRange } = useActions(retentionLogic(insightProps))
 
@@ -28,6 +30,7 @@ export function RetentionDatePicker(): JSX.Element {
                     )}
                 </>
             )}
+            disabledReason={editingDisabledReason}
         />
     )
 }

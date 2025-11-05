@@ -80,12 +80,12 @@ services:
             file: docker-compose.base.yml
             service: worker
         environment:
-            SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
@@ -98,15 +98,20 @@ services:
             - ./compose:/compose
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
-            SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             LIVESTREAM_HOST: 'https://${DOMAIN}:8666'
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            OTEL_SERVICE_NAME: 'posthog'
+            OTEL_EXPORTER_OTLP_ENDPOINT: ''
+            OTEL_SDK_DISABLED: 'true'
         depends_on:
             - db
             - redis
@@ -120,16 +125,22 @@ services:
             service: plugins
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
-            SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
             OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'object_storage_root_user'
+            SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'object_storage_root_password'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
+            SESSION_RECORDING_V2_S3_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_ENABLED: true
             CDP_REDIS_HOST: redis7
             CDP_REDIS_PORT: 6379
             ENCRYPTION_SALT_KEYS: $ENCRYPTION_SALT_KEYS
+            CYCLOTRON_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            OTEL_EXPORTER_OTLP_ENDPOINT: ''
         depends_on:
             - db
             - redis
@@ -138,16 +149,19 @@ services:
             - kafka
             - objectstorage
 
-    caddy:
-        image: caddy:2.6.1
-        restart: unless-stopped
+    proxy:
+        extends:
+            file: docker-compose.base.yml
+            service: proxy
         ports:
             - '80:80'
             - '443:443'
         volumes:
-            - ./Caddyfile:/etc/caddy/Caddyfile
             - caddy-data:/data
             - caddy-config:/config
+        environment:
+            CADDY_TLS_BLOCK: $TLS_BLOCK
+            CADDY_HOST: '$DOMAIN, http://, https://'
         depends_on:
             - web
     objectstorage:
@@ -167,7 +181,6 @@ services:
             service: asyncmigrationscheck
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
-            SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
             SKIP_ASYNC_MIGRATIONS_SETUP: 0
@@ -213,7 +226,6 @@ services:
             - ./compose:/compose
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         environment:
-            SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
         depends_on:
@@ -224,22 +236,6 @@ services:
             - objectstorage
             - temporal
 
-    cyclotron-fetch:
-        extends:
-            file: docker-compose.base.yml
-            service: cyclotron-fetch
-        build:
-            context: ./posthog/rust
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_HOSTS: 'kafka:9092'
-            SENTRY_DSN: $SENTRY_DSN
-        depends_on:
-            db:
-                condition: service_healthy
-            kafka:
-                condition: service_started
-
     cyclotron-janitor:
         extends:
             file: docker-compose.base.yml
@@ -249,7 +245,6 @@ services:
         environment:
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
-            SENTRY_DSN: $SENTRY_DSN
         depends_on:
             db:
                 condition: service_healthy
@@ -282,11 +277,21 @@ services:
             file: docker-compose.base.yml
             service: livestream
         environment:
-            - JWT.TOKEN=${POSTHOG_SECRET}
+            - LIVESTREAM_JWT_SECRET=${POSTHOG_SECRET}
         ports:
             - '8666:8080'
         volumes:
-            - ./posthog/docker/livestream/configs-dev.yml:/configs/configs.yml
+            - ./posthog/docker/livestream/configs-hobby.yml:/configs/configs.yml
+
+    feature-flags:
+        build:
+            context: ./posthog/rust
+        extends:
+            file: docker-compose.base.yml
+            service: feature-flags
+        depends_on:
+            - db
+            - redis
 
 volumes:
     zookeeper-data:
@@ -300,3 +305,4 @@ volumes:
     redis-data:
     redis7-data:
     kafka-data:
+    redpanda-data:

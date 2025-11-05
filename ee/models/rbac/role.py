@@ -1,10 +1,11 @@
 from django.db import models
 
+from posthog.models.utils import UUIDTModel
+
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
-from posthog.models.utils import UUIDModel
 
 
-class Role(UUIDModel):
+class Role(UUIDTModel):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["organization", "name"], name="unique_role_name")]
 
@@ -25,14 +26,19 @@ class Role(UUIDModel):
         null=True,
     )
 
-    # TODO: Deprecate this field
+    # DEPRECATED - do not use
     feature_flags_access_level = models.PositiveSmallIntegerField(
         default=OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT,
         choices=OrganizationResourceAccess.AccessLevel.choices,
     )
 
+    members = models.ManyToManyField(
+        "posthog.User",
+        through="ee.RoleMembership",
+    )
 
-class RoleMembership(UUIDModel):
+
+class RoleMembership(UUIDTModel):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["role", "user"], name="unique_user_and_role")]
 

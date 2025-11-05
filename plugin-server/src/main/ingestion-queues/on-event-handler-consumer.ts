@@ -1,34 +1,18 @@
 import { Consumer } from 'kafkajs'
 
 import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
-import { Hub, PluginServerService } from '../../types'
+import {
+    HealthCheckResult,
+    HealthCheckResultDegraded,
+    HealthCheckResultError,
+    HealthCheckResultOk,
+    Hub,
+    PluginServerService,
+} from '../../types'
 import { logger } from '../../utils/logger'
 import { HookCommander } from '../../worker/ingestion/hooks'
-import { eachBatchAppsOnEventHandlers } from './batch-processing/each-batch-onevent'
 import { eachBatchWebhooksHandlers } from './batch-processing/each-batch-webhooks'
-import { KafkaJSIngestionConsumer, setupEventHandlers } from './kafka-queue'
-
-export const startAsyncOnEventHandlerConsumer = async ({ hub }: { hub: Hub }): Promise<PluginServerService> => {
-    /*
-        Consumes analytics events from the Kafka topic `clickhouse_events_json`
-        and processes any onEvent plugin handlers configured for the team.
-
-        At the moment this is just a wrapper around `IngestionConsumer`. We may
-        want to further remove that abstraction in the future.
-    */
-    logger.info('🔁', `Starting onEvent handler consumer`)
-
-    const queue = buildOnEventIngestionConsumer({ hub })
-
-    await hub.actionManager.start()
-    await queue.start()
-
-    return {
-        id: 'on-event-ingestion',
-        healthcheck: makeHealthCheck(queue.consumer, queue.sessionTimeout),
-        onShutdown: async () => await queue.stop(),
-    }
-}
+import { setupEventHandlers } from './kafka-queue'
 
 export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<PluginServerService> => {
     /*
@@ -44,12 +28,12 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
         kafka,
         postgres,
         teamManager,
-        organizationManager,
         actionMatcher,
         actionManager,
         rustyHook,
         appMetrics,
         groupTypeManager,
+        groupRepository,
     } = hub
 
     const consumer = kafka.consumer({
@@ -61,14 +45,7 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
     })
     setupEventHandlers(consumer)
 
-    const hookCannon = new HookCommander(
-        postgres,
-        teamManager,
-        organizationManager,
-        rustyHook,
-        appMetrics,
-        hub.EXTERNAL_REQUEST_TIMEOUT_MS
-    )
+    const hookCannon = new HookCommander(postgres, teamManager, rustyHook, appMetrics, hub.EXTERNAL_REQUEST_TIMEOUT_MS)
     const concurrency = hub.TASKS_PER_WORKER || 20
 
     await actionManager.start()
@@ -81,8 +58,8 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
                 hookCannon,
                 concurrency,
                 groupTypeManager,
-                organizationManager,
-                postgres
+                teamManager,
+                groupRepository
             ),
     })
 
@@ -107,16 +84,7 @@ export const startAsyncWebhooksHandlerConsumer = async (hub: Hub): Promise<Plugi
     }
 }
 
-export const buildOnEventIngestionConsumer = ({ hub }: { hub: Hub }) => {
-    return new KafkaJSIngestionConsumer(
-        hub,
-        KAFKA_EVENTS_JSON,
-        `${KAFKA_PREFIX}clickhouse-plugin-server-async-onevent`,
-        eachBatchAppsOnEventHandlers
-    )
-}
-
-export function makeHealthCheck(consumer: Consumer, sessionTimeout: number) {
+export function makeHealthCheck(consumer: Consumer, sessionTimeout: number): () => Promise<HealthCheckResult> {
     const { HEARTBEAT } = consumer.events
     let lastHeartbeat: number = Date.now()
     consumer.on(HEARTBEAT, ({ timestamp }) => (lastHeartbeat = timestamp))
@@ -126,7 +94,7 @@ export function makeHealthCheck(consumer: Consumer, sessionTimeout: number) {
         const milliSecondsToLastHeartbeat = Date.now() - lastHeartbeat
         if (milliSecondsToLastHeartbeat < sessionTimeout) {
             logger.info('👍', 'Consumer heartbeat is healthy', { milliSecondsToLastHeartbeat, sessionTimeout })
-            return true
+            return new HealthCheckResultOk()
         }
 
         // Consumer has not heartbeat, but maybe it's because the group is
@@ -136,10 +104,14 @@ export function makeHealthCheck(consumer: Consumer, sessionTimeout: number) {
 
             logger.info('ℹ️', 'Consumer group state', { state })
 
-            return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
+            if (['CompletingRebalance', 'PreparingRebalance'].includes(state)) {
+                return new HealthCheckResultDegraded('Consumer group is rebalancing', { state })
+            }
+
+            return new HealthCheckResultOk()
         } catch (error) {
             logger.error('🚨', 'Error checking consumer group state', { error })
-            return false
+            return new HealthCheckResultError('Error checking consumer group state', { error })
         }
     }
     return isHealthy

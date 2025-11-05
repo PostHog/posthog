@@ -3,48 +3,49 @@
     gap: 0.125rem;
     align-items: center;
     padding: 0.125rem 0.25rem;
-    font-size: 0.75rem;
+    font-size: 0.6875rem;
     font-weight: var(--font-medium);
     line-height: 1rem;
     color: var(--text-3000);
     white-space: nowrap;
-    background: var(--border-primary);
-    border-radius: var(--radius-sm);
+    border-width: 1px;
+    border-radius: var(--radius);
+
+    &.LemonTag--size-small {
+        padding: 0 0.1875rem;
+        font-size: 0.625rem;
+        line-height: 0.875rem;
+    }
 
     &.LemonTag--normal {
         font-weight: normal;
     }
 
-    &:not(.LemonTag--breakdown) {
-        padding: 0.075rem 0.25rem;
-        font-size: 0.6875rem;
-        background: none;
-        border-style: solid;
-        border-width: 1px;
-        border-radius: var(--radius-sm);
-    }
-
     &.LemonTag--primary {
-        color: var(--accent);
+        color: var(--color-accent);
         background: none;
-        border-color: var(--accent);
+        border-color: var(--color-accent);
     }
 
     &.LemonTag--option {
-        color: var(--accent);
-        background-color: var(--bg-surface-primary);
+        color: var(--color-accent);
+        background-color: var(--color-bg-surface-primary);
     }
 
     &.LemonTag--highlight {
-        color: var(--accent);
+        color: var(--color-accent);
         background: none;
-        border-color: var(--accent);
+        border-color: var(--color-accent);
     }
 
     &.LemonTag--warning {
         color: var(--warning);
         background-color: none;
         border-color: var(--warning);
+
+        [theme='dark'] & {
+            background-color: var(--color-bg-surface-primary);
+        }
     }
 
     &.LemonTag--danger {
@@ -72,40 +73,80 @@
     }
 
     &.LemonTag--muted {
-        color: var(--text-secondary);
-        background-color: var(--bg-surface-primary);
+        color: var(--color-text-secondary);
+        background-color: var(--color-bg-surface-primary);
     }
 
     &.LemonTag--none {
         background: none;
     }
 
-    &.LemonTag--breakdown {
-        padding: 8px 12px;
-        font-size: 14px;
-        font-weight: 400;
-        line-height: 16px;
-        color: var(--primary-alt);
-        vertical-align: bottom;
-        background-color: var(--accent-highlight-secondary);
-        border-radius: 40px;
-    }
-
-    &.LemonTag--size-small {
-        padding: 0 0.1875rem;
-        font-size: 0.625rem;
-        line-height: 0.875rem;
-    }
-
     .LemonTag__icon {
         display: flex;
         margin-right: 0.125rem;
-        font-size: 0.875rem;
+        font-size: 0.8125rem;
+        opacity: 0.8;
     }
 
     .LemonTag__right-button {
         min-height: 1.5rem !important;
         padding: 0.125rem !important;
         margin-left: 0.25rem;
+    }
+
+    &.LemonTag--size-small .LemonTag__right-button {
+        min-height: 0.875rem !important;
+        padding: 0.0625rem !important;
+        margin-left: 0.1875rem;
+    }
+
+    // Close on click behavior
+    &.LemonTag--close-on-click {
+        .LemonTag__icon-container {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            width: 0.8125rem; // Fixed width to prevent layout shift
+            height: 0.8125rem; // Fixed height to match icon size
+            margin-right: 0.125rem;
+
+            .LemonTag__icon--default,
+            .LemonTag__icon--hover {
+                position: absolute;
+                top: 0;
+                left: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 100%;
+                height: 100%;
+            }
+
+            .LemonTag__icon--hover {
+                opacity: 0;
+            }
+
+            .LemonTag__icon-close {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 100%;
+                height: 100%;
+                pointer-events: none; // Disable click on the icon since the whole tag is clickable
+                cursor: pointer;
+            }
+        }
+
+        &:hover {
+            .LemonTag__icon-container {
+                .LemonTag__icon--default {
+                    opacity: 0;
+                }
+
+                .LemonTag__icon--hover {
+                    opacity: 1;
+                }
+            }
+        }
     }
 }

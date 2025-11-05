@@ -1,33 +1,37 @@
 import './Billing.scss'
 
-import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { JudgeHog } from 'lib/components/hedgehogs'
+import { useEffect } from 'react'
+
+import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
+
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { JudgeHog } from 'lib/components/hedgehogs'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
-import { useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { BillingPlanType, BillingProductV2Type, ProductKey } from '~/types'
+import { BillingProductV2Type, ProductKey } from '~/types'
 
 import { BillingHero } from './BillingHero'
-import { billingLogic } from './billingLogic'
+import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
 import { BillingSummary } from './BillingSummary'
 import { CreditCTAHero } from './CreditCTAHero'
 import { StripePortalButton } from './StripePortalButton'
 import { UnsubscribeCard } from './UnsubscribeCard'
+import { billingLogic } from './billingLogic'
 
 export const scene: SceneExport = {
     component: Billing,
@@ -48,26 +52,30 @@ export function Billing(): JSX.Element {
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { location, searchParams } = useValues(router)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
 
-    if (preflight && !isCloudOrDev) {
-        router.actions.push(urls.default())
-    }
+    useEffect(() => {
+        if (location.pathname === urls.organizationBilling() && featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]) {
+            router.actions.replace(urls.organizationBillingSection('overview'), searchParams)
+            return
+        }
+    }, [featureFlags, location.pathname, searchParams])
 
     useEffect(() => {
         if (billing) {
             reportBillingShown()
         }
-    }, [!!billing])
+    }, [!!billing]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const { ref, size } = useResizeBreakpoints({
-        0: 'small',
-        768: 'medium',
-    })
+    if (preflight && !isCloudOrDev) {
+        router.actions.push(urls.default())
+    }
 
     if (!billing && billingLoading) {
         return (
@@ -78,17 +86,7 @@ export function Billing(): JSX.Element {
     }
 
     if (restrictionReason) {
-        return (
-            <div className="deprecated-space-y-4">
-                <h1>Billing</h1>
-                <LemonBanner type="warning">{restrictionReason}</LemonBanner>
-                <div className="flex">
-                    <LemonButton type="primary" to={urls.default()}>
-                        Go back home
-                    </LemonButton>
-                </div>
-            </div>
-        )
+        return <BillingNoAccess reason={restrictionReason} />
     }
 
     if (!billing && !billingLoading) {
@@ -113,8 +111,9 @@ export function Billing(): JSX.Element {
 
     const products = billing?.products
     const platformAndSupportProduct = products?.find((product) => product.type === ProductKey.PLATFORM_AND_SUPPORT)
+
     return (
-        <div ref={ref}>
+        <div className="@container">
             {showLicenseDirectInput && (
                 <>
                     <Form
@@ -147,7 +146,7 @@ export function Billing(): JSX.Element {
             )}
 
             {billing?.trial ? (
-                <LemonBanner type="info" hideIcon className="mb-2">
+                <LemonBanner type="info" hideIcon className="max-w-300 mb-2">
                     <div className="flex items-center gap-4">
                         <JudgeHog className="w-20 h-20 flex-shrink-0" />
                         <div>
@@ -168,12 +167,7 @@ export function Billing(): JSX.Element {
                     className={clsx(
                         'flex gap-6 max-w-300',
                         // If there's no active subscription, BillingSummary is small so we stack it and invert order with CreditCTAHero or BillingHero
-                        billing?.has_active_subscription
-                            ? {
-                                  'flex-col': size === 'small',
-                                  'flex-row': size !== 'small',
-                              }
-                            : 'flex-col-reverse'
+                        billing?.has_active_subscription ? 'flex-col @3xl:flex-row' : 'flex-col-reverse'
                     )}
                 >
                     {showBillingSummary && (
@@ -196,6 +190,15 @@ export function Billing(): JSX.Element {
 
             <LemonDivider className="mt-6 mb-8" />
 
+            {featureFlags[FEATURE_FLAGS.BILLING_FORECASTING_ISSUES] && (
+                <div className="flex mt-6 gap-6 max-w-300 flex-col-reverse">
+                    <LemonBanner type="warning">
+                        <strong>Note:</strong> Our forecasting engine is experiencing an issue. The projected amounts
+                        may appear incorrect. We're working on a fix and it should be resolved soon.
+                    </LemonBanner>
+                </div>
+            )}
+
             <div className="flex justify-between mt-4">
                 <h2>Products</h2>
             </div>
@@ -203,7 +206,7 @@ export function Billing(): JSX.Element {
             {products
                 ?.filter(
                     (product: BillingProductV2Type) =>
-                        !product.inclusion_only || product.plans.some((plan: BillingPlanType) => !plan.included_if)
+                        !product.inclusion_only || product.addons.find((a) => !a.inclusion_only)
                 )
                 ?.map((x: BillingProductV2Type) => (
                     <div key={x.type}>

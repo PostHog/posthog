@@ -1,0 +1,22 @@
+# serializer version: 1
+# name: TestUpgradeQueriesWorkflow.test_get_insights_to_migrate_activity
+  '''
+  
+  SELECT DISTINCT id
+  FROM posthog_dashboarditem
+  WHERE (query @? '$.** ? (
+      @.kind == "EventsNode" &&
+      (!exists(@.version) || @.version == null || @.version < 8)
+  )'
+         OR query @? '$.** ? (
+      @.kind == "InsightVizNode" &&
+      (!exists(@.version) || @.version == null || @.version < 4)
+  )'
+         OR query @? '$.** ? (
+      @.kind == "TrendsQuery" &&
+      (!exists(@.version) || @.version == null || @.version < 6)
+  )')
+  ORDER BY id
+  LIMIT 100;
+  '''
+# ---

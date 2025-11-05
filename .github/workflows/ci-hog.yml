@@ -3,7 +3,6 @@
 # If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
 # .github/workflows/ci-backend-update-test-timing.yml action
 name: Hog CI
-
 on:
     push:
         branches:
@@ -29,7 +28,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
@@ -41,6 +40,7 @@ jobs:
                         - 'posthog/hogql/**/*'
                         - 'bin/hog'
                         - 'bin/hoge'
+                        - 'package.json'
                         - requirements.txt
                         - requirements-dev.txt
                         - .github/workflows/ci-hog.yml
@@ -60,23 +60,24 @@ jobs:
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               with:
                   fetch-depth: 1
 
             - name: Set up Python
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              id: setup-uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.8.19
 
             - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
@@ -89,7 +90,7 @@ jobs:
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              uses: actions/setup-node@v4
               with:
                   node-version: 18
                   cache: 'pnpm'
@@ -149,7 +150,7 @@ jobs:
             is-new-version: ${{ steps.check-package-version.outputs.is-new-version }}
         steps:
             - name: Checkout the repository
-              uses: actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de1c5 # v2
+              uses: actions/checkout@v4
             - name: Check package version and detect an update
               id: check-package-version
               uses: PostHog/check-package-version@v2
@@ -166,21 +167,21 @@ jobs:
             PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
         steps:
             - name: Checkout the repository
-              uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+              uses: actions/checkout@v4
               with:
                   fetch-depth: 1
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
             - name: Set up Python
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
             - name: Install uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              id: setup-uv-hogql-python
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.8.19
             - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv-hogql-python.outputs.cache-hit != 'true'
               run: |
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
@@ -190,7 +191,7 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
             - name: Set up Node 18
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              uses: actions/setup-node@v4
               with:
                   node-version: 18
                   cache: 'pnpm'

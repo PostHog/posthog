@@ -13,6 +13,7 @@ import { pubsubPlugin } from './_destinations/pubsub/template'
 import { rudderstackPlugin } from './_destinations/rudderstack-posthog/template'
 import { salesforcePlugin } from './_destinations/salesforce/template'
 import { sendgridPlugin } from './_destinations/sendgrid/template'
+import { pluginStonlyCleanCampaignName } from './_transformations/Plugin-Stonly-Clean-Campaign-Name/template'
 import { currencyNormalizationPlugin } from './_transformations/currency-normalization-plugin/template'
 import { downsamplingPlugin } from './_transformations/downsampling-plugin/template'
 import { dropEventsOnPropertyPlugin } from './_transformations/drop-events-on-property-plugin/template'
@@ -22,7 +23,6 @@ import { languageUrlSplitterApp } from './_transformations/language-url-splitter
 import { phShotgunProcessEventApp } from './_transformations/ph-shotgun-processevent-app/template'
 import { pluginAdvancedGeoip } from './_transformations/plugin-advanced-geoip/template'
 import { pluginNetdataEventProcessing } from './_transformations/plugin-netdata-event-processing/template'
-import { pluginStonlyCleanCampaignName } from './_transformations/Plugin-Stonly-Clean-Campaign-Name/template'
 import { pluginStonlyUtmExtractor } from './_transformations/plugin-stonly-UTM-Extractor/template'
 import { posthogAnonymization } from './_transformations/posthog-anonymization/template'
 import { posthogAppUnduplicator } from './_transformations/posthog-app-unduplicator/template'
@@ -57,6 +57,7 @@ export const DESTINATION_PLUGINS: LegacyDestinationPlugin[] = [
     salesforcePlugin,
     sendgridPlugin,
 ]
+
 export const TRANSFORMATION_PLUGINS: LegacyTransformationPlugin[] = [
     currencyNormalizationPlugin,
     downsamplingPlugin,
@@ -85,12 +86,18 @@ export const TRANSFORMATION_PLUGINS: LegacyTransformationPlugin[] = [
     userAgentPlugin,
 ]
 
-export const DESTINATION_PLUGINS_BY_ID = DESTINATION_PLUGINS.reduce((acc, plugin) => {
-    acc[plugin.template.id] = plugin
-    return acc
-}, {} as Record<string, LegacyDestinationPlugin>)
+export const DESTINATION_PLUGINS_BY_ID = DESTINATION_PLUGINS.reduce(
+    (acc, plugin) => {
+        acc[plugin.template.id] = plugin
+        return acc
+    },
+    {} as Record<string, LegacyDestinationPlugin>
+)
 
-export const TRANSFORMATION_PLUGINS_BY_ID = TRANSFORMATION_PLUGINS.reduce((acc, plugin) => {
-    acc[plugin.template.id] = plugin
-    return acc
-}, {} as Record<string, LegacyTransformationPlugin>)
+export const TRANSFORMATION_PLUGINS_BY_ID = TRANSFORMATION_PLUGINS.reduce(
+    (acc, plugin) => {
+        acc[plugin.template.id] = plugin
+        return acc
+    },
+    {} as Record<string, LegacyTransformationPlugin>
+)

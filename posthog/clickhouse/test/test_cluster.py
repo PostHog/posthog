@@ -1,11 +1,13 @@
-import json
 import re
+import json
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
-from unittest.mock import Mock, patch, sentinel
 
 import pytest
+from posthog.test.base import materialized
+from unittest.mock import Mock, patch, sentinel
+
 from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
@@ -22,7 +24,6 @@ from posthog.clickhouse.cluster import (
     get_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.test.base import materialized
 
 
 @pytest.fixture
@@ -32,7 +33,7 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
 
 def test_mutation_runner_rejects_invalid_parameters() -> None:
     with pytest.raises(ValueError):
-        AlterTableMutationRunner("table", {"command"}, parameters={"__invalid_key": True})
+        AlterTableMutationRunner(table="table", commands={"command"}, parameters={"__invalid_key": True})
 
 
 def test_exception_summary(snapshot, cluster: ClickhouseCluster) -> None:
@@ -141,8 +142,8 @@ def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
     # construct the runner
     sentinel_uuid = uuid.uuid1()  # unique to this test run to ensure we have a clean slate
     runner = AlterTableMutationRunner(
-        table,
-        {
+        table=table,
+        commands={
             """
             UPDATE person_id = %(uuid)s, properties = %(properties)s
             -- this is a comment that will not appear in system.mutations
@@ -196,8 +197,8 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
         materialized("events", f"{sentinel_uuid}_c") as column_c,
     ):
         runner = AlterTableMutationRunner(
-            table,
-            {f"MATERIALIZE COLUMN {column_a.name}", f"MATERIALIZE COLUMN {column_b.name}"},
+            table=table,
+            commands={f"MATERIALIZE COLUMN {column_a.name}", f"MATERIALIZE COLUMN {column_b.name}"},
         )
 
         # nothing should be running yet
@@ -215,8 +216,8 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
         # if we run the same mutation with a subset of commands, nothing new should be scheduled (this ensures after a
         # code change that removes a command from the mutation, we won't error when we mutations from previous versions)
         runner_with_single_command = AlterTableMutationRunner(
-            table,
-            {f"MATERIALIZE COLUMN {column_a.name}"},
+            table=table,
+            commands={f"MATERIALIZE COLUMN {column_a.name}"},
         )
 
         # "start" all mutations (in actuality, this is a noop)
@@ -234,8 +235,8 @@ def test_alter_mutation_multiple_commands(cluster: ClickhouseCluster) -> None:
         # if we run the same mutation with additional commands, only the new command should be executed
         new_command = f"MATERIALIZE COLUMN {column_c.name}"
         runner_with_extra_command = AlterTableMutationRunner(
-            table,
-            {*runner.commands, new_command},
+            table=table,
+            commands={*runner.commands, new_command},
         )
 
         # the new command should not yet be findable
@@ -315,8 +316,8 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
 
     # construct the runner with a DELETE command
     runner = LightweightDeleteMutationRunner(
-        table,
-        f"uuid = %(uuid)s",
+        table=table,
+        predicate=f"uuid = %(uuid)s",
         parameters={"uuid": eid},
     )
 
@@ -331,3 +332,50 @@ def test_lightweight_delete(cluster: ClickhouseCluster) -> None:
             host_info.shard_num, Query(f"SELECT count(1) FROM {table}")
         ).result()
         assert all(result[0][0] < count for result in query_results.values())
+
+
+def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
+    """Test that force=True skips checking for existing mutations"""
+    table = EVENTS_DATA_TABLE()
+    count = 100
+
+    # Insert test data
+    cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
+
+    sentinel_uuid = uuid.uuid1()
+
+    # First run a mutation normally
+    runner = AlterTableMutationRunner(
+        table=table,
+        commands={"UPDATE person_id = %(uuid)s WHERE 1 = 1"},
+        parameters={"uuid": sentinel_uuid},
+    )
+
+    # Run the mutation and wait for completion
+    shard_mutations = cluster.map_one_host_per_shard(runner).result()
+    wait_and_check_mutations_on_shards(cluster, shard_mutations)
+
+    # Count mutations before force
+    get_mutations_count = Query(
+        "SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = %(table)s",
+        {"table": table},
+    )
+    mutations_count_before = cluster.map_all_hosts(get_mutations_count).result()
+
+    # Now run the same mutation with force=True
+    runner_force = AlterTableMutationRunner(
+        table=table,
+        commands={"UPDATE person_id = %(uuid)s WHERE 1 = 1"},
+        parameters={"uuid": sentinel_uuid},
+        force=True,
+    )
+
+    # This should create a new mutation even though one already exists
+    cluster.map_one_host_per_shard(runner_force).result()
+
+    # Count mutations after force
+    mutations_count_after = cluster.map_all_hosts(get_mutations_count).result()
+
+    # Should have more mutations after using force=True
+    for host in mutations_count_before:
+        assert mutations_count_after[host][0][0] > mutations_count_before[host][0][0]

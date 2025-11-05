@@ -1,17 +1,18 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Duration, Utc};
-use common_types::{CapturedEvent, ClickHouseEvent, PersonMode, RawEvent, Team};
+use common_types::{
+    format::{format_ch_datetime, parse_datetime_assuming_utc},
+    CapturedEvent, ClickHouseEvent, PersonMode, RawEvent, Team,
+};
 use serde_json::Value;
 
 use crate::{
     error::{EventError, PipelineFailure, PipelineResult},
-    recursively_sanitize_properties,
+    recursively_sanitize_properties, sanitize_string,
 };
 
-use super::{
-    exception::add_error_to_event, format_ch_timestamp, parse_ts_assuming_utc, IncomingEvent,
-};
+use super::{exception::add_error_to_event, IncomingEvent};
 
 // Adds team info, and folds set, set_once and ip address data into the event properties
 pub fn prepare_events(
@@ -27,7 +28,7 @@ pub fn prepare_events(
             }
             IncomingEvent::Captured(outer) => {
                 let maybe_team = teams_lut
-                    .get(&outer.token)
+                    .get(&sanitize_string(outer.token.to_string()))
                     .expect("Team lookup table is fully populated");
 
                 let Some(team) = maybe_team else {
@@ -43,17 +44,21 @@ pub fn prepare_events(
                     Err(e) => {
                         buffer.push(Err(EventError::FailedToDeserialize(
                             Box::new(outer.clone()),
-                            format!("{:?}", e),
+                            format!("{e:?}"),
                         )));
                         continue;
                     }
                 };
 
                 // If we fail to sanitize the event, we should discard it as unprocessable
-                if let Err(e) = recursively_sanitize_properties(outer.uuid, &mut raw_event, 30) {
+                if let Err(e) = recursively_sanitize_properties(outer.uuid, &mut raw_event, 0) {
                     buffer.push(Err(e));
                     continue;
                 }
+
+                // We've seen invalid (string) offsets come in, I /think/ from django capture. Rather than dropping the whole
+                // event, we just check prior to deserialization that the offset is a number, and if not, we discard it.
+                let raw_event = sanitize_offset(raw_event);
 
                 // Now parse it out into the relevant structure. At this point, failure to convert from
                 // the raw json object to a RawEvent indicates some pipeline error, and we should fail and
@@ -65,8 +70,8 @@ pub fn prepare_events(
                 // and store an event error if we can't. If the event has no timestamp, use the instant
                 // the event was captured.
                 let timestamp = match &raw_event.timestamp {
-                    Some(ts) => parse_ts_assuming_utc(ts),
-                    None => Ok(parse_ts_assuming_utc(&outer.now)
+                    Some(ts) => parse_datetime_assuming_utc(ts),
+                    None => Ok(parse_datetime_assuming_utc(&outer.now)
                         .expect("CapturedEvent::now is always valid")), // Set by capture, should always be valid
                 };
 
@@ -94,16 +99,20 @@ pub fn prepare_events(
 }
 
 fn transform_event(
-    outer: &CapturedEvent,
-    mut raw_event: RawEvent,
+    outer: &CapturedEvent,   // Has NOT been sanitized at this point
+    mut raw_event: RawEvent, // Has been sanitized at this point
     timestamp: DateTime<Utc>,
     person_mode: PersonMode,
     team: &Team,
 ) -> ClickHouseEvent {
-    // Fold the ip the event was sent from into the event properties
-    raw_event
-        .properties
-        .insert("$ip".to_string(), Value::String(outer.ip.clone()));
+    if team.anonymize_ips {
+        raw_event.properties.remove("$ip");
+    } else {
+        // Fold the ip the event was sent from into the event properties
+        raw_event
+            .properties
+            .insert("$ip".to_string(), Value::String(outer.ip.clone()));
+    }
 
     // Fold in $set and $set_once properties
     let set = raw_event.set;
@@ -124,7 +133,7 @@ fn transform_event(
 
     let mut sent_at = outer
         .get_sent_at_as_rfc3339()
-        .map(|sa| parse_ts_assuming_utc(&sa).expect("sent_at is a valid datetime"));
+        .map(|sa| parse_datetime_assuming_utc(&sa).expect("sent_at is a valid datetime"));
 
     if raw_event
         .properties
@@ -135,7 +144,7 @@ fn transform_event(
         sent_at = None;
     }
 
-    let now = parse_ts_assuming_utc(&outer.now).expect("CapturedEvent::now is always valid");
+    let now = parse_datetime_assuming_utc(&outer.now).expect("CapturedEvent::now is always valid");
 
     let timestamp = resolve_timestamp(timestamp, sent_at, now, raw_event.offset);
 
@@ -148,14 +157,14 @@ fn transform_event(
         team_id: team.id,
         project_id: team.project_id,
         event: raw_event.event,
-        distinct_id: outer.distinct_id.clone(),
+        distinct_id: sanitize_string(outer.distinct_id.to_string()),
         properties: Some(
             serde_json::to_string(&raw_event.properties)
                 .expect("Json data just deserialized can be serialized"),
         ),
         person_id: None,
-        timestamp: format_ch_timestamp(timestamp),
-        created_at: format_ch_timestamp(Utc::now()),
+        timestamp: format_ch_datetime(timestamp),
+        created_at: format_ch_datetime(Utc::now()),
         elements_chain: None, // TODO - we skip elements chain extraction for now, but should implement it eventually
         person_created_at: None,
         person_properties: None,
@@ -177,6 +186,7 @@ fn transform_event(
             .expect("We can parse the raw event we just serialised")
     }
 
+    // At this point, all event contents have been sanitized
     event
 }
 
@@ -186,7 +196,7 @@ fn get_person_mode(raw_event: &RawEvent, team: &Team) -> PersonMode {
     let event_disables = raw_event
         .properties
         .get("disable_person_processing")
-        .map_or(false, |v| v.as_bool().unwrap_or(false));
+        .is_some_and(|v| v.as_bool().unwrap_or(false));
 
     if team.person_processing_opt_out.unwrap_or(false) || event_disables {
         PersonMode::Propertyless
@@ -213,4 +223,25 @@ pub fn resolve_timestamp(
     } else {
         None
     }
+}
+
+fn sanitize_offset(raw_event: Value) -> Value {
+    let Value::Object(raw_event) = raw_event else {
+        return raw_event; // The rest of the pipeline will handle this case
+    };
+
+    let Some(offset) = raw_event.get("offset") else {
+        return Value::Object(raw_event);
+    };
+
+    let raw_event = match offset {
+        Value::Number(_) => raw_event,
+        _ => {
+            let mut raw_event = raw_event;
+            raw_event.remove("offset");
+            raw_event
+        }
+    };
+
+    Value::Object(raw_event)
 }

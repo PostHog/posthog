@@ -1,11 +1,13 @@
-import * as Icons from '@posthog/icons'
-import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import * as Icons from '@posthog/icons'
+import { IconArrowRight, IconCheckCircle } from '@posthog/icons'
+import { LemonButton, LemonLabel, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { LemonCard } from 'lib/lemon-ui/LemonCard/LemonCard'
-import { getProductUri } from 'scenes/onboarding/onboardingLogic'
+import { getProductUri, onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -81,9 +83,11 @@ export function Products(): JSX.Element {
 
     const { toggleSelectedProduct, setFirstProductOnboarding, handleStartOnboarding } = useActions(productsLogic)
     const { selectedProducts, firstProductOnboarding } = useValues(productsLogic)
+    const { skipOnboarding } = useActions(onboardingLogic)
+    const { hasIngestedEvent } = useValues(teamLogic)
 
     return (
-        <div className="flex flex-col flex-1 w-full p-4 items-center justify-center bg-primary">
+        <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
             <>
                 <div className="flex flex-col justify-center flex-grow items-center">
                     <div className="mb-2">
@@ -92,8 +96,8 @@ export function Products(): JSX.Element {
                             Don't worry &ndash; you can pick more than one! Please select all that apply.
                         </p>
                     </div>
-                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full max-w-[720px]">
-                        <div className="flex flex-wrap gap-4 items-center justify-center">
+                    <div className="flex flex-col-reverse sm:flex-col gap-6 md:gap-12 justify-center items-center w-full">
+                        <div className="flex flex-row flex-wrap gap-4 justify-center max-w-[680px]">
                             {Object.keys(availableOnboardingProducts).map((productKey) => (
                                 <SelectableProductCard
                                     product={
@@ -112,14 +116,32 @@ export function Products(): JSX.Element {
                             ))}
                         </div>
 
-                        <div className="flex gap-2 justify-center items-center">
+                        <div
+                            className={clsx(
+                                'flex flex-col-reverse sm:flex-row gap-4 items-center justify-center w-full',
+                                hasIngestedEvent && 'sm:justify-between sm:px-4'
+                            )}
+                        >
+                            {hasIngestedEvent && (
+                                <LemonButton
+                                    status="alt"
+                                    onClick={() => {
+                                        skipOnboarding()
+                                    }}
+                                >
+                                    Skip onboarding
+                                </LemonButton>
+                            )}
                             {selectedProducts.length > 1 ? (
-                                <>
+                                <div className="flex gap-2 items-center justify-center">
                                     <LemonLabel>Start first with</LemonLabel>
                                     <LemonSelect
                                         value={firstProductOnboarding}
                                         options={selectedProducts.map((productKey) => ({
-                                            label: availableOnboardingProducts[productKey].name,
+                                            label:
+                                                availableOnboardingProducts[
+                                                    productKey as keyof typeof availableOnboardingProducts
+                                                ]?.name ?? '',
                                             value: productKey,
                                         }))}
                                         onChange={(value) => value && setFirstProductOnboarding(value)}
@@ -135,7 +157,7 @@ export function Products(): JSX.Element {
                                     >
                                         Go
                                     </LemonButton>
-                                </>
+                                </div>
                             ) : (
                                 <LemonButton
                                     type="primary"

@@ -1,11 +1,12 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,7 +14,7 @@ import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import type { QueryBasedInsightModel } from '~/types'
 
 import type { addSavedInsightsModalLogicType } from './addSavedInsightsModalLogicType'
-import { cleanFilters, SavedInsightFilters } from './savedInsightsLogic'
+import { SavedInsightFilters, cleanFilters } from './savedInsightsLogic'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -156,12 +157,12 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     actions.updateInsight(response)
                     const logic = dashboardLogic({ id: dashboardId })
                     logic.mount()
-                    logic.actions.loadDashboard({ action: 'update' })
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
                     logic.unmount()
                     lemonToast.success('Insight added to dashboard')
                 }
             } finally {
-                eventUsageLogic.actions.reportSavedInsightToDashboard()
+                eventUsageLogic.actions.reportSavedInsightToDashboard(insight, dashboardId)
                 actions.setDashboardUpdateLoading(insight.id, false)
             }
         },
@@ -176,12 +177,12 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     actions.updateInsight(response)
                     const logic = dashboardLogic({ id: dashboardId })
                     logic.mount()
-                    logic.actions.loadDashboard({ action: 'update' })
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
                     logic.unmount()
                     lemonToast.success('Insight removed from dashboard')
                 }
             } finally {
-                eventUsageLogic.actions.reportRemovedInsightFromDashboard()
+                eventUsageLogic.actions.reportRemovedInsightFromDashboard(insight, dashboardId)
                 actions.setDashboardUpdateLoading(insight.id, false)
             }
         },

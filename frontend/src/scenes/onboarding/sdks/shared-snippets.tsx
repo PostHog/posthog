@@ -1,5 +1,7 @@
-import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -31,7 +33,7 @@ export function PersonModeEventPropertyInstructions(): JSX.Element {
                 If you want to disable person profile processing for certain events, send the event with the following
                 property:
             </p>
-            <CodeSnippet>"$process_person_profile": false</CodeSnippet>.
+            <CodeSnippet>"$process_person_profile": false</CodeSnippet>
         </>
     ) : (
         <></>

@@ -1,7 +1,18 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ExceptionAutocaptureSettings'
+import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
+import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
+import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
+import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
+import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
+import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
+import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
+import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { ErrorTrackingAlerting } from 'scenes/error-tracking/configuration/alerting/ErrorTrackingAlerting'
-import { ErrorTrackingSymbolSets } from 'scenes/error-tracking/configuration/symbol-sets/ErrorTrackingSymbolSets'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
@@ -11,36 +22,45 @@ import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadC
 import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
 import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
 import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
+import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import { urls } from 'scenes/urls'
 
-import { Realm } from '~/types'
+import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
+import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
+import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
-    AutocaptureSettings,
-    ExceptionAutocaptureSettings,
-    WebVitalsAutocaptureSettings,
-} from './environment/AutocaptureSettings'
+    ActivityLogNotifications,
+    ActivityLogOrgLevelSettings,
+    ActivityLogSettings,
+} from './environment/ActivityLogSettings'
+import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
+import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { CorrelationConfig } from './environment/CorrelationConfig'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
+import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
+import { GithubIntegration } from './environment/Integrations'
+import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
-import { OtherIntegrations } from './environment/OtherIntegrations'
+import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
-import { RevenueBaseCurrencySettings } from './environment/RevenueBaseCurrencySettings'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
+    ReplayDataRetentionSettings,
     ReplayGeneral,
     ReplayMaskingSettings,
 } from './environment/SessionRecordingSettings'
@@ -57,16 +77,18 @@ import {
     WebSnippet,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
-import { UserGroups } from './environment/UserGroups'
+import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
+import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { OrganizationAI } from './organization/OrgAI'
-import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
+import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
 import { OrganizationLogo } from './organization/OrgLogo'
-import { RoleBasedAccess } from './organization/Permissions/RoleBasedAccess'
+import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
+import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
 import { ProjectMove } from './project/ProjectMove'
@@ -79,6 +101,7 @@ import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
+import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
 
 export const SETTINGS_MAP: SettingSection[] = [
@@ -150,6 +173,25 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-customer-analytics',
+        title: 'Customer analytics',
+        flag: 'CUSTOMER_ANALYTICS',
+        settings: [
+            {
+                id: 'group-analytics',
+                title: 'Group analytics',
+                component: <GroupAnalyticsConfig />,
+            },
+            {
+                id: 'crm-usage-metrics',
+                title: 'Usage metrics',
+                component: <UsageMetricsConfig />,
+                flag: 'CRM_USAGE_METRICS',
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-product-analytics',
         title: 'Product analytics',
         settings: [
@@ -157,6 +199,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'date-and-time',
                 title: 'Date & time',
                 component: <TeamTimezone />,
+            },
+            {
+                id: 'base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
             },
             {
                 id: 'internal-user-filtering',
@@ -174,7 +221,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <DataColorThemes />,
-                flag: 'INSIGHT_COLORS',
             },
             {
                 id: 'persons-on-events',
@@ -211,6 +257,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
+                flag: '!CUSTOMER_ANALYTICS',
             },
             {
                 id: 'persons-join-mode',
@@ -223,6 +270,63 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Sessions Table Version',
                 component: <SessionsTableVersion />,
                 flag: 'SETTINGS_SESSION_TABLE_VERSION',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-revenue-analytics',
+        title: 'Revenue analytics',
+        accessControl: {
+            resourceType: AccessControlResourceType.RevenueAnalytics,
+            minimumAccessLevel: AccessControlLevel.Editor,
+        },
+        settings: [
+            {
+                id: 'revenue-base-currency',
+                title: 'Base currency',
+                component: (
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.RevenueAnalytics}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <BaseCurrency hideTitle />
+                    </AccessControlAction>
+                ),
+                hideWhenNoSection: true,
+            },
+            {
+                id: 'revenue-analytics-filter-test-accounts',
+                title: 'Filter test accounts out of revenue analytics',
+                component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-goals',
+                title: 'Revenue goals',
+                component: <GoalsConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-events',
+                title: 'Revenue events',
+                component: <EventConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-external-data-sources',
+                title: 'External data sources',
+                component: <ExternalDataSourceConfiguration />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-marketing-analytics',
+        title: 'Marketing analytics',
+        flag: 'WEB_ANALYTICS_MARKETING',
+        settings: [
+            {
+                id: 'marketing-settings',
+                title: 'Marketing settings',
+                component: <MarketingAnalyticsSettingsWrapper />,
             },
         ],
     },
@@ -242,16 +346,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <CustomChannelTypes />,
             },
             {
-                id: 'revenue-base-currency',
-                title: 'Revenue base currency',
-                component: <RevenueBaseCurrencySettings />,
-                flag: 'WEB_REVENUE_TRACKING',
-            },
-            {
                 id: 'cookieless-server-hash-mode',
                 title: 'Cookieless server hash mode',
                 component: <CookielessServerHashModeSetting />,
-                flag: 'COOKIELESS_SERVER_HASH_MODE_SETTING',
             },
             {
                 id: 'bounce-rate-duration',
@@ -270,6 +367,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <SessionsV2JoinModeSettings />,
                 flag: 'SETTINGS_SESSIONS_V2_JOIN',
             },
+            {
+                id: 'web-analytics-pre-aggregated-tables',
+                title: 'Pre-aggregated tables',
+                component: <PreAggregatedTablesSetting />,
+                flag: 'SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES',
+            },
+            {
+                id: 'web-analytics-opt-in-pre-aggregated-tables-and-api',
+                title: 'New query engine',
+                component: <WebAnalyticsEnablePreAggregatedTables />,
+                flag: 'WEB_ANALYTICS_API',
+            },
         ],
     },
     {
@@ -283,14 +392,19 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ReplayGeneral />,
             },
             {
-                id: 'replay-network',
-                title: 'Network capture',
-                component: <NetworkCaptureSettings />,
+                id: 'replay-triggers',
+                title: 'Recording conditions',
+                component: <ReplayTriggers />,
             },
             {
                 id: 'replay-masking',
-                title: 'Masking',
+                title: 'Privacy and masking',
                 component: <ReplayMaskingSettings />,
+            },
+            {
+                id: 'replay-network',
+                title: 'Network capture',
+                component: <NetworkCaptureSettings />,
             },
             {
                 id: 'replay-authorized-domains',
@@ -299,15 +413,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                 allowForTeam: (t) => !!t?.recording_domains?.length,
             },
             {
-                id: 'replay-triggers',
-                title: 'Replay triggers',
-                component: <ReplayTriggers />,
-            },
-            {
                 id: 'replay-ai-config',
                 title: 'AI recording summary',
                 component: <ReplayAISettings />,
                 flag: 'AI_SESSION_PERMISSIONS',
+            },
+            {
+                id: 'replay-retention',
+                title: (
+                    <>
+                        Data retention
+                        <LemonTag type="success" className="ml-1 uppercase">
+                            New
+                        </LemonTag>
+                    </>
+                ),
+                component: <ReplayDataRetentionSettings />,
             },
         ],
     },
@@ -346,34 +467,63 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ExceptionAutocaptureSettings />,
             },
             {
-                id: 'error-tracking-user-groups',
-                title: 'User groups',
-                description: 'Allow collections of users to be assigned to issues',
-                component: <UserGroups />,
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                component: <ErrorTrackingAlerting />,
+            },
+            {
+                id: 'error-tracking-auto-assignment',
+                title: 'Auto assignment rules',
+                component: <AutoAssignmentRules />,
+            },
+            {
+                id: 'error-tracking-custom-grouping',
+                title: 'Custom grouping rules',
+                component: <CustomGroupingRules />,
+            },
+            {
+                id: 'error-tracking-integrations',
+                title: 'Integrations',
+                component: <ErrorTrackingIntegrations />,
             },
             {
                 id: 'error-tracking-symbol-sets',
                 title: 'Symbol sets',
-                component: <ErrorTrackingSymbolSets />,
+                component: <SymbolSets />,
             },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-csp-reporting',
+        title: 'CSP reporting',
+        flag: 'CSP_REPORTING',
+        settings: [
             {
-                id: 'error-tracking-alerting',
-                title: 'Alerting',
-                component: <ErrorTrackingAlerting />,
+                id: 'csp-reporting',
+                title: (
+                    <>
+                        CSP reporting{' '}
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                component: <CSPReportingSettings />,
             },
         ],
     },
     {
         level: 'environment',
         id: 'environment-max',
-        title: 'Max AI',
+        title: 'AI',
         flag: 'ARTIFICIAL_HOG',
         settings: [
             {
                 id: 'core-memory',
                 title: 'Memory',
                 description:
-                    "Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want Max to remember, you can edit or remove them below.",
+                    "PostHog AI automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want PostHog AI to remember, you can edit or remove them below.",
                 component: <MaxMemorySettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
@@ -395,9 +545,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <SlackIntegration />,
             },
             {
+                id: 'integration-github',
+                title: 'GitHub integration',
+                component: <GithubIntegration />,
+            },
+            {
                 id: 'integration-other',
                 title: 'Other integrations',
-                component: <OtherIntegrations />,
+                component: <IntegrationsList omitKinds={['slack', 'github']} />,
             },
             {
                 id: 'integration-ip-allowlist',
@@ -415,6 +570,43 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'environment-access-control',
                 title: 'Access control',
                 component: <TeamAccessControl />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-activity-logs',
+        title: 'Activity logs',
+        settings: [
+            {
+                id: 'activity-log-settings',
+                title: 'Logs',
+                component: <ActivityLogSettings />,
+            },
+            {
+                id: 'activity-log-org-level-settings',
+                title: 'Settings',
+                component: <ActivityLogOrgLevelSettings />,
+                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
+            },
+            {
+                id: 'activity-log-notifications',
+                title: 'Notifications',
+                component: <ActivityLogNotifications />,
+                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'mcp-server',
+        // hideSelfHost: true,
+        title: 'MCP Server',
+        settings: [
+            {
+                id: 'mcp-server-configure',
+                title: 'Model Context Protocol (MCP) server',
+                component: <MCPServerSettings />,
             },
         ],
     },
@@ -495,11 +687,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                     // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
                     <>
                         PostHog AI features, such as our assistant Max, use{' '}
-                        <Tooltip
-                            title={`As of ${dayjs().format(
-                                'MMMM YYYY'
-                            )}: OpenAI for core analysis, Perplexity for fetching product information`}
-                        >
+                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: OpenAI`}>
                             <dfn>external AI services</dfn>
                         </Tooltip>{' '}
                         for data analysis.
@@ -511,6 +699,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                     </>
                 ),
                 component: <OrganizationAI />,
+            },
+            {
+                id: 'organization-experiment-stats-method',
+                title: 'Default experiment statistical method',
+                description:
+                    'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
+                component: <OrganizationExperimentStatsMethod />,
             },
         ],
     },
@@ -544,7 +739,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'organization-roles',
                 title: 'Roles',
-                component: <RoleBasedAccess />,
+                component: <RolesAccessControls />,
             },
         ],
     },
@@ -574,6 +769,18 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-security',
+        title: 'Security settings',
+        settings: [
+            {
+                id: 'organization-security',
+                title: 'Security settings',
+                component: <OrganizationSecuritySettings />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-danger-zone',
         title: 'Danger zone',
         settings: [
@@ -591,6 +798,16 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Billing',
         to: urls.organizationBilling(),
         settings: [],
+    },
+    {
+        level: 'organization',
+        id: 'organization-startup-program',
+        hideSelfHost: true,
+        title: 'Startup program',
+        to: urls.startups(),
+        settings: [],
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        flag: 'STARTUP_PROGRAM_INTENT',
     },
 
     // USER
@@ -630,6 +847,30 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'user',
+        id: 'user-feature-previews',
+        title: 'Feature previews',
+        settings: [
+            {
+                id: 'feature-previews',
+                title: 'Feature previews',
+                component: <FeaturePreviewsSettings />,
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-notifications',
+        title: 'Notifications',
+        settings: [
+            {
+                id: 'notifications',
+                title: 'Notifications',
+                component: <UpdateEmailPreferences />,
+            },
+        ],
+    },
+    {
+        level: 'user',
         id: 'user-customization',
         title: 'Customization',
         settings: [
@@ -637,11 +878,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'theme',
                 title: 'Theme',
                 component: <ThemeSwitcher onlyLabel />,
-            },
-            {
-                id: 'notifications',
-                title: 'Notifications',
-                component: <UpdateEmailPreferences />,
             },
             {
                 id: 'optout',
@@ -666,6 +902,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                         to customize yourself outside of the app
                     </div>
                 ),
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-danger-zone',
+        title: 'Danger zone',
+        settings: [
+            {
+                id: 'user-delete',
+                title: 'Delete account',
+                component: <UserDangerZone />,
             },
         ],
     },

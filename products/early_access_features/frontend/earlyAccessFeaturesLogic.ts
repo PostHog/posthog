@@ -1,5 +1,6 @@
 import { afterMount, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
@@ -26,6 +27,7 @@ export const earlyAccessFeaturesLogic = kea<earlyAccessFeaturesLogicType>([
                     key: 'EarlyAccessFeatures',
                     name: 'Early access features',
                     path: urls.earlyAccessFeatures(),
+                    iconType: 'early_access_feature',
                 },
             ],
         ],

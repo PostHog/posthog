@@ -1,25 +1,27 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
-import { router } from 'kea-router'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useEffect } from 'react'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
-import { mswDecorator, setFeatureFlags, useStorybookMocks } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
-import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { SidePanelTab } from '~/types'
 
 import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/SidePanels',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        mockDate: '2023-07-04', // To stabilize relative dates
+        mockDate: '2025-10-10', // To stabilize relative dates
+        pageUrl: urls.dashboards(),
+        featureFlags: [FEATURE_FLAGS.SDK_DOCTOR_BETA],
         testOptions: {
             includeNavigationInSnapshot: true,
         },
@@ -34,6 +36,8 @@ const meta: Meta = {
                 '/api/projects/:id/batch_exports/': { results: [] },
                 '/api/projects/:id/surveys/': { results: [] },
                 '/api/projects/:id/surveys/responses_count/': { results: [] },
+                '/api/environments/:team_id/exports/': { results: [] },
+                '/api/environments/:team_id/events': { results: [] },
             },
             post: {
                 '/api/environments/:team_id/query': {},
@@ -45,10 +49,7 @@ export default meta
 
 const BaseTemplate = (props: { panel: SidePanelTab }): JSX.Element => {
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    useEffect(() => {
-        router.actions.push(urls.dashboards())
-        openSidePanel(props.panel)
-    }, [])
+    useOnMountEffect(() => openSidePanel(props.panel))
 
     return <App />
 }
@@ -70,77 +71,11 @@ export const SidePanelNotebooks: StoryFn = () => {
 }
 
 export const SidePanelMax: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/core_memory': EMPTY_PAGINATED_RESPONSE,
-        },
-    })
-
     return <BaseTemplate panel={SidePanelTab.Max} />
 }
-SidePanelMax.parameters = {
-    featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG],
-}
 
-export const SidePanelFeaturePreviews: StoryFn = () => {
-    useStorybookMocks({
-        get: {
-            'https://us.i.posthog.com/api/early_access_features/': {
-                earlyAccessFeatures: [
-                    {
-                        name: 'Feature 1',
-                        description:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
-                        stage: 'beta',
-                        documentationUrl: 'https://docs.example.com',
-                        flagKey: 'feature-1',
-                    },
-                    {
-                        name: 'Feature 2',
-                        description:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
-                        stage: 'beta',
-                        documentationUrl: 'https://docs.example.com',
-                        flagKey: 'feature-2',
-                    },
-                    {
-                        name: 'Feature 3',
-                        description:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
-                        stage: 'beta',
-                        documentationUrl: 'https://docs.example.com',
-                        flagKey: 'feature-3',
-                    },
-                    {
-                        name: 'Feature 4',
-                        description:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
-                        stage: 'beta',
-                        documentationUrl: 'https://docs.example.com',
-                        flagKey: 'feature-4',
-                    },
-                    {
-                        name: 'Feature 5',
-                        description:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
-                        stage: 'beta',
-                        documentationUrl: 'https://docs.example.com',
-                        flagKey: 'feature-5',
-                    },
-                    {
-                        name: 'Not enabled',
-                        description:
-                            'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Curabitur tristique arcu et orci lobortis condimentum. Donec placerat orci in ipsum vestibulum, rutrum commodo leo tincidunt. Nullam vitae varius neque.',
-                        stage: 'beta',
-                        documentationUrl: 'https://docs.example.com',
-                        flagKey: 'not-enabled',
-                    },
-                ],
-            },
-        },
-    })
-    setFeatureFlags(['feature-1', 'feature-2', 'feature-3', 'feature-4', 'feature-5'])
-    return <BaseTemplate panel={SidePanelTab.FeaturePreviews} />
+export const SidePanelSdkDoctor: StoryFn = () => {
+    return <BaseTemplate panel={SidePanelTab.SdkDoctor} />
 }
 
 export const SidePanelSupportNoEmail: StoryFn = () => {
@@ -148,7 +83,8 @@ export const SidePanelSupportNoEmail: StoryFn = () => {
 }
 
 export const SidePanelSupportWithEmail: StoryFn = () => {
-    const { openEmailForm } = useActions(supportLogic)
+    const { openEmailForm, closeEmailForm } = useActions(supportLogic)
+
     useStorybookMocks({
         get: {
             // TODO: setting available featues should be a decorator to make this easy
@@ -170,8 +106,11 @@ export const SidePanelSupportWithEmail: StoryFn = () => {
             ],
         },
     })
-    useEffect(() => {
+
+    useOnMountEffect(() => {
         openEmailForm()
-    }, [])
+        return () => closeEmailForm()
+    })
+
     return <BaseTemplate panel={SidePanelTab.Support} />
 }

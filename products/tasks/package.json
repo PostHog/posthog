@@ -1,0 +1,23 @@
+{
+    "name": "@posthog/products-tasks",
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@storybook/react": "*",
+        "@types/react": "*",
+        "clsx": "*",
+        "kea": "*",
+        "kea-forms": "*",
+        "kea-loaders": "*",
+        "kea-router": "*",
+        "react": "*",
+        "@dnd-kit/core": "*",
+        "@dnd-kit/modifiers": "*",
+        "@dnd-kit/sortable": "*",
+        "@dnd-kit/utilities": "*",
+        "react-dom": "*",
+        "@types/react-dom": "*"
+    },
+    "devDependencies": {
+        "kea-test-utils": "*"
+    }
+}

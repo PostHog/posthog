@@ -1,18 +1,22 @@
-import asyncio
 import random
+import asyncio
+
+import pytest
+
+from django.conf import settings
 
 import psycopg
-import pytest
 import pytest_asyncio
 import temporalio.worker
 from asgiref.sync import sync_to_async
-from django.conf import settings
 from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
+from posthog.models.user import User
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
+from posthog.temporal.common.logger import configure_logger
 
 
 @pytest.fixture
@@ -57,6 +61,15 @@ async def ateam(aorganization):
     yield team
 
     await sync_to_async(team.delete)()
+
+
+@pytest_asyncio.fixture
+async def auser(aorganization):
+    user = await sync_to_async(User.objects.create_and_join)(
+        aorganization, f"test-{random.randint(1, 99999)}@posthog.com", "testpassword123", "Test"
+    )
+    yield user
+    await sync_to_async(user.delete)()
 
 
 @pytest.fixture
@@ -107,7 +120,7 @@ async def workflows(request):
     try:
         return request.param
     except AttributeError:
-        from posthog.temporal.batch_exports import WORKFLOWS
+        from products.batch_exports.backend.temporal import WORKFLOWS
 
         return WORKFLOWS
 
@@ -122,7 +135,7 @@ async def activities(request):
     try:
         return request.param
     except AttributeError:
-        from posthog.temporal.batch_exports import ACTIVITIES
+        from products.batch_exports.backend.temporal import ACTIVITIES
 
         return ACTIVITIES
 
@@ -145,14 +158,17 @@ async def temporal_worker(temporal_client, workflows, activities):
     await asyncio.wait([worker_run])
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def event_loop():
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
+    loop = asyncio.new_event_loop()
     yield loop
     loop.close()
+
+
+@pytest_asyncio.fixture(autouse=True, scope="module")
+async def configure_logger_auto() -> None:
+    """Configure logger for running temporal tests."""
+    configure_logger(cache_logger_on_first_use=False)
 
 
 @pytest_asyncio.fixture

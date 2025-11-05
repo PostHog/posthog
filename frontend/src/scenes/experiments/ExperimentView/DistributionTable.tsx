@@ -1,3 +1,5 @@
+import { useActions, useValues } from 'kea'
+
 import { IconBalance, IconFlag } from '@posthog/icons'
 import {
     LemonBanner,
@@ -8,23 +10,25 @@ import {
     LemonTable,
     LemonTableColumns,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
-import { featureFlagLogic, FeatureFlagLogicProps } from 'scenes/feature-flags/featureFlagLogic'
+import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
-import { VariantTag } from './components'
+import { modalsLogic } from '../modalsLogic'
 import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
+import { VariantTag } from './components'
 
 export function DistributionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, experimentLoading, isDistributionModalOpen } = useValues(experimentLogic({ experimentId }))
-    const { closeDistributionModal, updateDistributionModal } = useActions(experimentLogic({ experimentId }))
+    const { experiment, experimentLoading } = useValues(experimentLogic({ experimentId }))
+    const { updateDistribution } = useActions(experimentLogic({ experimentId }))
+    const { closeDistributionModal } = useActions(modalsLogic)
+    const { isDistributionModalOpen } = useValues(modalsLogic)
 
     const _featureFlagLogic = featureFlagLogic({ id: experiment.feature_flag?.id ?? null } as FeatureFlagLogicProps)
     const { featureFlag, areVariantRolloutsValid, variantRolloutSum } = useValues(_featureFlagLogic)
@@ -63,7 +67,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
                     </LemonButton>
                     <LemonButton
                         onClick={() => {
-                            updateDistributionModal(featureFlag)
+                            updateDistribution(featureFlag)
                             closeDistributionModal()
                         }}
                         type="primary"
@@ -132,12 +136,9 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
 }
 
 export function DistributionTable(): JSX.Element {
-    const { openDistributionModal } = useActions(experimentLogic)
-    const { experimentId, experiment, metricResults } = useValues(experimentLogic)
+    const { openDistributionModal } = useActions(modalsLogic)
+    const { experimentId, experiment } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
-
-    const result = metricResults?.[0]
 
     const onSelectElement = (variant: string): void => {
         LemonDialog.open({
@@ -165,9 +166,6 @@ export function DistributionTable(): JSX.Element {
             key: 'key',
             title: 'Variant',
             render: function Key(_, item): JSX.Element {
-                if (!result || !result.insight) {
-                    return <span className="font-semibold">{item.key}</span>
-                }
                 return <VariantTag experimentId={experimentId} variantKey={item.key} />
             },
         },
@@ -273,11 +271,7 @@ export function DistributionTable(): JSX.Element {
                 columns={columns}
                 dataSource={tableData}
                 rowClassName={(item) =>
-                    item.key === `holdout-${experiment.holdout?.id}`
-                        ? isDarkModeOn
-                            ? 'bg-fill-primary'
-                            : 'bg-mid'
-                        : ''
+                    item.key === `holdout-${experiment.holdout?.id}` ? 'dark:bg-fill-primary bg-mid' : ''
                 }
             />
         </div>

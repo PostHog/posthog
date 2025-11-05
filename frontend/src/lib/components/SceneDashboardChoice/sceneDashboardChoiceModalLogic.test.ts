@@ -1,5 +1,7 @@
-import { expectLogic } from 'kea-test-utils'
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
+
+import { expectLogic } from 'kea-test-utils'
+
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'

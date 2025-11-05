@@ -3,17 +3,19 @@ import uuid
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import QuerySet
-
-from posthog.models import Action
-from posthog.models.utils import UUIDModel, RootTeamMixin
-from django.contrib.postgres.fields import ArrayField
-from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from dateutil.rrule import rrule, DAILY
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
+
+from dateutil.rrule import DAILY, rrule
+from django_deprecate_fields import deprecate_field
+
+from posthog.models import Action
+from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.utils import RootTeamMixin, UUIDTModel
 
 # we have seen users accidentally set a huge value for iteration count
 # and cause performance issues, so we are extra careful with this value
@@ -24,13 +26,11 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
+class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class SurveyType(models.TextChoices):
         POPOVER = "popover", "popover"
         WIDGET = "widget", "widget"
-        BUTTON = "button", "button"
-        EMAIL = "email", "email"
-        FULL_SCREEN = "full_screen", "full screen"
+        EXTERNAL_SURVEY = "external_survey", "external survey"
         API = "api", "api"
 
     class SurveySamplingIntervalType(models.TextChoices):
@@ -95,6 +95,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
         The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
 
         Basic (open-ended question)
+        - `id`: The question ID
         - `type`: `open`
         - `question`: The text of the question.
         - `description`: Optional description of the question.
@@ -104,6 +105,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Link (a question with a link)
+        - `id`: The question ID
         - `type`: `link`
         - `question`: The text of the question.
         - `description`: Optional description of the question.
@@ -114,6 +116,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Rating (a question with a rating scale)
+        - `id`: The question ID
         - `type`: `rating`
         - `question`: The text of the question.
         - `description`: Optional description of the question.
@@ -127,6 +130,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice
+        - `id`: The question ID
         - `type`: `single_choice` or `multiple_choice`
         - `question`: The text of the question.
         - `description`: Optional description of the question.
@@ -222,6 +226,14 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
         blank=True,
     )
     enable_partial_responses = models.BooleanField(default=False, null=True)
+    # Use the survey_type instead. If it's external_survey, it's publicly shareable.
+    is_publicly_shareable = deprecate_field(
+        models.BooleanField(
+            null=True,
+            blank=True,
+            help_text="Allow this survey to be accessed via public URL (https://app.posthog.com/surveys/[survey_id]) without authentication",
+        ),
+    )
 
     actions = models.ManyToManyField(Action)
 
@@ -232,7 +244,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Surveys",
+            base_folder=self._get_assigned_folder("Unfiled/Surveys"),
             type="survey",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",

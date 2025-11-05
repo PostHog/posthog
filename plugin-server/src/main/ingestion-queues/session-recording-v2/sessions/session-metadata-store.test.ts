@@ -14,7 +14,7 @@ describe('SessionMetadataStore', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<KafkaProducerWrapper>
 
-        store = new SessionMetadataStore(mockProducer)
+        store = new SessionMetadataStore(mockProducer, 'clickhouse_session_replay_events')
     })
 
     it('should queue events to kafka with correct data', async () => {
@@ -42,6 +42,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 50,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
+                retentionPeriodDays: 30,
             },
             {
                 sessionId: 'different456',
@@ -66,6 +67,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 30,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
+                retentionPeriodDays: 30,
             },
             {
                 sessionId: 'session123',
@@ -90,6 +92,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 70,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
+                retentionPeriodDays: 30,
             },
         ]
 
@@ -97,7 +100,7 @@ describe('SessionMetadataStore', () => {
 
         expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
         const queuedMessage = mockProducer.queueMessages.mock.calls[0][0] as TopicMessage
-        expect(queuedMessage.topic).toBe('clickhouse_session_replay_events_v2_test_test')
+        expect(queuedMessage.topic).toBe('clickhouse_session_replay_events')
         const queuedMessages = queuedMessage.messages
         const parsedEvents = queuedMessages.map((msg) => parseJSON(msg.value as string))
 
@@ -125,6 +128,7 @@ describe('SessionMetadataStore', () => {
                 snapshot_source: 'web',
                 snapshot_library: 'rrweb@1.0.0',
                 event_count: 25,
+                retention_period_days: 30,
             },
             {
                 uuid: expect.any(String),
@@ -149,6 +153,7 @@ describe('SessionMetadataStore', () => {
                 snapshot_source: 'web',
                 snapshot_library: 'rrweb@1.0.0',
                 event_count: 15,
+                retention_period_days: 30,
             },
             {
                 uuid: expect.any(String),
@@ -173,6 +178,7 @@ describe('SessionMetadataStore', () => {
                 snapshot_source: 'web',
                 snapshot_library: 'rrweb@1.0.0',
                 event_count: 35,
+                retention_period_days: 30,
             },
         ])
 
@@ -191,7 +197,7 @@ describe('SessionMetadataStore', () => {
     it('should handle empty blocks array', async () => {
         await store.storeSessionBlocks([])
         expect(mockProducer.queueMessages).toHaveBeenCalledWith({
-            topic: 'clickhouse_session_replay_events_v2_test_test',
+            topic: 'clickhouse_session_replay_events',
             messages: [],
         })
         expect(mockProducer.flush).toHaveBeenCalledTimes(1)
@@ -225,6 +231,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 25,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
+                retentionPeriodDays: 30,
             },
         ]
 
@@ -256,6 +263,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 25,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
+                retentionPeriodDays: 30,
             },
         ]
 
@@ -307,6 +315,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 15,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
+                retentionPeriodDays: 30,
             },
             {
                 sessionId: 'session2',
@@ -331,6 +340,7 @@ describe('SessionMetadataStore', () => {
                 messageCount: 20,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
+                retentionPeriodDays: 30,
             },
         ]
 
@@ -356,6 +366,7 @@ describe('SessionMetadataStore', () => {
             message_count: 15,
             snapshot_source: 'web',
             snapshot_library: 'rrweb@1.0.0',
+            retention_period_days: 30,
         })
         expect(parsedEvents[1]).toMatchObject({
             first_url: 'https://example.com/other',
@@ -372,6 +383,7 @@ describe('SessionMetadataStore', () => {
             message_count: 20,
             snapshot_source: 'web',
             snapshot_library: 'rrweb@1.0.0',
+            retention_period_days: 30,
         })
         expect(mockProducer.flush).toHaveBeenCalledTimes(1)
     })
@@ -404,11 +416,53 @@ describe('SessionMetadataStore', () => {
                 messageCount: 25,
                 snapshotSource: 'web',
                 snapshotLibrary: 'rrweb@1.0.0',
+                retentionPeriodDays: 30,
             },
         ]
 
         await expect(store.storeSessionBlocks(blocks)).rejects.toThrow(error)
         expect(mockProducer.queueMessages).toHaveBeenCalled()
         expect(mockProducer.flush).toHaveBeenCalledTimes(1)
+    })
+
+    it('should use the provided kafka topic name', async () => {
+        const customTopic = 'custom_topic_name'
+        const customStore = new SessionMetadataStore(mockProducer, customTopic)
+
+        const blocks = [
+            {
+                sessionId: 'session1',
+                teamId: 1,
+                distinctId: 'user1',
+                batchId: 'batch1',
+                blockLength: 100,
+                eventCount: 15,
+                startDateTime: DateTime.fromISO('2025-01-01T10:00:00.000Z'),
+                endDateTime: DateTime.fromISO('2025-01-01T10:00:02.000Z'),
+                blockUrl: 's3://bucket/file1',
+                firstUrl: 'https://example.com',
+                urls: ['https://example.com'],
+                clickCount: 3,
+                keypressCount: 7,
+                mouseActivityCount: 12,
+                activeMilliseconds: 1000,
+                consoleLogCount: 1,
+                consoleWarnCount: 0,
+                consoleErrorCount: 0,
+                size: 512,
+                messageCount: 25,
+                snapshotSource: 'web',
+                snapshotLibrary: 'rrweb@1.0.0',
+                retentionPeriodDays: 30,
+            },
+        ]
+
+        await customStore.storeSessionBlocks(blocks)
+
+        expect(mockProducer.queueMessages).toHaveBeenCalledWith(
+            expect.objectContaining({
+                topic: customTopic,
+            })
+        )
     })
 })

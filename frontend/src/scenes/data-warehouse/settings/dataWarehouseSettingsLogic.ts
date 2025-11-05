@@ -1,14 +1,18 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import api, { ApiMethodOptions, PaginatedResponse } from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import posthog from 'posthog-js'
+
+import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { DataWarehouseViewLink, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { dataWarehouseJoinsLogic } from '../external/dataWarehouseJoinsLogic'
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
 const REFRESH_INTERVAL = 10000
@@ -16,49 +20,33 @@ const REFRESH_INTERVAL = 10000
 export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     path(['scenes', 'data-warehouse', 'settings', 'dataWarehouseSettingsLogic']),
     connect(() => ({
-        values: [databaseTableListLogic, ['dataWarehouseTables']],
-        actions: [databaseTableListLogic, ['loadDatabase']],
+        values: [
+            databaseTableListLogic,
+            ['dataWarehouseTables'],
+            externalDataSourcesLogic,
+            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
+        ],
+        actions: [
+            databaseTableListLogic,
+            ['loadDatabase'],
+            dataWarehouseJoinsLogic,
+            ['loadJoins'],
+            externalDataSourcesLogic,
+            ['loadSources', 'loadSourcesSuccess', 'updateSource', 'updateSourceRevenueAnalyticsConfig'],
+        ],
     })),
     actions({
         deleteSource: (source: ExternalDataSource) => ({ source }),
         reloadSource: (source: ExternalDataSource) => ({ source }),
         sourceLoadingFinished: (source: ExternalDataSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
-        abortAnyRunningQuery: true,
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
+        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        setManagedSearchTerm: (managedSearchTerm: string) => ({ managedSearchTerm }),
+        deleteJoin: (join: DataWarehouseViewLink) => ({ join }),
     }),
-    loaders(({ cache, actions, values }) => ({
-        dataWarehouseSources: [
-            null as PaginatedResponse<ExternalDataSource> | null,
-            {
-                loadSources: async (_, breakpoint) => {
-                    await breakpoint(300)
-                    actions.abortAnyRunningQuery()
-
-                    cache.abortController = new AbortController()
-                    const methodOptions: ApiMethodOptions = {
-                        signal: cache.abortController.signal,
-                    }
-
-                    const res = await api.externalDataSources.list(methodOptions)
-                    breakpoint()
-
-                    cache.abortController = null
-
-                    return res
-                },
-                updateSource: async (source: ExternalDataSource) => {
-                    const updatedSource = await api.externalDataSources.update(source.id, source)
-                    return {
-                        ...values.dataWarehouseSources,
-                        results:
-                            values.dataWarehouseSources?.results.map((s) => (s.id === updatedSource.id ? source : s)) ||
-                            [],
-                    }
-                },
-            },
-        ],
+    loaders(({ actions, values }) => ({
         schemas: [
             null,
             {
@@ -84,15 +72,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             },
         ],
     })),
-    reducers(({ cache }) => ({
-        dataWarehouseSourcesLoading: [
-            false as boolean,
-            {
-                loadSources: () => true,
-                loadSourcesFailure: () => cache.abortController !== null,
-                loadSourcesSuccess: () => cache.abortController !== null,
-            },
-        ],
+    reducers(() => ({
         sourceReloadingById: [
             {} as Record<string, boolean>,
             {
@@ -119,12 +99,63 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 }),
             },
         ],
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        managedSearchTerm: [
+            '' as string,
+            {
+                setManagedSearchTerm: (_, { managedSearchTerm }) => managedSearchTerm,
+            },
+        ],
     })),
     selectors({
         selfManagedTables: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): DatabaseSchemaDataWarehouseTable[] => {
                 return dataWarehouseTables.filter((table) => !table.source)
+            },
+        ],
+        filteredSelfManagedTables: [
+            (s) => [s.selfManagedTables, s.searchTerm],
+            (
+                selfManagedTables: DatabaseSchemaDataWarehouseTable[],
+                searchTerm: string
+            ): DatabaseSchemaDataWarehouseTable[] => {
+                if (!searchTerm?.trim()) {
+                    return selfManagedTables
+                }
+                const normalizedSearch = searchTerm.toLowerCase()
+                return selfManagedTables.filter((table) => table.name.toLowerCase().includes(normalizedSearch))
+            },
+        ],
+        filteredManagedSources: [
+            (s) => [s.dataWarehouseSources, s.managedSearchTerm],
+            (dataWarehouseSources, managedSearchTerm): ExternalDataSource[] => {
+                const sources = dataWarehouseSources?.results ?? []
+                if (!managedSearchTerm?.trim()) {
+                    return sources
+                }
+                const normalizedSearch = managedSearchTerm.toLowerCase()
+                return sources.filter(
+                    (source) =>
+                        source.source_type.toLowerCase().includes(normalizedSearch) ||
+                        source.prefix?.toLowerCase().includes(normalizedSearch)
+                )
+            },
+        ],
+        hasZendeskSource: [
+            (s) => [s.dataWarehouseSources],
+            (dataWarehouseSources): boolean => {
+                const sources = dataWarehouseSources?.results
+                if (!sources) {
+                    return false
+                }
+
+                return !!sources.some((source) => source?.source_type === 'Zendesk')
             },
         ],
     }),
@@ -162,7 +193,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                 if (n.should_sync) {
                     return {
                         ...n,
-                        status: 'Running',
+                        status: ExternalDataSchemaStatus.Running,
                     }
                 }
 
@@ -188,38 +219,49 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             }
             actions.sourceLoadingFinished(source)
         },
-        abortAnyRunningQuery: () => {
-            if (cache.abortController) {
-                cache.abortController.abort()
-                cache.abortController = null
-            }
-        },
         updateSchema: (schema) => {
             posthog.capture('schema updated', { shouldSync: schema.should_sync, syncType: schema.sync_type })
         },
         loadSourcesSuccess: () => {
-            clearTimeout(cache.refreshTimeout)
-
             if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadSources(null)
-                }, REFRESH_INTERVAL)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources(null)
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
             }
         },
         loadSourcesFailure: () => {
-            clearTimeout(cache.refreshTimeout)
-
             if (router.values.location.pathname.includes('data-warehouse')) {
-                cache.refreshTimeout = setTimeout(() => {
-                    actions.loadSources(null)
-                }, REFRESH_INTERVAL)
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(() => {
+                        actions.loadSources(null)
+                    }, REFRESH_INTERVAL)
+                    return () => clearTimeout(timerId)
+                }, 'refreshTimeout')
             }
+        },
+        deleteJoin: ({ join }): void => {
+            void deleteWithUndo({
+                endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
+                object: {
+                    id: join.id,
+                    name: `${join.field_name} on ${join.source_table_name}`,
+                },
+                callback: () => {
+                    actions.loadDatabase()
+                    actions.loadJoins()
+                },
+            }).catch((e) => {
+                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
+            })
         },
     })),
     afterMount(({ actions }) => {
         actions.loadSources(null)
     }),
-    beforeUnmount(({ cache }) => {
-        clearTimeout(cache.refreshTimeout)
+    beforeUnmount(() => {
+        // Disposables plugin handles cleanup automatically
     }),
 ])

@@ -8,6 +8,7 @@ export type ColumnScalar =
     | 'STRING'
     | 'TUPLE'
     | 'ARRAY'
+    | 'UNKNOWN'
 
 export interface FormattingTemplate {
     id: string

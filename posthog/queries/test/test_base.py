@@ -1,23 +1,27 @@
-import datetime
 import re
+import datetime
+from zoneinfo import ZoneInfo
+
+import pytest
 import unittest
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from dateutil import parser, tz
 from django.test import TestCase
-from freezegun import freeze_time
-import pytest
+
+from dateutil import parser, tz
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property.property import Property
 from posthog.queries.base import (
+    determine_parsed_incoming_date,
     match_property,
     relative_date_parse_for_feature_flag_matching,
     sanitize_property_key,
     sanitize_regex_pattern,
 )
-from posthog.test.base import APIBaseTest
 
 
 class TestBase(APIBaseTest):
@@ -28,12 +32,12 @@ class TestBase(APIBaseTest):
         compared_filter = determine_compared_filter(filter)
 
         self.assertIsInstance(compared_filter, PathFilter)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "date_from": "2020-05-16T00:00:00+00:00",
                 "date_to": "2020-05-22T23:59:59.999999+00:00",
-            },
-            compared_filter.to_dict(),
+            }.items(),
+            compared_filter.to_dict().items(),
         )
 
 
@@ -221,9 +225,6 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_a, {"key": parser.parse("2022-04-30")}))
         self.assertFalse(match_property(property_a, {"key": "2022-05-30"}))
 
-        # Can't be a number
-        self.assertFalse(match_property(property_a, {"key": 1}))
-
         # can't be invalid string
         self.assertFalse(match_property(property_a, {"key": "abcdef"}))
 
@@ -253,14 +254,66 @@ class TestMatchProperties(TestCase):
 
         self.assertFalse(match_property(property_d, {"key": "2022-04-05 12:34:13 CET"}))
 
+    def test_match_property_date_operators_with_numeric_timestamps(self):
+        property_a = Property(key="key", value="2027-03-21T00:00:00Z", operator="is_date_after")
+        self.assertTrue(match_property(property_a, {"key": 1836277747}))
+        self.assertTrue(match_property(property_a, {"key": 1836277747.867530}))
+        self.assertFalse(match_property(property_a, {"key": 1747794128}))
+
+        property_b = Property(key="key", value="2027-03-21T00:00:00Z", operator="is_date_before")
+        self.assertFalse(match_property(property_b, {"key": 1836277747}))
+        self.assertFalse(match_property(property_b, {"key": 1836277747.867530}))
+        self.assertTrue(match_property(property_b, {"key": 1747794128}))
+
+        property_e = Property(key="key", value="2028-03-10T05:09:07Z", operator="is_date_exact")
+        self.assertTrue(match_property(property_e, {"key": 1836277747}))
+
+    def test_match_property_date_operators_with_string_timestamps(self):
+        property_a = Property(key="key", value="2027-03-21T00:00:00Z", operator="is_date_after")
+        self.assertTrue(match_property(property_a, {"key": "1836277747"}))
+        self.assertFalse(match_property(property_a, {"key": "1747794128"}))
+
+        property_e = Property(key="key", value="2028-03-10T05:09:07Z", operator="is_date_exact")
+        self.assertTrue(match_property(property_e, {"key": "1836277747"}))
+
+    def test_determine_parsed_incoming_date_with_int_timestamp(self):
+        self.assertEqual(
+            determine_parsed_incoming_date(1836277747), datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
+        )
+
+    def test_determine_parsed_incoming_date_with_float_timestamp(self):
+        timestamp = 1836277747.867530
+        expected = datetime.datetime(2028, 3, 10, 5, 9, 7, 867530, tzinfo=ZoneInfo("UTC"))
+        self.assertEqual(determine_parsed_incoming_date(timestamp), expected)
+
+    def test_determine_parsed_incoming_date_with_string_timestamp(self):
+        parsed_date = determine_parsed_incoming_date("1836277747")
+        expected = datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
+        self.assertEqual(parsed_date, expected)
+
+    def test_determine_parsed_incoming_date_with_datetime(self):
+        parsed_date = determine_parsed_incoming_date(datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC")))
+        expected = datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
+        self.assertEqual(parsed_date, expected)
+
+    def test_determine_parsed_incoming_date_with_string_date(self):
+        parsed_date = determine_parsed_incoming_date("2028-03-10T05:09:07Z")
+        expected = datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
+        self.assertEqual(parsed_date, expected)
+
+    def test_determine_parsed_date_for_property_matching_with_string_fractional_timestamp(self):
+        timestamp = "1836277747.867530"
+        expected = datetime.datetime(2028, 3, 10, 5, 9, 7, 867530, tzinfo=ZoneInfo("UTC"))
+        self.assertEqual(determine_parsed_incoming_date(timestamp), expected)
+
     @freeze_time("2022-05-01")
     def test_match_property_relative_date_operators(self):
         property_a = Property(key="key", value="6h", operator="is_date_before")
         self.assertTrue(match_property(property_a, {"key": "2022-03-01"}))
         self.assertTrue(match_property(property_a, {"key": "2022-04-30"}))
         self.assertTrue(match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 1, 2, 3)}))
-        # false because date comparison, instead of datetime, so reduces to same date
-        self.assertFalse(match_property(property_a, {"key": datetime.date(2022, 4, 30)}))
+        # The date gets converted to datetime at midnight UTC, which is before 6 hours ago
+        self.assertTrue(match_property(property_a, {"key": datetime.date(2022, 4, 30)}))
 
         self.assertFalse(match_property(property_a, {"key": datetime.datetime(2022, 4, 30, 19, 2, 3)}))
         self.assertTrue(
@@ -271,9 +324,6 @@ class TestMatchProperties(TestCase):
         )
         self.assertTrue(match_property(property_a, {"key": parser.parse("2022-04-30")}))
         self.assertFalse(match_property(property_a, {"key": "2022-05-30"}))
-
-        # Can't be a number
-        self.assertFalse(match_property(property_a, {"key": 1}))
 
         # can't be invalid string
         self.assertFalse(match_property(property_a, {"key": "abcdef"}))
@@ -291,7 +341,6 @@ class TestMatchProperties(TestCase):
         # Invalid flag property
         property_c = Property(key="key", value=1234, operator="is_date_after")
 
-        self.assertFalse(match_property(property_c, {"key": 1}))
         self.assertTrue(match_property(property_c, {"key": "2022-05-30"}))
 
         # # Timezone aware property

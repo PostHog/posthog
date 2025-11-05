@@ -1,6 +1,5 @@
 .dashboard-items-wrapper {
     width: 100%; // This provides the width for the dashboard items grid
-    margin-top: 1rem;
 }
 
 .react-grid-layout {
@@ -45,9 +44,9 @@
     z-index: 2;
     max-width: 100%;
     user-select: none;
-    border: 1px solid var(--accent);
+    border: 1px solid var(--color-accent);
     border-radius: var(--radius);
-    outline: 1px solid var(--accent);
+    outline: 1px solid var(--color-accent);
     transition: 100ms ease;
 }
 

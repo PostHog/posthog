@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCursorClick } from '@posthog/icons'
 import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 
@@ -85,6 +87,7 @@ export function WebExperimentTransformField({
                                 }
                             }}
                             value={transform.html}
+                            maxRows={8}
                         />
                     </div>
                     <div className="mt-4">
@@ -114,6 +117,7 @@ export function WebExperimentTransformField({
                                 }
                             }}
                             value={transform.css || ''}
+                            maxRows={8}
                         />
                     </div>
                 </div>

@@ -1,11 +1,9 @@
-import { SDKInstructionsMap, SDKKey } from '~/types'
-
 import {
     HTMLSnippetInstructions,
     JSWebInstructions,
+    ProductAnalyticsAPIInstructions,
     ProductAnalyticsAndroidInstructions,
     ProductAnalyticsAngularInstructions,
-    ProductAnalyticsAPIInstructions,
     ProductAnalyticsAstroInstructions,
     ProductAnalyticsBubbleInstructions,
     ProductAnalyticsDjangoInstructions,
@@ -22,15 +20,17 @@ import {
     ProductAnalyticsNuxtJSInstructions,
     ProductAnalyticsPHPInstructions,
     ProductAnalyticsPythonInstructions,
+    ProductAnalyticsRNInstructions,
     ProductAnalyticsReactInstructions,
     ProductAnalyticsRemixJSInstructions,
-    ProductAnalyticsRNInstructions,
     ProductAnalyticsRubyInstructions,
     ProductAnalyticsSvelteJSInstructions,
     ProductAnalyticsTraceloopInstructions,
     ProductAnalyticsVueInstructions,
     ProductAnalyticsWebflowInstructions,
 } from '.'
+
+import { SDKInstructionsMap, SDKKey } from '~/types'
 
 export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,

@@ -1,16 +1,13 @@
-import json
 import os
-import secrets
+import json
 import time
+import secrets
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
-import jwt
-import requests
-import structlog
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
@@ -19,6 +16,10 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
+
+import jwt
+import requests
+import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
@@ -44,6 +45,7 @@ from posthog.api.utils import (
     unparsed_hostname_in_allowed_url_list,
 )
 from posthog.auth import (
+    OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     TemporaryTokenAuthentication,
@@ -52,19 +54,23 @@ from posthog.auth import (
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
 from posthog.event_usage import (
+    report_user_deleted_account,
     report_user_logged_in,
     report_user_updated,
     report_user_verified_email,
 )
+from posthog.helpers.session_cache import SessionCache
+from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
-from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications, ROLE_CHOICES
-from posthog.permissions import APIScopePermission
+from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications
+from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
+    send_password_changed_email,
     send_two_factor_auth_disabled_email,
     send_two_factor_auth_enabled_email,
 )
@@ -89,6 +95,7 @@ class UserSerializer(serializers.ModelSerializer):
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
+    has_sso_enforcement = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
@@ -115,6 +122,7 @@ class UserSerializer(serializers.ModelSerializer):
             "anonymize_data",
             "toolbar_mode",
             "has_password",
+            "id",
             "is_staff",
             "is_impersonated",
             "is_impersonated_until",
@@ -129,6 +137,7 @@ class UserSerializer(serializers.ModelSerializer):
             "events_column_config",
             "is_2fa_enabled",
             "has_social_auth",
+            "has_sso_enforcement",
             "has_seen_product_intro_for",
             "scene_personalisation",
             "theme_mode",
@@ -143,6 +152,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_email",
             "is_email_verified",
             "has_password",
+            "id",
             "is_impersonated",
             "is_impersonated_until",
             "sensitive_session_expires_at",
@@ -150,6 +160,7 @@ class UserSerializer(serializers.ModelSerializer):
             "organization",
             "organizations",
             "has_social_auth",
+            "has_sso_enforcement",
         ]
 
         extra_kwargs = {
@@ -194,6 +205,17 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
+
+    def get_has_sso_enforcement(self, instance: User) -> bool:
+        from posthog.models.organization_domain import OrganizationDomain
+
+        organization = instance.current_organization
+        if not organization:
+            return False
+
+        return bool(
+            OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
+        )
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
@@ -313,14 +335,14 @@ class UserSerializer(serializers.ModelSerializer):
             instance.save()
             EmailVerifier.create_token_and_send_email_verification(instance)
 
+        if validated_data.get("notification_settings"):
+            validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
+
         # Update password
         current_password = validated_data.pop("current_password", None)
         password = self.validate_password_change(
             cast(User, instance), current_password, validated_data.pop("password", None)
         )
-
-        if validated_data.get("notification_settings"):
-            validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
 
         updated_attrs = list(validated_data.keys())
         instance = cast(User, super().update(instance, validated_data))
@@ -330,6 +352,7 @@ class UserSerializer(serializers.ModelSerializer):
             instance.save()
             update_session_auth_hash(self.context["request"], instance)
             updated_attrs.append("password")
+            send_password_changed_email.delay(instance.id)
 
         report_user_updated(instance, updated_attrs)
 
@@ -383,15 +406,21 @@ class UserViewSet(
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
     mixins.ListModelMixin,
+    mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     scope_object = "user"
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
-    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [
+        IsAuthenticated,
+        APIScopePermission,
+        UserNoOrgMembershipDeletePermission,
+        TimeSensitiveActionPermission,
+    ]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["is_staff"]
+    filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
 
@@ -399,6 +428,7 @@ class UserViewSet(
         lookup_value = self.kwargs[self.lookup_field]
         request_user = cast(User, self.request.user)  # Must be authenticated to access this endpoint
         if lookup_value == "@me":
+            self.check_object_permissions(self.request, request_user)
             return request_user
 
         if not request_user.is_staff:
@@ -407,6 +437,12 @@ class UserViewSet(
             )
 
         return super().get_object()
+
+    def get_authenticators(self):
+        if self.request and self.request.method == "DELETE":  # Do not support deleting own user account via the API
+            return [SessionAuthentication()]
+
+        return super().get_authenticators()
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -419,6 +455,10 @@ class UserViewSet(
             **super().get_serializer_context(),
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
+
+    def perform_destroy(self, user: User) -> None:
+        report_user_deleted_account(user)
+        super().perform_destroy(user)
 
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
@@ -480,6 +520,23 @@ class UserViewSet(
 
         return Response({"success": True})
 
+    @action(
+        methods=["PATCH"],
+        detail=False,
+    )
+    def cancel_email_change_request(self, request, **kwargs):
+        instance = request.user
+
+        if not instance.pending_email:
+            raise serializers.ValidationError(
+                "No active email change requests found.", code="email_change_request_not_found"
+            )
+
+        instance.pending_email = None
+        instance.save()
+
+        return Response(self.get_serializer(instance=instance).data)
+
     @action(methods=["POST"], detail=True)
     def scene_personalisation(self, request, **kwargs):
         instance = self.get_object()
@@ -495,7 +552,12 @@ class UserViewSet(
         methods=["GET", "PATCH"],
         detail=True,
         throttle_classes=[],
-        authentication_classes=[TemporaryTokenAuthentication, SessionAuthentication, PersonalAPIKeyAuthentication],
+        authentication_classes=[
+            TemporaryTokenAuthentication,
+            SessionAuthentication,
+            PersonalAPIKeyAuthentication,
+            OAuthAccessTokenAuthentication,
+        ],
     )
     def hedgehog_config(self, request, **kwargs):
         instance = self.get_object()
@@ -514,11 +576,23 @@ class UserViewSet(
     @action(methods=["GET"], detail=True)
     def two_factor_start_setup(self, request, **kwargs):
         key = random_hex(20)
-        self.request.session["django_two_factor-hex"] = key
         rawkey = unhexlify(key.encode("ascii"))
         b32key = b32encode(rawkey).decode("utf-8")
-        self.request.session["django_two_factor-qr_secret_key"] = b32key
-        return Response({"success": True})
+
+        # Concurrent requests can overwrite session saves, breaking the 2FA setup flow, but cache is atomic
+        session_cache = SessionCache(request.session)
+
+        # Store for 10 minutes (same as django-two-factor-auth setup flow)
+        session_cache.set("django_two_factor-hex", key, timeout=600, store_in_session=True)
+        session_cache.set("django_two_factor-qr_secret_key", b32key, timeout=600, store_in_session=True)
+
+        # Return the secret key so the frontend can generate QR code and show it for manual entry
+        return Response(
+            {
+                "success": True,
+                "secret": b32key,
+            }
+        )
 
     # Deprecated - use two_factor_validate instead
     @action(methods=["POST"], detail=True)
@@ -527,8 +601,16 @@ class UserViewSet(
 
     @action(methods=["POST"], detail=True)
     def two_factor_validate(self, request, **kwargs):
+        session_cache = SessionCache(request.session)
+        hex_key = session_cache.get("django_two_factor-hex")
+
+        if not hex_key:
+            raise serializers.ValidationError(
+                "2FA setup session expired. Please start setup again.", code="setup_expired"
+            )
+
         form = TOTPDeviceForm(
-            request.session["django_two_factor-hex"],
+            hex_key,
             request.user,
             data={"token": request.data["token"]},
         )
@@ -536,8 +618,12 @@ class UserViewSet(
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
         form.save()
         otp_login(request, default_device(request.user))
+        set_two_factor_verified_in_session(request)
 
         send_two_factor_auth_enabled_email.delay(request.user.id)
+
+        session_cache.delete("django_two_factor-hex")
+        session_cache.delete("django_two_factor-qr_secret_key")
 
         return Response({"success": True})
 

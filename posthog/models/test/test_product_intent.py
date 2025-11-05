@@ -2,18 +2,17 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from freezegun import freeze_time
+from posthog.test.base import BaseTest
+from unittest.mock import patch
 
+from posthog.models.dashboard import Dashboard
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.surveys.survey import Survey
 from posthog.models.insight import Insight
-from posthog.models.product_intent.product_intent import (
-    ProductIntent,
-    calculate_product_activation,
-)
-from ...session_recordings.models.session_recording import SessionRecording
-from posthog.test.base import BaseTest
-from posthog.models.dashboard import Dashboard
+from posthog.models.product_intent.product_intent import ProductIntent, calculate_product_activation
+from posthog.models.surveys.survey import Survey
+from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.utils import get_instance_realm
 
 
 class TestProductIntent(BaseTest):
@@ -42,6 +41,34 @@ class TestProductIntent(BaseTest):
 
         assert intent is not None
         assert intent.contexts == {"test": 2}
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_register_with_onboarding_sets_onboarding_completed_at(self):
+        ProductIntent.register(
+            team=self.team,
+            product_type="product_analytics",
+            context="onboarding product selected - primary",
+            user=self.user,
+            is_onboarding=True,
+        )
+
+        intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+        assert intent.onboarding_completed_at == datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+        assert intent.contexts == {"onboarding product selected - primary": 1}
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    def test_register_without_onboarding_does_not_set_onboarding_completed_at(self):
+        ProductIntent.register(
+            team=self.team,
+            product_type="product_analytics",
+            context="test context",
+            user=self.user,
+            is_onboarding=False,
+        )
+
+        intent = ProductIntent.objects.get(team=self.team, product_type="product_analytics")
+        assert intent.onboarding_completed_at is None
+        assert intent.contexts == {"test context": 1}
 
     @freeze_time("2024-06-15T12:00:00Z")
     def test_has_activated_data_warehouse_with_valid_query(self):
@@ -264,6 +291,62 @@ class TestProductIntent(BaseTest):
 
         assert self.product_intent.has_activated_session_replay() is False
 
+    @freeze_time("2024-01-01T12:00:00Z")
+    @patch("posthog.event_usage.report_user_action")
+    def test_register_reports_correct_user_action_for_onboarding(self, mock_report_user_action):
+        ProductIntent.register(
+            team=self.team,
+            product_type="product_analytics",
+            context="onboarding product selected - primary",
+            user=self.user,
+            metadata={"extra": "data"},
+            is_onboarding=True,
+        )
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "user showed product intent",
+            {
+                "extra": "data",
+                "product_key": "product_analytics",
+                "$set_once": {"first_onboarding_product_selected": "product_analytics"},
+                "intent_context": "onboarding product selected - primary",
+                "is_first_intent_for_product": True,
+                "intent_created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "intent_updated_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "realm": get_instance_realm(),
+            },
+            team=self.team,
+        )
+
+    @freeze_time("2024-01-01T12:00:00Z")
+    @patch("posthog.event_usage.report_user_action")
+    def test_register_reports_correct_user_action_for_non_onboarding(self, mock_report_user_action):
+        ProductIntent.register(
+            team=self.team,
+            product_type="product_analytics",
+            context="test context",
+            user=self.user,
+            metadata={"extra": "data"},
+            is_onboarding=False,
+        )
+
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "user showed product intent",
+            {
+                "extra": "data",
+                "product_key": "product_analytics",
+                "$set_once": {},
+                "intent_context": "test context",
+                "is_first_intent_for_product": True,
+                "intent_created_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "intent_updated_at": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
+                "realm": get_instance_realm(),
+            },
+            team=self.team,
+        )
+
     def test_has_activated_product_analytics_with_all_criteria(self):
         self.product_intent.product_type = "product_analytics"
         self.product_intent.save()
@@ -366,6 +449,55 @@ class TestProductIntent(BaseTest):
 
         assert self.product_intent.has_activated_product_analytics() is True
 
+    @freeze_time("2024-06-15T12:00:00Z")
+    @patch("posthog.event_usage.report_user_action")
+    def test_register_tracks_intent_even_when_already_activated(self, mock_report_user_action):
+        # Create an insight that should trigger activation for data_warehouse
+        Insight.objects.create(
+            team=self.team, query={"kind": "DataVisualizationNode", "source": {"query": "SELECT * FROM custom_table"}}
+        )
+
+        # Register intent which should activate immediately
+        ProductIntent.register(
+            team=self.team,
+            product_type="data_warehouse",
+            context="initial context",
+            user=self.user,
+        )
+
+        # Verify the intent was activated
+        intent = ProductIntent.objects.get(team=self.team, product_type="data_warehouse")
+        assert intent.activated_at is not None
+
+        # Clear the mock to count only subsequent calls
+        mock_report_user_action.reset_mock()
+
+        # Register intent again with a different context
+        ProductIntent.register(
+            team=self.team,
+            product_type="data_warehouse",
+            context="another context",
+            user=self.user,
+            metadata={"source": "dashboard"},
+        )
+
+        # Verify that report_user_action was called even though the intent was already activated
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "user showed product intent",
+            {
+                "source": "dashboard",
+                "product_key": "data_warehouse",
+                "$set_once": {},
+                "intent_context": "another context",
+                "is_first_intent_for_product": False,
+                "intent_created_at": intent.created_at,
+                "intent_updated_at": intent.updated_at,
+                "realm": get_instance_realm(),
+            },
+            team=self.team,
+        )
+
     def test_has_activated_surveys_with_launched(self):
         self.product_intent.product_type = "surveys"
         self.product_intent.save()
@@ -385,3 +517,33 @@ class TestProductIntent(BaseTest):
 
         Survey.objects.create(team=self.team, name="Survey Test")
         assert self.product_intent.has_activated_surveys() is False
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    def test_check_and_update_activation_skips_if_already_activated(self):
+        # First activate it
+        Insight.objects.create(
+            team=self.team, query={"kind": "DataVisualizationNode", "source": {"query": "SELECT * FROM custom_table"}}
+        )
+        self.product_intent.check_and_update_activation()
+        initial_activated_at = self.product_intent.activated_at
+        initial_last_checked = self.product_intent.activation_last_checked_at
+
+        # Move time forward and check again
+        with freeze_time("2024-06-16T12:00:00Z"):
+            result = self.product_intent.check_and_update_activation()
+            self.product_intent.refresh_from_db()
+
+            assert result is True  # Returns True for already activated
+            assert self.product_intent.activated_at == initial_activated_at  # Activation time unchanged
+            assert self.product_intent.activation_last_checked_at == initial_last_checked  # Last checked unchanged
+
+    @freeze_time("2024-06-15T12:00:00Z")
+    def test_check_and_update_activation_updates_last_checked_for_non_activated(self):
+        initial_last_checked = self.product_intent.activation_last_checked_at
+        result = self.product_intent.check_and_update_activation()
+        self.product_intent.refresh_from_db()
+
+        assert result is False  # Not activated
+        assert self.product_intent.activated_at is None  # Still not activated
+        assert self.product_intent.activation_last_checked_at == datetime(2024, 6, 15, 12, 0, 0, tzinfo=UTC)
+        assert self.product_intent.activation_last_checked_at != initial_last_checked

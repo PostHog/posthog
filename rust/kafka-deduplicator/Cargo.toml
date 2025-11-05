@@ -1,0 +1,53 @@
+[package]
+name = "kafka-deduplicator"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+axum = { workspace = true }
+bincode = { version = "2.0.1", features = ["serde"] }
+bytesize = "1.3"
+chrono = { workspace = true }
+common-profiler = { path = "../common/profiler" }
+common-kafka = { path = "../common/kafka" }
+common-types = { path = "../common/types" }
+dashmap = "6.1"
+envconfig = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+health = { path = "../common/health" }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+num_cpus = "1.17.0"
+once_cell = "1.21"
+opentelemetry = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+rdkafka = { workspace = true }
+rocksdb = "0.24.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serve-metrics = { path = "../common/serve_metrics" }
+sha2 = "0.10.9"
+strum = "0.27.0"
+strum_macros = "0.27.2"
+time = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { version = "0.7.16", features = ["rt"] }
+tracing = { workspace = true }
+tracing-opentelemetry = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[package.metadata.cargo-shear]
+ignored = ["strum"]

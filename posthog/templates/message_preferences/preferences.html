@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Message Preferences</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body>
+        {% block content %}
+        <div class="min-h-screen bg-gray-50">
+            <div class="max-w-lg mx-auto py-12 px-4 sm:px-6 lg:px-8">
+                <div class="bg-white shadow-xl rounded-xl p-8">
+                    <h1 class="text-3xl font-bold text-gray-900 mb-2">Message Preferences</h1>
+                    <p class="text-gray-600 text-lg mb-8">Manage message preferences for {{ recipient.identifier }}</p>
+
+                    <form id="preferences-form" class="space-y-6">
+                        {% csrf_token %}
+                        <input type="hidden" name="token" value="{{ token }}" />
+
+                        {% for category in categories %}
+                        <div class="bg-gray-50 rounded-lg p-6 transition-all duration-200 hover:shadow-md">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h3 class="text-lg font-medium text-gray-900">{{ category.name }}</h3>
+                                    <p class="text-sm text-gray-500 mt-1">{{ category.description }}</p>
+                                </div>
+                                <div class="relative inline-block w-12 mr-2 align-middle select-none">
+                                    <input
+                                        type="checkbox"
+                                        name="{{ category.id }}"
+                                        id="{{ category.id }}"
+                                        {% if category.status != "OPTED_OUT" %}checked{% endif %}
+                                        class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-full checked:bg-blue-500"
+                                    />
+                                    <label
+                                        for="{{ category.id }}"
+                                        class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"
+                                    ></label>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+
+                        <div class="mt-8">
+                            <button
+                                type="submit"
+                                class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out"
+                            >
+                                Save preferences
+                            </button>
+                        </div>
+                    </form>
+
+                    <div id="success-message" class="hidden mt-4 p-4 rounded-md bg-green-50 text-green-700">
+                        <p class="text-sm font-medium">Your preferences have been updated successfully!</p>
+                    </div>
+
+                    <div id="error-message" class="hidden mt-4 p-4 rounded-md bg-red-50 text-red-700">
+                        <p class="text-sm font-medium">
+                            There was an error updating your preferences. Please try again.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script nonce="{{ request.csp_nonce }}">
+            document.addEventListener('DOMContentLoaded', function () {
+                const form = document.getElementById('preferences-form')
+                const toggles = document.querySelectorAll('.toggle-checkbox')
+
+                toggles.forEach((toggle) => {
+                    toggle.addEventListener('change', function () {
+                        const card = this.closest('.bg-gray-50')
+                        card.style.transform = 'scale(1.02)'
+                        setTimeout(() => {
+                            card.style.transform = 'scale(1)'
+                        }, 200)
+                    })
+                })
+
+                form.addEventListener('submit', async function (e) {
+                    e.preventDefault()
+                    const submitButton = form.querySelector('button[type="submit"]')
+                    submitButton.disabled = true
+
+                    const formData = new FormData()
+                    formData.append('token', document.querySelector('input[name="token"]').value)
+
+                    // Add all toggle states to formData using the full category key
+                    toggles.forEach((toggle) => {
+                        formData.append('preferences[]', `${toggle.name}:${toggle.checked}`)
+                    })
+
+                    try {
+                        const response = await fetch('{% url "message_preferences_update" %}', {
+                            method: 'POST',
+                            body: formData,
+                            headers: {
+                                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                            },
+                        })
+
+                        const data = await response.json()
+                        if (data.error) {
+                            throw new Error(data.error)
+                        }
+
+                        // Enhanced success message
+                        const successMsg = document.createElement('div')
+                        successMsg.className =
+                            'fixed top-4 right-4 bg-green-500 text-white px-6 py-4 rounded-lg shadow-xl transform transition-all duration-500 ease-out'
+                        successMsg.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    <span class="font-medium">Preferences updated successfully</span>
+                </div>
+            `
+                        document.body.appendChild(successMsg)
+
+                        // Animate in
+                        successMsg.style.transform = 'translateX(100%)'
+                        requestAnimationFrame(() => {
+                            successMsg.style.transform = 'translateX(0)'
+                        })
+
+                        // Animate out
+                        setTimeout(() => {
+                            successMsg.style.transform = 'translateX(100%)'
+                            setTimeout(() => successMsg.remove(), 500)
+                        }, 2500)
+                    } catch (error) {
+                        // Enhanced error message
+                        const errorMsg = document.createElement('div')
+                        errorMsg.className =
+                            'fixed top-4 right-4 bg-red-500 text-white px-6 py-4 rounded-lg shadow-xl transform transition-all duration-500 ease-out'
+                        errorMsg.innerHTML = `
+                <div class="flex items-center space-x-2">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                    <span class="font-medium">${error.message || 'Failed to update preferences'}</span>
+                </div>
+            `
+                        document.body.appendChild(errorMsg)
+
+                        // Animate in
+                        errorMsg.style.transform = 'translateX(100%)'
+                        requestAnimationFrame(() => {
+                            errorMsg.style.transform = 'translateX(0)'
+                        })
+
+                        // Animate out
+                        setTimeout(() => {
+                            errorMsg.style.transform = 'translateX(100%)'
+                            setTimeout(() => errorMsg.remove(), 500)
+                        }, 2500)
+                    } finally {
+                        submitButton.disabled = false
+                    }
+                })
+            })
+        </script>
+        {% endblock %}
+    </body>
+</html>

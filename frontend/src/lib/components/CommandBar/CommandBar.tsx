@@ -1,13 +1,14 @@
 import './index.scss'
 
 import { useActions, useValues } from 'kea'
-import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { forwardRef, useRef } from 'react'
 
+import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
+
 import { ActionBar } from './ActionBar'
-import { commandBarLogic } from './commandBarLogic'
 import { SearchBar } from './SearchBar'
 import { Shortcuts } from './Shortcuts'
+import { commandBarLogic } from './commandBarLogic'
 import { BarStatus } from './types'
 
 interface CommandBarOverlayProps {
@@ -20,7 +21,7 @@ const CommandBarOverlay = forwardRef<HTMLDivElement, CommandBarOverlayProps>(fun
     ref
 ): JSX.Element {
     return (
-        <div className="CommandBar__overlay fixed">
+        <div className="CommandBar__overlay fixed group/colorful-product-icons colorful-product-icons-true">
             <div className="CommandBar__overlay-content">
                 <div
                     data-attr="command-bar"
@@ -41,7 +42,15 @@ export function CommandBar(): JSX.Element | null {
     const { barStatus } = useValues(commandBarLogic)
     const { hideCommandBar } = useActions(commandBarLogic)
 
-    useOutsideClickHandler([containerRef], hideCommandBar, [])
+    useOutsideClickHandler(
+        [containerRef],
+        () => {
+            if (barStatus !== BarStatus.HIDDEN) {
+                hideCommandBar()
+            }
+        },
+        [barStatus]
+    )
 
     if (barStatus === BarStatus.HIDDEN) {
         return null

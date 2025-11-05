@@ -6,23 +6,21 @@
         "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json"
     },
     "dependencies": {
-        "eslint-plugin-posthog": "workspace:*"
+        "posthog-js": "1.285.0"
     },
     "devDependencies": {
         "ts-json-schema-generator": "^v2.4.0-next.6"
     },
     "peerDependencies": {
         "@posthog/rrweb-types": "*",
-        "@sentry/react": "*",
         "ajv": "*",
         "classnames": "*",
         "clsx": "*",
         "eslint": "*",
-        "eslint-plugin-posthog": "*",
         "prettier": "*",
+        "process": "*",
         "react": "*",
         "stylelint": "*",
-        "typescript": "*",
-        "process": "*"
+        "typescript": "*"
     }
 }

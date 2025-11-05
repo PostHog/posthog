@@ -1,5 +1,7 @@
 from typing import Any
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
 from posthog.models import Entity
 from posthog.models.action.util import format_action_filter
@@ -8,7 +10,6 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.queries.event_query import EventQuery
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import get_person_properties_mode, get_start_of_interval_sql
-from posthog.schema import PersonsOnEventsMode
 
 
 class StickinessEventsQuery(EventQuery):

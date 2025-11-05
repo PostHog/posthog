@@ -1,25 +1,34 @@
-import datetime
 import uuid
+import datetime
+from datetime import timedelta
 from typing import cast
-from unittest import mock
-from unittest.mock import ANY, patch
 from urllib.parse import quote, unquote
 
+from freezegun.api import freeze_time
+from posthog.test.base import APIBaseTest
+from unittest import mock
+from unittest.mock import ANY, patch
+
+from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
+from django.test import override_settings
 from django.utils import timezone
 from django.utils.text import slugify
+
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
-from freezegun.api import freeze_time
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
+from posthog.api.test.test_oauth import generate_rsa_key
 from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.test.base import APIBaseTest
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 
 def create_user(email: str, password: str, organization: Organization):
@@ -100,6 +109,7 @@ class TestUserAPI(APIBaseTest):
                     "slug": slugify(self.organization.name),
                     "logo_media_id": None,
                     "membership_level": 1,
+                    "members_can_use_personal_api_keys": True,
                 },
                 {
                     "id": str(self.new_org.id),
@@ -107,6 +117,7 @@ class TestUserAPI(APIBaseTest):
                     "slug": "new-organization",
                     "logo_media_id": None,
                     "membership_level": 1,
+                    "members_can_use_personal_api_keys": True,
                 },
             ],
         )
@@ -155,6 +166,45 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json(), self.unauthenticated_response())
+
+    def test_non_admin_filter_users_by_email(self):
+        org = Organization.objects.create()
+        user = User.objects.create(
+            email="foo@bar.com",
+            password="<PASSWORD>",
+            organization=org,
+            current_team=Team.objects.create(organization=org, name="Another team"),
+        )
+
+        response = self.client.get(f"/api/users/?email={user.email}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0, "Should not return users from another orgs")
+
+    def test_admin_filter_users_by_email(self):
+        admin = User.objects.create(
+            email="admin@admin.com",
+            password="pw",
+            organization=self.organization,
+            current_team=self.team,
+            is_staff=True,
+        )
+        self.client.force_authenticate(admin)
+        org = Organization.objects.create()
+        user = User.objects.create(
+            email="foo@bar.com",
+            password="<PASSWORD>",
+            organization=org,
+            current_team=Team.objects.create(organization=org, name="Another team"),
+        )
+
+        response = self.client.get(f"/api/users/?email={user.email}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1, "Admin users should be able to list users from other orgs")
+        response_user = response.json()["results"][0]
+        self.assertEqual(response_user["email"], user.email)
+        self.assertEqual(response_user["id"], user.id, "User id should be returned")
 
     # CREATING USERS
 
@@ -213,13 +263,13 @@ class TestUserAPI(APIBaseTest):
         self.assertNotEqual(user.uuid, 1)
         self.assertEqual(user.first_name, "Cooper")
         self.assertEqual(user.anonymize_data, True)
-        self.assertDictContainsSubset({"plugin_disabled": False}, user.notification_settings)
+        self.assertLessEqual({"plugin_disabled": False}.items(), user.notification_settings.items())
         self.assertEqual(user.has_seen_product_intro_for, {"feature_flags": True})
         self.assertEqual(user.role_at_organization, "engineering")
 
         mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "user updated",
+            event="user updated",
+            distinct_id=user.distinct_id,
             properties={
                 "updated_attrs": [
                     "anonymize_data",
@@ -237,6 +287,27 @@ class TestUserAPI(APIBaseTest):
                 "project": str(self.team.uuid),
             },
         )
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_user_can_cancel_own_email_change_request(self, _mock_capture, _mock_identify_task):
+        self.user.pending_email = "another@email.com"
+        self.user.save()
+
+        response = self.client.patch("/api/users/cancel_email_change_request")
+
+        response_data = response.json()
+        assert response.status_code == status.HTTP_200_OK
+        assert response_data["pending_email"] is None
+
+    @patch("posthog.tasks.user_identify.identify_task")
+    @patch("posthoganalytics.capture")
+    def test_user_cannot_cancel_email_change_request_if_it_doesnt_exist(self, _mock_capture, _mock_identify_task):
+        # Fire a call to the endpoint without priming the User with a pending_email field
+
+        response = self.client.patch("/api/users/cancel_email_change_request")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
@@ -493,8 +564,8 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.current_team, self.new_project)
 
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
-            "user updated",
+            event="user updated",
+            distinct_id=self.user.distinct_id,
             properties={"updated_attrs": ["current_organization", "current_team"], "$set": mock.ANY},
             groups={
                 "instance": ANY,
@@ -521,8 +592,8 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.current_team, team)
 
         mock_capture.assert_called_once_with(
-            self.user.distinct_id,
-            "user updated",
+            event="user updated",
+            distinct_id=self.user.distinct_id,
             properties={"updated_attrs": ["current_organization", "current_team"], "$set": mock.ANY},
             groups={
                 "instance": ANY,
@@ -638,9 +709,109 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/").json()
         self.assertEqual(response["team"]["id"], team2.pk)
 
+    def test_team_property_does_not_save_when_no_teams_found(self):
+        """
+        Test that the team property doesn't trigger a save when the teams query returns None
+        """
+        # Create a brand new user that belongs to no organizations or teams
+        new_user = User.objects.create_user(
+            email="newuser@posthog.com", password="testpass123", first_name="New", last_name="User"
+        )
+
+        # Clear the cached properties to force re-evaluation
+        if hasattr(new_user, "_cached_team"):
+            delattr(new_user, "_cached_team")
+        if hasattr(new_user, "_cached_organization"):
+            delattr(new_user, "_cached_organization")
+
+        # Now test the team property - this should not trigger a save since no teams exist
+        with mock.patch.object(new_user, "save") as mock_save:
+            team = new_user.team  # Property access, but it can actually perform a save
+
+            # Verify no save was called for the team property
+            mock_save.assert_not_called()
+
+            # Verify team is None
+            self.assertIsNone(team)
+            self.assertIsNone(new_user.current_team)
+
+    def test_team_property_saves_when_team_found(self):
+        """
+        Test that the team property does trigger a save when a team is found
+        """
+        # Set current organization but no current team
+        self.user.current_team = None
+        self.user.save()
+
+        # Clear the cached property to force re-evaluation
+        if hasattr(self.user, "_cached_team"):
+            delattr(self.user, "_cached_team")
+
+        # Mock the save method to track if it's called
+        with mock.patch.object(self.user, "save") as mock_save:
+            # Access the team property - this should trigger a save since a team exists
+            result_team = self.user.team
+
+            # Verify save was called with correct parameters
+            mock_save.assert_called_once_with(update_fields=["current_team"])
+
+            # Verify team is set correctly
+            self.assertEqual(result_team, self.team)
+            self.assertEqual(self.user.current_team, self.team)
+
+    def test_organization_property_does_not_save_when_no_organizations_found(self):
+        """
+        Test that the organization property doesn't trigger a save when no organizations exist
+        """
+        # Create a brand new user that belongs to no organizations or teams
+        new_user = User.objects.create_user(
+            email="newuser2@posthog.com", password="testpass123", first_name="New", last_name="User"
+        )
+
+        # Access the organization property - this should NOT trigger a save since no organizations exist
+        with mock.patch.object(new_user, "save") as mock_save:
+            organization = new_user.organization
+
+            # Verify no save was called for the organization property
+            mock_save.assert_not_called()
+
+            # Verify organization is None
+            self.assertIsNone(organization)
+            self.assertIsNone(new_user.current_organization)
+
+    def test_organization_property_saves_when_organization_found(self):
+        """
+        Test that the organization property does trigger a save when an organization is found
+        """
+        # Create a new organization and add the user to it
+        new_org = Organization.objects.create(name="Test Organization")
+        self.user.join(organization=new_org)
+
+        # Set current organization to None to simulate the property needing to find and set it
+        self.user.current_organization = None
+        self.user.save()
+
+        # Clear the cached property to force re-evaluation
+        if hasattr(self.user, "_cached_organization"):
+            delattr(self.user, "_cached_organization")
+
+        # Mock the save method to track if it's called
+        with mock.patch.object(self.user, "save") as mock_save:
+            # Access the organization property - this should trigger a save since an organization exists
+            result_organization = self.user.organization
+
+            # Verify save was called with correct parameters
+            mock_save.assert_called_once_with(update_fields=["current_organization"])
+
+            # Verify organization is set correctly (should be one of the user's organizations)
+            self.assertIsNotNone(result_organization)
+            self.assertIn(result_organization, [self.organization, new_org])
+            self.assertEqual(self.user.current_organization, result_organization)
+
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_can_update_password(self, mock_capture, mock_identify):
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_user_can_update_password(self, mock_send_password_changed_email, mock_capture, mock_identify):
         user = self._create_user("bob@posthog.com", password="A12345678")
         self.client.force_login(user)
 
@@ -663,8 +834,8 @@ class TestUserAPI(APIBaseTest):
         self.assertTrue(user.check_password("a_new_password"))
 
         mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "user updated",
+            event="user updated",
+            distinct_id=user.distinct_id,
             properties={"updated_attrs": ["password"], "$set": mock.ANY},
             groups={
                 "instance": ANY,
@@ -677,9 +848,15 @@ class TestUserAPI(APIBaseTest):
         response = self.client.post("/api/login", {"email": "bob@posthog.com", "password": "a_new_password"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+        # Assert password changed email was sent
+        mock_send_password_changed_email.assert_called_once_with(user.id)
+
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
-    def test_user_with_no_password_set_can_set_password(self, mock_capture, mock_identify):
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_user_with_no_password_set_can_set_password(
+        self, mock_send_password_changed_email, mock_capture, mock_identify
+    ):
         user = self._create_user("no_password@posthog.com", password=None)
         self.client.force_login(user)
 
@@ -702,8 +879,8 @@ class TestUserAPI(APIBaseTest):
         self.assertTrue(user.check_password("a_new_password"))
 
         mock_capture.assert_called_once_with(
-            user.distinct_id,
-            "user updated",
+            event="user updated",
+            distinct_id=user.distinct_id,
             properties={"updated_attrs": ["password"], "$set": mock.ANY},
             groups={
                 "instance": ANY,
@@ -719,7 +896,11 @@ class TestUserAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_user_with_unusable_password_set_can_set_password(self):
+        # Assert password changed email was sent
+        mock_send_password_changed_email.assert_called_once_with(user.id)
+
+    @patch("posthog.tasks.email.send_password_changed_email.delay")
+    def test_user_with_unusable_password_set_can_set_password(self, mock_send_password_changed_email):
         user = self._create_user("no_password@posthog.com", password="123456789")
         user.set_unusable_password()
         user.save()
@@ -819,9 +1000,9 @@ class TestUserAPI(APIBaseTest):
         for _ in range(7):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertDictContainsSubset(
-            {"attr": None, "code": "throttled", "type": "throttled_error"},
-            response.json(),
+        self.assertLessEqual(
+            {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+            response.json().items(),
         )
 
         # Password was not changed
@@ -852,17 +1033,88 @@ class TestUserAPI(APIBaseTest):
             response = self.client.patch("/api/users/@me/", {"organization_name": "new name"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    # DELETING USER
+    def test_cannot_delete_user_with_organization_memberships(self):
+        user = self._create_user("activeorgmemberships@posthog.com", password="test")
 
-    def test_deleting_current_user_is_not_supported(self):
-        """
-        Self-serve account deletion is currently not supported.
-        """
-        response = self.client.delete("/api/users/@me/")
-        self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
-        self.assertEqual(response.json(), self.method_not_allowed_response("DELETE"))
+        self.client.force_login(user)
 
-        self.user.refresh_from_db()
+        user.join(organization=self.new_org, level=OrganizationMembership.Level.MEMBER)
+
+        assert OrganizationMembership.objects.filter(user=user, organization=self.new_org).exists()
+
+        response = self.client.delete(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+    @patch("posthoganalytics.capture")
+    def test_can_delete_user_with_no_organization_memberships(self, mock_capture):
+        user = self._create_user("noactiveorgmemberships@posthog.com", password="test")
+
+        self.client.force_login(user)
+
+        user.join(organization=self.new_org, level=OrganizationMembership.Level.MEMBER)
+
+        assert OrganizationMembership.objects.filter(user=user, organization=self.new_org).exists()
+
+        OrganizationMembership.objects.filter(user=user).delete()
+
+        assert not OrganizationMembership.objects.filter(user=user).exists()
+
+        response = self.client.delete(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not User.objects.filter(uuid=user.uuid).exists()
+
+        mock_capture.assert_called_once_with(
+            distinct_id=user.distinct_id,
+            event="user account deleted",
+            properties=mock.ANY,
+        )
+
+    def test_cannot_delete_another_user_with_no_org_memberships(self):
+        user = self._create_user("deleteanotheruser@posthog.com", password="test")
+
+        user_with_no_org_memberships = self._create_user("userwithnoorgmemberships@posthog.com", password="test")
+
+        OrganizationMembership.objects.filter(user=user_with_no_org_memberships).delete()
+
+        assert not OrganizationMembership.objects.filter(user=user_with_no_org_memberships).exists()
+
+        self.client.force_login(user)
+
+        response = self.client.delete(f"/api/users/{user_with_no_org_memberships.uuid}/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert User.objects.filter(uuid=user_with_no_org_memberships.uuid).exists()
+
+    def test_forbidden_to_delete_another_user_with_org_memberships(self):
+        user = self._create_user("deleteanotheruser@posthog.com", password="test")
+
+        user_with_org_memberships = self._create_user("userwithorgmemberships@posthog.com", password="test")
+
+        assert OrganizationMembership.objects.filter(user=user_with_org_memberships).exists()
+
+        self.client.force_login(user)
+
+        response = self.client.delete(f"/api/users/{user_with_org_memberships.uuid}/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert User.objects.filter(uuid=user_with_org_memberships.uuid).exists()
+
+    def test_cannot_delete_own_user_account_with_personal_api_key(self):
+        api_key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Delete User Account Key",
+            user=self.user,
+            secure_value=hash_key_value(api_key_value),
+            scopes=["*"],
+        )
+
+        OrganizationMembership.objects.filter(user=self.user).delete()
+
+        assert not OrganizationMembership.objects.filter(user=self.user).exists()
+
+        self.client.logout()
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key_value}")
+        response = self.client.delete(f"/api/users/@me/")
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.api.user.secrets.token_urlsafe")
     def test_redirect_user_to_site_with_toolbar(self, patched_token):
@@ -987,7 +1239,10 @@ class TestUserAPI(APIBaseTest):
             {
                 "notification_settings": {
                     "plugin_disabled": False,
+                    "discussions_mentioned": False,
+                    "error_tracking_issue_assigned": False,
                     "project_weekly_digest_disabled": {123: True},
+                    "all_weekly_digest_disabled": True,
                 }
             },
         )
@@ -998,9 +1253,10 @@ class TestUserAPI(APIBaseTest):
             response_data["notification_settings"],
             {
                 "plugin_disabled": False,
+                "discussions_mentioned": False,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
-                "all_weekly_digest_disabled": False,
-                "error_tracking_issue_assigned": True,
+                "all_weekly_digest_disabled": True,
+                "error_tracking_issue_assigned": False,
             },
         )
 
@@ -1009,9 +1265,10 @@ class TestUserAPI(APIBaseTest):
             self.user.partial_notification_settings,
             {
                 "plugin_disabled": False,
+                "discussions_mentioned": False,
                 "project_weekly_digest_disabled": {"123": True},
-                "all_weekly_digest_disabled": False,
-                "error_tracking_issue_assigned": True,
+                "all_weekly_digest_disabled": True,
+                "error_tracking_issue_assigned": False,
             },
         )
 
@@ -1074,6 +1331,7 @@ class TestUserAPI(APIBaseTest):
             response_data["notification_settings"],
             {
                 "plugin_disabled": True,  # Default value
+                "discussions_mentioned": True,  # Default value
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
@@ -1224,8 +1482,8 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         # assert events were captured
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "user logged in",
+            event="user logged in",
+            distinct_id=self.user.distinct_id,
             properties={"social_provider": ""},
             groups={
                 "instance": ANY,
@@ -1234,14 +1492,14 @@ class TestEmailVerificationAPI(APIBaseTest):
             },
         )
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "user verified email",
+            event="user verified email",
+            distinct_id=self.user.distinct_id,
             properties={"$set": ANY},
         )
 
         mock_capture.assert_any_call(
-            self.user.distinct_id,
-            "verification email sent",
+            event="verification email sent",
+            distinct_id=self.user.distinct_id,
             groups={
                 "organization": str(self.team.organization_id),
             },
@@ -1277,9 +1535,9 @@ class TestEmailVerificationAPI(APIBaseTest):
             else:
                 # Fourth request should fail
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-                self.assertDictContainsSubset(
-                    {"attr": None, "code": "throttled", "type": "throttled_error"},
-                    response.json(),
+                self.assertLessEqual(
+                    {"attr": None, "code": "throttled", "type": "throttled_error"}.items(),
+                    response.json().items(),
                 )
 
         # Three emails should be sent, fourth should not
@@ -1431,7 +1689,7 @@ class TestUserTwoFactor(APIBaseTest):
     def test_two_factor_start_setup(self, mock_totp_form):
         response = self.client.get(f"/api/users/@me/two_factor_start_setup/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"success": True})
+        self.assertEqual(response.json(), {"success": True, "secret": ANY})
 
         # Verify session contains required keys
         self.assertIn("django_two_factor-hex", self.client.session)
@@ -1565,3 +1823,35 @@ class TestUserTwoFactor(APIBaseTest):
 
         # Verify email was triggered
         mock_send_email.delay.assert_called_once_with(self.user.id)
+
+    @override_settings(
+        OAUTH2_PROVIDER={
+            **settings.OAUTH2_PROVIDER,
+            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+        }
+    )
+    def test_team_scoped_oauth_token_with_user_read_can_access_me_endpoint(self):
+        oauth_app = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_id="test_client_id",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+
+        access_token = OAuthAccessToken.objects.create(
+            application=oauth_app,
+            user=self.user,
+            token="test_oauth_token",
+            scope="user:read project:read",
+            expires=timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+
+        response = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(response_data["uuid"], str(self.user.uuid))

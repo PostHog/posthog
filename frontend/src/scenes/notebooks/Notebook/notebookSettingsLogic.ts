@@ -7,13 +7,20 @@ export const notebookSettingsLogic = kea<notebookSettingsLogicType>([
     path(['scenes', 'notebooks', 'notebooks', 'notebookSettingsLogic']),
     actions({
         setIsExpanded: (expanded: boolean) => ({ expanded }),
+        setShowTableOfContents: (showTOC: boolean) => ({ showTOC }),
     }),
     reducers(() => ({
         isExpanded: [
-            true,
+            false,
             { persist: true },
             {
                 setIsExpanded: (_, { expanded }) => expanded,
+            },
+        ],
+        showTableOfContents: [
+            false,
+            {
+                setShowTableOfContents: (_, { showTOC }) => showTOC,
             },
         ],
     })),

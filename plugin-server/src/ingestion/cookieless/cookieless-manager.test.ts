@@ -1,21 +1,24 @@
-import type { PluginEvent } from '@posthog/plugin-scaffold'
 import fs from 'fs'
+import { Message } from 'node-rdkafka'
 import path from 'path'
 
-import { createOrganization, createTeam } from '~/tests/helpers/sql'
+import type { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 
 import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
-import { CookielessServerHashMode, Hub } from '../../types'
+import { CookielessServerHashMode, Hub, PipelineEvent, Team } from '../../types'
 import { RedisOperationError } from '../../utils/db/error'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { UUID7 } from '../../utils/utils'
+import { isOkResult } from '../pipelines/results'
 import {
-    bufferToSessionState,
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
     CookielessManager,
+    bufferToSessionState,
     extractRootDomain,
     getRedisIdentifiesKey,
     hashToDistinctId,
@@ -114,6 +117,7 @@ describe('CookielessManager', () => {
         let hub: Hub
         let organizationId: string
         let teamId: number
+        let team: Team
         const now = new Date('2025-01-10T11:00:00')
         const aBitLater = new Date('2025-01-10T11:10:00')
         const muchLater = new Date('2025-01-10T19:00:00')
@@ -132,6 +136,9 @@ describe('CookielessManager', () => {
         let mergeDangerouslyEvent: PluginEvent
         let nonCookielessEvent: PluginEvent
         let eventWithExtra: PluginEvent
+        const message = {
+            a: 'message',
+        } as unknown as Message
 
         beforeAll(async () => {
             hub = await createHub({})
@@ -148,13 +155,14 @@ describe('CookielessManager', () => {
             jest.clearAllTimers()
         })
 
-        const setModeForTeam = async (mode: CookielessServerHashMode, teamId: number) => {
+        const setModeForTeam = async (mode: CookielessServerHashMode) => {
             await hub.db.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET cookieless_server_hash_mode = $1 WHERE id = $2`,
                 [mode, teamId],
                 'set team to cookieless'
             )
+            team = (await getTeam(hub, teamId))!
         }
 
         const clearRedis = async () => {
@@ -165,6 +173,7 @@ describe('CookielessManager', () => {
 
         beforeEach(async () => {
             teamId = await createTeam(hub.db.postgres, organizationId)
+            team = (await getTeam(hub, teamId))!
             await clearRedis()
             hub.cookielessManager.deleteAllLocalSalts()
             event = deepFreeze({
@@ -269,16 +278,59 @@ describe('CookielessManager', () => {
             })
         })
 
+        async function processEvent(
+            event: PipelineEvent,
+            headers: {
+                token?: string
+                distinct_id?: string
+                timestamp?: string
+                force_disable_person_processing: boolean
+            } = { force_disable_person_processing: false }
+        ): Promise<PipelineEvent | undefined> {
+            const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
+            expect(response.length).toBe(1)
+            const result = response[0]
+            return isOkResult(result) ? result.value.event : undefined
+        }
+
+        async function processEventWithHeaders(
+            event: PipelineEvent,
+            headers: {
+                token?: string
+                distinct_id?: string
+                timestamp?: string
+                force_disable_person_processing: boolean
+            }
+        ): Promise<{
+            event: PipelineEvent | undefined
+            headers: {
+                token?: string
+                distinct_id?: string
+                timestamp?: string
+                force_disable_person_processing: boolean
+            }
+        }> {
+            const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
+            expect(response.length).toBe(1)
+            const result = response[0]
+            return {
+                event: isOkResult(result) ? result.value.event : undefined,
+                headers: isOkResult(result)
+                    ? result.value.headers || { force_disable_person_processing: false }
+                    : { force_disable_person_processing: false },
+            }
+        }
+
         // tests that are shared between both modes
         describe.each([
             ['stateless', CookielessServerHashMode.Stateless],
             ['stateful', CookielessServerHashMode.Stateful],
         ])('common (%s)', (_, mode) => {
             beforeEach(async () => {
-                await setModeForTeam(mode, teamId)
+                await setModeForTeam(mode)
             })
             it('should give an event a distinct id and session id ', async () => {
-                const actual = await hub.cookielessManager.processEvent(event)
+                const actual = await processEvent(event)
 
                 if (!actual?.properties) {
                     throw new Error('no event or properties')
@@ -288,8 +340,8 @@ describe('CookielessManager', () => {
                 expect(actual.properties.$session_id).toBeTruthy()
             })
             it('should give the same session id and distinct id to events with the same hash properties and within the same day and session timeout period', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(event)
-                const actual2 = await hub.cookielessManager.processEvent(eventABitLater)
+                const actual1 = await processEvent(event)
+                const actual2 = await processEvent(eventABitLater)
 
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
@@ -299,8 +351,8 @@ describe('CookielessManager', () => {
                 expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
             })
             it('should give different distinct id and session id to a user with a different IP', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(event)
-                const actual2 = await hub.cookielessManager.processEvent(eventOtherUser)
+                const actual1 = await processEvent(event)
+                const actual2 = await processEvent(eventOtherUser)
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
                 }
@@ -308,9 +360,9 @@ describe('CookielessManager', () => {
                 expect(actual1.properties.$session_id).not.toEqual(actual2.properties.$session_id)
             })
             it('should give different distinct id and session id to events on different days', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(event)
+                const actual1 = await processEvent(event)
                 jest.setSystemTime(differentDay) // advance time to the next day
-                const actual2 = await hub.cookielessManager.processEvent(eventDifferentDay)
+                const actual2 = await processEvent(eventDifferentDay)
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
                 }
@@ -318,7 +370,7 @@ describe('CookielessManager', () => {
                 expect(actual1.properties.$session_id).not.toEqual(actual2.properties.$session_id)
             })
             it('should strip the PII used in the hash', async () => {
-                const actual = await hub.cookielessManager.processEvent(eventWithExtra)
+                const actual = await processEvent(eventWithExtra)
 
                 if (!actual?.properties) {
                     throw new Error('no event or properties')
@@ -329,19 +381,19 @@ describe('CookielessManager', () => {
                 expect(actual.properties.$cookieless_extra).toBeUndefined()
             })
             it('should drop alias and merge events', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(aliasEvent)
-                const actual2 = await hub.cookielessManager.processEvent(mergeDangerouslyEvent)
+                const actual1 = await processEvent(aliasEvent)
+                const actual2 = await processEvent(mergeDangerouslyEvent)
                 expect(actual1).toBeUndefined()
                 expect(actual2).toBeUndefined()
             })
             it('should pass through non-cookieless events', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(nonCookielessEvent)
+                const actual1 = await processEvent(nonCookielessEvent)
                 expect(actual1).toBe(nonCookielessEvent)
             })
             it('should work even if the local salt map is torn down between events (as it can use redis)', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(event)
+                const actual1 = await processEvent(event)
                 hub.cookielessManager.deleteAllLocalSalts()
-                const actual2 = await hub.cookielessManager.processEvent(eventABitLater)
+                const actual2 = await processEvent(eventABitLater)
 
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
@@ -351,8 +403,8 @@ describe('CookielessManager', () => {
                 expect(actual2.properties.$session_id).toEqual(actual1.properties.$session_id)
             })
             it('should count as a different user if the extra value is different', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(event)
-                const actual2 = await hub.cookielessManager.processEvent(eventWithExtra)
+                const actual1 = await processEvent(event)
+                const actual2 = await processEvent(eventWithExtra)
 
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
@@ -360,18 +412,62 @@ describe('CookielessManager', () => {
                 expect(actual1.distinct_id).not.toEqual(actual2.distinct_id)
                 expect(actual1.properties.$session_id).not.toEqual(actual2.properties.$session_id)
             })
+
+            it('should preserve headers through cookieless processing', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                    force_disable_person_processing: false,
+                }
+
+                const result = await processEventWithHeaders(event, testHeaders)
+
+                expect(result.headers).toEqual(testHeaders)
+                expect(result.event).toBeDefined()
+            })
+
+            it('should preserve headers for non-cookieless events', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                    force_disable_person_processing: false,
+                }
+
+                const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
+
+                expect(result.headers).toEqual(testHeaders)
+                expect(result.event).toBe(nonCookielessEvent)
+            })
+
+            it('should not return dropped events but should not throw', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                    force_disable_person_processing: false,
+                }
+
+                // Test with alias event which should be dropped
+                const result = await processEventWithHeaders(aliasEvent, testHeaders)
+
+                // Dropped events are not returned in the response array
+                expect(result.event).toBeUndefined()
+                expect(result.headers).toEqual({ force_disable_person_processing: false })
+            })
         })
 
         describe('stateless', () => {
             beforeEach(async () => {
-                await setModeForTeam(CookielessServerHashMode.Stateless, teamId)
+                await setModeForTeam(CookielessServerHashMode.Stateless)
             })
 
             it('should provide the same session ID for events within the same day, later than the session timeout', async () => {
                 // this is actually a limitation of this mode, but we have the same test (with a different outcome) for stateful mode
 
-                const actual1 = await hub.cookielessManager.processEvent(event)
-                const actual2 = await hub.cookielessManager.processEvent(eventMuchLater)
+                const actual1 = await processEvent(event)
+                const actual2 = await processEvent(eventMuchLater)
 
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
@@ -383,14 +479,14 @@ describe('CookielessManager', () => {
 
             it('should drop identify events', async () => {
                 // this is also a limitation of this mode
-                const actual1 = await hub.cookielessManager.processEvent(identifyEvent)
+                const actual1 = await processEvent(identifyEvent)
                 expect(actual1).toBeUndefined()
             })
 
             it('should work even if redis is cleared (as it can use the local cache)', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(event)
+                const actual1 = await processEvent(event)
                 await clearRedis()
-                const actual2 = await hub.cookielessManager.processEvent(eventABitLater)
+                const actual2 = await processEvent(eventABitLater)
 
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
@@ -403,11 +499,11 @@ describe('CookielessManager', () => {
 
         describe('stateful', () => {
             beforeEach(async () => {
-                await setModeForTeam(CookielessServerHashMode.Stateful, teamId)
+                await setModeForTeam(CookielessServerHashMode.Stateful)
             })
             it('should provide a different session ID after session timeout', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(event)
-                const actual2 = await hub.cookielessManager.processEvent(eventMuchLater)
+                const actual1 = await processEvent(event)
+                const actual2 = await processEvent(eventMuchLater)
 
                 if (!actual1?.properties || !actual2?.properties) {
                     throw new Error('no event or properties')
@@ -417,9 +513,9 @@ describe('CookielessManager', () => {
                 expect(actual2.properties.$session_id).not.toEqual(actual1.properties.$session_id)
             })
             it('should handle a user identifying', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(event)
-                const actual2 = await hub.cookielessManager.processEvent(identifyEvent)
-                const actual3 = await hub.cookielessManager.processEvent(postIdentifyEvent)
+                const actual1 = await processEvent(event)
+                const actual2 = await processEvent(identifyEvent)
+                const actual3 = await processEvent(postIdentifyEvent)
 
                 if (!actual1?.properties || !actual2?.properties || !actual3?.properties) {
                     throw new Error('no event or properties')
@@ -431,9 +527,9 @@ describe('CookielessManager', () => {
                 expect(actual3.properties.$session_id).toEqual(actual1.properties.$session_id)
             })
             it('should handle identify events in an idempotent way', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(event)
-                const actual2 = await hub.cookielessManager.processEvent(identifyEvent)
-                const actual3 = await hub.cookielessManager.processEvent(identifyEvent)
+                const actual1 = await processEvent(event)
+                const actual2 = await processEvent(identifyEvent)
+                const actual3 = await processEvent(identifyEvent)
 
                 if (!actual1?.properties || !actual2?.properties || !actual3?.properties) {
                     throw new Error('no event or properties')
@@ -446,10 +542,10 @@ describe('CookielessManager', () => {
                 expect(actual3.properties.$session_id).toEqual(actual1.properties.$session_id)
             })
             it('should treat anon events after an identify as if there was a logout, and as a different person', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(event)
-                const actual2 = await hub.cookielessManager.processEvent(identifyEvent)
-                const actual3 = await hub.cookielessManager.processEvent(eventABitLater)
-                const actual4 = await hub.cookielessManager.processEvent(identifyEventABitLater)
+                const actual1 = await processEvent(event)
+                const actual2 = await processEvent(identifyEvent)
+                const actual3 = await processEvent(eventABitLater)
+                const actual4 = await processEvent(identifyEventABitLater)
 
                 if (!actual1?.properties || !actual2?.properties || !actual3?.properties || !actual4?.properties) {
                     throw new Error('no event or properties')
@@ -468,26 +564,53 @@ describe('CookielessManager', () => {
             it('should increment the redis error counter if redis errors', async () => {
                 const operation = 'scard'
                 const error = new RedisOperationError('redis error', new Error(), operation, { key: 'key' })
-                jest.spyOn(hub.cookielessManager.redisHelpers, 'redisSCard').mockImplementationOnce(() => {
+                jest.spyOn(hub.cookielessManager.redisHelpers, 'redisSMembersMulti').mockImplementationOnce(() => {
                     throw error
                 })
                 const spy = jest.spyOn(cookielessRedisErrorCounter, 'labels')
-                const result = await hub.cookielessManager.processEvent(event)
+                const result = await processEvent(event)
                 expect(result).toEqual(undefined)
                 expect(spy.mock.calls[0]).toEqual([{ operation }])
             })
         })
         describe('disabled', () => {
             beforeEach(async () => {
-                await setModeForTeam(CookielessServerHashMode.Disabled, teamId)
+                await setModeForTeam(CookielessServerHashMode.Disabled)
             })
             it('should drop all events', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(event)
+                const actual1 = await processEvent(event)
                 expect(actual1).toBeUndefined()
             })
             it('should pass through non-cookieless events', async () => {
-                const actual1 = await hub.cookielessManager.processEvent(nonCookielessEvent)
+                const actual1 = await processEvent(nonCookielessEvent)
                 expect(actual1).toBe(nonCookielessEvent)
+            })
+            it('should not return dropped cookieless events but should not throw', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                    force_disable_person_processing: false,
+                }
+
+                const result = await processEventWithHeaders(event, testHeaders)
+
+                // Dropped events are not returned in the response array
+                expect(result.event).toBeUndefined()
+                expect(result.headers).toEqual({ force_disable_person_processing: false })
+            })
+            it('should preserve headers when passing through non-cookieless events', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                    force_disable_person_processing: false,
+                }
+
+                const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
+
+                expect(result.headers).toEqual(testHeaders)
+                expect(result.event).toBe(nonCookielessEvent)
             })
         })
     })

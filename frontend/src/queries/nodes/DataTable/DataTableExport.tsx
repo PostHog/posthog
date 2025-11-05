@@ -1,24 +1,35 @@
-import { IconDownload } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { IconDownload } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonInput, LemonMenu } from '@posthog/lemon-ui'
+
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { SaveToCohortModalContent } from 'lib/components/SaveToCohortModalContent/SaveToCohortModalContent'
+import { PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import Papa from 'papaparse'
-import { asDisplay } from 'scenes/persons/person-utils'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '~/queries/nodes/DataTable/clipboardUtils'
 import {
-    defaultDataTableColumns,
-    extractExpressionComment,
-    removeExpressionComment,
-} from '~/queries/nodes/DataTable/utils'
+    shouldOptimizeForExport,
+    transformColumnsForExport,
+    transformQuerySourceForExport,
+} from '~/queries/nodes/DataTable/exportTransformers'
+import { defaultDataTableColumns, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { getPersonsEndpoint } from '~/queries/query'
 import { DataNode, DataTableNode } from '~/queries/schema/schema-general'
-import { isActorsQuery, isEventsQuery, isHogQLQuery, isPersonsNode } from '~/queries/utils'
+import {
+    isActorsQuery,
+    isEventsQuery,
+    isGroupsQuery,
+    isHogQLQuery,
+    isMarketingAnalyticsTableQuery,
+    isPersonsNode,
+} from '~/queries/utils'
 import { ExporterFormat } from '~/types'
 
-import { dataTableLogic, DataTableRow } from './dataTableLogic'
+import { dataTableLogic } from './dataTableLogic'
 
 // Sync with posthog/hogql/constants.py
 export const MAX_SELECT_RETURNED_ROWS = 50000
@@ -29,37 +40,54 @@ export async function startDownload(
     query: DataTableNode,
     onlySelectedColumns: boolean,
     exportCall: (exportData: TriggerExportProps) => void,
-    format: ExporterFormat = ExporterFormat.CSV
+    format: ExporterFormat = ExporterFormat.CSV,
+    fileNameForExport?: string
 ): Promise<void> {
+    const shouldOptimize = shouldOptimizeForExport(query)
+
+    let exportSource = query.source
+
+    const team = teamLogic.findMounted()?.values?.currentTeam
+    const personDisplayNameProperties = team?.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+
+    // Remove person column from the source otherwise export fails when there's 1000+ records
+    if (shouldOptimize && isEventsQuery(query.source)) {
+        exportSource = transformQuerySourceForExport(query.source, personDisplayNameProperties)
+    }
+
     const exportContext = isPersonsNode(query.source)
         ? { path: getPersonsEndpoint(query.source) }
-        : { source: query.source }
+        : { source: exportSource }
+
     if (!exportContext) {
         throw new Error('Unsupported node type')
     }
 
     if (onlySelectedColumns) {
-        exportContext['columns'] = (
-            (isEventsQuery(query.source) || isActorsQuery(query.source) ? query.source.select : null) ??
+        let columns = (
+            (isEventsQuery(query.source) || isActorsQuery(query.source) || isGroupsQuery(query.source)
+                ? query.source.select
+                : null) ??
             query.columns ??
             defaultDataTableColumns(query.source.kind)
         )?.filter((c) => c !== 'person.$delete')
 
-        if (isEventsQuery(query.source)) {
-            exportContext['columns'] = exportContext['columns'].map((c: string) =>
-                removeExpressionComment(c) === 'person' ? 'person.properties.email' : c
-            )
+        // Apply export optimizations to columns
+        if (shouldOptimize && isEventsQuery(query.source)) {
+            columns = transformColumnsForExport(columns, personDisplayNameProperties)
         } else if (isPersonsNode(query.source)) {
-            exportContext['columns'] = exportContext['columns'].map((c: string) =>
-                removeExpressionComment(c) === 'person' ? 'email' : c
-            )
+            columns = columns.map((c: string) => (removeExpressionComment(c) === 'person' ? 'email' : c))
         }
-        if (exportContext['columns'].includes('person')) {
-            exportContext['columns'] = exportContext['columns'].map((c: string) =>
-                c === 'person' ? 'person.distinct_ids.0' : c
-            )
+
+        if (columns.includes('person')) {
+            columns = columns.map((c: string) => (c === 'person' ? 'person.distinct_ids.0' : c))
         }
-        exportContext['columns'] = exportContext['columns'].filter((n: string) => !columnDisallowList.includes(n))
+
+        columns = columns.filter((n: string) => !columnDisallowList.includes(n))
+        exportContext['columns'] = columns
+    }
+    if (fileNameForExport != null) {
+        exportContext['filename'] = fileNameForExport
     }
     exportCall({
         export_format: format,
@@ -67,134 +95,13 @@ export async function startDownload(
     })
 }
 
-const getCsvTableData = (dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): string[][] => {
-    if (isPersonsNode(query.source)) {
-        const filteredColumns = columns.filter((n) => !columnDisallowList.includes(n))
-
-        const csvData = dataTableRows.map((n) => {
-            const record = n.result as Record<string, any> | undefined
-            const recordWithPerson = { ...(record ?? {}), person: record?.name }
-
-            return filteredColumns.map((n) => recordWithPerson[n])
-        })
-
-        return [filteredColumns, ...csvData]
-    }
-
-    if (isEventsQuery(query.source)) {
-        const filteredColumns = columns
-            .filter((n) => !columnDisallowList.includes(n))
-            .map((n) => extractExpressionComment(n))
-
-        const csvData = dataTableRows.map((n) => {
-            return columns
-                .map((col, colIndex) => {
-                    if (columnDisallowList.includes(col)) {
-                        return null
-                    }
-
-                    if (col === 'person') {
-                        return asDisplay(n.result?.[colIndex])
-                    }
-
-                    return n.result?.[colIndex]
-                })
-                .filter(Boolean)
-        })
-
-        return [filteredColumns, ...csvData]
-    }
-
-    if (isHogQLQuery(query.source)) {
-        return [columns, ...dataTableRows.map((n) => (n.result as any[]) ?? [])]
-    }
-
-    return []
-}
-
-const getJsonTableData = (
-    dataTableRows: DataTableRow[],
-    columns: string[],
-    query: DataTableNode
-): Record<string, any>[] => {
-    if (isPersonsNode(query.source)) {
-        const filteredColumns = columns.filter((n) => !columnDisallowList.includes(n))
-
-        return dataTableRows.map((n) => {
-            const record = n.result as Record<string, any> | undefined
-            const recordWithPerson = { ...(record ?? {}), person: record?.name }
-
-            return filteredColumns.reduce((acc, cur) => {
-                acc[cur] = recordWithPerson[cur]
-                return acc
-            }, {} as Record<string, any>)
-        })
-    }
-
-    if (isEventsQuery(query.source)) {
-        return dataTableRows.map((n) => {
-            return columns.reduce((acc, col, colIndex) => {
-                if (columnDisallowList.includes(col)) {
-                    return acc
-                }
-
-                if (col === 'person') {
-                    acc[col] = asDisplay(n.result?.[colIndex])
-                    return acc
-                }
-
-                const colName = extractExpressionComment(col)
-
-                acc[colName] = n.result?.[colIndex]
-
-                return acc
-            }, {} as Record<string, any>)
-        })
-    }
-
-    if (isHogQLQuery(query.source)) {
-        return dataTableRows.map((n) => {
-            const data = n.result ?? {}
-            return columns.reduce((acc, cur, index) => {
-                acc[cur] = data[index]
-                return acc
-            }, {} as Record<string, any>)
-        })
-    }
-
-    return []
-}
-
-function copyTableToCsv(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
-    try {
-        const tableData = getCsvTableData(dataTableRows, columns, query)
-
-        const csv = Papa.unparse(tableData)
-
-        void copyToClipboard(csv, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
-    }
-}
-
-function copyTableToJson(dataTableRows: DataTableRow[], columns: string[], query: DataTableNode): void {
-    try {
-        const tableData = getJsonTableData(dataTableRows, columns, query)
-
-        const json = JSON.stringify(tableData, null, 4)
-
-        void copyToClipboard(json, 'table')
-    } catch {
-        lemonToast.error('Copy failed!')
-    }
-}
-
 interface DataTableExportProps {
     query: DataTableNode
     setQuery?: (query: DataTableNode) => void
+    fileNameForExport?: string
 }
 
-export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
+export function DataTableExport({ query, fileNameForExport }: DataTableExportProps): JSX.Element | null {
     const { dataTableRows, columnsInResponse, columnsInQuery, queryWithDefaults } = useValues(dataTableLogic)
     const { startExport, createStaticCohort } = useActions(exportsLogic)
 
@@ -205,7 +112,8 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
         (isPersonsNode(source) && source.search ? 1 : 0)
     const canExportAllColumns =
         (isEventsQuery(source) && source.select.includes('*')) || isPersonsNode(source) || isActorsQuery(source)
-    const showExportClipboardButtons = isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source)
+    const showExportClipboardButtons =
+        isPersonsNode(source) || isEventsQuery(source) || isHogQLQuery(source) || isMarketingAnalyticsTableQuery(source)
     const canSaveAsCohort = isActorsQuery(source)
 
     return (
@@ -217,13 +125,13 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                         {
                             label: 'CSV',
                             onClick: () => {
-                                void startDownload(query, true, startExport)
+                                void startDownload(query, true, startExport, ExporterFormat.CSV, fileNameForExport)
                             },
                         },
                         {
                             label: 'XLSX',
                             onClick: () => {
-                                void startDownload(query, true, startExport, ExporterFormat.XLSX)
+                                void startDownload(query, true, startExport, ExporterFormat.XLSX, fileNameForExport)
                             },
                         },
                     ],
@@ -233,11 +141,13 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                     items: [
                         {
                             label: 'CSV',
-                            onClick: () => void startDownload(query, false, startExport),
+                            onClick: () =>
+                                void startDownload(query, false, startExport, ExporterFormat.CSV, fileNameForExport),
                         },
                         {
                             label: 'XLSX',
-                            onClick: () => void startDownload(query, false, startExport, ExporterFormat.XLSX),
+                            onClick: () =>
+                                void startDownload(query, false, startExport, ExporterFormat.XLSX, fileNameForExport),
                         },
                     ],
                 },
@@ -270,10 +180,23 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                             },
                             'data-attr': 'copy-json-to-clipboard',
                         },
+                        {
+                            label: 'Excel',
+                            onClick: () => {
+                                if (dataTableRows) {
+                                    copyTableToExcel(
+                                        dataTableRows,
+                                        columnsInResponse ?? columnsInQuery,
+                                        queryWithDefaults
+                                    )
+                                }
+                            },
+                            'data-attr': 'copy-excel-to-clipboard',
+                        },
                     ],
                 },
                 canSaveAsCohort && {
-                    label: 'Save as cohort',
+                    label: 'Save to cohort',
                     items: [
                         {
                             label: 'Save as static cohort',
@@ -298,6 +221,22 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                                         name: (name) => (!name ? 'You must enter a name' : undefined),
                                     },
                                     onSubmit: async ({ name }) => createStaticCohort(name, source),
+                                })
+                            },
+                        },
+                        {
+                            label: 'Add to existing cohort',
+                            onClick: () => {
+                                LemonDialog.open({
+                                    title: 'Add to existing cohort',
+                                    description: 'This will add the current list of people to a static cohort.',
+                                    content: (closeDialog) => (
+                                        <SaveToCohortModalContent closeModal={closeDialog} query={source} />
+                                    ),
+                                    primaryButton: null,
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
                                 })
                             },
                         },

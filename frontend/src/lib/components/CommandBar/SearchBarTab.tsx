@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { RefObject } from 'react'
+
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { RefObject } from 'react'
 
 import { Tab, tabToName } from './constants'
 import { searchBarLogic } from './searchBarLogic'
@@ -27,7 +28,9 @@ export const SearchBarTab = ({ tab, inputRef }: SearchBarTabProps): JSX.Element 
                 inputRef.current?.focus()
             }}
         >
-            {tabToName[tab] || `${capitalizeFirstLetter(aggregationLabel(Number(tab.split('_')[1])).plural)}`}
+            <span className="truncate">
+                {tabToName[tab] || `${capitalizeFirstLetter(aggregationLabel(Number(tab.split('_')[1])).plural)}`}
+            </span>
             <Count tab={tab} />
         </div>
     )

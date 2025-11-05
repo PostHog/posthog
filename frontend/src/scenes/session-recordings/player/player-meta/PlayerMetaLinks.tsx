@@ -1,21 +1,37 @@
-import { IconDownload, IconEllipsis, IconNotebook, IconPin, IconPinFilled, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconComment } from 'lib/lemon-ui/icons'
 import { useMemo } from 'react'
+
+import {
+    IconCheck,
+    IconDownload,
+    IconEllipsis,
+    IconMinusSmall,
+    IconNotebook,
+    IconPlusSmall,
+    IconTrash,
+} from '@posthog/icons'
+import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconBlank } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { PlaylistPopoverButton } from 'scenes/session-recordings/player/playlist-popover/PlaylistPopover'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
-import { NotebookNodeType } from '~/types'
+import { AccessControlResourceType } from '~/types'
+import { AccessControlLevel } from '~/types'
 
 import { PlayerMetaBreakpoints } from './PlayerMeta'
 
@@ -24,15 +40,15 @@ function PinToPlaylistButton(): JSX.Element {
     const { maybePersistRecording } = useActions(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
 
-    const tooltip = logicProps.pinned ? 'Unpin from this list' : 'Pin to this list'
-    const description = 'Pin'
+    const tooltip = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
+    const description = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
 
     return logicProps.setPinned && !logicProps.pinned ? (
         <LemonButton
             size="xsmall"
             onClick={() => {
                 if (nodeLogic) {
-                    // If we are in a node, then pinning should persist the recording
+                    // If we are in a node, then pinning should persist that recording
                     maybePersistRecording()
                 }
 
@@ -40,17 +56,22 @@ function PinToPlaylistButton(): JSX.Element {
             }}
             tooltip={tooltip}
             data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
-            icon={<IconPin />}
+            icon={<IconPlusSmall />}
         />
     ) : (
-        <PlaylistPopoverButton
-            tooltip={tooltip}
-            setPinnedInCurrentPlaylist={logicProps.setPinned}
-            icon={logicProps.pinned ? <IconPinFilled /> : <IconPin />}
-            size="xsmall"
+        <AccessControlAction
+            resourceType={AccessControlResourceType.SessionRecording}
+            minAccessLevel={AccessControlLevel.Editor}
         >
-            {description}
-        </PlaylistPopoverButton>
+            <PlaylistPopoverButton
+                tooltip={tooltip}
+                setPinnedInCurrentPlaylist={logicProps.setPinned}
+                icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
+                size="xsmall"
+            >
+                {description}
+            </PlaylistPopoverButton>
+        </AccessControlAction>
     )
 }
 
@@ -69,7 +90,6 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
                             <MenuActions size={size} />
                         </div>
                     )}
-                    {size === 'normal' && <AddToNotebookButton />}
 
                     <PlayerShareMenu />
 
@@ -84,6 +104,7 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
                                 })
                             }}
                             tooltip="Comment in a notebook"
+                            data-attr="player-meta-add-replay-to-notebook"
                         />
                     ) : null}
 
@@ -95,55 +116,39 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
 }
 
 const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'fullWidth'>): JSX.Element => {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
     const { setPause } = useActions(sessionRecordingPlayerLogic)
 
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
-
-    const getCurrentPlayerTime = (): number => {
-        // NOTE: We pull this value at call time as otherwise it would trigger re-renders if pulled from the hook
-        const playerTime = sessionRecordingPlayerLogic.findMounted(logicProps)?.values.currentPlayerTime || 0
-        return Math.floor(playerTime / 1000)
-    }
 
     return (
         <NotebookSelectButton
             fullWidth={fullWidth}
             size="xsmall"
-            icon={<IconComment />}
+            icon={<IconNotebook />}
             resource={{
                 type: NotebookNodeType.Recording,
                 attrs: { id: sessionRecordingId, __init: { expanded: true } },
             }}
             onClick={() => setPause()}
-            onNotebookOpened={(theNotebookLogic, theNodeLogic) => {
-                const time = getCurrentPlayerTime() * 1000
-
-                if (theNodeLogic) {
-                    // Node already exists, we just add a comment
-                    theNodeLogic.actions.insertReplayCommentByTimestamp(time, sessionRecordingId)
-                    return
-                }
-                theNotebookLogic.actions.insertReplayCommentByTimestamp({
-                    timestamp: time,
-                    sessionRecordingId,
-                })
-
+            onNotebookOpened={() => {
                 closeSessionPlayer()
                 personsModalLogic.findMounted()?.actions.closeModal()
             }}
         >
-            Comment
+            Add to notebook
         </NotebookSelectButton>
     )
 }
 
 const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { deleteRecording, setIsFullScreen, exportRecordingToFile } = useActions(sessionRecordingPlayerLogic)
+    const { logicProps, isMuted, hasReachedExportFullVideoLimit } = useValues(sessionRecordingPlayerLogic)
+    const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile, setMuted } =
+        useActions(sessionRecordingPlayerLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { skipInactivitySetting } = useValues(playerSettingsLogic)
+    const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
 
-    const hasMobileExportFlag = useFeatureFlag('SESSION_REPLAY_EXPORT_MOBILE_DATA')
-    const hasMobileExport = window.IMPERSONATED_SESSION || hasMobileExportFlag
     const isStandardMode =
         (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
 
@@ -168,30 +173,59 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
 
     const items: LemonMenuItems = useMemo(() => {
         const itemsArray: LemonMenuItems = [
+            {
+                label: () => <AddToNotebookButton fullWidth={true} />,
+            },
+            {
+                label: 'Skip inactivity',
+                'data-attr': 'skip-inactivity-menu-item',
+                title: 'Skip inactive parts of the recording',
+                onClick: () => {
+                    return setSkipInactivitySetting(!skipInactivitySetting)
+                },
+                status: skipInactivitySetting ? 'danger' : 'default',
+                icon: skipInactivitySetting ? <IconCheck /> : <IconBlank />,
+            },
+            {
+                label: isMuted ? 'Unmute audio' : 'Mute audio',
+                'data-attr': 'mute-audio-menu-item',
+                title: isMuted ? 'Unmute audio' : 'Mute audio',
+                onClick: () => {
+                    setMuted(!isMuted)
+                },
+                icon: <IconBlank />,
+            },
             isStandardMode && {
-                label: '.json',
+                label: 'PostHog .json',
                 status: 'default',
                 icon: <IconDownload />,
-                onClick: () => exportRecordingToFile(false),
-                tooltip: 'Export recording to a JSON file. This can be loaded later into PostHog for playback.',
+                onClick: () => exportRecordingToFile(),
+                tooltip:
+                    'Export PostHog recording data to a JSON file. This can be loaded later into PostHog for playback.',
+                'data-attr': 'replay-export-posthog-json',
             },
+            isStandardMode && featureFlags[FEATURE_FLAGS.REPLAY_EXPORT_FULL_VIDEO]
+                ? {
+                      label: (
+                          <div className="flex w-full gap-x-2 justify-between items-center">
+                              Export to MP4{' '}
+                              <LemonTag type="warning" size="small">
+                                  BETA
+                              </LemonTag>
+                          </div>
+                      ),
+                      status: hasReachedExportFullVideoLimit ? 'danger' : 'default',
+                      icon: <IconDownload />,
+                      onClick: () => exportRecordingToVideoFile(),
+                      tooltip: hasReachedExportFullVideoLimit
+                          ? 'You have reached your export limit.'
+                          : 'Export PostHog recording data to MP4 video file.',
+                      'data-attr': 'replay-export-mp4',
+                      className: hasReachedExportFullVideoLimit ? 'replay-export-limit-reached-button' : '',
+                  }
+                : null,
         ]
-        if (size === 'small') {
-            itemsArray.unshift({
-                label: () => <AddToNotebookButton fullWidth={true} />,
-            })
-        }
-        if (hasMobileExport) {
-            isStandardMode &&
-                itemsArray.push({
-                    label: 'DEBUG - mobile.json',
-                    status: 'default',
-                    icon: <IconDownload />,
-                    onClick: () => exportRecordingToFile(true),
-                    tooltip:
-                        'DEBUG - ONLY VISIBLE TO POSTHOG STAFF - Export untransformed recording to a file. This can be loaded later into PostHog for playback.',
-                })
-        }
+
         if (logicProps.playerKey !== 'modal') {
             isStandardMode &&
                 itemsArray.push({
@@ -199,10 +233,26 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                     status: 'danger',
                     onClick: onDelete,
                     icon: <IconTrash />,
+                    disabledReason: getAccessControlDisabledReason(
+                        AccessControlResourceType.SessionRecording,
+                        AccessControlLevel.Editor
+                    ),
+                    tooltip: 'Delete recording',
+                    'data-attr': 'replay-delete-recording',
                 })
         }
         return itemsArray
-    }, [logicProps.playerKey, onDelete, exportRecordingToFile, hasMobileExport, size])
+        // oxlint-disable-next-line exhaustive-deps
+    }, [
+        logicProps.playerKey,
+        onDelete,
+        exportRecordingToFile,
+        size,
+        skipInactivitySetting,
+        isMuted,
+        setMuted,
+        hasReachedExportFullVideoLimit,
+    ])
 
     return (
         <LemonMenu items={items} buttonSize="xsmall">

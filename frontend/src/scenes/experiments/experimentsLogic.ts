@@ -1,19 +1,64 @@
-import { LemonTagType } from '@posthog/lemon-ui'
-import Fuse from 'fuse.js'
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
-import api from 'lib/api'
+import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { LemonTagType, PaginationManual } from '@posthog/lemon-ui'
+
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { featureFlagsLogic, type FeatureFlagsResult } from 'scenes/feature-flags/featureFlagsLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual, toParams } from 'lib/utils'
+import { FLAGS_PER_PAGE, type FeatureFlagsResult, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { Experiment, ExperimentsTabs, ProgressStatus } from '~/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { ActivityScope, Breadcrumb, Experiment, ExperimentsTabs, FeatureFlagType, ProgressStatus } from '~/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
+
+export const EXPERIMENTS_PER_PAGE = 100
+
+export interface ExperimentsResult extends CountedPaginatedResponse<Experiment> {
+    /* not in the API response */
+    filters?: ExperimentsFilters | null
+}
+
+export interface ExperimentsFilters {
+    search?: string
+    status?: ProgressStatus | 'all'
+    created_by_id?: number
+    page?: number
+    order?: string
+}
+
+export interface FeatureFlagModalFilters {
+    active?: string
+    created_by_id?: number
+    search?: string
+    order?: string
+    page?: number
+    evaluation_runtime?: string
+}
+
+const DEFAULT_FILTERS: ExperimentsFilters = {
+    search: undefined,
+    status: 'all',
+    created_by_id: undefined,
+    page: 1,
+    order: undefined,
+}
+
+const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
+    active: undefined,
+    created_by_id: undefined,
+    search: undefined,
+    order: undefined,
+    page: 1,
+    evaluation_runtime: undefined,
+}
 
 export function getExperimentStatus(experiment: Experiment): ProgressStatus {
     if (!experiment.start_date) {
@@ -52,22 +97,36 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
     })),
     actions({
-        setSearchTerm: (searchTerm: string) => ({ searchTerm }),
-        setSearchStatus: (status: ProgressStatus | 'all') => ({ status }),
         setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
-        setUserFilter: (userFilter: string | null) => ({ userFilter }),
+        setExperimentsFilters: (filters: Partial<ExperimentsFilters>, replace?: boolean) => ({ filters, replace }),
+        setFeatureFlagModalFilters: (filters: Partial<FeatureFlagModalFilters>, replace?: boolean) => ({
+            filters,
+            replace,
+        }),
+        resetFeatureFlagModalFilters: true,
     }),
     reducers({
-        searchTerm: {
-            setSearchTerm: (_, { searchTerm }) => searchTerm,
-        },
-        searchStatus: {
-            setSearchStatus: (_, { status }) => status,
-        },
-        userFilter: [
-            null as string | null,
+        filters: [
+            DEFAULT_FILTERS,
             {
-                setUserFilter: (_, { userFilter }) => userFilter,
+                setExperimentsFilters: (state, { filters, replace }) => {
+                    if (replace) {
+                        return { ...filters }
+                    }
+                    return { ...state, ...filters }
+                },
+            },
+        ],
+        featureFlagModalFilters: [
+            DEFAULT_MODAL_FILTERS,
+            {
+                setFeatureFlagModalFilters: (state, { filters, replace }) => {
+                    if (replace) {
+                        return { ...filters }
+                    }
+                    return { ...state, ...filters }
+                },
+                resetFeatureFlagModalFilters: () => DEFAULT_MODAL_FILTERS,
             },
         ],
         tab: [
@@ -78,86 +137,160 @@ export const experimentsLogic = kea<experimentsLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        setExperimentsTab: ({ tabKey }) => {
-            if (tabKey === ExperimentsTabs.SharedMetrics) {
-                // Saved Metrics is a fake tab that we use to redirect to the shared metrics page
-                actions.setExperimentsTab(ExperimentsTabs.All)
-                router.actions.push('/experiments/shared-metrics')
-            } else {
-                router.actions.push('/experiments')
-            }
+        setExperimentsFilters: async (_, breakpoint) => {
+            /**
+             * this debounces the search input. Yeah, I know.
+             */
+            await breakpoint(300)
+            actions.loadExperiments()
+        },
+        setFeatureFlagModalFilters: async (_, breakpoint) => {
+            await breakpoint(300)
+            actions.loadFeatureFlagModalFeatureFlags()
+        },
+        resetFeatureFlagModalFilters: () => {
+            actions.loadFeatureFlagModalFeatureFlags()
         },
     })),
     loaders(({ values }) => ({
         experiments: [
-            [] as Experiment[],
+            { results: [], count: 0, filters: DEFAULT_FILTERS, offset: 0 } as ExperimentsResult,
             {
                 loadExperiments: async () => {
-                    const response = await api.get(`api/projects/${values.currentProjectId}/experiments?limit=1000`)
-                    return response.results as Experiment[]
-                },
-                deleteExperiment: async (id: number) => {
-                    await api.delete(`api/projects/${values.currentProjectId}/experiments/${id}`)
-                    lemonToast.info('Experiment removed')
-                    return values.experiments.filter((experiment) => experiment.id !== id)
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/experiments?${toParams(values.paramsFromFilters)}`
+                    )
+                    return {
+                        ...response,
+                        offset: values.paramsFromFilters.offset,
+                    }
                 },
                 archiveExperiment: async (id: number) => {
                     await api.update(`api/projects/${values.currentProjectId}/experiments/${id}`, { archived: true })
                     lemonToast.info('Experiment archived')
-                    return values.experiments.filter((experiment) => experiment.id !== id)
+                    return {
+                        ...values.experiments,
+                        results: values.experiments.results.filter((experiment) => experiment.id !== id),
+                        count: values.experiments.count - 1,
+                    }
+                },
+                duplicateExperiment: async (payload: { id: number; featureFlagKey?: string }) => {
+                    const data = payload.featureFlagKey ? { feature_flag_key: payload.featureFlagKey } : {}
+                    const duplicatedExperiment = await api.create(
+                        `api/projects/${values.currentProjectId}/experiments/${payload.id}/duplicate`,
+                        data
+                    )
+                    lemonToast.success('Experiment duplicated successfully')
+                    // Navigate to the newly created experiment
+                    router.actions.push(urls.experiment(duplicatedExperiment.id))
+
+                    return {
+                        ...values.experiments,
+                        results: [duplicatedExperiment, ...values.experiments.results],
+                        count: values.experiments.count + 1,
+                    }
                 },
                 addToExperiments: (experiment: Experiment) => {
-                    return [...values.experiments, experiment]
+                    return {
+                        ...values.experiments,
+                        results: [...values.experiments.results, experiment],
+                        count: values.experiments.count + 1,
+                    }
                 },
                 updateExperiments: (experiment: Experiment) => {
-                    return values.experiments.map((exp) => (exp.id === experiment.id ? experiment : exp))
+                    return {
+                        ...values.experiments,
+                        results: values.experiments.results.map((exp) => (exp.id === experiment.id ? experiment : exp)),
+                        count: values.experiments.count,
+                    }
+                },
+            },
+        ],
+        featureFlagModalFeatureFlags: [
+            { results: [], count: 0 } as { results: FeatureFlagType[]; count: number },
+            {
+                loadFeatureFlagModalFeatureFlags: async () => {
+                    const response = await api.get(
+                        `api/projects/${values.currentProjectId}/experiments/eligible_feature_flags/?${toParams({
+                            ...values.featureFlagModalParamsFromFilters,
+                        })}`
+                    )
+                    return response
                 },
             },
         ],
     })),
-    selectors(({ values }) => ({
-        filteredExperiments: [
-            (s) => [s.experiments, s.searchTerm, s.searchStatus, s.userFilter, s.tab],
-            (experiments, searchTerm, searchStatus, userFilter, tab) => {
-                let filteredExperiments: Experiment[] = experiments
+    selectors(() => ({
+        count: [(selectors) => [selectors.experiments], (experiments) => experiments.count],
+        paramsFromFilters: [
+            (s) => [s.filters, s.tab],
+            (filters: ExperimentsFilters, tab: ExperimentsTabs) => ({
+                ...filters,
+                limit: EXPERIMENTS_PER_PAGE,
+                offset: filters.page ? (filters.page - 1) * EXPERIMENTS_PER_PAGE : 0,
+                archived: tab === ExperimentsTabs.Archived,
+            }),
+        ],
+        featureFlagModalParamsFromFilters: [
+            (s) => [s.featureFlagModalFilters],
+            (filters: FeatureFlagModalFilters) => ({
+                ...filters,
+                limit: FLAGS_PER_PAGE,
+                offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
+            }),
+        ],
+        featureFlagModalPageFromURL: [
+            () => [router.selectors.searchParams],
+            (searchParams) => {
+                return parseInt(searchParams['ff_page']) || 1
+            },
+        ],
+        featureFlagModalPagination: [
+            (s) => [s.featureFlagModalFilters, s.featureFlagModalFeatureFlags, s.featureFlagModalPageFromURL],
+            (filters, featureFlags, urlPage): PaginationManual => {
+                const currentPage = Math.max(filters.page || 1, urlPage)
 
-                if (tab === ExperimentsTabs.Archived) {
-                    filteredExperiments = filteredExperiments.filter((experiment) => !!experiment.archived)
-                } else if (tab === ExperimentsTabs.Yours) {
-                    filteredExperiments = filteredExperiments.filter(
-                        (experiment) => experiment.created_by?.uuid === values.user?.uuid
-                    )
-                } else {
-                    filteredExperiments = filteredExperiments.filter((experiment) => !experiment.archived)
-                }
+                const hasNextPage = featureFlags.count > currentPage * FLAGS_PER_PAGE
+                const hasPreviousPage = currentPage > 1
+                const needsPagination = featureFlags.count > FLAGS_PER_PAGE
 
-                if (searchTerm) {
-                    filteredExperiments = new Fuse(filteredExperiments, {
-                        keys: ['name', 'feature_flag_key', 'description'],
-                        threshold: 0.3,
-                    })
-                        .search(searchTerm)
-                        .map((result) => result.item)
+                return {
+                    controlled: true,
+                    pageSize: FLAGS_PER_PAGE,
+                    currentPage,
+                    entryCount: featureFlags.count,
+                    onForward:
+                        needsPagination && hasNextPage
+                            ? () => {
+                                  experimentsLogic.actions.setFeatureFlagModalFilters({ page: currentPage + 1 })
+                              }
+                            : undefined,
+                    onBackward:
+                        needsPagination && hasPreviousPage
+                            ? () => {
+                                  experimentsLogic.actions.setFeatureFlagModalFilters({
+                                      page: Math.max(1, currentPage - 1),
+                                  })
+                              }
+                            : undefined,
                 }
-
-                if (searchStatus && searchStatus !== 'all') {
-                    filteredExperiments = filteredExperiments.filter(
-                        (experiment) => getExperimentStatus(experiment) === searchStatus
-                    )
-                }
-
-                if (userFilter) {
-                    filteredExperiments = filteredExperiments.filter(
-                        (experiment) => experiment.created_by?.uuid === userFilter
-                    )
-                }
-                return filteredExperiments
             },
         ],
         shouldShowEmptyState: [
-            (s) => [s.experimentsLoading, s.experiments],
-            (experimentsLoading, experiments): boolean => {
-                return experiments.length === 0 && !experimentsLoading && !values.searchTerm && !values.searchStatus
+            (s) => [s.experimentsLoading, s.experiments, s.filters],
+            (experimentsLoading, experiments, filters): boolean => {
+                return !experimentsLoading && experiments.results.length === 0 && objectsEqual(filters, DEFAULT_FILTERS)
+            },
+        ],
+        pagination: [
+            (s) => [s.filters, s.count],
+            (filters, count): PaginationManual => {
+                return {
+                    controlled: true,
+                    pageSize: EXPERIMENTS_PER_PAGE,
+                    currentPage: filters.page || 1,
+                    entryCount: count,
+                }
             },
         ],
         webExperimentsAvailable: [
@@ -167,17 +300,121 @@ export const experimentsLogic = kea<experimentsLogicType>([
         // TRICKY: we do not load all feature flags here, just the latest ones.
         unavailableFeatureFlagKeys: [
             (s) => [featureFlagsLogic.selectors.featureFlags, s.experiments],
-            (featureFlags: FeatureFlagsResult, experiments: Experiment[]) => {
+            (featureFlags: FeatureFlagsResult, experiments: ExperimentsResult) => {
                 return new Set([
                     ...featureFlags.results.map((flag) => flag.key),
-                    ...experiments.map((experiment) => experiment.feature_flag_key),
+                    ...experiments.results.map((experiment) => experiment.feature_flag_key),
                 ])
             },
         ],
     })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadExperiments()
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: 'experiments',
+                    name: 'Experiments',
+                    iconType: 'experiment',
+                },
+            ],
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => ({
+                activity_scope: ActivityScope.EXPERIMENT,
+            }),
+        ],
+    }),
+    afterMount(({ actions, values }) => {
+        actions.loadExperiments()
+        // Sync modal page with URL on mount
+        const urlPage = values.featureFlagModalPageFromURL
+        if (urlPage !== 1) {
+            actions.setFeatureFlagModalFilters({ page: urlPage })
+        } else {
+            actions.loadFeatureFlagModalFeatureFlags()
+        }
+    }),
+    actionToUrl(({ values }) => {
+        const changeUrl = ():
+            | [
+                  string,
+                  Record<string, any>,
+                  Record<string, any>,
+                  {
+                      replace: boolean
+                  },
+              ]
+            | void => {
+            const searchParams: Record<string, string | number> = {
+                ...values.filters,
+            }
+
+            if (values.tab !== ExperimentsTabs.All) {
+                searchParams['tab'] = values.tab
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+        }
+
+        const changeFeatureFlagModalUrl = ():
+            | [
+                  string,
+                  Record<string, any>,
+                  Record<string, any>,
+                  {
+                      replace: boolean
+                  },
+              ]
+            | void => {
+            const searchParams: Record<string, string | number> = {
+                ...values.filters,
+            }
+
+            if (values.tab !== ExperimentsTabs.All) {
+                searchParams['tab'] = values.tab
+            }
+
+            // Add feature flag modal page to URL if not page 1
+            const modalPage = values.featureFlagModalFilters.page || 1
+            if (modalPage !== 1) {
+                searchParams['ff_page'] = modalPage
+            }
+
+            return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: false }]
+        }
+
+        return {
+            setExperimentsFilters: changeUrl,
+            setExperimentsTab: changeUrl,
+            setFeatureFlagModalFilters: changeFeatureFlagModalUrl,
+            resetFeatureFlagModalFilters: changeFeatureFlagModalUrl,
+        }
+    }),
+    urlToAction(({ actions, values }) => ({
+        [urls.experiments()]: async (_, searchParams) => {
+            const tabInURL = searchParams['tab']
+
+            if (!tabInURL) {
+                if (values.tab !== ExperimentsTabs.All) {
+                    actions.setExperimentsTab(ExperimentsTabs.All)
+                }
+            } else if (tabInURL !== values.tab) {
+                actions.setExperimentsTab(tabInURL)
+            }
+
+            const { page, search, status, created_by_id, order } = searchParams
+            const pageFiltersFromUrl: Partial<ExperimentsFilters> = {
+                search,
+                created_by_id,
+                order,
+            }
+
+            pageFiltersFromUrl.status = status || 'all'
+            pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : 1
+
+            actions.setExperimentsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
         },
     })),
 ])

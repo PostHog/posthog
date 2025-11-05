@@ -27,7 +27,7 @@ jobs:
         if: ${{ github.ref == 'refs/heads/master' || contains(github.event.pull_request.labels.*.name, 'codespaces-build')  }}
 
         steps:
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               with:
                   fetch-depth: 1
 
@@ -75,7 +75,7 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Build and push
-              uses: docker/build-push-action@ac9327eae2b366085ac7f6a2d02df8aa8ead720a # v2
+              uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
               with:
                   context: .
                   file: .devcontainer/Dockerfile

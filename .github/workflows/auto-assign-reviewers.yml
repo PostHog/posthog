@@ -1,0 +1,42 @@
+name: Auto Assign Reviewers
+
+on:
+    pull_request_target:
+        # Only opened or when clicking ready otherwise you can never remove the reviewers
+        types: [opened, ready_for_review]
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    assign-reviewers:
+        runs-on: 'ubuntu-22.04'
+        if: github.event.pull_request.draft == false
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  # fetch enough commits to include the BASE_SHA, without fetching the full repo history.
+                  # note: it's possible a PR will have more than 1000 commits, but extremely unlikely.
+                  fetch-depth: 1000
+                  ref: ${{ github.event.pull_request.head.sha }}
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: '20'
+
+            - name: Fetch master branch
+              run: git fetch origin master
+
+            - name: Run reviewer assignment script
+              env:
+                  GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_PAT }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+              run: |
+                  node .github/scripts/assign-reviewers.js

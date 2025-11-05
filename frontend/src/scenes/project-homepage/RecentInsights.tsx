@@ -1,10 +1,11 @@
 import './ProjectHomepage.scss'
 
 import { useActions, useValues } from 'kea'
+
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect } from 'react'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
 
@@ -36,10 +37,8 @@ export function InsightRow({ insight }: InsightRowProps): JSX.Element {
 export function RecentInsights(): JSX.Element {
     const { recentInsights, recentInsightsLoading } = useValues(projectHomepageLogic)
     const { loadRecentInsights } = useActions(projectHomepageLogic)
+    useOnMountEffect(loadRecentInsights)
 
-    useEffect(() => {
-        loadRecentInsights()
-    }, [])
     return (
         <>
             <CompactList

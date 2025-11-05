@@ -9,8 +9,8 @@
             <!-- Maximum memory usage for processing single query, in bytes. -->
             <max_memory_usage>10000000000</max_memory_usage>
 
-            <!-- Disable experimental analyzer -->
-            <allow_experimental_analyzer>0</allow_experimental_analyzer>
+            <!-- Disable analyzer -->
+            <enable_analyzer>0</enable_analyzer>
 
             <!-- How to choose between replicas during distributed query processing.
                  random - choose random replica from set of replicas with minimum number of errors
@@ -31,6 +31,14 @@
         <readonly>
             <readonly>1</readonly>
         </readonly>
+
+        <api>
+            <profile>default</profile>
+        </api>
+
+        <app>
+            <profile>default</profile>
+        </app>
 
     </profiles>
 
@@ -116,8 +124,35 @@
             <quota>default</quota>
 
             <!-- User can create other users and grant rights to them. -->
-            <!-- <access_management>1</access_management> -->
+            <access_management>1</access_management>
+            <named_collection_control>1</named_collection_control>
+            <show_named_collections>1</show_named_collections>
+            <show_named_collections_secrets>1</show_named_collections_secrets>
         </default>
+
+        <api>
+            <password>apipass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>api</profile>
+
+            <quota>default</quota>
+        </api>
+
+        <app>
+            <password>apppass</password>
+
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+
+            <profile>app</profile>
+
+            <quota>default</quota>
+        </app>
     </users>
 
     <!-- Quotas. -->

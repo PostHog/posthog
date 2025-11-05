@@ -1,6 +1,7 @@
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -35,7 +36,7 @@ describe('sceneLogic', () => {
     it('has preloaded some scenes', async () => {
         const preloadedScenes = [Scene.Error404, Scene.ErrorNetwork, Scene.ErrorProjectUnavailable]
         await expectLogic(logic).toMatchValues({
-            loadedScenes: truth(
+            exportedScenes: truth(
                 (obj: Record<string, any>) =>
                     Object.keys(obj).filter((key) => preloadedScenes.includes(key as Scene)).length === 3
             ),
@@ -44,46 +45,34 @@ describe('sceneLogic', () => {
 
     it('changing URL runs openScene, loadScene and setScene', async () => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            scene: Scene.DataManagement,
+            sceneId: Scene.DataManagement,
         })
         router.actions.push(urls.settings('user'))
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            scene: Scene.Settings,
+            sceneId: Scene.Settings,
         })
     })
 
     it('persists the loaded scenes', async () => {
         const expectedAnnotation = partial({
-            id: Scene.DataManagement,
             component: expect.any(Function),
             logic: expect.any(Function),
-            sceneParams: { hashParams: {}, params: {}, searchParams: {} },
-            lastTouch: expect.any(Number),
         })
 
         const expectedSettings = partial({
-            id: Scene.Settings,
             component: expect.any(Function),
-            sceneParams: {
-                hashParams: {},
-                params: {
-                    section: 'user',
-                },
-                searchParams: {},
-            },
             logic: expect.any(Function),
-            lastTouch: expect.any(Number),
         })
 
         await expectLogic(logic).delay(1)
 
-        expect(logic.values.loadedScenes).toMatchObject({
+        expect(logic.values.exportedScenes).toMatchObject({
             [Scene.DataManagement]: expectedAnnotation,
         })
         router.actions.push(urls.settings('user'))
         await expectLogic(logic).delay(1)
 
-        expect(logic.values.loadedScenes).toMatchObject({
+        expect(logic.values.exportedScenes).toMatchObject({
             [Scene.DataManagement]: expectedAnnotation,
             [Scene.Settings]: expectedSettings,
         })

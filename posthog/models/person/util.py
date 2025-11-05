@@ -1,29 +1,26 @@
-import datetime
 import json
+import datetime
 from contextlib import ExitStack
 from typing import Optional, Union
 from uuid import UUID
-
 from zoneinfo import ZoneInfo
-from dateutil.parser import isoparse
+
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
 
+from dateutil.parser import isoparse
+
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import (
-    KAFKA_PERSON,
-    KAFKA_PERSON_DISTINCT_ID,
-    KAFKA_PERSON_OVERRIDES,
-)
+from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID
 from posthog.models.person import Person, PersonDistinctId
+from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.person.sql import (
     BULK_INSERT_PERSON_DISTINCT_ID2,
     INSERT_PERSON_BULK_SQL,
     INSERT_PERSON_DISTINCT_ID2,
-    INSERT_PERSON_OVERRIDE,
     INSERT_PERSON_SQL,
 )
 from posthog.models.signals import mutable_receiver
@@ -192,33 +189,8 @@ def create_person_distinct_id(
     )
 
 
-def create_person_override(
-    team_id: int,
-    old_person_uuid: str,
-    override_person_uuid: str,
-    version: int,
-    merged_at: datetime.datetime,
-    oldest_event: datetime.datetime,
-    sync: bool = False,
-) -> None:
-    p = ClickhouseProducer()
-    p.produce(
-        topic=KAFKA_PERSON_OVERRIDES,
-        sql=INSERT_PERSON_OVERRIDE,
-        data={
-            "team_id": team_id,
-            "old_person_id": old_person_uuid,
-            "override_person_id": override_person_uuid,
-            "version": version,
-            "merged_at": merged_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "oldest_event": oldest_event.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        },
-        sync=sync,
-    )
-
-
 def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> QuerySet:
-    return Person.objects.filter(
+    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(
         team_id=team_id,
         persondistinctid__team_id=team_id,
         persondistinctid__distinct_id__in=distinct_ids,
@@ -226,7 +198,7 @@ def get_persons_by_distinct_ids(team_id: int, distinct_ids: list[str]) -> QueryS
 
 
 def get_persons_by_uuids(team: Team, uuids: list[str]) -> QuerySet:
-    return Person.objects.filter(team_id=team.pk, uuid__in=uuids)
+    return Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team_id=team.pk, uuid__in=uuids)
 
 
 def delete_person(person: Person, sync: bool = False) -> None:
@@ -247,7 +219,11 @@ def _delete_person(
     create_person(
         uuid=str(uuid),
         team_id=team_id,
-        version=version + 100,  # keep in sync with deletePerson in plugin-server/src/utils/db/db.ts
+        # Version + 100 ensures delete takes precedence over normal updates.
+        # Keep in sync with:
+        # - plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
+        # - posthog/models/person/person.py:112 (split_person uses version + 101 to override deletes)
+        version=version + 100,
         created_at=created_at,
         is_deleted=True,
         sync=sync,
@@ -257,7 +233,8 @@ def _delete_person(
 def _get_distinct_ids_with_version(person: Person) -> dict[str, int]:
     return {
         distinct_id: int(version or 0)
-        for distinct_id, version in PersonDistinctId.objects.filter(person=person, team_id=person.team_id)
+        for distinct_id, version in PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
+        .filter(person=person, team_id=person.team_id)
         .order_by("id")
         .values_list("distinct_id", "version")
     }

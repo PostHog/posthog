@@ -1,0 +1,93 @@
+# Dockerfile for the base sandbox image.
+
+FROM ubuntu:24.04
+
+# Set environment variables to prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# Install system packages (expanded for coding environments)
+RUN apt-get update && \
+    apt-get install -y \
+    # Core tools
+    curl \
+    wget \
+    git \
+    vim \
+    nano \
+    tree \
+    htop \
+    unzip \
+    zip \
+    jq \
+    # Build tools
+    build-essential \
+    pkg-config \
+    # Languages and runtimes
+    python3 \
+    python3-pip \
+    python3-venv \
+    python3-dev \
+    # Databases
+    sqlite3 \
+    postgresql-client \
+    mysql-client \
+    redis-tools \
+    # System libraries often needed by Python packages
+    libssl-dev \
+    libffi-dev \
+    libbz2-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    libncursesw5-dev \
+    xz-utils \
+    tk-dev \
+    libxml2-dev \
+    libxmlsec1-dev \
+    # Other useful tools
+    ca-certificates \
+    gnupg \
+    sudo \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js 20.x
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install additional language package managers
+RUN npm install -g yarn pnpm typescript ts-node nodemon
+
+# Install PostHog CLI
+RUN npm install -g @posthog/cli
+
+###
+# Agent SDK
+###
+
+RUN npm install -g @anthropic-ai/claude-code
+
+# Set up /scripts as a Node.js project and install @posthog/agent
+RUN mkdir -p /scripts && \
+    cd /scripts && \
+    npm init -y && \
+    npm install @posthog/agent
+
+# Download agent runner script from GitHub
+RUN cd /scripts && \
+    curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/products/tasks/scripts/runAgent.mjs \
+    -o runAgent.mjs && \
+    chmod +x runAgent.mjs
+
+# This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
+ENV IS_SANDBOX=1
+
+ENV PYTHONPATH="/tmp/workspace:$PYTHONPATH"
+
+WORKDIR /tmp/workspace
+
+RUN python3 --version && \
+    node --version && \
+    npm --version
+
+CMD ["/bin/bash"]

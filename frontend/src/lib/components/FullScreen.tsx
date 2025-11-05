@@ -1,8 +1,8 @@
-import { useEffect } from 'react'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function FullScreen({ onExit }: { onExit?: () => any }): null {
     const selector = '.layout-top-content'
-    useEffect(() => {
+    useOnMountEffect(() => {
         const myClasses = window.document.querySelectorAll<HTMLElement>(selector)
 
         for (let i = 0; i < myClasses.length; i++) {
@@ -52,7 +52,7 @@ export function FullScreen({ onExit }: { onExit?: () => any }): null {
                 // will break on IE11
             }
         }
-    }, [])
+    })
 
     return null
 }

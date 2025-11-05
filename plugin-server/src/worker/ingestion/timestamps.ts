@@ -1,115 +1,58 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-import { DateTime, Duration } from 'luxon'
+import { DateTime } from 'luxon'
 
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 type IngestionWarningCallback = (type: string, details: Record<string, any>) => void
 
-const FutureEventHoursCutoffMillis = 23 * 3600 * 1000 // 23 hours
-
+/**
+ * Parse event timestamp from plugin-server event data.
+ *
+ * NOTE: Timestamp normalization (clock skew adjustment, future event clamping, offset handling)
+ * is now handled in the Rust capture service. This function only parses the timestamp string
+ * that comes from the event data. The timestamp in event data is already normalized by the Rust
+ * capture service (via parse_event_timestamp in rust/common/types/src/timestamp.rs).
+ *
+ * The Rust capture service handles:
+ * - Clock skew adjustment using sent_at and now
+ * - Future event clamping (to now if >23 hours in future)
+ * - Out-of-bounds validation (year < 0 or > 9999, fallback to epoch)
+ * - Offset handling
+ *
+ * This function only needs to parse the string to a DateTime object.
+ */
 export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarningCallback): DateTime {
-    const now = DateTime.fromISO(data['now']).toUTC() // now is set by the capture endpoint and assumed valid
+    // The timestamp has already been normalized by the Rust capture service
+    // Just parse it from the data
+    if (data['timestamp']) {
+        const parsedTs = parseDate(data['timestamp'])
 
-    let sentAt: DateTime | null = null
-    if (!data.properties?.['$ignore_sent_at'] && data['sent_at']) {
-        sentAt = DateTime.fromISO(data['sent_at']).toUTC()
-        if (!sentAt.isValid) {
+        if (!parsedTs.isValid) {
             callback?.('ignored_invalid_timestamp', {
                 eventUuid: data['uuid'] ?? '',
-                field: 'sent_at',
-                value: data['sent_at'],
-                reason: sentAt.invalidExplanation || 'unknown error',
+                field: 'timestamp',
+                value: data['timestamp'],
+                reason: parsedTs.invalidExplanation || 'unknown error',
             })
-            sentAt = null
-        }
-    }
-
-    let parsedTs = handleTimestamp(data, now, sentAt, data.team_id)
-
-    // Events in the future would indicate an instrumentation bug, lets' ingest them
-    // but publish an integration warning to help diagnose such issues.
-    // We will also 'fix' the date to be now()
-    const nowDiff = parsedTs.toUTC().diff(now).toMillis()
-    if (nowDiff > FutureEventHoursCutoffMillis) {
-        callback?.('event_timestamp_in_future', {
-            timestamp: data['timestamp'] ?? '',
-            sentAt: data['sent_at'] ?? '',
-            offset: data['offset'] ?? '',
-            now: data['now'],
-            result: parsedTs.toISO(),
-            eventUuid: data['uuid'],
-            eventName: data['event'],
-        })
-
-        parsedTs = now
-    }
-
-    const parsedTsOutOfBounds = parsedTs.year < 0 || parsedTs.year > 9999
-    if (!parsedTs.isValid || parsedTsOutOfBounds) {
-        const details: Record<string, any> = {
-            eventUuid: data['uuid'] ?? '',
-            field: 'timestamp',
-            value: data['timestamp'] ?? '',
-            reason: parsedTs.invalidExplanation || (parsedTsOutOfBounds ? 'out of bounds' : 'unknown error'),
+            return DateTime.utc()
         }
 
+        const parsedTsOutOfBounds = parsedTs.year < 0 || parsedTs.year > 9999
         if (parsedTsOutOfBounds) {
-            details['offset'] = data['offset']
-            details['parsed_year'] = parsedTs.year
-        }
-
-        callback?.('ignored_invalid_timestamp', details)
-        return DateTime.utc()
-    }
-
-    return parsedTs
-}
-
-function handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null, teamId: number): DateTime {
-    let parsedTs: DateTime = now
-    let timestamp: DateTime = now
-
-    if (data['timestamp']) {
-        timestamp = parseDate(data['timestamp'])
-
-        if (!sentAt || !timestamp.isValid) {
-            return timestamp
-        }
-
-        // To handle clock skew between the client and server, we attempt
-        // to compute the skew based on the difference between the
-        // client-generated `sent_at` and the server-generated `now`
-        // filled by the capture endpoint.
-        //
-        // We calculate the skew as:
-        //
-        //      skew = sent_at - now
-        //
-        // And adjust the timestamp accordingly.
-
-        // sent_at - timestamp == now - x
-        // x = now + (timestamp - sent_at)
-        try {
-            // timestamp and sent_at must both be in the same format: either both with or both without timezones
-            // otherwise we can't get a diff to add to now
-            parsedTs = now.plus(timestamp.diff(sentAt))
-        } catch (error) {
-            logger.error('⚠️', 'Error when handling timestamp:', { error: error.message })
-            captureException(error, {
-                tags: { team_id: teamId },
-                extra: { data, now, sentAt },
+            callback?.('ignored_invalid_timestamp', {
+                eventUuid: data['uuid'] ?? '',
+                field: 'timestamp',
+                value: data['timestamp'],
+                reason: 'out of bounds',
+                parsed_year: parsedTs.year,
             })
-
-            return timestamp
+            return DateTime.utc()
         }
+
+        return parsedTs
     }
 
-    if (data['offset']) {
-        parsedTs = now.minus(Duration.fromMillis(data['offset']))
-    }
-
-    return parsedTs
+    // Fallback to current time if no timestamp provided
+    return DateTime.utc()
 }
 
 export function parseDate(supposedIsoString: string): DateTime {

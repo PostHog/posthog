@@ -1,30 +1,29 @@
 import { IconServer } from '@posthog/icons'
 import {
-    IconAndroidOS,
-    IconAppleIOS,
     IconCSharp,
     IconFlutter,
-    IconGolang,
+    IconGo,
     IconJavascript,
-    IconNodeJS,
     IconPHP,
     IconPython,
     IconReact,
     IconRuby,
-} from 'lib/lemon-ui/icons'
+} from '@posthog/icons'
+
+import { IconAndroidOS, IconAppleIOS, IconNodeJS } from 'lib/lemon-ui/icons'
 
 import { SDKKey } from '~/types'
 
 import {
-    AndroidSnippet,
     APISnippet,
+    AndroidSnippet,
     CSharpSnippet,
     FeatureFlagSnippet,
     FlutterSnippet,
     GolangSnippet,
-    iOSSnippet,
     JSBootstrappingSnippet,
     JSSnippet,
+    JavaSnippet,
     NodeJSSnippet,
     PHPSnippet,
     PythonSnippet,
@@ -32,6 +31,7 @@ import {
     ReactSnippet,
     RubySnippet,
     UTM_TAGS,
+    iOSSnippet,
 } from './FeatureFlagSnippets'
 
 const DOC_BASE_URL = 'https://posthog.com/docs/'
@@ -57,7 +57,7 @@ export enum LibraryType {
 export const OPTIONS: InstructionOption[] = [
     {
         value: 'JavaScript',
-        documentationLink: `${DOC_BASE_URL}libraries/js${UTM_TAGS}`,
+        documentationLink: `${DOC_BASE_URL}libraries/js/features${UTM_TAGS}`,
         Snippet: JSSnippet,
         type: LibraryType.Client,
         key: SDKKey.JS_WEB,
@@ -73,7 +73,7 @@ export const OPTIONS: InstructionOption[] = [
     },
     {
         value: 'API',
-        documentationLink: `${DOC_BASE_URL}api/post-only-endpoints#example-request--response-decide-v3`,
+        documentationLink: `${DOC_BASE_URL}api/flags${UTM_TAGS}`,
         Snippet: APISnippet,
         type: LibraryType.Server,
         key: SDKKey.API,
@@ -85,7 +85,7 @@ export const OPTIONS: InstructionOption[] = [
         Snippet: GolangSnippet,
         type: LibraryType.Server,
         key: SDKKey.GO,
-        Icon: IconGolang,
+        Icon: IconGo,
     },
     {
         value: 'Flutter',
@@ -159,6 +159,14 @@ export const OPTIONS: InstructionOption[] = [
         key: SDKKey.DOTNET,
         Icon: IconCSharp,
     },
+    {
+        value: 'Java',
+        documentationLink: `${DOC_BASE_URL}libraries/java${UTM_TAGS}`,
+        Snippet: JavaSnippet,
+        type: LibraryType.Server,
+        key: SDKKey.JAVA,
+        Icon: IconServer,
+    },
 ]
 
 export const LOCAL_EVALUATION_LIBRARIES: string[] = [
@@ -183,6 +191,7 @@ export const PAYLOAD_LIBRARIES: string[] = [
     SDKKey.FLUTTER,
     SDKKey.DOTNET,
     SDKKey.GO,
+    SDKKey.JAVA,
 ]
 
 export const REMOTE_CONFIGURATION_LIBRARIES: string[] = [

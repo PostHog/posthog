@@ -1,10 +1,13 @@
-import { IconCheck } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconCheck } from '@posthog/icons'
+import { IconRefresh } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -12,25 +15,34 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 export const LastRefreshText = (): JSX.Element => {
-    const { newestRefreshed } = useValues(dashboardLogic)
-    return <span>Last updated {newestRefreshed ? dayjs(newestRefreshed).fromNow() : 'a while ago'}</span>
+    const { effectiveLastRefresh } = useValues(dashboardLogic)
+    return (
+        <div className="flex items-center gap-1">
+            {effectiveLastRefresh && dayjs().diff(dayjs(effectiveLastRefresh), 'hour') < 24 ? (
+                <div className="flex items-center gap-1">
+                    <span>Last refreshed</span>
+                    <TZLabel time={effectiveLastRefresh} />
+                </div>
+            ) : (
+                'Refresh'
+            )}
+        </div>
+    )
 }
 
 const REFRESH_INTERVAL_SECONDS = [1800, 3600]
 if (process.env.NODE_ENV === 'development') {
     REFRESH_INTERVAL_SECONDS.unshift(10)
 }
-const INTERVAL_OPTIONS = [
-    ...Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
-        label: humanFriendlyDuration(value),
-        value: value,
-    })),
-]
+const INTERVAL_OPTIONS = Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
+    label: humanFriendlyDuration(value),
+    value: value,
+}))
 
 export function DashboardReloadAction(): JSX.Element {
-    const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh, oldestClientRefreshAllowed } =
+    const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh, nextAllowedDashboardRefresh, dashboardLoadData } =
         useValues(dashboardLogic)
-    const { refreshAllDashboardItemsManual, setAutoRefresh, setPageVisibility } = useActions(dashboardLogic)
+    const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility } = useActions(dashboardLogic)
 
     usePageVisibilityCb((pageIsVisible) => {
         setPageVisibility(pageIsVisible)
@@ -46,17 +58,17 @@ export function DashboardReloadAction(): JSX.Element {
     return (
         <div className="relative">
             <LemonButton
-                onClick={() => refreshAllDashboardItemsManual()}
+                onClick={() => triggerDashboardRefresh()}
                 type="secondary"
                 icon={itemsLoading ? <Spinner textColored /> : blockRefresh ? <IconCheck /> : <IconRefresh />}
                 size="small"
                 data-attr="dashboard-items-action-refresh"
                 disabledReason={
                     blockRefresh
-                        ? `Next bulk refresh possible ${dayjs(oldestClientRefreshAllowed).fromNow()}`
+                        ? `Next bulk refresh possible ${dayjs(nextAllowedDashboardRefresh).fromNow()}`
                         : itemsLoading
-                        ? 'Refreshing...'
-                        : ''
+                          ? 'Loading...'
+                          : ''
                 }
                 sideAction={{
                     'data-attr': 'dashboard-items-action-refresh-dropdown',
@@ -105,10 +117,11 @@ export function DashboardReloadAction(): JSX.Element {
                         <>
                             {refreshMetrics.total ? (
                                 <>
-                                    Refreshed {refreshMetrics.completed} out of {refreshMetrics.total}
+                                    {dashboardLoadData?.action === 'initial_load' ? 'Loaded' : 'Refreshed'}{' '}
+                                    {refreshMetrics.completed} out of {refreshMetrics.total}
                                 </>
                             ) : (
-                                <>Refreshing...</>
+                                <>{dashboardLoadData?.action === 'initial_load' ? 'Loading' : 'Refreshing'}...</>
                             )}
                         </>
                     ) : (

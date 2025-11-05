@@ -1,14 +1,17 @@
-use crate::common::*;
 use anyhow::Result;
 use assert_json_diff::assert_json_include;
 use capture::config::CaptureMode;
+use chrono::Utc;
+
+#[path = "common/utils.rs"]
+mod utils;
+use utils::*;
+
 use limiters::redis::QuotaResource;
 use reqwest::StatusCode;
 use serde_json::{json, value::Value};
 use time::Duration;
 use uuid::Uuid;
-
-mod common;
 
 #[tokio::test]
 async fn it_captures_one_recording() -> Result<()> {
@@ -233,8 +236,7 @@ async fn it_validates_session_id_formats() -> Result<()> {
         assert_eq!(
             StatusCode::OK,
             res.status(),
-            "Expected session ID '{}' to be accepted, but got error status",
-            session_id
+            "Expected session ID '{session_id}' to be accepted, but got error status"
         );
     }
 
@@ -255,8 +257,7 @@ async fn it_validates_session_id_formats() -> Result<()> {
         assert_eq!(
             StatusCode::BAD_REQUEST,
             res.status(),
-            "Expected session ID '{}' to be rejected, but was accepted",
-            session_id
+            "Expected session ID '{session_id}' to be rejected, but was accepted"
         );
     }
 
@@ -382,6 +383,106 @@ async fn it_applies_overflow_limits() -> Result<()> {
                 "$snapshot_items": [],
             },
         })
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_returns_200() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+    let session_id = Uuid::now_v7().to_string();
+    let window_id = Uuid::now_v7().to_string();
+
+    let main_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_recordings(&main_topic).await;
+
+    let recording_event = json!([{
+        "token": token,
+        "event": "$snapshot",
+        "distinct_id": distinct_id,
+        "$session_id": session_id.clone(),
+        "properties": {
+            "$session_id": session_id.clone(),
+            "$window_id": window_id.clone(),
+            "$snapshot_data": [
+                {"type": 2, "data": {"source": 0}, "timestamp": Utc::now().timestamp_millis()}
+            ]
+        }
+    }]);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(3000))
+        .build()
+        .unwrap();
+
+    let timestamp = Utc::now().timestamp_millis();
+    let beacon_url = format!(
+        "http://{:?}/s/?ip=1&_={}&ver=1.240.6",
+        server.addr, timestamp
+    );
+
+    let res = client
+        .post(beacon_url)
+        .body(recording_event.to_string())
+        .send()
+        .await
+        .expect("Failed to send beacon request to /s/");
+
+    assert_eq!(StatusCode::OK, res.status(), "Expected OK");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn it_returns_204_when_beacon_is_1_for_recordings() -> Result<()> {
+    setup_tracing();
+    let token = random_string("token", 16);
+    let distinct_id = random_string("id", 16);
+    let session_id = Uuid::now_v7().to_string();
+    let window_id = Uuid::now_v7().to_string();
+
+    let main_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_recordings(&main_topic).await;
+
+    let recording_event = json!([{
+        "token": token,
+        "event": "$snapshot",
+        "distinct_id": distinct_id,
+        "$session_id": session_id.clone(),
+        "properties": {
+            "$session_id": session_id.clone(),
+            "$window_id": window_id.clone(),
+            "$snapshot_data": [
+                {"type": 2, "data": {"source": 0}, "timestamp": Utc::now().timestamp_millis()}
+            ]
+        }
+    }]);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(3000))
+        .build()
+        .unwrap();
+
+    let timestamp = Utc::now().timestamp_millis();
+    let beacon_url = format!(
+        "http://{:?}/s/?ip=1&_={}&ver=1.240.6&beacon=1",
+        server.addr, timestamp
+    );
+
+    let res_no_content = client
+        .post(beacon_url)
+        .body(recording_event.to_string())
+        .send()
+        .await
+        .expect("Failed to send beacon request to /s/");
+
+    assert_eq!(
+        StatusCode::NO_CONTENT,
+        res_no_content.status(),
+        "Expected NO_CONTENT for beacon recording request"
     );
 
     Ok(())

@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
 
-import unittest
-from unittest.mock import patch, MagicMock
 import json
 import time
-from toolbox import parse_arn, sanitize_label, get_current_user, get_toolbox_pod, claim_pod
+import subprocess
+
+import unittest
+from unittest.mock import MagicMock, patch
+
+from toolbox.kubernetes import get_available_contexts, get_current_context, select_context, switch_context
+from toolbox.pod import claim_pod, get_toolbox_pod
+from toolbox.user import get_current_user, parse_arn, sanitize_label
 
 
 class TestToolbox(unittest.TestCase):
@@ -22,6 +27,15 @@ class TestToolbox(unittest.TestCase):
         # Test with leading/trailing underscores
         self.assertEqual(sanitize_label("_user@example.com_"), "user_at_example.com")
 
+    def test_sanitize_label_truncation(self):
+        long_arn = (
+            "arn:aws:sts::169684386827:assumed-role/custom-role-name/" + "averyveryveryveryverylongemail@posthog.com"
+        )
+        sanitized = sanitize_label(long_arn)
+        self.assertTrue(sanitized.startswith("arn_aws_sts__169684386827_assu"))
+        self.assertIn("longemail_at_posthog.com", sanitized)
+        self.assertLessEqual(len(sanitized), 63)
+
     def test_parse_arn_valid(self):
         """Test parsing valid AWS STS ARN."""
         arn = "arn:aws:sts::169684386827:assumed-role/AWSReservedSSO_developers_0847e649a00cc5e7/michael.k@posthog.com"
@@ -37,9 +51,7 @@ class TestToolbox(unittest.TestCase):
     def test_parse_arn_unexpected_format(self):
         """Test parsing ARN with unexpected role format."""
         arn = "arn:aws:sts::169684386827:assumed-role/custom-role-name/michael.k@posthog.com"
-        expected = {
-            "toolbox-claimed": "arn:aws:sts::169684386827:assumed-role/custom-role-name/michael.k_at_posthog.com"
-        }
+        expected = {"toolbox-claimed": "arn_aws_sts__169684386827_assum_e-name_michael.k_at_posthog.com"}
         self.assertEqual(parse_arn(arn), expected)
 
     @patch("subprocess.run")
@@ -334,6 +346,142 @@ class TestToolbox(unittest.TestCase):
             calls[7][0][0],
             ["kubectl", "wait", "--for=condition=Ready", "--timeout=5m", "-n", "posthog", "pod", "toolbox-pod-1"],
         )
+
+    # New tests for Kubernetes context functions
+    @patch("subprocess.run")
+    def test_get_available_contexts(self, mock_run):
+        """Test getting available kubernetes contexts."""
+        mock_response = MagicMock()
+        mock_response.stdout = "context1\ncontext2\ncontext3"
+        mock_run.return_value = mock_response
+
+        contexts = get_available_contexts()
+
+        self.assertEqual(contexts, ["context1", "context2", "context3"])
+        mock_run.assert_called_once_with(
+            ["kubectl", "config", "get-contexts", "-o", "name"], capture_output=True, text=True, check=True
+        )
+
+    @patch("subprocess.run")
+    def test_get_available_contexts_empty(self, mock_run):
+        """Test getting available kubernetes contexts when none exist."""
+        mock_response = MagicMock()
+        mock_response.stdout = ""
+        mock_run.return_value = mock_response
+
+        contexts = get_available_contexts()
+
+        self.assertEqual(contexts, [])
+        mock_run.assert_called_once()
+
+    @patch("subprocess.run")
+    def test_get_available_contexts_error(self, mock_run):
+        """Test error handling when getting available contexts fails."""
+        mock_run.side_effect = subprocess.CalledProcessError(1, "kubectl", "error")
+
+        with self.assertRaises(SystemExit):
+            get_available_contexts()
+
+        mock_run.assert_called_once()
+
+    @patch("subprocess.run")
+    def test_get_current_context(self, mock_run):
+        """Test getting current kubernetes context."""
+        mock_response = MagicMock()
+        mock_response.stdout = "current-context"
+        mock_run.return_value = mock_response
+
+        context = get_current_context()
+
+        self.assertEqual(context, "current-context")
+        mock_run.assert_called_once_with(
+            ["kubectl", "config", "current-context"], capture_output=True, text=True, check=True
+        )
+
+    @patch("subprocess.run")
+    def test_get_current_context_error(self, mock_run):
+        """Test error handling when getting current context fails."""
+        mock_run.side_effect = subprocess.CalledProcessError(1, "kubectl", "error")
+
+        context = get_current_context()
+
+        self.assertIsNone(context)
+        mock_run.assert_called_once()
+
+    @patch("subprocess.run")
+    def test_switch_context(self, mock_run):
+        """Test switching kubernetes context."""
+        mock_run.return_value = MagicMock()
+
+        result = switch_context("new-context")
+
+        self.assertTrue(result)
+        mock_run.assert_called_once_with(["kubectl", "config", "use-context", "new-context"], check=True)
+
+    @patch("subprocess.run")
+    def test_switch_context_error(self, mock_run):
+        """Test error handling when switching context fails."""
+        mock_run.side_effect = subprocess.CalledProcessError(1, "kubectl", "error")
+
+        result = switch_context("invalid-context")
+
+        self.assertFalse(result)
+        mock_run.assert_called_once()
+
+    @patch("toolbox.kubernetes.get_available_contexts")
+    @patch("toolbox.kubernetes.get_current_context")
+    @patch("builtins.input")
+    def test_select_context(self, mock_input, mock_get_current, mock_get_available):
+        """Test selecting kubernetes context."""
+        # Setup mocks
+        mock_get_available.return_value = ["context1", "context2", "context3"]
+        mock_get_current.return_value = "context1"
+        mock_input.return_value = ""  # User just presses Enter to use current context
+
+        # Call function
+        result = select_context()
+
+        # Verify result
+        self.assertEqual(result, "context1")
+        mock_get_available.assert_called_once()
+        mock_get_current.assert_called_once()
+        mock_input.assert_called_once()
+
+    @patch("toolbox.kubernetes.get_available_contexts")
+    @patch("toolbox.kubernetes.get_current_context")
+    def test_select_context_current_none(self, mock_get_current, mock_get_available):
+        """Test select_context exits if current context is None."""
+        mock_get_available.return_value = ["context1", "context2"]
+        mock_get_current.return_value = None
+        with self.assertRaises(SystemExit):
+            select_context()
+
+    @patch("subprocess.run")
+    def test_claim_pod_wait_timeout(self, mock_run):
+        """Test claim_pod exits if pod does not become ready within 5 minutes."""
+        mock_get_response = MagicMock()
+        mock_get_response.stdout = json.dumps({"app.kubernetes.io/name": "posthog-toolbox-django"})
+        mock_annotate_response = MagicMock()
+        mock_label_response = MagicMock()
+        call_count = {"n": 0}
+
+        def side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return mock_get_response
+            elif call_count["n"] == 2:
+                return mock_annotate_response
+            elif call_count["n"] == 3:
+                return mock_label_response
+            elif call_count["n"] == 4:
+                raise subprocess.CalledProcessError(1, args[0], "Timed out")
+            else:
+                return mock_label_response
+
+        mock_run.side_effect = side_effect
+        user_labels = {"toolbox-claimed": "michael.k_at_posthog.com", "role-name": "developers", "assumed-role": "true"}
+        with self.assertRaises(SystemExit):
+            claim_pod("toolbox-pod-1", user_labels, 1234567890)
 
 
 if __name__ == "__main__":

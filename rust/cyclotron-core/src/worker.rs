@@ -64,7 +64,9 @@ impl Worker {
             pool,
             running: Default::default(),
             heartbeat_window: worker_config.heartbeat_window(),
-            flush_batch: Default::default(),
+            flush_batch: Arc::new(Mutex::new(FlushBatch::new(
+                worker_config.should_compress_vm_state(),
+            ))),
             linger: worker_config.linger_time(),
             max_buffered: worker_config.max_updates_buffered(),
             max_bytes: worker_config.max_bytes_buffered(),
@@ -216,7 +218,7 @@ impl Worker {
 
             let should_heartbeat = update
                 .last_heartbeat
-                .map_or(true, |last| Utc::now() - last > self.heartbeat_window);
+                .is_none_or(|last| Utc::now() - last > self.heartbeat_window);
 
             if !should_heartbeat {
                 return Ok(());
@@ -412,7 +414,7 @@ impl FlushBatch {
         // handle.
         let mut i = 0;
         while i < self.pending.len() {
-            if self.pending[i].deadline.map_or(false, |d| d < now) && self.pending[i].tries > 0 {
+            if self.pending[i].deadline.is_some_and(|d| d < now) && self.pending[i].tries > 0 {
                 self.pending.swap_remove(i).fail_deadline_exceeded();
             } else {
                 i += 1;
@@ -463,7 +465,7 @@ impl FlushBatch {
     // Take the current batch, replacing it in memory with an empty one. Used along with "merge"
     // to let us flush without holding the batch lock for the duration of the flush
     fn take(&mut self) -> Self {
-        std::mem::take(self)
+        std::mem::replace(self, FlushBatch::new(self.should_compress_vm_state))
     }
 
     // Combine two batches, setting the next mandatory flush to the earliest of the two
@@ -472,12 +474,6 @@ impl FlushBatch {
         self.blobs_size += other.blobs_size;
         self.vm_states_size += other.vm_states_size;
         self.next_mandatory_flush = self.next_mandatory_flush.min(other.next_mandatory_flush);
-    }
-}
-
-impl Default for FlushBatch {
-    fn default() -> Self {
-        Self::new(false)
     }
 }
 

@@ -1,11 +1,13 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Hub, Person, ProjectId, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { PostgresPersonRepository } from '../../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { EventsProcessor } from '../../../../src/worker/ingestion/process-event'
 import { resetTestDatabase } from '../../../helpers/sql'
 
@@ -60,17 +62,26 @@ describe('prepareEventStep()', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
+        const personRepository = new PostgresPersonRepository(hub.db.postgres)
 
         // :KLUDGE: We test below whether kafka messages are produced, so make sure the person exists beforehand.
-        await hub.db.createPerson(person.created_at, {}, {}, {}, pluginEvent.team_id, null, false, person.uuid, [
-            { distinctId: 'my_id' },
-        ])
+        await personRepository.createPerson(
+            person.created_at,
+            {},
+            {},
+            {},
+            pluginEvent.team_id,
+            null,
+            false,
+            person.uuid,
+            [{ distinctId: 'my_id' }]
+        )
 
         // @ts-expect-error TODO: Check existence of queueMessage
         hub.db.kafkaProducer!.queueMessage = jest.fn()
 
         // eslint-disable-next-line @typescript-eslint/require-await
-        hub.teamManager.fetchTeam = jest.fn(async (teamId) => {
+        hub.teamManager.getTeam = jest.fn(async (teamId) => {
             return teamId === 2 ? teamTwo : null
         })
 
@@ -104,7 +115,7 @@ describe('prepareEventStep()', () => {
     })
 
     it('scrubs IPs when team.anonymize_ips=true', async () => {
-        jest.mocked(runner.hub.teamManager.fetchTeam).mockReturnValue({
+        jest.mocked(runner.hub.teamManager.getTeam).mockReturnValue({
             ...teamTwo,
             // @ts-expect-error TODO: Check if prop is necessary
             anonymize_ips: true,

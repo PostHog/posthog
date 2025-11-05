@@ -1,8 +1,11 @@
-import collections.abc
-import datetime as dt
+import json
 import typing
+import datetime as dt
+import collections.abc
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
+
+from django.conf import settings
 
 import structlog
 import temporalio
@@ -19,16 +22,11 @@ from temporalio.client import (
     ScheduleState,
 )
 
-from posthog.batch_exports.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportRun,
-)
-from posthog.clickhouse.client import sync_execute
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
+
+from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
+from posthog.clickhouse.client import sync_execute
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -92,6 +90,7 @@ class BaseBatchExportInputs:
         interval: The range of data we are exporting.
         data_interval_end: For manual runs, the end date of the batch. This should be set to `None` for regularly
             scheduled runs and for backfills.
+        integration_id: The ID of the integration that contains the credentials for the destination.
     """
 
     batch_export_id: str
@@ -106,6 +105,7 @@ class BaseBatchExportInputs:
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
+    integration_id: int | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.
@@ -155,10 +155,14 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     endpoint_url: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+    use_virtual_style_addressing: bool = False
 
     def __post_init__(self):
         if self.max_file_size_mb:
             self.max_file_size_mb = int(self.max_file_size_mb)
+
+        if self.use_virtual_style_addressing and isinstance(self.use_virtual_style_addressing, str):
+            self.use_virtual_style_addressing = self.use_virtual_style_addressing.lower() == "true"  # type: ignore
 
 
 @dataclass(kw_only=True)
@@ -200,11 +204,76 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
         self.port = int(self.port)
 
 
+IAMRole = str
+
+
+@dataclass
+class AWSCredentials:
+    aws_access_key_id: str
+    aws_secret_access_key: str
+
+
+@dataclass
+class RedshiftCopyInputs:
+    s3_bucket: str
+    region_name: str
+    s3_key_prefix: str
+    # Authorization role or credentials for Redshift to COPY data from bucket.
+    authorization: IAMRole | AWSCredentials
+    # S3 batch export credentials.
+    # TODO: Also support RBAC for S3 batch export, then we could take
+    # `IAMRole | AWSCredentials` here too.
+    bucket_credentials: AWSCredentials
+
+
 @dataclass(kw_only=True)
-class RedshiftBatchExportInputs(PostgresBatchExportInputs):
+class RedshiftBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Redshift export workflow."""
 
+    user: str
+    password: str
+    host: str
+    database: str
+    schema: str = "public"
+    table_name: str = "events"
+    port: int = 5439
     properties_data_type: str = "varchar"
+    mode: typing.Literal["COPY", "INSERT"] = "INSERT"
+    copy_inputs: RedshiftCopyInputs | None = None
+
+    def __post_init__(self):
+        if (
+            self.mode == "COPY"
+            and self.copy_inputs is not None
+            and not isinstance(self.copy_inputs, RedshiftCopyInputs)
+        ):
+            if isinstance(self.copy_inputs, str | bytes | bytearray):  # type: ignore
+                raw_inputs = json.loads(self.copy_inputs)
+            elif isinstance(self.copy_inputs, dict):
+                raw_inputs = self.copy_inputs
+            else:
+                raise TypeError(f"Invalid type for copy inputs: '{type(self.copy_inputs)}'")
+
+            bucket_credentials = AWSCredentials(
+                aws_access_key_id=raw_inputs["bucket_credentials"]["aws_access_key_id"],
+                aws_secret_access_key=raw_inputs["bucket_credentials"]["aws_secret_access_key"],
+            )
+
+            if isinstance(raw_inputs["authorization"], str):
+                authorization: IAMRole | AWSCredentials = raw_inputs["authorization"]
+            else:
+                authorization = AWSCredentials(
+                    aws_access_key_id=raw_inputs["authorization"]["aws_access_key_id"],
+                    aws_secret_access_key=raw_inputs["authorization"]["aws_secret_access_key"],
+                )
+
+            self.copy_inputs = RedshiftCopyInputs(
+                s3_bucket=raw_inputs["s3_bucket"],
+                s3_key_prefix=raw_inputs.get("s3_key_prefix", "/"),
+                region_name=raw_inputs["region_name"],
+                authorization=authorization,
+                bucket_credentials=bucket_credentials,
+            )
 
 
 @dataclass(kw_only=True)
@@ -228,6 +297,22 @@ class BigQueryBatchExportInputs(BaseBatchExportInputs):
 
 
 @dataclass(kw_only=True)
+class DatabricksBatchExportInputs(BaseBatchExportInputs):
+    """Inputs for Databricks export workflow.
+
+    NOTE: we store config related to the Databricks instance in the integration model instead.
+    (including sensitive config such as client ID and client secret)
+    """
+
+    http_path: str
+    catalog: str
+    schema: str
+    table_name: str
+    use_variant_type: bool = True
+    use_automatic_schema_evolution: bool = True
+
+
+@dataclass(kw_only=True)
 class HttpBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Http export workflow."""
 
@@ -248,6 +333,7 @@ DESTINATION_WORKFLOWS = {
     "Postgres": ("postgres-export", PostgresBatchExportInputs),
     "Redshift": ("redshift-export", RedshiftBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
+    "Databricks": ("databricks-export", DatabricksBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
 }
@@ -528,7 +614,7 @@ async def start_backfill_batch_export_workflow(
         "backfill-batch-export",
         inputs,
         id=workflow_id,
-        task_queue=BATCH_EXPORTS_TASK_QUEUE,
+        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
     )
 
     return workflow_id
@@ -650,14 +736,18 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
 
     destination_config_fields = {field.name for field in fields(workflow_inputs)}
     destination_config = {k: v for k, v in batch_export.destination.config.items() if k in destination_config_fields}
-    task_queue = SYNC_BATCH_EXPORTS_TASK_QUEUE if batch_export.destination.type == "HTTP" else BATCH_EXPORTS_TASK_QUEUE
+    task_queue = (
+        settings.SYNC_BATCH_EXPORTS_TASK_QUEUE
+        if batch_export.destination.type == "HTTP"
+        else settings.BATCH_EXPORTS_TASK_QUEUE
+    )
 
     context = HogQLContext(
         team_id=batch_export.team.id,
         enable_select_queries=True,
         limit_top_select=False,
     )
-    context.database = create_hogql_database(team=batch_export.team, modifiers=context.modifiers)
+    context.database = Database.create_for(team=batch_export.team, modifiers=context.modifiers)
 
     temporal = sync_connect()
     schedule = Schedule(
@@ -679,6 +769,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     # This assignment should be removed after updating all existing exports to use
                     # `batch_export_model` instead.
                     batch_export_schema=None,
+                    integration_id=batch_export.destination.integration_id,
                     **destination_config,
                 )
             ),
@@ -695,7 +786,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
-            jitter=max(dt.timedelta(minutes=1), (batch_export.interval_time_delta / 6)),
+            jitter=batch_export.jitter,
             time_zone_name=batch_export.team.timezone,
         ),
         state=state,
@@ -916,6 +1007,9 @@ class BatchExportInsertInputs:
     batch_export_schema: BatchExportSchema | None = None
     # TODO: Remove after updating existing batch exports to use backfill_details
     is_backfill: bool = False
+    # TODO - pass these in to all inherited classes
+    batch_export_id: str | None = None
+    destination_default_fields: list[BatchExportField] | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.

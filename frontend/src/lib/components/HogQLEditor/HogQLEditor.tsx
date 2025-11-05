@@ -1,15 +1,17 @@
+import { useEffect, useState } from 'react'
+
 import { Link } from '@posthog/lemon-ui'
+
 import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
-import { useEffect, useState } from 'react'
 
 import { AnyDataNode } from '~/queries/schema/schema-general'
 import { isActorsQuery } from '~/queries/utils'
 
 export interface HogQLEditorProps {
     onChange: (value: string) => void
-    value: string | undefined
+    value: string | undefined | null
     metadataSource?: AnyDataNode
     disablePersonProperties?: boolean
     disableAutoFocus?: boolean

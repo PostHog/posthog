@@ -1,25 +1,21 @@
+from datetime import datetime
 from typing import Any, Literal, Optional, Union
 
 from django.conf import settings
 from django.db import models
 
 from posthog.models.person.missing_person import MissingPerson
-from posthog.models.person.person import Person
+from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDModel
-from posthog.session_recordings.models.metadata import (
-    RecordingMatchingEvents,
-    RecordingMetadata,
-)
-from posthog.session_recordings.models.session_recording_event import (
-    SessionRecordingViewed,
-)
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.tasks.tasks import ee_persist_single_recording
+from posthog.models.utils import UUIDTModel
+from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
+from posthog.tasks.tasks import ee_persist_single_recording_v2
 
 
-class SessionRecording(UUIDModel):
+class SessionRecording(UUIDTModel):
     class Meta:
         unique_together = ("team", "session_id")
 
@@ -56,6 +52,8 @@ class SessionRecording(UUIDModel):
     # as we might need to know the version before knowing how to load the data
     storage_version = models.CharField(blank=True, null=True, max_length=20)
 
+    retention_period_days = models.IntegerField(blank=True, null=True)
+
     # DYNAMIC FIELDS
 
     viewed: Optional[bool] = False
@@ -64,6 +62,9 @@ class SessionRecording(UUIDModel):
     matching_events: Optional[RecordingMatchingEvents] = None
     ongoing: Optional[bool] = None
     activity_score: Optional[float] = None
+    ttl_days: Optional[int] = None
+    expiry_time: Optional[datetime] = None
+    recording_ttl: Optional[int] = None
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
@@ -87,6 +88,7 @@ class SessionRecording(UUIDModel):
                 return False
 
             self._metadata = metadata
+            self.ttl_days = ttl_days(self.team)
 
             # Some fields of the metadata are persisted fully in the model
             self.distinct_id = metadata["distinct_id"]
@@ -102,6 +104,9 @@ class SessionRecording(UUIDModel):
             self.console_log_count = metadata["console_log_count"]
             self.console_warn_count = metadata["console_warn_count"]
             self.console_error_count = metadata["console_error_count"]
+            self.retention_period_days = metadata["retention_period_days"]
+            self.expiry_time = metadata["expiry_time"]
+            self.recording_ttl = metadata["recording_ttl"]
 
         return True
 
@@ -134,7 +139,7 @@ class SessionRecording(UUIDModel):
             return
 
         try:
-            self.person = Person.objects.get(
+            self.person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(
                 persondistinctid__distinct_id=self.distinct_id,
                 persondistinctid__team_id=self.team.pk,
                 team=self.team,
@@ -164,7 +169,10 @@ class SessionRecording(UUIDModel):
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
         try:
-            return SessionRecording.objects.get(session_id=session_id, team=team)
+            # we have to select the team now instead of lazy loading
+            # because this recording object is sometimes used in an async context
+            # and lazy loading in the async context causes an error
+            return SessionRecording.objects.select_related("team").get(session_id=session_id, team=team)
         except SessionRecording.DoesNotExist:
             return SessionRecording(session_id=session_id, team=team)
 
@@ -199,6 +207,9 @@ class SessionRecording(UUIDModel):
             recording.set_start_url_from_urls(ch_recording.get("urls", None), ch_recording.get("first_url", None))
             recording.ongoing = bool(ch_recording.get("ongoing", False))
             recording.activity_score = ch_recording.get("activity_score", None)
+            recording.retention_period_days = ch_recording.get("retention_period_days", None)
+            recording.expiry_time = ch_recording.get("expiry_time", None)
+            recording.recording_ttl = ch_recording.get("recording_ttl", None)
 
             recordings.append(recording)
 
@@ -216,4 +227,4 @@ class SessionRecording(UUIDModel):
 @mutable_receiver(models.signals.post_save, sender=SessionRecording)
 def attempt_persist_recording(sender, instance: SessionRecording, created: bool, **kwargs):
     if created:
-        ee_persist_single_recording.delay(instance.session_id, instance.team_id)
+        ee_persist_single_recording_v2.delay(instance.session_id, instance.team_id)

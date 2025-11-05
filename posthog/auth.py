@@ -1,30 +1,42 @@
-import functools
 import re
+import logging
+import functools
 from datetime import timedelta
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 from urllib.parse import urlsplit
 
-import jwt
 from django.apps import apps
+from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
+
+import jwt
+from prometheus_client import Counter
 from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
+from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models.personal_api_key import (
-    PersonalAPIKey,
-    hash_key_value,
-    PERSONAL_API_KEY_MODES_TO_TRY,
-)
+from posthog.models.oauth import OAuthAccessToken
+from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
-from django.contrib.auth.models import AnonymousUser
-from zxcvbn import zxcvbn
+
+if TYPE_CHECKING:
+    from posthog.models.share_password import SharePassword
+
+logger = logging.getLogger(__name__)
+
+PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
+    "api_auth_personal_api_key_query_param",
+    "Requests where the personal api key is specified in a query parameter",
+    labelnames=["user_uuid"],
+)
 
 
 class ZxcvbnValidator:
@@ -56,7 +68,20 @@ class SessionAuthentication(authentication.SessionAuthentication):
 
     We do set authenticate_header function in SessionAuthentication, so that a value for the WWW-Authenticate
     header can be retrieved and the response code is automatically set to 401 in case of unauthenticated requests.
+
+    This class is also used to enforce Two-Factor Authentication for session-based authentication.
     """
+
+    def authenticate(self, request):
+        auth_result = super().authenticate(request)
+
+        if not auth_result:
+            return None
+
+        user, auth = auth_result
+        enforce_two_factor(request, user)
+
+        return (user, auth)
 
     def authenticate_header(self, request):
         return "Session"
@@ -86,16 +111,19 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         if "HTTP_AUTHORIZATION" in request.META:
             authorization_match = re.match(rf"^{cls.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
             if authorization_match:
-                return authorization_match.group(1).strip(), "Authorization header"
+                token = authorization_match.group(1).strip()
+
+                if token.startswith(
+                    "pha_"
+                ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
+                    return None
+                return token, "Authorization header"
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
         if data and "personal_api_key" in data:
             return data["personal_api_key"], "body"
         if "personal_api_key" in request.GET:
             return request.GET["personal_api_key"], "query string"
-        if extra_data and "personal_api_key" in extra_data:
-            # compatibility with /capture endpoint
-            return extra_data["personal_api_key"], "query string data"
         return None
 
     @classmethod
@@ -141,6 +169,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             key_to_update.secure_value = hash_key_value(personal_api_key)
             key_to_update.save(update_fields=["secure_value"])
 
+        if source == "query string":
+            PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
+
         return personal_api_key_object
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
@@ -164,6 +195,8 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             user_id=personal_api_key_object.user.pk,
             team_id=personal_api_key_object.user.current_team_id,
             access_method="personal_api_key",
+            api_key_mask=personal_api_key_object.mask_value,
+            api_key_label=personal_api_key_object.label,
         )
 
         self.personal_api_key = personal_api_key_object
@@ -173,6 +206,86 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     @classmethod
     def authenticate_header(cls, request) -> str:
         return cls.keyword
+
+
+class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
+    """
+    Authenticates using a project secret API key. Unlike a personal API key, this is not associated with a
+    user and should only be used for local_evaluation and flags remote_config (not to be confused with the
+    other remote_config endpoint) requests. When authenticated, this returns a "synthetic"
+    ProjectSecretAPIKeyUser object that has the team set. This allows us to use the existing permissioning
+    system for local_evaluation and flags remote_config requests.
+
+    Only the first key candidate found in the request is tried, and the order is:
+    1. Request Authorization header of type Bearer.
+    2. Request body.
+    """
+
+    keyword = "Bearer"
+
+    @classmethod
+    def find_secret_api_token(
+        cls,
+        request: Union[HttpRequest, Request],
+    ) -> Optional[str]:
+        """Try to find project secret API key in request and return it"""
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.META["HTTP_AUTHORIZATION"])
+            if authorization_match:
+                return authorization_match.group(1).strip()
+
+        # Wrap HttpRequest in DRF Request if needed
+        if not isinstance(request, Request):
+            request = Request(request)
+
+        data = request.data
+
+        if data and "secret_api_key" in data:
+            return data["secret_api_key"]
+
+        return None
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        secret_api_token = self.find_secret_api_token(request)
+
+        if not secret_api_token:
+            return None
+
+        # get the team from the secret api key
+        try:
+            Team = apps.get_model(app_label="posthog", model_name="Team")
+            team = Team.objects.get_team_from_cache_or_secret_api_token(secret_api_token)
+
+            if team is None:
+                return None
+
+            # Secret api keys are not associated with a user, so we create a ProjectSecretAPIKeyUser
+            # and attach the team. The team is the important part here.
+            return (ProjectSecretAPIKeyUser(team), None)
+        except Team.DoesNotExist:
+            return None
+
+    @classmethod
+    def authenticate_header(cls, request) -> str:
+        return cls.keyword
+
+
+class ProjectSecretAPIKeyUser:
+    """
+    A "synthetic" user object returned by the ProjectSecretAPIKeyAuthentication when authenticating with a project secret API key.
+    """
+
+    def __init__(self, team):
+        self.team = team
+        self.current_team_id = team.id
+        self.is_authenticated = True
+        self.pk = -1
+
+    def has_perm(self, perm, obj=None):
+        return False
+
+    def has_module_perms(self, app_label):
+        return False
 
 
 class TemporaryTokenAuthentication(authentication.BaseAuthentication):
@@ -252,12 +365,158 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
                 sharing_configuration = SharingConfiguration.objects.get(
                     access_token=sharing_access_token, enabled=True
                 )
+
+                # If password is required, don't authenticate via direct access_token
+                # Let the view handle showing the unlock page
+                if sharing_configuration.password_required:
+                    return None
+
             except SharingConfiguration.DoesNotExist:
                 raise AuthenticationFailed(detail="Sharing access token is invalid.")
             else:
                 self.sharing_configuration = sharing_configuration
                 return (AnonymousUser(), None)
         return None
+
+
+class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
+    """
+    JWT-based authentication for password-protected shared resources.
+    Supports both Bearer token (for API calls) and cookie (for rendering decisions).
+    """
+
+    keyword = "Bearer"
+    sharing_configuration: SharingConfiguration
+    share_password: "SharePassword"
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
+        if request.method != "GET":
+            return None
+
+        # Extract JWT token from Authorization header or cookie
+        sharing_jwt_token = None
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+            if authorization_match:
+                sharing_jwt_token = authorization_match.group(1).strip()
+        elif hasattr(request, "COOKIES") and request.COOKIES.get("posthog_sharing_token"):
+            sharing_jwt_token = request.COOKIES.get("posthog_sharing_token")
+
+        if not sharing_jwt_token:
+            return None
+
+        try:
+            # Attempt full JWT validation - this will fail fast for non-sharing JWTs due to audience mismatch
+            payload = decode_jwt(sharing_jwt_token, PosthogJwtAudience.SHARING_PASSWORD_PROTECTED)
+
+            from posthog.models.share_password import SharePassword
+
+            share_password = SharePassword.objects.select_related("sharing_configuration").get(
+                id=payload["share_password_id"],
+                sharing_configuration__team_id=payload["team_id"],
+                sharing_configuration__enabled=True,
+                sharing_configuration__password_required=True,
+                is_active=True,
+            )
+
+            sharing_configuration = share_password.sharing_configuration
+
+            # Verify the access token matches (prevents token reuse across different shares)
+            if sharing_configuration.access_token != payload.get("access_token"):
+                return None
+
+            self.sharing_configuration = sharing_configuration
+            self.share_password = share_password
+            return (AnonymousUser(), None)
+
+        except jwt.InvalidTokenError:
+            # Expected: JWT decode failed (likely a personal API key was passed)
+            # Let the next authenticator (PersonalAPIKeyAuthentication) handle it
+            return None
+        except Exception as e:
+            # Unexpected: Database issues, programming errors, etc.
+            # Log for debugging but still fail gracefully
+            logger.info(
+                "SharingPasswordProtectedAuthentication failed with unexpected exception",
+                exc_info=True,
+                extra={"exception_type": type(e).__name__, "exception_message": str(e)},
+            )
+            return None
+
+
+class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
+    """
+    OAuth 2.0 Bearer token authentication using access tokens
+    """
+
+    keyword = "Bearer"
+    access_token: OAuthAccessToken
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        authorization_token = self._extract_token(request)
+
+        if not authorization_token:
+            return None
+
+        try:
+            access_token = self._validate_token(authorization_token)
+
+            if not access_token:
+                raise AuthenticationFailed(detail="Invalid access token.")
+
+            self.access_token = access_token
+
+            tag_queries(
+                user_id=access_token.user.pk,
+                team_id=access_token.user.current_team_id,
+                access_method="oauth",
+            )
+
+            return access_token.user, None
+
+        except AuthenticationFailed:
+            raise
+        except Exception:
+            raise AuthenticationFailed(detail="Invalid access token.")
+
+    def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
+        if "HTTP_AUTHORIZATION" in request.META:
+            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+            if authorization_match:
+                token = authorization_match.group(1).strip()
+
+                if token.startswith("pha_"):
+                    return token
+                return None
+        return None
+
+    def _validate_token(self, token: str):
+        try:
+            access_token = OAuthAccessToken.objects.select_related("user").get(token=token)
+
+            if access_token.is_expired():
+                raise AuthenticationFailed(detail="Access token has expired.")
+
+            if not access_token.user:
+                raise AuthenticationFailed(detail="User associated with access token not found.")
+
+            if not access_token.user.is_active:
+                raise AuthenticationFailed(detail="User associated with access token is disabled.")
+
+            if not access_token.application_id:
+                raise AuthenticationFailed(detail="Access token is not associated with a valid application.")
+
+            return access_token
+
+        except OAuthAccessToken.DoesNotExist:
+            return None
+        except AuthenticationFailed:
+            raise
+        except Exception:
+            raise AuthenticationFailed(detail="Failed to validate access token.")
+
+    def authenticate_header(self, request):
+        return self.keyword
 
 
 def authenticate_secondarily(endpoint):

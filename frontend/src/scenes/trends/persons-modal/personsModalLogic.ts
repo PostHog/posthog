@@ -1,7 +1,9 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { isGroupType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -10,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
 import {
     ActorsQuery,
@@ -19,9 +22,10 @@ import {
     InsightActorsQuery,
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
-    insightActorsQueryOptionsResponseKeys,
     NodeKind,
+    insightActorsQueryOptionsResponseKeys,
 } from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActorType,
     BreakdownType,
@@ -100,11 +104,16 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         return res
                     }
                     if (values.actorsQuery) {
-                        const response = await performQuery({
-                            ...values.actorsQuery,
-                            limit: offset ? offset * 2 : RESULTS_PER_PAGE,
-                            offset,
-                        } as ActorsQuery)
+                        const response = await performQuery(
+                            setLatestVersionsOnQuery(
+                                {
+                                    ...values.actorsQuery,
+                                    limit: offset ? offset * 2 : RESULTS_PER_PAGE,
+                                    offset,
+                                },
+                                { recursion: false }
+                            ) as ActorsQuery
+                        )
                         breakpoint()
 
                         const assembledSelectFields = values.selectFields
@@ -135,7 +144,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
                                         const person: PersonActorType = {
                                             type: 'person',
                                             id: result[0].id,
-                                            uuid: result[0].id,
                                             distinct_ids: result[0].distinct_ids,
                                             is_identified: result[0].is_identified,
                                             properties: result[0].properties,
@@ -171,10 +179,13 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     if (!query) {
                         return values.insightActorsQueryOptions || null
                     }
-                    const optionsQuery: InsightActorsQueryOptions = {
-                        kind: NodeKind.InsightActorsQueryOptions,
-                        source: query,
-                    }
+                    const optionsQuery: InsightActorsQueryOptions = setLatestVersionsOnQuery(
+                        {
+                            kind: NodeKind.InsightActorsQueryOptions,
+                            source: query,
+                        },
+                        { recursion: false }
+                    )
                     const response = await performQuery(optionsQuery, {}, 'blocking')
 
                     return Object.fromEntries(
@@ -297,8 +308,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
         validationError: [
             (s) => [s.errorObject],
             (errorObject): string | null => {
-                // We use 512 for query timeouts
-                return errorObject?.status === 400 || errorObject?.status === 512 ? errorObject.detail : null
+                return extractValidationError(errorObject)
             },
         ],
         propertiesTimelineFilterFromUrl: [
@@ -340,13 +350,16 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 if (!query) {
                     return null
                 }
-                return {
-                    kind: NodeKind.ActorsQuery,
-                    source: query,
-                    select: selectFields,
-                    orderBy: orderBy || [],
-                    search: searchTerm,
-                }
+                return setLatestVersionsOnQuery(
+                    {
+                        kind: NodeKind.ActorsQuery,
+                        source: query,
+                        select: selectFields,
+                        orderBy: orderBy || [],
+                        search: searchTerm,
+                    },
+                    { recursion: false }
+                )
             },
         ],
         exploreUrl: [

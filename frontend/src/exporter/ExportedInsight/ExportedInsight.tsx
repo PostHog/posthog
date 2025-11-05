@@ -2,6 +2,8 @@ import './ExportedInsight.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useMountedLogic } from 'kea'
+
+import { Logo } from 'lib/brand/Logo'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import {
@@ -13,11 +15,10 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 
-import { ExportOptions } from '~/exporter/types'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
+import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
+import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import { isDataTableNode, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
-import { Logo } from '~/toolbar/assets/Logo'
 import { ChartDisplayType, DataColorThemeModel, InsightLogicProps, InsightModel } from '~/types'
 
 export function ExportedInsight({
@@ -27,7 +28,7 @@ export function ExportedInsight({
 }: {
     insight: InsightModel
     themes: DataColorThemeModel[]
-    exportOptions: ExportOptions
+    exportOptions: SharingConfigurationSettings
 }): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
@@ -116,7 +117,7 @@ export function ExportedInsight({
                     )}
                     {showDetailedResultsTable && (
                         <div className="border-t mt-2">
-                            <InsightsTable filterKey={short_id} isLegend embedded />
+                            <InsightsTable filterKey={short_id} isLegend embedded editMode={false} />
                         </div>
                     )}
                 </div>

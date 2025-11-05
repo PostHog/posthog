@@ -1,5 +1,6 @@
-import { dayjs } from 'lib/dayjs'
 import tk from 'timekeeper'
+
+import { dayjs } from 'lib/dayjs'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json'
@@ -8,6 +9,7 @@ import {
     convertAmountToUsage,
     convertLargeNumberToWords,
     convertUsageToAmount,
+    formatWithDecimals,
     getProration,
     projectUsage,
     summarizeUsage,
@@ -17,12 +19,12 @@ describe('summarizeUsage', () => {
     it('should summarise usage', () => {
         expect(summarizeUsage(0)).toEqual('0')
         expect(summarizeUsage(999)).toEqual('999')
-        expect(summarizeUsage(1000)).toEqual('1 thousand')
-        expect(summarizeUsage(3345)).toEqual('3.3 thousand')
-        expect(summarizeUsage(3600)).toEqual('3.6 thousand')
-        expect(summarizeUsage(100000)).toEqual('100 thousand')
-        expect(summarizeUsage(999999)).toEqual('1 million')
-        expect(summarizeUsage(10000000)).toEqual('10 million')
+        expect(summarizeUsage(1000)).toEqual('1 K')
+        expect(summarizeUsage(3345)).toEqual('3.35 K')
+        expect(summarizeUsage(3600)).toEqual('3.6 K')
+        expect(summarizeUsage(100000)).toEqual('100 K')
+        expect(summarizeUsage(999999)).toEqual('1 M')
+        expect(summarizeUsage(10000000)).toEqual('10 M')
     })
 })
 
@@ -285,5 +287,43 @@ describe('getProration', () => {
             isProrated: false,
             prorationAmount: '0.00',
         })
+    })
+})
+
+describe('formatWithDecimals', () => {
+    it('should format very small numbers without scientific notation', () => {
+        // Test various small decimal places
+        expect(formatWithDecimals(0.0000001)).toEqual('0.0000001') // 7 decimal places
+        expect(formatWithDecimals(0.00000001)).toEqual('0.00000001') // 8 decimal places
+        expect(formatWithDecimals(0.000000001)).toEqual('0.000000001') // 9 decimal places
+        expect(formatWithDecimals(0.0000000001)).toEqual('0.0000000001') // 10 decimal places
+        expect(formatWithDecimals(0.00000000001)).toEqual('0') // 11 decimal places - falls back to 10 decimals if not specified, which would be 0.0000000000 so we return 0
+
+        // Edge case at the scientific notation threshold (1e-6)
+        expect(formatWithDecimals(0.000001)).toEqual('0.000001') // Exactly 1e-6
+        expect(formatWithDecimals(0.0000009)).toEqual('0.0000009') // Just below 1e-6
+    })
+
+    it('should remove trailing zeros', () => {
+        // These numbers naturally produce trailing zeros when using toFixed(10), which is the default
+        expect(formatWithDecimals(1 / 8000000)).toEqual('0.000000125') // 0.000000125 -> toFixed(10) = 0.0000001250
+        expect(formatWithDecimals(5 / 4000000)).toEqual('0.00000125') // 0.00000125 -> toFixed(10) = 0.0000012500
+        expect(formatWithDecimals(1 / 2000000)).toEqual('0.0000005') // 0.0000005 -> toFixed(10) = 0.0000005000
+    })
+
+    it('should handle normal numbers', () => {
+        // Normal numbers
+        expect(formatWithDecimals(0)).toEqual('0')
+        expect(formatWithDecimals(1)).toEqual('1')
+        expect(formatWithDecimals(0.1)).toEqual('0.1')
+        expect(formatWithDecimals(0.01)).toEqual('0.01')
+        expect(formatWithDecimals(100.25)).toEqual('100.25')
+
+        // With explicit decimals
+        expect(formatWithDecimals(10.567, 2)).toEqual('10.57')
+        expect(formatWithDecimals(0.000000625, 9)).toEqual('0.000000625')
+
+        // Negative numbers
+        expect(formatWithDecimals(-0.000000625)).toEqual('-0.000000625')
     })
 })

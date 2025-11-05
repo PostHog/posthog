@@ -1,7 +1,9 @@
-import { LemonColorGlyph, LemonInput, LemonLabel, Popover } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { cloneElement, useEffect, useState } from 'react'
+
+import { LemonColorGlyph, LemonInput, LemonLabel, Popover } from '@posthog/lemon-ui'
+
 import { DataColorToken } from 'lib/colors'
-import { cloneElement, useState } from 'react'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
 import { LemonColorButton } from './LemonColorButton'
@@ -12,6 +14,7 @@ type LemonColorPickerBaseProps = {
     hideDropdown?: boolean
     preventPopoverClose?: boolean
     customButton?: JSX.Element
+    customColorValue?: string
 }
 
 type LemonColorPickerColorProps = LemonColorPickerBaseProps & {
@@ -48,10 +51,19 @@ export const LemonColorPickerOverlay = ({
     onSelectColorToken,
     showCustomColor = false,
     preventPopoverClose = false,
+    customColorValue,
 }: LemonColorPickerOverlayProps): JSX.Element => {
-    const [color, setColor] = useState<string | null>(selectedColor || null)
+    const [color, setColor] = useState<string | null>(customColorValue || selectedColor || null)
     const [lastValidColor, setLastValidColor] = useState<string | null>(selectedColor || null)
     const { getAvailableColorTokens } = useValues(dataThemeLogic)
+
+    useEffect(() => {
+        const newColor = customColorValue || selectedColor
+        if (newColor) {
+            setColor(newColor)
+            setLastValidColor(newColor)
+        }
+    }, [customColorValue, selectedColor])
 
     return (
         <div

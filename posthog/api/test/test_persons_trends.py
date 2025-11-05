@@ -2,12 +2,6 @@ import json
 from datetime import datetime
 
 from freezegun import freeze_time
-
-from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
-from posthog.models import Action, Cohort, Organization
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -16,6 +10,10 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
+from posthog.models import Action, Cohort, Organization
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
 def _create_action(**kwargs):

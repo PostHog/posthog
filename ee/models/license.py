@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
+
 from rest_framework import exceptions, status
 
 from posthog.constants import AvailableFeature
@@ -76,6 +77,7 @@ class License(models.Model):
         *SCALE_FEATURES,
         AvailableFeature.ADVANCED_PERMISSIONS,
         AvailableFeature.SAML,
+        AvailableFeature.SCIM,
         AvailableFeature.SSO_ENFORCEMENT,
         AvailableFeature.ROLE_BASED_ACCESS,
     ]

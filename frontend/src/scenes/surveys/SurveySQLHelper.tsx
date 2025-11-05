@@ -1,15 +1,17 @@
-import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { SurveyQuestionType } from 'posthog-js'
+
+import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { SurveyQuestionType } from 'posthog-js'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 
-import { Survey, SurveyQuestion } from '~/types'
+import { Survey, SurveyEventName, SurveyEventProperties, SurveyQuestion } from '~/types'
 
-import { createAnswerFilterHogQLExpression } from './utils'
+import { buildPartialResponsesFilter, createAnswerFilterHogQLExpression } from './utils'
 
 interface SurveySQLHelperProps {
     isOpen: boolean
@@ -25,14 +27,16 @@ export function SurveySQLHelper({ isOpen, onClose }: SurveySQLHelperProps): JSX.
         return `SELECT
     distinct_id,
     getSurveyResponse(${index}, '${question.id}'${
-            question.type === SurveyQuestionType.MultipleChoice ? ', true' : ''
-        }) AS "${question.question}",
+        question.type === SurveyQuestionType.MultipleChoice ? ', true' : ''
+    }) AS "${question.question}",
     timestamp
 FROM
     events
 WHERE
-    event = 'survey sent'
-    AND properties.$survey_id = '${survey.id}' ${filterConditions ? '\n' + filterConditions : ''}
+    event = '${SurveyEventName.SENT}'
+    AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
+    ${buildPartialResponsesFilter(survey as Survey)}
+    ${filterConditions ? filterConditions : ''}
 ORDER BY
     timestamp DESC
 LIMIT
@@ -55,8 +59,10 @@ ${questionSelects},
 FROM
     events
 WHERE
-    event = 'survey sent'
-    AND properties.$survey_id = '${survey.id}' ${filterConditions ? '\n' + filterConditions : ''}
+    event = '${SurveyEventName.SENT}'
+    AND properties.${SurveyEventProperties.SURVEY_ID} = '${survey.id}'
+    ${buildPartialResponsesFilter(survey as Survey)}
+    ${filterConditions ? filterConditions : ''}
 ORDER BY
     timestamp DESC
 LIMIT
@@ -76,7 +82,7 @@ LIMIT
             description={
                 <div className="flex flex-col gap-1 text-sm text-muted">
                     <p>
-                        <b>Important:</b> Since March 7, 2024, survey responses are stored using question IDs
+                        <b>Important:</b> Since March 7, 2025, survey responses are stored using question IDs
                         ([UUID](https://en.wikipedia.org/wiki/Universally_unique_identifier)) instead of indexes. The
                         queries below handle both formats using the <code>coalesce</code> function.
                     </p>

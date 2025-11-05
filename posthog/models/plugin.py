@@ -1,9 +1,9 @@
-import datetime
 import os
+import datetime
 import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Optional, cast, Literal
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -11,6 +11,7 @@ from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec
 
@@ -29,7 +30,8 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from .utils import UUIDModel, sane_repr
+
+from .utils import UUIDTModel, sane_repr
 
 try:
     from posthog.clickhouse.client import sync_execute
@@ -450,7 +452,7 @@ class PluginSourceFileManager(models.Manager):
         )
 
 
-class PluginSourceFile(UUIDModel):
+class PluginSourceFile(UUIDTModel):
     class Meta:
         constraints = [models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename"))]
 
@@ -525,29 +527,6 @@ def fetch_plugin_log_entries(
     return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
 
 
-def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: dict[str, Any], *, is_staff: bool):
-    if not plugin.public_jobs:
-        raise ValidationError("Plugin has no public jobs")
-    if job_type not in plugin.public_jobs:
-        raise ValidationError(f"Unknown plugin job: {repr(job_type)}")
-
-    payload_spec = plugin.public_jobs[job_type].get("payload", {})
-    for key, field_options in payload_spec.items():
-        if field_options.get("required", False) and key not in payload:
-            raise ValidationError(f"Missing required job field: {key}")
-        if (
-            field_options.get("staff_only", False)
-            and not is_staff
-            and key in payload
-            and payload.get(key) != field_options.get("default")
-        ):
-            raise ValidationError(f"Field is only settable for admins: {key}")
-
-    for key in payload:
-        if key not in payload_spec:
-            raise ValidationError(f"Unknown field for job: {key}")
-
-
 @receiver(models.signals.post_save, sender=Organization)
 def preinstall_plugins_for_new_organization(sender, instance: Organization, created: bool, **kwargs):
     if created and not is_cloud() and can_install_plugins(instance):
@@ -560,7 +539,7 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
                     is_preinstalled=True,
                 )
             except Exception as e:
-                print(
+                print(  # noqa: T201 allow print statement
                     f"⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}:\n",
                     e,
                 )

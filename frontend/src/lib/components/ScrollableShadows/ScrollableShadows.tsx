@@ -1,8 +1,9 @@
 import './ScrollableShadows.scss'
 
 import { clsx } from 'clsx'
+import React, { CSSProperties, MutableRefObject } from 'react'
+
 import { useScrollable } from 'lib/hooks/useScrollable'
-import React, { MutableRefObject } from 'react'
 
 export type ScrollableShadowsProps = {
     children: React.ReactNode
@@ -17,10 +18,25 @@ export type ScrollableShadowsProps = {
     onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void
     onBlur?: () => void
     styledScrollbars?: boolean
+    style?: CSSProperties
+    /** Whether to disable scrolling. */
+    disableScroll?: boolean
+    /** Whether to hide the scrollable shadows. */
+    hideShadows?: boolean
 }
 
 export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShadowsProps>(function ScrollableShadows(
-    { children, direction, className, innerClassName, scrollRef, styledScrollbars = false, ...props },
+    {
+        children,
+        direction,
+        className,
+        innerClassName,
+        scrollRef,
+        styledScrollbars = false,
+        disableScroll = false,
+        hideShadows = false,
+        ...props
+    },
     ref
 ) {
     const {
@@ -36,18 +52,22 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
             className={clsx(
                 'ScrollableShadows',
                 `ScrollableShadows--${direction}`,
-
-                direction === 'horizontal' && isScrollableLeft && 'ScrollableShadows--left',
-                direction === 'horizontal' && isScrollableRight && 'ScrollableShadows--right',
-                direction === 'vertical' && isScrollableTop && 'ScrollableShadows--top',
-                direction === 'vertical' && isScrollableBottom && 'ScrollableShadows--bottom',
+                !hideShadows && direction === 'horizontal' && isScrollableLeft && 'ScrollableShadows--left',
+                !hideShadows && direction === 'horizontal' && isScrollableRight && 'ScrollableShadows--right',
+                !hideShadows && direction === 'vertical' && isScrollableTop && 'ScrollableShadows--top',
+                !hideShadows && direction === 'vertical' && isScrollableBottom && 'ScrollableShadows--bottom',
                 className
             )}
             ref={ref}
             {...props}
         >
             <div
-                className={clsx('ScrollableShadows__inner', styledScrollbars && 'styled-scrollbars', innerClassName)}
+                className={clsx(
+                    'ScrollableShadows__inner',
+                    styledScrollbars && 'show-scrollbar-on-hover',
+                    innerClassName,
+                    disableScroll && 'overflow-hidden'
+                )}
                 ref={(refValue) => {
                     scrollRefScrollable.current = refValue
                     if (scrollRef) {

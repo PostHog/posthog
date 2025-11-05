@@ -6,9 +6,11 @@
     height: 0;
     padding: 0.05rem !important;
     overflow: hidden;
-    background: var(--accent-highlight-secondary);
+    background: var(--color-accent-highlight-secondary);
     border: none !important;
-    transition: height 200ms ease, top 200ms ease;
+    transition:
+        height 200ms ease,
+        top 200ms ease;
 
     &::after {
         position: absolute;
@@ -17,7 +19,7 @@
         width: 50%;
         height: 100%;
         content: '';
-        background: var(--accent);
+        background: var(--color-accent);
         animation: LemonTableLoader__swooping 1.5s linear infinite;
     }
 

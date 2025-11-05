@@ -1,18 +1,21 @@
 import datetime
-from unittest.mock import Mock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
-from zoneinfo import ZoneInfo
-from dateutil.relativedelta import relativedelta
+from freezegun import freeze_time
+from unittest.mock import Mock, patch
+
 from django.utils import timezone
 from django.utils.timezone import now
-from freezegun import freeze_time
+
+from dateutil.relativedelta import relativedelta
 from rest_framework import status
+
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
-from posthog.models.organization import Organization
-from posthog.models.team import Team
 
 
 class TestLicenseAPI(APILicensedTest):

@@ -1,17 +1,19 @@
+import { useActions, useValues } from 'kea'
+import { compare as compareFn } from 'natural-orderby'
+
 import { IconFlag } from '@posthog/icons'
 import { LemonColorButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { compare as compareFn } from 'natural-orderby'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
-import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -24,15 +26,16 @@ import { resultCustomizationsModalLogic } from '../../../../queries/nodes/Insigh
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 
 export function FunnelStepsTable(): JSX.Element | null {
-    const { insightProps, insightLoading } = useValues(insightLogic)
+    const { insightProps, insightLoading, editingDisabledReason } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor } = useValues(
+    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor, isStepOptional } = useValues(
         funnelDataLogic(insightProps)
     )
-    const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility } = useActions(funnelDataLogic(insightProps))
+    const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSortOrder } = useActions(
+        funnelDataLogic(insightProps)
+    )
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
-    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
     const isOnlySeries = flattenedBreakdowns.length <= 1
@@ -52,7 +55,7 @@ export function FunnelStepsTable(): JSX.Element | null {
     in by experiments as a measure of detecting wether we are in an experiment context.
     Likely this can be done in a better way once experiments are re-written to use their own
     queries. */
-    const showCustomizationIcon = hasInsightColors && !insightProps.cachedInsight?.disable_baseline
+    const showCustomizationIcon = !insightProps.cachedInsight?.disable_baseline
 
     const columnsGrouped = [
         {
@@ -73,6 +76,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                             }}
                             label={<span className="font-bold">Breakdown</span>}
                             size="small"
+                            disabledReason={editingDisabledReason}
                         />
                     ),
                     dataIndex: 'breakdown_value',
@@ -128,6 +132,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                         color={color}
                                         type="tertiary"
                                         size="small"
+                                        disabledReason={editingDisabledReason}
                                     />
                                 )}
                             </div>
@@ -141,6 +146,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                     toggleLegendBreakdownVisibility(getVisibilityKey(breakdown.breakdown_value))
                                 }
                                 label={label}
+                                disabledReason={editingDisabledReason}
                             />
                         )
                     },
@@ -169,7 +175,10 @@ export function FunnelStepsTable(): JSX.Element | null {
                     style={{ font: 'inherit', padding: 0 }}
                     size="small"
                 >
-                    <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
+                    <EntityFilterInfo
+                        filter={getActionFilterFromFunnelStep(step)}
+                        isOptional={isStepOptional(stepIndex + 1)}
+                    />
                 </LemonRow>
             ),
             children: [
@@ -371,6 +380,38 @@ export function FunnelStepsTable(): JSX.Element | null {
             rowRibbonColor={getFunnelsColor}
             firstColumnSticky
             useURLForSorting
+            onSort={(newSorting) => {
+                if (!newSorting) {
+                    return
+                }
+                // Find the column definition by key
+                const findColumnByKey = (
+                    columns: LemonTableColumnGroup<FlattenedFunnelStepByBreakdown>[],
+                    key: string
+                ): LemonTableColumn<
+                    FlattenedFunnelStepByBreakdown,
+                    keyof FlattenedFunnelStepByBreakdown | undefined
+                > | null => {
+                    for (const group of columns) {
+                        for (const col of group.children) {
+                            if (col.key === key || col.dataIndex === key) {
+                                return col
+                            }
+                        }
+                    }
+                    return null
+                }
+                const column = findColumnByKey(columnsGrouped, newSorting.columnKey)
+                const sorter = column?.sorter
+                if (typeof sorter === 'function') {
+                    const sorted = [...flattenedBreakdowns].sort((a, b) => newSorting.order * sorter(a, b))
+                    setBreakdownSortOrder(
+                        sorted
+                            .flatMap((b) => b.breakdown_value ?? [])
+                            .filter((v): v is string | number => v !== undefined)
+                    )
+                }
+            }}
         />
     )
 }

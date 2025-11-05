@@ -1,5 +1,4 @@
 name: Turbo CI
-
 on:
     pull_request:
 
@@ -15,7 +14,7 @@ jobs:
 
         steps:
             - name: Check out code
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
               with:
                   # Just fetch the current commit/PR head
                   fetch-depth: 1
@@ -38,28 +37,29 @@ jobs:
                   fi
 
             - name: Set up Python
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
 
             - name: Install uv
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              id: setup-uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.8.19
 
             - name: Install pnpm
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              uses: actions/setup-node@v4
               with:
                   node-version: 18
                   cache: 'pnpm'
 
             - name: Cache node-gyp artifacts
-              uses: actions/cache@2f8e54208210a422b2efd51efaa6bd6d7ca8920f # v3
+              uses: actions/cache@v4
               with:
                   path: ~/.cache/node-gyp
                   key: ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-${{ matrix.node-version }}-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -72,9 +72,11 @@ jobs:
                   set -m
 
                   (
-                    echo ">>> [Python] Installing SAML (python3-saml) dependencies..."
-                    sudo apt-get update
-                    sudo apt-get install -y libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
+                    if [ "${{ steps.setup-uv.outputs.cache-hit }}" != "true" ]; then
+                      echo ">>> [Python] Installing SAML (python3-saml) dependencies..."
+                      sudo apt-get update
+                      sudo apt-get install -y libxml2-dev libxmlsec1 libxmlsec1-dev libxmlsec1-openssl
+                    fi
 
                     echo ">>> [Python] Installing dependencies..."
                     UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev

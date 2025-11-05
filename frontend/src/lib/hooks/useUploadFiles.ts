@@ -1,11 +1,64 @@
-import api from 'lib/api'
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
+
+import api from 'lib/api'
 
 import { MediaUploadResponse } from '~/types'
 
 export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
-    const blobReducer = (await import('image-blob-reduce')).default()
-    return blobReducer.toBlob(blob, { max: 2000 })
+    try {
+        const blobReducer = (await import('image-blob-reduce')).default()
+        return await blobReducer.toBlob(blob, { max: 2000 })
+    } catch {
+        // Fallback to simple resize for privacy-focused browsers (e.g. Brave)
+        try {
+            return await simpleImageResize(blob)
+        } catch (error) {
+            posthog.captureException(
+                new Error('Image compression fallback failed', {
+                    cause: error,
+                })
+            )
+            // Final fallback to original blob
+            return blob
+        }
+    }
+}
+
+/**
+ * Simple image resize fallback that avoids Canvas fingerprinting APIs
+ * Uses createImageBitmap + OffscreenCanvas
+ */
+async function simpleImageResize(blob: Blob): Promise<Blob> {
+    if (typeof createImageBitmap === 'undefined' || typeof OffscreenCanvas === 'undefined') {
+        throw new Error('OffscreenCanvas APIs not available')
+    }
+
+    const bitmap = await createImageBitmap(blob)
+
+    // Only resize if image is larger than 2000px or file is > 2MB
+    if (bitmap.width <= 2000 && bitmap.height <= 2000 && blob.size <= 2 * 1024 * 1024) {
+        bitmap.close()
+        return blob
+    }
+
+    // Calculate new dimensions (max 2000px, maintain aspect ratio)
+    const scale = Math.min(2000 / bitmap.width, 2000 / bitmap.height)
+    const newWidth = Math.floor(bitmap.width * scale)
+    const newHeight = Math.floor(bitmap.height * scale)
+
+    // Create OffscreenCanvas and resize
+    const canvas = new OffscreenCanvas(newWidth, newHeight)
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+        throw new Error('Failed to get 2D context')
+    }
+
+    ctx.drawImage(bitmap, 0, 0, newWidth, newHeight)
+    bitmap.close()
+
+    // Convert to JPEG with compression
+    return await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.8 })
 }
 
 /**
@@ -72,7 +125,7 @@ export function useUploadFiles({
             }
         }
         uploadFiles().catch(console.error)
-    }, [filesToUpload])
+    }, [filesToUpload]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return { setFilesToUpload, filesToUpload, uploading }
 }

@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 
-import { actionBarLogic } from './actionBarLogic'
 import { ActionInput } from './ActionInput'
 import { ActionResults } from './ActionResults'
+import { actionBarLogic } from './actionBarLogic'
 
 export const ActionBar = (): JSX.Element => {
     const { activeFlow } = useValues(actionBarLogic)

@@ -1,9 +1,10 @@
 import xml.etree.ElementTree as ET
-from functools import cached_property
-from typing import Generic, Optional, TypeVar
+from collections.abc import Sequence
+from typing import Generic, Optional, cast
 from uuid import uuid4
 
 from langchain_core.agents import AgentAction
+from langchain_core.exceptions import OutputParserException
 from langchain_core.messages import (
     AIMessage as LangchainAssistantMessage,
     BaseMessage,
@@ -11,13 +12,17 @@ from langchain_core.messages import (
 )
 from langchain_core.prompts import ChatPromptTemplate, HumanMessagePromptTemplate
 from langchain_core.runnables import RunnableConfig
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
 
-from .parsers import (
-    PydanticOutputParserException,
-    parse_pydantic_structured_output,
-)
+from posthog.schema import FailureMessage, VisualizationMessage
+
+from posthog.models.group_type_mapping import GroupTypeMapping
+
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.utils.helpers import find_start_message
+from ee.hogai.utils.types import AssistantState, IntermediateStep, PartialAssistantState
+
+from .parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from .prompts import (
     FAILOVER_OUTPUT_PROMPT,
     FAILOVER_PROMPT,
@@ -26,17 +31,9 @@ from .prompts import (
     PLAN_PROMPT,
     QUESTION_PROMPT,
 )
-from .utils import SchemaGeneratorOutput
-from ee.hogai.utils.helpers import find_start_message
-from ..base import AssistantNode
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.schema import (
-    FailureMessage,
-    VisualizationMessage,
-)
+from .utils import Q, SchemaGeneratorOutput
 
-Q = TypeVar("Q", bound=BaseModel)
+RETRIES_ALLOWED = 2
 
 
 class SchemaGeneratorNode(AssistantNode, Generic[Q]):
@@ -51,17 +48,29 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
 
     @property
     def _model(self):
-        return ChatOpenAI(model="gpt-4o", temperature=0, disable_streaming=True).with_structured_output(
+        return MaxChatOpenAI(
+            model="gpt-4.1", temperature=0.3, disable_streaming=True, user=self._user, team=self._team, max_tokens=8192
+        ).with_structured_output(
             self.OUTPUT_SCHEMA,
-            method="function_calling",
+            method="json_schema",
             include_raw=False,
         )
 
-    @classmethod
-    def _parse_output(cls, output: dict) -> SchemaGeneratorOutput[Q]:
-        return parse_pydantic_structured_output(cls.OUTPUT_MODEL)(output)
+    def _parse_output(self, output: dict) -> SchemaGeneratorOutput[Q]:
+        """This can raise a PydanticOutputParserException if the output is not parsable (therefore unusable)."""
+        return parse_pydantic_structured_output(self.OUTPUT_MODEL)(output)
 
-    def _run_with_prompt(
+    async def _quality_check_output(self, output: SchemaGeneratorOutput[Q]) -> None:
+        """
+        If implemented, this can raise a PydanticOutputParserException exception if something's off about the output
+        (e.g. a non-existent table field is used).
+
+        Raising here means that the LLM should iterate on the output, but also that it's still usable
+        if we aren't able to resolve the issue in a couple attempts.
+        """
+        pass
+
+    async def _run_with_prompt(
         self,
         state: AssistantState,
         prompt: ChatPromptTemplate,
@@ -69,16 +78,18 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
     ) -> PartialAssistantState:
         start_id = state.start_id
         generated_plan = state.plan or ""
-        intermediate_steps = state.intermediate_steps or []
+        intermediate_steps: Sequence[IntermediateStep] = state.intermediate_steps or []
         validation_error_message = intermediate_steps[-1][1] if intermediate_steps else None
 
-        generation_prompt = prompt + self._construct_messages(state, validation_error_message=validation_error_message)
+        message_history = await self._construct_messages(state, validation_error_message=validation_error_message)
+        generation_prompt = prompt + message_history
         merger = merge_message_runs()
 
         chain = generation_prompt | merger | self._model | self._parse_output
 
+        result: SchemaGeneratorOutput[Q] | None = None
         try:
-            message: SchemaGeneratorOutput[Q] = chain.invoke(
+            result = await chain.ainvoke(
                 {
                     "project_datetime": self.project_now,
                     "project_timezone": self.project_timezone,
@@ -86,38 +97,56 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
                 },
                 config,
             )
-        except PydanticOutputParserException as e:
-            # Generation step is expensive. After a second unsuccessful attempt, it's better to send a failure message.
-            if len(intermediate_steps) >= 2:
+            # If quality check raises, we will still iterate if we've got any attempts left,
+            # however if we don't have any more attempts, we're okay to use `result` (instead of throwing)
+            await self._quality_check_output(cast(SchemaGeneratorOutput[Q], result))
+        except (PydanticOutputParserException, OutputParserException) as e:
+            # Try again with feedback a couple times
+            if len(intermediate_steps) < RETRIES_ALLOWED:
                 return PartialAssistantState(
-                    messages=[
-                        FailureMessage(
-                            content=f"Oops! It looks like I’m having trouble generating this {self.INSIGHT_NAME} insight. Could you please try again?"
-                        )
+                    intermediate_steps=[
+                        *intermediate_steps,
+                        (
+                            AgentAction(
+                                "handle_incorrect_response",
+                                e.llm_output or "No input was provided.",
+                                e.validation_message
+                                if isinstance(e, PydanticOutputParserException)
+                                else "The provided JSON was invalid.",
+                            ),
+                            None,
+                        ),
                     ],
-                    intermediate_steps=[],
-                    plan="",
+                    query_generation_retry_count=len(intermediate_steps) + 1,
                 )
 
+        if not result:
+            # We've got no usable result after exhausting all iteration attempts - it's failure message time
             return PartialAssistantState(
-                intermediate_steps=[
-                    *intermediate_steps,
-                    (AgentAction("handle_incorrect_response", e.llm_output, e.validation_message), None),
+                messages=[
+                    FailureMessage(
+                        content=f"It looks like I'm having trouble generating this {self.INSIGHT_NAME} insight."
+                    )
                 ],
+                intermediate_steps=None,
+                plan=None,
+                query_generation_retry_count=len(intermediate_steps) + 1,
             )
 
-        final_message = VisualizationMessage(
-            query=self._get_insight_plan(state),
-            plan=generated_plan,
-            answer=message.query,
-            initiator=start_id,
-            id=str(uuid4()),
-        )
-
+        # We've got a result that either passed the quality check or we've exhausted all attempts at iterating - return
         return PartialAssistantState(
-            messages=[final_message],
-            intermediate_steps=[],
-            plan="",
+            messages=[
+                VisualizationMessage(
+                    query=self._get_insight_plan(state),
+                    plan=generated_plan,
+                    answer=result.query,
+                    initiator=start_id,
+                    id=str(uuid4()),
+                )
+            ],
+            intermediate_steps=None,
+            plan=None,
+            query_generation_retry_count=len(intermediate_steps),
         )
 
     def router(self, state: AssistantState):
@@ -125,19 +154,17 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
             return "tools"
         return "next"
 
-    @cached_property
-    def _group_mapping_prompt(self) -> str:
+    async def _get_group_mapping_prompt(self) -> str:
         groups = GroupTypeMapping.objects.filter(project_id=self._team.project_id).order_by("group_type_index")
-        if not groups:
+        group_names = [f'name "{group.group_type}", index {group.group_type_index}' async for group in groups]
+        if not group_names:
             return "The user has not defined any groups."
 
         root = ET.Element("list of defined groups")
-        root.text = (
-            "\n" + "\n".join([f'name "{group.group_type}", index {group.group_type_index}' for group in groups]) + "\n"
-        )
+        root.text = "\n" + "\n".join(group_names) + "\n"
         return ET.tostring(root, encoding="unicode")
 
-    def _construct_messages(
+    async def _construct_messages(
         self, state: AssistantState, validation_error_message: Optional[str] = None
     ) -> list[BaseMessage]:
         """
@@ -148,9 +175,10 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         generated_plan = state.plan
 
         # Add the group mapping prompt to the beginning of the conversation.
+        group_mapping = await self._get_group_mapping_prompt()
         conversation: list[BaseMessage] = [
             HumanMessagePromptTemplate.from_template(GROUP_MAPPING_PROMPT, template_format="mustache").format(
-                group_mapping=self._group_mapping_prompt
+                group_mapping=group_mapping
             )
         ]
 
@@ -209,10 +237,10 @@ class SchemaGeneratorToolsNode(AssistantNode):
     Used for failover from generation errors.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         intermediate_steps = state.intermediate_steps or []
         if not intermediate_steps:
-            return PartialAssistantState()
+            return None
 
         action, _ = intermediate_steps[-1]
         prompt = (

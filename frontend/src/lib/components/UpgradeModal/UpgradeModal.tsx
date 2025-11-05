@@ -1,5 +1,7 @@
-import { LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonModal } from '@posthog/lemon-ui'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 import { upgradeModalLogic } from './upgradeModalLogic'
@@ -17,6 +19,7 @@ export function UpgradeModal(): JSX.Element {
                     currentUsage={upgradeModalFeatureUsage ?? undefined}
                     isGrandfathered={upgradeModalIsGrandfathered ?? undefined}
                     background={false}
+                    handleSubmit={hideUpgradeModal}
                 >
                     <div className="pr-7">
                         You should have access to this feature already. If you are still seeing this modal, please let

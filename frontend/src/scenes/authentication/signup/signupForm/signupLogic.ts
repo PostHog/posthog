@@ -1,13 +1,16 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { isString } from '@tiptap/core'
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import posthog from 'posthog-js'
+import { getRelativeNextPath } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -31,7 +34,7 @@ export interface SignupForm {
 }
 
 export const emailRegex: RegExp =
-    // eslint-disable-next-line no-control-regex
+    // oxlint-disable-next-line no-control-regex
     /(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])/
 
 export const signupLogic = kea<signupLogicType>([
@@ -39,17 +42,25 @@ export const signupLogic = kea<signupLogicType>([
     connect(() => ({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
     })),
-    actions({
+    actions(() => ({
         setPanel: (panel: number) => ({ panel }),
-    }),
-    reducers({
+        normalizeEmailWithDelay: (email: string) => ({ email }),
+        setEmailNormalized: (wasNormalized: boolean) => ({ wasNormalized }),
+    })),
+    reducers(() => ({
         panel: [
             0,
             {
                 setPanel: (_, { panel }) => panel,
             },
         ],
-    }),
+        emailWasNormalized: [
+            false,
+            {
+                setEmailNormalized: (_, { wasNormalized }) => wasNormalized,
+            },
+        ],
+    })),
     forms(({ actions, values }) => ({
         signupPanel1: {
             alwaysShowErrors: true,
@@ -62,8 +73,8 @@ export const signupLogic = kea<signupLogicType>([
                 email: !email
                     ? 'Please enter your email to continue'
                     : !emailRegex.test(email)
-                    ? 'Please use a valid email address'
-                    : undefined,
+                      ? 'Please use a valid email address'
+                      : undefined,
                 password: !values.preflight?.demo
                     ? !password
                         ? 'Please enter your password to continue'
@@ -90,24 +101,40 @@ export const signupLogic = kea<signupLogicType>([
             submit: async (payload, breakpoint) => {
                 breakpoint()
                 try {
+                    const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
+
                     const res = await api.create('api/signup/', {
                         ...values.signupPanel1,
                         ...payload,
                         first_name: payload.name.split(' ')[0],
                         last_name: payload.name.split(' ')[1] || undefined,
                         organization_name: payload.organization_name || undefined,
+                        next_url: nextUrl ?? undefined,
                     })
+
                     if (!payload.organization_name) {
                         posthog.capture('sign up organization name not provided')
                     }
+
                     location.href = res.redirect_url || '/'
                 } catch (e) {
-                    actions.setSignupPanel2ManualErrors({
-                        generic: {
-                            code: (e as Record<string, any>).code,
-                            detail: (e as Record<string, any>).detail,
-                        },
-                    })
+                    const error = e as Record<string, any>
+
+                    if (error.code === 'throttled') {
+                        actions.setSignupPanel2ManualErrors({
+                            generic: {
+                                code: error.code,
+                                detail: 'Too many signup attempts. Please try again later.',
+                            },
+                        })
+                    } else {
+                        actions.setSignupPanel2ManualErrors({
+                            generic: {
+                                code: error.code,
+                                detail: error.detail,
+                            },
+                        })
+                    }
                     throw e
                 }
             },
@@ -120,7 +147,38 @@ export const signupLogic = kea<signupLogicType>([
                 return validatePassword(password)
             },
         ],
+        emailCaseNotice: [
+            (s) => [s.emailWasNormalized],
+            (emailWasNormalized): string | undefined => {
+                return emailWasNormalized ? '⚠ Your email was automatically converted to lowercase' : undefined
+            },
+        ],
+        loginUrl: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>) => {
+                const nextParam = getRelativeNextPath(searchParams['next'], location)
+                return nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : '/login'
+            },
+        ],
     }),
+    listeners(({ actions }) => ({
+        normalizeEmailWithDelay: async ({ email }, breakpoint) => {
+            await breakpoint(500)
+
+            const hasUppercase = /[A-Z]/.test(email)
+            if (hasUppercase) {
+                const normalizedEmail = email.toLowerCase()
+                actions.setSignupPanel1Value('email', normalizedEmail)
+                actions.setEmailNormalized(true)
+            }
+        },
+        setSignupPanel1Value: ({ name, value }) => {
+            if (name.toString() === 'email' && typeof value === 'string') {
+                actions.setEmailNormalized(false)
+                actions.normalizeEmailWithDelay(value)
+            }
+        },
+    })),
     urlToAction(({ actions, values }) => ({
         '/signup': (_, { email, maintenanceRedirect }) => {
             if (values.preflight?.cloud) {
@@ -130,7 +188,6 @@ export const signupLogic = kea<signupLogicType>([
                 const isRegionOverrideValid =
                     isString(regionOverrideFlag) && regionsAllowList.includes(regionOverrideFlag)
                 // KLUDGE: the backend can technically return null
-                // but definitely does in Cypress tests
                 // and, we don't want to redirect to the app unless the preflight region is valid
                 const isPreflightRegionValid =
                     values.preflight?.region && regionsAllowList.includes(values.preflight?.region)
@@ -141,7 +198,7 @@ export const signupLogic = kea<signupLogicType>([
                     regionOverrideFlag !== values.preflight?.region?.toLowerCase()
                 ) {
                     window.location.href = `https://${
-                        CLOUD_HOSTNAMES[regionOverrideFlag.toUpperCase()]
+                        CLOUD_HOSTNAMES[regionOverrideFlag.toUpperCase() as keyof typeof CLOUD_HOSTNAMES]
                     }${urls.signup()}?maintenanceRedirect=true`
                 }
                 if (maintenanceRedirect && isRegionOverrideValid) {

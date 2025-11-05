@@ -1,11 +1,14 @@
-import json
 import os
+import json
+from contextlib import suppress
+from typing import Optional
 from urllib.parse import urlparse
 
-import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
-from posthog.settings.base_variables import DEBUG, IS_COLLECT_STATIC, TEST
+import dj_database_url
+
+from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -16,10 +19,9 @@ DEFAULT_AUTO_FIELD: str = "django.db.models.AutoField"
 # Configuration for sqlcommenter
 SQLCOMMENTER_WITH_FRAMEWORK: bool = False
 
+
 # Database
 # https://docs.djangoproject.com/en/2.2/ref/settings/#databases
-
-JOB_QUEUE_GRAPHILE_URL: str = os.getenv("JOB_QUEUE_GRAPHILE_URL")
 
 
 def postgres_config(host: str) -> dict:
@@ -60,7 +62,11 @@ if TEST or DEBUG:
     PG_USER: str = os.getenv("PGUSER", "posthog")
     PG_PASSWORD: str = os.getenv("PGPASSWORD", "posthog")
     PG_PORT: str = os.getenv("PGPORT", "5432")
-    PG_DATABASE: str = os.getenv("PGDATABASE", "posthog")
+    PG_DATABASE: str = os.getenv(
+        "PGDATABASE",
+        # AI evals get their own database, as they fully reuse the DB between runs and only reset once per day, for perf
+        "posthog_ai_eval" if IN_EVAL_TESTING else "posthog",
+    )
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
         f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}",
@@ -101,17 +107,40 @@ else:
         f'The environment vars "DATABASE_URL" or "POSTHOG_DB_NAME" are absolutely required to run this software'
     )
 
+DATABASE_ROUTERS: list[str] = []
+
 # Configure the database which will be used as a read replica.
 # This should have all the same config as our main writer DB, just use a different host.
 # Our database router will point here.
 read_host = os.getenv("POSTHOG_POSTGRES_READ_HOST")
 if read_host:
     DATABASES["replica"] = postgres_config(read_host)
-    DATABASE_ROUTERS = ["posthog.dbrouter.ReplicaRouter"]
+    DATABASE_ROUTERS.append("posthog.dbrouter.ReplicaRouter")
 
-if JOB_QUEUE_GRAPHILE_URL:
-    DATABASES["graphile"] = dj_database_url.config(default=JOB_QUEUE_GRAPHILE_URL, conn_max_age=600)
+# Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
+# For local development, default to the persons database in the main container if no URL is provided
+persons_db_writer_url = os.getenv("PERSONS_DB_WRITER_URL")
+if not persons_db_writer_url and DEBUG and not TEST:
+    # Default to local persons database in main container in development mode (but not test mode)
+    # This matches the docker-compose.dev.yml configuration
+    # A default is needed for generate_demo_data to properly populate the correct databases
+    # with the demo data
+    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/posthog_persons"
 
+if persons_db_writer_url:
+    DATABASES["persons_db_writer"] = dj_database_url.config(
+        env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0
+    )
+
+    # Fall back to the writer URL if no reader URL is set
+    DATABASES["persons_db_reader"] = dj_database_url.config(
+        env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0
+    )
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+        DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
+    DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.
@@ -122,7 +151,6 @@ if JOB_QUEUE_GRAPHILE_URL:
 # Database routers route models!
 replica_opt_in = os.environ.get("READ_REPLICA_OPT_IN", "")
 READ_REPLICA_OPT_IN: list[str] = get_list(replica_opt_in)
-
 
 # Xdist Settings
 # When running concurrent tests, PYTEST_XDIST_WORKER gets set to "gw0" ... "gwN"
@@ -138,7 +166,10 @@ try:
 except:
     pass
 
-if TEST:
+if IN_EVAL_TESTING:
+    # AI evals get their own database, as they fully reuse the DB between runs and only reset once per day, for perf
+    SUFFIX = "_ai_eval" + XDIST_SUFFIX
+elif TEST:
     SUFFIX = "_test" + XDIST_SUFFIX
 
 # Clickhouse Settings
@@ -146,6 +177,7 @@ CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "localhost")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
+CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
@@ -157,10 +189,16 @@ CLICKHOUSE_VERIFY: bool = get_from_env("CLICKHOUSE_VERIFY", True, type_cast=str_
 CLICKHOUSE_ENABLE_STORAGE_POLICY: bool = get_from_env("CLICKHOUSE_ENABLE_STORAGE_POLICY", False, type_cast=str_to_bool)
 CLICKHOUSE_SINGLE_SHARD_CLUSTER: str = os.getenv("CLICKHOUSE_SINGLE_SHARD_CLUSTER", "posthog_single_shard")
 CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER = get_from_env(
-    "CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER", default=True, type_cast=str_to_bool
+    "CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER", default=False, type_cast=str_to_bool
 )
+CLICKHOUSE_BATCH_EXPORTS_CLUSTER: str = os.getenv("CLICKHOUSE_BATCH_EXPORTS_CLUSTER", "posthog_batch_exports")
 
 CLICKHOUSE_USE_HTTP: str = get_from_env("CLICKHOUSE_USE_HTTP", False, type_cast=str_to_bool)
+CLICKHOUSE_USE_HTTP_PER_TEAM = set[int]([])
+with suppress(Exception):
+    as_json = json.loads(os.getenv("CLICKHOUSE_USE_HTTP_PER_TEAM", "[]"))
+    CLICKHOUSE_USE_HTTP_PER_TEAM = {int(v) for v in as_json}
+
 QUERYSERVICE_HOST: str = get_from_env("QUERYSERVICE_HOST", CLICKHOUSE_HOST)
 QUERYSERVICE_SECURE: bool = get_from_env("QUERYSERVICE_SECURE", CLICKHOUSE_SECURE, type_cast=str_to_bool)
 QUERYSERVICE_VERIFY: bool = get_from_env("QUERYSERVICE_VERIFY", CLICKHOUSE_VERIFY, type_cast=str_to_bool)
@@ -174,10 +212,45 @@ CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION: bool = get_from_env(
     "CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION", False, type_cast=str_to_bool
 )
 
+CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "localhost")
+CLICKHOUSE_LOGS_CLUSTER_PORT: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PORT", "9000")
+CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")
+CLICKHOUSE_LOGS_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PASSWORD", "")
+CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_LOGS_DATABASE", "default")
+CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
+    "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
+)
+CLICKHOUSE_KAFKA_NAMED_COLLECTION: str = os.getenv("CLICKHOUSE_KAFKA_NAMED_COLLECTION", "msk_cluster")
+
+# Per-team settings used for client/pool connection parameters. Note that this takes precedence over any workload-based
+# routing. Keys should be strings, not numbers.
 try:
     CLICKHOUSE_PER_TEAM_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_SETTINGS", "{}"))
 except Exception:
     CLICKHOUSE_PER_TEAM_SETTINGS = {}
+
+# Per-team settings used for query execution. Keys should be strings, not numbers.
+try:
+    CLICKHOUSE_PER_TEAM_QUERY_SETTINGS: dict = json.loads(os.getenv("CLICKHOUSE_PER_TEAM_QUERY_SETTINGS", "{}"))
+except Exception:
+    CLICKHOUSE_PER_TEAM_QUERY_SETTINGS = {}
+
+# Set of teams querying the data before we switched to new limits
+API_QUERIES_LEGACY_TEAM_LIST: Optional[set[int]] = None
+with suppress(Exception):
+    as_json = json.loads(get_from_env("API_QUERIES_LEGACY_TEAM_LIST"))
+    API_QUERIES_LEGACY_TEAM_LIST = {int(v) for v in as_json}
+
+# Per-team API /query concurrent limits, e.g. {"2": 7}
+API_QUERIES_PER_TEAM: dict[int, int] = {}
+with suppress(Exception):
+    as_json = json.loads(os.getenv("API_QUERIES_PER_TEAM", "{}"))
+    API_QUERIES_PER_TEAM = {int(k): int(v) for k, v in as_json.items()}
+
+API_QUERIES_ON_ONLINE_CLUSTER = set[int]([])
+with suppress(Exception):
+    as_json = json.loads(os.getenv("API_QUERIES_ON_ONLINE_CLUSTER", "[]"))
+    API_QUERIES_ON_ONLINE_CLUSTER = {int(v) for v in as_json}
 
 _clickhouse_http_protocol = "http://"
 _clickhouse_http_port = "8123"
@@ -195,7 +268,6 @@ if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
     # When testing, there is no offline cluster.
     # Also in EU, there is no offline cluster.
     CLICKHOUSE_OFFLINE_HTTP_URL = CLICKHOUSE_HTTP_URL
-
 
 READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
@@ -242,6 +314,8 @@ KAFKA_PRODUCER_SETTINGS = {
         "max_in_flight_requests_per_connection": get_from_env(
             "KAFKA_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION", optional=True, type_cast=int
         ),
+        "buffer_memory": get_from_env("KAFKA_PRODUCER_BUFFER_MEMORY", optional=True, type_cast=int),
+        "max_block_ms": get_from_env("KAFKA_PRODUCER_MAX_BLOCK_MS", optional=True, type_cast=int),
     }.items()
     if value is not None
 }
@@ -259,15 +333,6 @@ SESSION_RECORDING_KAFKA_SECURITY_PROTOCOL = os.getenv(
 KAFKA_SASL_MECHANISM = os.getenv("KAFKA_SASL_MECHANISM", None)
 KAFKA_SASL_USER = os.getenv("KAFKA_SASL_USER", None)
 KAFKA_SASL_PASSWORD = os.getenv("KAFKA_SASL_PASSWORD", None)
-
-KAFKA_EVENTS_PLUGIN_INGESTION: str = (
-    f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"  # can be overridden in settings.py
-)
-
-# Topic to write events to between clickhouse
-KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
-    "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", KAFKA_EVENTS_PLUGIN_INGESTION
-)
 
 # A list of tokens for which events should be sent to the historical topic
 # TODO: possibly remove this and replace with something that provides the
@@ -299,7 +364,6 @@ if get_from_env("POSTHOG_SESSION_RECORDING_REDIS_HOST", ""):
         os.getenv("POSTHOG_SESSION_RECORDING_REDIS_PORT", "6379"),
     )
 
-
 if not REDIS_URL:
     raise ImproperlyConfigured(
         "Env var REDIS_URL or POSTHOG_REDIS_HOST is absolutely required to run this software.\n"
@@ -307,9 +371,8 @@ if not REDIS_URL:
         "https://posthog.com/docs/deployment/upgrading-posthog#upgrading-from-before-1011"
     )
 
-# Controls whether the TolerantZlibCompressor is used for Redis compression when writing to Redis.
-# The TolerantZlibCompressor is a drop-in replacement for the standard Django ZlibCompressor that
-# can cope with compressed and uncompressed reading at the same time
+# Controls whether the ZstdCompressor is used for Redis compression when writing to Redis.
+# The ZstdCompressor uses zstd compression and can cope with compressed and uncompressed reading at the same time
 USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", True, type_cast=str_to_bool)
 
 # AWS ElastiCache supports "reader" endpoints.
@@ -326,14 +389,23 @@ REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
 # We should move away to a different communication channel and remove this.
 PLUGINS_RELOAD_REDIS_URL = os.getenv("PLUGINS_RELOAD_REDIS_URL", REDIS_URL)
 
-
 CDP_API_URL = get_from_env("CDP_API_URL", "")
 
 if not CDP_API_URL:
     CDP_API_URL = "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
 
+
+EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
+
+# Used to generate embeddings on the fly, for use with the document embeddings table
+if not EMBEDDING_API_URL:
+    EMBEDDING_API_URL = "http://localhost:3305" if DEBUG else "http://embedding-api.posthog.svc.cluster.local"
+
+
 CACHES = {
     "default": {
+        # IMPORTANT: If any of these settings change, make sure the
+        # feature-flags crate is updated accordingly.
         "BACKEND": "django_redis.cache.RedisCache",
         # the django redis default client can be replica aware
         # if location is an array then the first element is the primary
@@ -341,7 +413,7 @@ CACHES = {
         "LOCATION": REDIS_URL if not REDIS_READER_URL else [REDIS_URL, REDIS_READER_URL],
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "COMPRESSOR": "posthog.caching.tolerant_zlib_compressor.TolerantZlibCompressor",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
         },
         "KEY_PREFIX": "posthog",
     }

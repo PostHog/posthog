@@ -1,12 +1,14 @@
 from typing import Any, Union
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.hogql.hogql import translate_hogql
+
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import get_aggregation_target_field
 from posthog.queries.event_query import EventQuery
 from posthog.queries.util import get_person_properties_mode
-from posthog.schema import PersonsOnEventsMode
 
 
 class FunnelEventQuery(EventQuery):

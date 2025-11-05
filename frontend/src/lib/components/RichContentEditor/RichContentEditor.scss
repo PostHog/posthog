@@ -1,0 +1,20 @@
+.RichContentEditor {
+    .RichContentEditorMention {
+        display: inline-flex;
+        max-height: 22px;
+    }
+
+    .ProseMirror {
+        > .is-empty:first-child::before {
+            float: left;
+            height: 0;
+            color: rgb(0 0 0 / 60%);
+            pointer-events: none;
+            content: attr(data-placeholder);
+
+            [theme='dark'] & {
+                color: rgb(255 255 255 / 60%);
+            }
+        }
+    }
+}

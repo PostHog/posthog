@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any
 
 import pytest
+
 from pytest_mock import MockerFixture
 
 from posthog.session_recordings.session_recording_helpers import (

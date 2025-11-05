@@ -27,7 +27,7 @@ static RUNTIME: OnceCell<Runtime> = OnceCell::new();
 fn runtime<'a, C: Context<'a>>(cx: &mut C) -> NeonResult<&'static Runtime> {
     RUNTIME
         .get_or_try_init(Runtime::new)
-        .or_else(|e| cx.throw_error(format!("failed to create tokio runtime: {}", e)))
+        .or_else(|e| cx.throw_error(format!("failed to create tokio runtime: {e}")))
 }
 
 // The general interface for calling our functions takes a JSON serialized stirng,
@@ -40,7 +40,7 @@ where
     C: Context<'a>,
 {
     let value: T =
-        serde_json::from_str(&object.value(cx)).or_else(|e| cx.throw_error(format!("{}", e)))?;
+        serde_json::from_str(&object.value(cx)).or_else(|e| cx.throw_error(format!("{e}")))?;
     Ok(value)
 }
 
@@ -50,7 +50,7 @@ where
     C: Context<'a>,
 {
     let value = serde_json::to_string(&value)
-        .or_else(|e| cx.throw_error(format!("failed to serialize value: {}", e)))?;
+        .or_else(|e| cx.throw_error(format!("failed to serialize value: {e}")))?;
     Ok(value)
 }
 
@@ -82,7 +82,7 @@ fn init_worker_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> JsResult<
             if WORKER.get().is_some() && !throw_on_reinit {
                 return Ok(cx.null()); // Short circuit to make using maybe_init a no-op
             }
-            let worker = worker.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            let worker = worker.or_else(|e| cx.throw_error(format!("{e}")))?;
             let already_set = WORKER.set(worker).is_err();
             if already_set && throw_on_reinit {
                 cx.throw_error("worker already initialized")
@@ -111,7 +111,7 @@ fn init_manager_impl(mut cx: FunctionContext, throw_on_reinit: bool) -> JsResult
             if MANAGER.get().is_some() && !throw_on_reinit {
                 return Ok(cx.null()); // Short circuit to make using maybe_init a no-op
             }
-            let manager = manager.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            let manager = manager.or_else(|e| cx.throw_error(format!("{e}")))?;
             let already_set = MANAGER.set(manager).is_err();
             if already_set && throw_on_reinit {
                 cx.throw_error("manager already initialized")
@@ -156,6 +156,7 @@ where
 
 #[derive(Debug, Deserialize)]
 pub struct JsJob {
+    pub id: Option<Uuid>,
     pub team_id: i32,
     pub queue_name: String,
     pub priority: i16,
@@ -200,7 +201,7 @@ fn create_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
         };
         let res = manager.create_job(job).await;
         deferred.settle_with(&channel, move |mut cx| {
-            let id = res.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            let id = res.or_else(|e| cx.throw_error(format!("{e}")))?;
             Ok(cx.string(id.to_string()))
         });
     };
@@ -273,7 +274,7 @@ fn bulk_create_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
 
         let res = manager.bulk_create_jobs(jobs).await;
         deferred.settle_with(&channel, move |mut cx| {
-            let ids = res.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            let ids = res.or_else(|e| cx.throw_error(format!("{e}")))?;
             let returned = JsArray::new(&mut cx, ids.len());
             for (i, id) in ids.iter().enumerate() {
                 let id = cx.string(id.to_string());
@@ -309,7 +310,7 @@ fn dequeue_jobs(mut cx: FunctionContext) -> JsResult<JsPromise> {
         };
         let jobs = worker.dequeue_jobs(&queue_name, limit).await;
         deferred.settle_with(&channel, move |mut cx| {
-            let jobs = jobs.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            let jobs = jobs.or_else(|e| cx.throw_error(format!("{e}")))?;
             let jobs = jobs_to_js_array(&mut cx, jobs)?;
             Ok(jobs)
         });
@@ -341,7 +342,7 @@ fn dequeue_with_vm_state(mut cx: FunctionContext) -> JsResult<JsPromise> {
         };
         let jobs = worker.dequeue_with_vm_state(&queue_name, limit).await;
         deferred.settle_with(&channel, move |mut cx| {
-            let jobs = jobs.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            let jobs = jobs.or_else(|e| cx.throw_error(format!("{e}")))?;
             let jobs = jobs_to_js_array(&mut cx, jobs)?;
             Ok(jobs)
         });
@@ -356,7 +357,7 @@ fn release_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
     let arg1 = cx.argument::<JsString>(0)?.value(&mut cx);
     let job_id: Uuid = arg1
         .parse()
-        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg1)))?;
+        .or_else(|_| cx.throw_error(format!("invalid job id: {arg1}")))?;
 
     let (deferred, promise) = cx.promise();
     let channel = cx.channel();
@@ -376,7 +377,7 @@ fn release_job(mut cx: FunctionContext) -> JsResult<JsPromise> {
         // a Js Promise.await.
         let res = worker.release_job(job_id, None).await;
         deferred.settle_with(&channel, move |mut cx| {
-            res.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            res.or_else(|e| cx.throw_error(format!("{e}")))?;
             Ok(cx.null())
         });
     };
@@ -403,7 +404,7 @@ fn force_flush(mut cx: FunctionContext) -> JsResult<JsPromise> {
         };
         let res = worker.force_flush().await;
         deferred.settle_with(&channel, |mut cx| {
-            res.or_else(|e| cx.throw_error(format!("{}", e)))?;
+            res.or_else(|e| cx.throw_error(format!("{e}")))?;
             Ok(cx.null())
         });
     };
@@ -417,18 +418,18 @@ fn set_state(mut cx: FunctionContext) -> JsResult<JsNull> {
     let arg = cx.argument::<JsString>(0)?.value(&mut cx);
     let job_id: Uuid = arg
         .parse()
-        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
+        .or_else(|_| cx.throw_error(format!("invalid job id: {arg}")))?;
 
     let arg = cx.argument::<JsString>(1)?.value(&mut cx);
     let state: JobState = arg
         .parse()
-        .or_else(|_| cx.throw_error(format!("invalid job state: {}", arg)))?;
+        .or_else(|_| cx.throw_error(format!("invalid job state: {arg}")))?;
 
     WORKER
         .get()
         .map_or_else(|| cx.throw_error("worker not initialized"), Ok)?
         .set_state(job_id, state)
-        .or_else(|e| cx.throw_error(format!("{}", e)))?;
+        .or_else(|e| cx.throw_error(format!("{e}")))?;
 
     Ok(cx.null())
 }
@@ -437,7 +438,7 @@ fn set_queue(mut cx: FunctionContext) -> JsResult<JsNull> {
     let arg = cx.argument::<JsString>(0)?.value(&mut cx);
     let job_id: Uuid = arg
         .parse()
-        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
+        .or_else(|_| cx.throw_error(format!("invalid job id: {arg}")))?;
 
     let queue = cx.argument::<JsString>(1)?.value(&mut cx);
 
@@ -445,7 +446,7 @@ fn set_queue(mut cx: FunctionContext) -> JsResult<JsNull> {
         .get()
         .map_or_else(|| cx.throw_error("worker not initialized"), Ok)?
         .set_queue(job_id, &queue)
-        .or_else(|e| cx.throw_error(format!("{}", e)))?;
+        .or_else(|e| cx.throw_error(format!("{e}")))?;
 
     Ok(cx.null())
 }
@@ -454,7 +455,7 @@ fn set_priority(mut cx: FunctionContext) -> JsResult<JsNull> {
     let arg = cx.argument::<JsString>(0)?.value(&mut cx);
     let job_id: Uuid = arg
         .parse()
-        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
+        .or_else(|_| cx.throw_error(format!("invalid job id: {arg}")))?;
 
     let arg = cx.argument::<JsNumber>(1)?.value(&mut cx);
     let priority = arg as i16; // TODO - I /really/ don't love this cast
@@ -463,7 +464,7 @@ fn set_priority(mut cx: FunctionContext) -> JsResult<JsNull> {
         .get()
         .map_or_else(|| cx.throw_error("worker not initialized"), Ok)?
         .set_priority(job_id, priority)
-        .or_else(|e| cx.throw_error(format!("{}", e)))?;
+        .or_else(|e| cx.throw_error(format!("{e}")))?;
 
     Ok(cx.null())
 }
@@ -472,18 +473,18 @@ fn set_scheduled_at(mut cx: FunctionContext) -> JsResult<JsNull> {
     let arg = cx.argument::<JsString>(0)?.value(&mut cx);
     let job_id: Uuid = arg
         .parse()
-        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
+        .or_else(|_| cx.throw_error(format!("invalid job id: {arg}")))?;
 
     let arg = cx.argument::<JsString>(1)?.value(&mut cx);
     let scheduled: DateTime<Utc> = arg
         .parse()
-        .or_else(|_| cx.throw_error(format!("invalid scheduled at: {}", arg)))?;
+        .or_else(|_| cx.throw_error(format!("invalid scheduled at: {arg}")))?;
 
     WORKER
         .get()
         .map_or_else(|| cx.throw_error("worker not initialized"), Ok)?
         .set_scheduled_at(job_id, scheduled)
-        .or_else(|e| cx.throw_error(format!("{}", e)))?;
+        .or_else(|e| cx.throw_error(format!("{e}")))?;
 
     Ok(cx.null())
 }
@@ -492,7 +493,7 @@ fn set_vm_state(mut cx: FunctionContext) -> JsResult<JsNull> {
     let arg = cx.argument::<JsString>(0)?.value(&mut cx);
     let job_id: Uuid = arg
         .parse()
-        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
+        .or_else(|_| cx.throw_error(format!("invalid job id: {arg}")))?;
 
     // Tricky - we have to support passing nulls here, because that's how you clear vm state.
     let vm_state = cx.argument::<JsValue>(1)?;
@@ -512,7 +513,7 @@ fn set_vm_state(mut cx: FunctionContext) -> JsResult<JsNull> {
         .get()
         .map_or_else(|| cx.throw_error("worker not initialized"), Ok)?
         .set_vm_state(job_id, vm_state)
-        .or_else(|e| cx.throw_error(format!("{}", e)))?;
+        .or_else(|e| cx.throw_error(format!("{e}")))?;
 
     Ok(cx.null())
 }
@@ -521,7 +522,7 @@ fn set_metadata(mut cx: FunctionContext) -> JsResult<JsNull> {
     let arg = cx.argument::<JsString>(0)?.value(&mut cx);
     let job_id: Uuid = arg
         .parse()
-        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
+        .or_else(|_| cx.throw_error(format!("invalid job id: {arg}")))?;
 
     // Tricky - we have to support passing nulls here, because that's how you clear metadata.
     let metadata = cx.argument::<JsValue>(1)?;
@@ -541,7 +542,7 @@ fn set_metadata(mut cx: FunctionContext) -> JsResult<JsNull> {
         .get()
         .map_or_else(|| cx.throw_error("worker not initialized"), Ok)?
         .set_metadata(job_id, metadata)
-        .or_else(|e| cx.throw_error(format!("{}", e)))?;
+        .or_else(|e| cx.throw_error(format!("{e}")))?;
 
     Ok(cx.null())
 }
@@ -550,7 +551,7 @@ fn set_parameters(mut cx: FunctionContext) -> JsResult<JsNull> {
     let arg = cx.argument::<JsString>(0)?.value(&mut cx);
     let job_id: Uuid = arg
         .parse()
-        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
+        .or_else(|_| cx.throw_error(format!("invalid job id: {arg}")))?;
 
     // Tricky - we have to support passing nulls here, because that's how you clear parameters.
     let parameters = cx.argument::<JsValue>(1)?;
@@ -570,7 +571,7 @@ fn set_parameters(mut cx: FunctionContext) -> JsResult<JsNull> {
         .get()
         .map_or_else(|| cx.throw_error("worker not initialized"), Ok)?
         .set_parameters(job_id, parameters)
-        .or_else(|e| cx.throw_error(format!("{}", e)))?;
+        .or_else(|e| cx.throw_error(format!("{e}")))?;
 
     Ok(cx.null())
 }
@@ -579,7 +580,7 @@ fn set_blob(mut cx: FunctionContext) -> JsResult<JsNull> {
     let arg = cx.argument::<JsString>(0)?.value(&mut cx);
     let job_id: Uuid = arg
         .parse()
-        .or_else(|_| cx.throw_error(format!("invalid job id: {}", arg)))?;
+        .or_else(|_| cx.throw_error(format!("invalid job id: {arg}")))?;
 
     // Tricky - we have to support passing nulls here, because that's how you clear the blob.
     let blob = cx.argument::<JsValue>(1)?;
@@ -598,7 +599,7 @@ fn set_blob(mut cx: FunctionContext) -> JsResult<JsNull> {
         .get()
         .map_or_else(|| cx.throw_error("worker not initialized"), Ok)?
         .set_blob(job_id, blob)
-        .or_else(|e| cx.throw_error(format!("{}", e)))?;
+        .or_else(|e| cx.throw_error(format!("{e}")))?;
 
     Ok(cx.null())
 }
@@ -668,7 +669,7 @@ fn jobs_to_js_array<'a>(cx: &mut TaskContext<'a>, jobs: Vec<Job>) -> JsResult<'a
         if let Some(vm_state) = job.vm_state {
             let vm_state = match std::str::from_utf8(&vm_state) {
                 Ok(v) => v,
-                Err(e) => panic!("Invalid UTF-8 sequence in vm_state: {}", e),
+                Err(e) => panic!("Invalid UTF-8 sequence in vm_state: {e}"),
             };
             let js_vm_state = cx.string(vm_state);
             js_obj.set(cx, "vmState", js_vm_state)?;
@@ -679,7 +680,7 @@ fn jobs_to_js_array<'a>(cx: &mut TaskContext<'a>, jobs: Vec<Job>) -> JsResult<'a
         if let Some(metadata) = job.metadata {
             let metadata = match std::str::from_utf8(&metadata) {
                 Ok(v) => v,
-                Err(e) => panic!("Invalid UTF-8 sequence in metadata: {}", e),
+                Err(e) => panic!("Invalid UTF-8 sequence in metadata: {e}"),
             };
             let js_metadata = cx.string(metadata);
             js_obj.set(cx, "metadata", js_metadata)?;
@@ -690,7 +691,7 @@ fn jobs_to_js_array<'a>(cx: &mut TaskContext<'a>, jobs: Vec<Job>) -> JsResult<'a
         if let Some(parameters) = job.parameters {
             let parameters = match std::str::from_utf8(&parameters) {
                 Ok(v) => v,
-                Err(e) => panic!("Invalid UTF-8 sequence in parameters: {}", e),
+                Err(e) => panic!("Invalid UTF-8 sequence in parameters: {e}"),
             };
             let js_parameters = cx.string(parameters);
             js_obj.set(cx, "parameters", js_parameters)?;
@@ -716,6 +717,7 @@ fn jobs_to_js_array<'a>(cx: &mut TaskContext<'a>, jobs: Vec<Job>) -> JsResult<'a
 impl JsJob {
     fn to_job_init(&self, blob: Option<Vec<u8>>) -> JobInit {
         JobInit {
+            id: self.id,
             team_id: self.team_id,
             queue_name: self.queue_name.clone(),
             priority: self.priority,

@@ -160,7 +160,8 @@
             },
             "presentation": {
                 "group": "main"
-            }
+            },
+            "envFile": "${workspaceFolder}/.env"
         },
         {
             "name": "Temporal Worker",
@@ -168,8 +169,9 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/manage.py",
-            "args": ["start_temporal_worker"],
+            "args": ["start_temporal_worker", "--task-queue", "${input:temporalTaskQueue}"],
             "django": true,
+            "justMyCode": false,
             "env": {
                 "PYTHONUNBUFFERED": "1",
                 "DJANGO_SETTINGS_MODULE": "posthog.settings",
@@ -187,13 +189,30 @@
             }
         },
         {
+            "name": "Backend (Attach to bin/start)",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "${workspaceFolder}"
+                }
+            ],
+            "justMyCode": false
+        },
+        {
             "name": "Pytest: Current File",
             "type": "debugpy",
             "request": "launch",
             "module": "pytest",
             "args": ["${file}", "-vvv"],
             "console": "integratedTerminal",
-            "justMyCode": true
+            "justMyCode": true,
+            "envFile": "${workspaceFolder}/.env"
         },
         {
             "name": "Frontend: Debug Jest Tests",
@@ -264,11 +283,13 @@
             "request": "launch",
             "module": "dagster",
             "justMyCode": true,
-            "args": ["dev"],
+            "subProcess": true,
+            "envFile": "${workspaceFolder}/.env",
+            "args": ["dev", "--workspace", "${workspaceFolder}/.dagster_home/workspace.yaml"],
             "env": {
                 "DAGSTER_HOME": "${workspaceFolder}/.dagster_home",
-                "DEBUG": "1",
-                "AWS_PROFILE": "dev"
+                "DAGSTER_UI_PORT": "3030",
+                "DEBUG": "1"
             }
         }
     ],
@@ -277,6 +298,13 @@
             "id": "pickVersion",
             "type": "command",
             "command": "extension.node-version"
+        },
+        {
+            "id": "temporalTaskQueue",
+            "type": "pickString",
+            "description": "Task queue name",
+            "options": ["development-task-queue"],
+            "default": "development-task-queue"
         }
     ],
     "compounds": [

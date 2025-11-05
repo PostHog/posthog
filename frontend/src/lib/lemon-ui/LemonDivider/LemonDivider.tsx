@@ -1,6 +1,6 @@
 import './LemonDivider.scss'
 
-import clsx from 'clsx'
+import { cn } from 'lib/utils/css-classes'
 
 export interface LemonDividerProps {
     /** 3x the thickness of the line. */
@@ -29,7 +29,7 @@ export function LemonDivider({
 }: LemonDividerProps): JSX.Element {
     return (
         <div
-            className={clsx(
+            className={cn(
                 'LemonDivider',
                 vertical && 'LemonDivider--vertical',
                 thick && 'LemonDivider--thick',

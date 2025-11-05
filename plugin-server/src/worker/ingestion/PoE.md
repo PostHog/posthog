@@ -92,8 +92,8 @@ Person properties at the time the event was processed are used, see [docs](https
 
 ### 2. Insights counting unique persons
 
--   All [person merges](https://posthog.com/docs/how-posthog-works/ingestion-pipeline#merging-two-persons) that were done before enabling will be counted separately (see PoEv1 above).
--   All merges going forward will update the events table, i.e. unique user counts work the same way as with JOINs, see [docs](https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons).
+- All [person merges](https://posthog.com/docs/how-posthog-works/ingestion-pipeline#merging-two-persons) that were done before enabling will be counted separately (see PoEv1 above).
+- All merges going forward will update the events table, i.e. unique user counts work the same way as with JOINs, see [docs](https://posthog.com/docs/how-posthog-works/queries#insights-counting-unique-persons).
 
 > **Note:** We don't _exactly_ update the events table directly during event processing, but it's rather a simplification we're using here to keep the docs easy to follow.
 

@@ -1,0 +1,15 @@
+let test_data := '{"name": "John", "age": 30, "city": "New York"}'
+
+let name := JSONExtract(test_data, 'name', 'String')
+assert_eq(name, 'John');
+let age := JSONExtract(test_data, 'age', 'Int')
+assert_eq(age, 30);
+let city := JSONExtract(test_data, 'city', 'String')
+assert_eq(city, 'New York');
+let unknown := JSONExtract(test_data, 'unknown', 'String')
+assert_eq(unknown, null);
+
+// JSONExtract returns null on error
+assert_eq(JSONExtract(test_data, 1, 2, 3, 'String'), null);
+
+return true

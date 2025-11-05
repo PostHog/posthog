@@ -6,6 +6,7 @@
             "scenes/*": ["src/scenes/*"],
             "@posthog/lemon-ui": ["@posthog/lemon-ui/src/index"],
             "@posthog/lemon-ui/*": ["@posthog/lemon-ui/src/*"],
+            "@posthog/icons": ["node_modules/@posthog/icons"],
             "storybook/*": ["../.storybook/*"],
             "@posthog/ee/exports": ["../ee/exports", "@posthog/ee/exports"],
             "~/*": ["src/*"],
@@ -26,7 +27,7 @@
         "resolveJsonModule": true, // Include modules imported with .json extension
         "noEmit": true, // Do not emit output (meaning do not compile code, only perform type checking)
         "jsx": "react-jsx", // Support JSX in .tsx files
-        "target": "ES2015",
+        "target": "es2021",
         "sourceMap": true, // Generate corrresponding .map file
         "declaration": true, // Generate corresponding .d.ts file
         "noUnusedLocals": true, // Report errors on unused locals
@@ -36,7 +37,7 @@
         // FIXME: suppressImplicitAnyIndexErrors is deprecated and will be removed in TS 5.5, but we have MANY of these
         "suppressImplicitAnyIndexErrors": true, // Index objects by number
         "ignoreDeprecations": "5.0",
-        "lib": ["dom", "es2021"]
+        "lib": ["dom", "es2023"]
     },
     "include": [
         "frontend/**/*",
@@ -46,7 +47,6 @@
         "products/**/frontend/**/*",
         "products/**/manifest.tsx",
         "common/esbuilder/*",
-        "common/eslint_rules/*",
         "common/storybook/*"
     ],
     "exclude": ["frontend/dist/**/*", "**/*.mdx"],

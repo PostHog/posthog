@@ -1,11 +1,13 @@
 from typing import TypeVar
 
+from posthog.schema import HogQLVariable
+
 from posthog.hogql import ast
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import CloningVisitor
+
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.team.team import Team
-from posthog.schema import HogQLVariable
 
 T = TypeVar("T", bound=ast.Expr)
 
@@ -27,7 +29,7 @@ class ReplaceVariables(CloningVisitor):
         self.team = team
 
     def visit_placeholder(self, node):
-        if node.chain[0] == "variables":
+        if node.chain and node.chain[0] == "variables":
             variable_code_name = node.chain[1]
             if not self.variables:
                 raise QueryError(f"Variable {variable_code_name} is missing from query")

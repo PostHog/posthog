@@ -1,9 +1,12 @@
-import { LemonButton, LemonCard, LemonInput, LemonLabel, Link } from '@posthog/lemon-ui'
 import { useActions, useMountedLogic, useValues } from 'kea'
+
+import { LemonButton, LemonCard, LemonInput, LemonLabel, Link } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { ReplayActiveScreensTable } from 'scenes/session-recordings/components/ReplayActiveScreensTable'
 
 import { actionsModel } from '~/models/actionsModel'
 import {
@@ -14,6 +17,8 @@ import {
     ReplayTemplateVariableType,
 } from '~/types'
 
+import { ReplayActiveHoursHeatMap } from '../components/ReplayActiveHoursHeatMap'
+import { ReplayActiveUsersTable } from '../components/ReplayActiveUsersTable'
 import { replayTemplates } from './availableTemplates'
 import { sessionReplayTemplatesLogic } from './sessionRecordingTemplatesLogic'
 
@@ -26,15 +31,7 @@ const allCategories: ReplayTemplateCategory[] = replayTemplates
     .flatMap((template) => template.categories)
     .filter((category, index, self) => self.indexOf(category) === index)
 
-const NestedFilterGroup = ({
-    rootKey,
-    buttonTitle,
-    selectOne,
-}: {
-    rootKey: string
-    buttonTitle?: string
-    selectOne?: boolean
-}): JSX.Element => {
+const NestedFilterGroup = ({ buttonTitle, selectOne }: { buttonTitle?: string; selectOne?: boolean }): JSX.Element => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
 
@@ -44,7 +41,7 @@ const NestedFilterGroup = ({
                 {filterGroup.values.map((filterOrGroup, index) => {
                     return isUniversalGroupFilterLike(filterOrGroup) ? (
                         <UniversalFilters.Group key={index} index={index} group={filterOrGroup}>
-                            <NestedFilterGroup rootKey={rootKey} />
+                            <NestedFilterGroup />
                         </UniversalFilters.Group>
                     ) : (
                         <UniversalFilters.Value
@@ -100,10 +97,10 @@ const SingleTemplateVariable = ({
                     variable.type === 'event'
                         ? [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
                         : variable.type === 'flag'
-                        ? [TaxonomicFilterGroupType.FeatureFlags]
-                        : variable.type === 'person-property'
-                        ? [TaxonomicFilterGroupType.PersonProperties]
-                        : []
+                          ? [TaxonomicFilterGroupType.FeatureFlags]
+                          : variable.type === 'person-property'
+                            ? [TaxonomicFilterGroupType.PersonProperties]
+                            : []
                 }
                 onChange={(thisFilterGroup) => {
                     if (thisFilterGroup.values.length === 0) {
@@ -116,7 +113,6 @@ const SingleTemplateVariable = ({
                 }}
             >
                 <NestedFilterGroup
-                    rootKey="session-recordings"
                     buttonTitle={`Select ${
                         variable.type === 'event' ? 'event' : variable.type === 'flag' ? 'flag' : 'person property'
                     }`}
@@ -192,6 +188,14 @@ const SessionRecordingTemplates = (): JSX.Element => {
     return (
         <div>
             <p>To get the most out of session replay, you just need to know where to start. </p>
+            <div className="flex flex-col gap-2 w-full">
+                <div className="flex flex-row gap-2 w-full">
+                    <ReplayActiveUsersTable />
+                    <ReplayActiveScreensTable />
+                </div>
+                <ReplayActiveHoursHeatMap />
+            </div>
+            <h2 className="mt-4">Filter templates</h2>
             <p>
                 Use our templates to find a focus area, then watch the filtered replays to see where users struggle,
                 what could be made more clear, and other ways to improve.

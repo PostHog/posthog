@@ -6,6 +6,10 @@ on:
             - master
             - main
 
+concurrency:
+    group: foss-sync
+    cancel-in-progress: false
+
 jobs:
     repo-sync:
         name: Sync posthog-foss with posthog
@@ -15,23 +19,23 @@ jobs:
             - name: Sync repositories 1 to 1 - master branch
               uses: PostHog/git-sync@v3
               with:
-                  source_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}@github.com/posthog/posthog.git'
+                  source_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_PAT }}@github.com/posthog/posthog.git'
                   source_branch: 'master'
-                  destination_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}@github.com/posthog/posthog-foss.git'
+                  destination_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_PAT }}@github.com/posthog/posthog-foss.git'
                   destination_branch: 'master'
             - name: Sync repositories 1 to 1 – tags
               uses: PostHog/git-sync@v3
               with:
-                  source_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}@github.com/posthog/posthog.git'
+                  source_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_PAT }}@github.com/posthog/posthog.git'
                   source_branch: 'refs/tags/*'
-                  destination_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}@github.com/posthog/posthog-foss.git'
+                  destination_repo: 'https://posthog-bot:${{ secrets.POSTHOG_BOT_PAT }}@github.com/posthog/posthog-foss.git'
                   destination_branch: 'refs/tags/*'
             - name: Checkout posthog-foss
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
               with:
                   repository: 'posthog/posthog-foss'
                   ref: master
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
             - name: Change LICENSE to pure MIT
               run: |
                   sed -i -e '/PostHog Inc\./,/Permission is hereby granted/c\Copyright (c) 2020-2021 PostHog Inc\.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy' LICENSE
@@ -47,6 +51,4 @@ jobs:
                   message: 'Sync and remove all non-FOSS parts'
                   remove: '["-r ee/"]'
                   default_author: github_actions
-                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-                  repository: 'posthog/posthog-foss'
-                  ref: master
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT }}

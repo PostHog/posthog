@@ -1,12 +1,13 @@
+import re
 import copy
 import datetime
-import re
 from collections import defaultdict
 from typing import Optional, Union
 
-from dateutil.relativedelta import relativedelta
 from django.db import models
 from django.utils import timezone
+
+from dateutil.relativedelta import relativedelta
 
 from posthog.models.team import Team
 
@@ -44,7 +45,14 @@ class SelectorPart:
             self.ch_attributes["nth-child"] = self.data["nth_child"]
             tag = parts[0]
         if "." in tag:
-            parts = tag.split(".")
+            # Regex pattern that matches dots that are NOT inside square brackets
+            # Uses negative lookahead to ensure the dot is not followed by content ending with ]
+            # without an opening [ in between
+            # Handles Tailwind arbitrary values with square brackets properly.
+            # Example: 'div.shadow-[0_4px_6px_rgba(0,0,0,0.1)].text-blue-500'
+            # Returns: ['div', 'shadow-[0_4px_6px_rgba(0,0,0,0.1)]', 'text-blue-500']
+            pattern = r"\.(?![^\[]*\])"
+            parts = re.split(pattern, tag)
             # Strip all slashes that are not followed by another slash
             self.data["attr_class__contains"] = [self._unescape_class(p) if escape_slashes else p for p in parts[1:]]
             tag = parts[0]

@@ -1,12 +1,15 @@
 use std::collections::HashMap;
 
+use common_database::PostgresReader;
 use common_metrics::inc;
 use common_types::ProjectId;
 use sqlx::FromRow;
+use tracing::error;
 
-use crate::{api::errors::FlagError, metrics::consts::FLAG_EVALUATION_ERROR_COUNTER};
-
-use super::flag_matching::PostgresReader;
+use crate::{
+    api::errors::FlagError, database::get_connection_with_metrics,
+    metrics::consts::FLAG_EVALUATION_ERROR_COUNTER,
+};
 
 pub type GroupTypeIndex = i32;
 
@@ -54,6 +57,10 @@ impl GroupTypeMappingCache {
 
         if mapping.is_empty() {
             let reason = "no_group_type_mappings";
+            error!(
+                "No group type mappings found for project {}",
+                self.project_id
+            );
             inc(
                 FLAG_EVALUATION_ERROR_COUNTER,
                 &[("reason".to_string(), reason.to_string())],
@@ -90,7 +97,9 @@ impl GroupTypeMappingCache {
         reader: PostgresReader,
         project_id: ProjectId,
     ) -> Result<HashMap<String, GroupTypeIndex>, FlagError> {
-        let mut conn = reader.as_ref().get_connection().await?;
+        let mut conn =
+            get_connection_with_metrics(&reader, "non_persons_reader", "fetch_group_type_mapping")
+                .await?;
 
         let query = r#"
             SELECT group_type, group_type_index 

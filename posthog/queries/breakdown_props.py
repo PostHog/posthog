@@ -2,13 +2,11 @@ from typing import Any, Optional, Union, cast
 
 from django.forms import ValidationError
 
-from posthog.constants import (
-    BREAKDOWN_TYPES,
-    MONTHLY_ACTIVE,
-    WEEKLY_ACTIVE,
-    PropertyOperatorType,
-)
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.hogql.hogql import HogQLContext
+
+from posthog.constants import BREAKDOWN_TYPES, MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import format_filter_query
 from posthog.models.entity import Entity
@@ -29,13 +27,9 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.schema import PersonsOnEventsMode
-from posthog.session_recordings.queries.session_query import SessionQuery
-from posthog.queries.trends.sql import (
-    HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL,
-    TOP_ELEMENTS_ARRAY_OF_KEY_SQL,
-)
+from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
+from posthog.session_recordings.queries.session_query import SessionQuery
 
 ALL_USERS_COHORT_ID = 0
 

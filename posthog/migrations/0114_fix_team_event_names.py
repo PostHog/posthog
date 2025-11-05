@@ -9,9 +9,7 @@ def fix_team_event_names(apps, schema_editor):
         old_event_names = team.event_names
         team.event_names = [event for event in old_event_names if isinstance(event, str)]
         if len(team.event_names) != len(old_event_names):
-            from posthog.tasks.calculate_event_property_usage import (
-                calculate_event_property_usage_for_team,
-            )
+            from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
             team.save()
             calculate_event_property_usage_for_team(team.pk)

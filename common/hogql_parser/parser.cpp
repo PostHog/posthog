@@ -1152,7 +1152,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     if (!limit_expr_result) {
       throw ParsingError("Failed to parse limitExpr");
     }
-    
+
     PyObject* exprs = visitAsPyObject(ctx->columnExprList());
     if (!exprs) {
       Py_DECREF(limit_expr_result);
@@ -1161,7 +1161,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
 
     PyObject* n = NULL;
     PyObject* offset_value = NULL;
-    
+
     // Check if it's a tuple
     if (PyTuple_Check(limit_expr_result)) {
       if (PyTuple_Size(limit_expr_result) >= 2) {
@@ -1180,7 +1180,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       n = limit_expr_result;
       offset_value = Py_NewRef(Py_None);
     }
-    
+
     // Create the LimitByExpr node (transfers ownership of n, offset_value, and exprs)
     RETURN_NEW_AST_NODE("LimitByExpr", "{s:N,s:N,s:N}",
                        "n", n,
@@ -1212,7 +1212,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       Py_DECREF(second);
       throw PyInternalError();
     }
-    
+
     if (ctx->COMMA()) {
       // For "LIMIT a, b" syntax: a is offset, b is limit
       // PyTuple_SET_ITEM steals references, so we don't need to DECREF after
@@ -2014,7 +2014,7 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
 
     PyObject* ret = build_ast_node(
-      "Call", 
+      "Call",
       "{s:s,s:[O]}",  // s:[O] means "args" => [the single PyObject]
       "name", name.c_str(),
       "args", constant_count
@@ -2124,7 +2124,32 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     RETURN_NEW_AST_NODE("ArrayAccess", "{s:N,s:N,s:O}", "array", object, "property", property, "nullish", Py_True);
   }
 
-  VISIT_UNSUPPORTED(ColumnExprBetween)
+  VISIT(ColumnExprBetween) {
+    PyObject* expr = visitAsPyObject(ctx->columnExpr(0));
+    PyObject* low;
+    try {
+      low = visitAsPyObject(ctx->columnExpr(1));
+    } catch (...) {
+      Py_DECREF(expr);
+      throw;
+    }
+    PyObject* high;
+    try {
+      high = visitAsPyObject(ctx->columnExpr(2));
+    } catch (...) {
+      Py_DECREF(low);
+      Py_DECREF(expr);
+      throw;
+    }
+    RETURN_NEW_AST_NODE(
+        "BetweenExpr",
+        "{s:N,s:N,s:N,s:O}",
+        "expr", expr,
+        "low", low,
+        "high", high,
+        "negated", ctx->NOT() ? Py_True : Py_False
+    );
+  }
 
   VISIT(ColumnExprParens) { return visit(ctx->columnExpr()); }
 
@@ -2633,9 +2658,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     auto tag_element_ctx = ctx->hogqlxTagElement();
     if (tag_element_ctx) {
       return visitAsPyObject(tag_element_ctx);
-    } else {
-      return visitAsPyObject(ctx->columnExpr());
     }
+    auto text_element_ctx = ctx->hogqlxText();
+    if (text_element_ctx) {
+      return visitAsPyObject(text_element_ctx);
+    }
+    return visitAsPyObject(ctx->columnExpr());
+  }
+
+  VISIT(HogqlxText) {
+    string text = ctx->HOGQLX_TEXT_TEXT()->getText();
+    RETURN_NEW_AST_NODE("Constant", "{s:s#}", "value", text.data(), text.size());
   }
 
   VISIT(HogqlxTagElementClosed) {
@@ -2669,72 +2702,68 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       PyList_SET_ITEM(attributes, i, attr_obj); // Steals reference
     }
 
-    auto child_element_ctxs = ctx->hogqlxChildElement();
-    if (!child_element_ctxs.empty()) {
-      for (size_t i = 0; i < attribute_ctxs.size(); i++) {
-        PyObject *attr = PyList_GetItem(attributes, i); // borrowed
-        if (!attr) {
-          Py_DECREF(attributes);
-          throw PyInternalError();
-        }
-        PyObject *name_obj = PyObject_GetAttrString(attr, "name");
-        if (!name_obj) {
-          Py_DECREF(attributes);
-          throw PyInternalError();
-        }
-        PyObject *children_str = PyUnicode_FromString("children");
-        if (!children_str) {
-          Py_DECREF(name_obj);
-          Py_DECREF(attributes);
-          throw PyInternalError();
-        }
-        int is_children = PyObject_RichCompareBool(name_obj, children_str, Py_EQ);
-        Py_DECREF(children_str);
-        Py_DECREF(name_obj);
-        if (is_children == -1) {
-          Py_DECREF(attributes);
-          throw PyInternalError();
-        }
-        if (is_children == 1) {
-          Py_DECREF(attributes);
-          throw SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute");
-        }
-      }
-
-      PyObject *children_list = PyList_New(child_element_ctxs.size());
-      if (!children_list) {
-        Py_DECREF(attributes);
-        throw PyInternalError();
-      }
-      for (size_t i = 0; i < child_element_ctxs.size(); i++) {
+    /* ── children ───────────────────────────────────────────── */
+    std::vector<PyObject*> kept_children;
+    for (auto childCtx : ctx->hogqlxChildElement()) {
         PyObject *child_ast;
-        try {
-          child_ast = visitAsPyObject(child_element_ctxs[i]);
-        } catch (...) {
-          Py_DECREF(children_list);
-          Py_DECREF(attributes);
-          throw;
-        }
-        PyList_SET_ITEM(children_list, i, child_ast); // Steals reference
-      }
+        try { child_ast = visitAsPyObject(childCtx); }
+        catch (...) { X_Py_DECREF_ALL(kept_children); Py_DECREF(attributes); throw; }
 
-      PyObject *children_attr = build_ast_node(
-        "HogQLXAttribute",
-        "{s:s#,s:O}",
-        "name", "children", (Py_ssize_t)8,
-        "value", children_list
-      );
-      if (!children_attr) {
-        Py_DECREF(children_list);
-        Py_DECREF(attributes);
-        throw PyInternalError();
-      }
-      int appended = PyList_Append(attributes, children_attr);
-      Py_DECREF(children_attr);
-      if (appended == -1) {
-        Py_DECREF(attributes);
-        throw PyInternalError();
-      }
+        /* drop Constant nodes that are only-whitespace *and* contain a line-break */
+        int is_const = is_ast_node_instance(child_ast, "Constant");
+        if (is_const == 1) {
+            PyObject *valueObj = PyObject_GetAttrString(child_ast, "value");
+            if (valueObj && PyUnicode_Check(valueObj)) {
+                Py_ssize_t n = 0; const char *s = PyUnicode_AsUTF8AndSize(valueObj, &n);
+                if (s) {
+                    std::string v(s, n);
+                    bool only_ws     = std::all_of(v.begin(), v.end(),
+                                        [](unsigned char c){ return std::isspace(c); });
+                    bool has_newline = v.find('\n') != std::string::npos ||
+                                       v.find('\r') != std::string::npos;
+                    if (only_ws && has_newline) {           // skip it
+                        Py_DECREF(valueObj);
+                        Py_DECREF(child_ast);
+                        continue;
+                    }
+                }
+            }
+            Py_XDECREF(valueObj);
+        }
+
+        kept_children.push_back(child_ast);                 // keep
+    }
+
+    /* if we have child nodes, validate + attach them as attribute "children" */
+    if (!kept_children.empty()) {
+        for (Py_ssize_t i = 0; i < PyList_Size(attributes); ++i) {
+            PyObject *attr = PyList_GetItem(attributes, i);      // borrowed
+            PyObject *name_obj = PyObject_GetAttrString(attr, "name");
+            PyObject *children_str = PyUnicode_FromString("children");
+            int is_children = PyObject_RichCompareBool(name_obj, children_str, Py_EQ);
+            Py_DECREF(children_str); Py_DECREF(name_obj);
+            if (is_children == 1) {
+                X_Py_DECREF_ALL(kept_children); Py_DECREF(attributes);
+                throw SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute");
+            }
+            if (is_children == -1) { X_Py_DECREF_ALL(kept_children); Py_DECREF(attributes); throw PyInternalError();}
+        }
+
+        /* build children list */
+        PyObject *children_list = PyList_New(kept_children.size());
+        if (!children_list) { X_Py_DECREF_ALL(kept_children); Py_DECREF(attributes); throw PyInternalError(); }
+
+        for (size_t i = 0; i < kept_children.size(); ++i)
+            PyList_SET_ITEM(children_list, i, kept_children[i]);   // steals refs
+
+        PyObject *children_attr = build_ast_node(
+            "HogQLXAttribute", "{s:s#,s:O}", "name", "children", (Py_ssize_t)8, "value", children_list);
+        if (!children_attr) { Py_DECREF(children_list); Py_DECREF(attributes); throw PyInternalError(); }
+
+        if (PyList_Append(attributes, children_attr) == -1) {
+            Py_DECREF(children_attr); Py_DECREF(attributes); throw PyInternalError();
+        }
+        Py_DECREF(children_attr);        // list now owns it
     }
 
     PyObject *ret = build_ast_node(

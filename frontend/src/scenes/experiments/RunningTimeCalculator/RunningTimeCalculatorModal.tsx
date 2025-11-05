@@ -1,27 +1,44 @@
-import { LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonInput, LemonModal } from '@posthog/lemon-ui'
+
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { humanFriendlyNumber } from 'lib/utils'
 
 import { experimentLogic } from '../experimentLogic'
+import { modalsLogic } from '../modalsLogic'
 import { EventSelectorStep } from './EventSelectorStep'
 import { MetricSelectorStep } from './MetricSelectorStep'
-import { runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 import { RunningTimeCalculatorModalFooter } from './RunningTimeCalculatorModalFooter'
 import { RunningTimeCalculatorModalStep } from './RunningTimeCalculatorModalStep'
-export function RunningTimeCalculatorModal(): JSX.Element {
-    const { experimentId, isCalculateRunningTimeModalOpen } = useValues(experimentLogic)
-    const { closeCalculateRunningTimeModal, updateExperiment } = useActions(experimentLogic)
+import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 
+export function RunningTimeCalculatorModal(): JSX.Element {
+    /**
+     * Modal open/close is controlled from parent component.
+     * This is a candidate for props (onClose, onSave)
+     */
+    const { experimentId } = useValues(experimentLogic)
+    const { isCalculateRunningTimeModalOpen } = useValues(modalsLogic)
     const {
+        // Experiment Object
         experiment,
+        // Running Time Calculator Object. Saved inside the experiment parameters.
         minimumDetectableEffect,
         recommendedSampleSize,
         recommendedRunningTime,
-        uniqueUsers,
-        metricResultLoading,
         exposureEstimateConfig,
+        // FunnelQuery for unique users loading state
+        metricResultLoading,
+        // Queried value depending on the exposureEstimateConfig
+        uniqueUsers,
     } = useValues(runningTimeCalculatorLogic({ experimentId }))
-    const { setMinimumDetectableEffect } = useActions(runningTimeCalculatorLogic({ experimentId }))
+
+    const { updateExperiment } = useActions(experimentLogic)
+    const { setMinimumDetectableEffect, setExposureEstimateConfig } = useActions(
+        runningTimeCalculatorLogic({ experimentId })
+    )
+    const { closeCalculateRunningTimeModal } = useActions(modalsLogic)
 
     return (
         <LemonModal
@@ -44,11 +61,49 @@ export function RunningTimeCalculatorModal(): JSX.Element {
                         })
                         closeCalculateRunningTimeModal()
                     }}
+                    disabled={!recommendedRunningTime || metricResultLoading}
                 />
             }
         >
-            <EventSelectorStep />
-            {exposureEstimateConfig && <MetricSelectorStep />}
+            <EventSelectorStep
+                exposureEstimateConfig={exposureEstimateConfig}
+                onSetFilter={(filter) =>
+                    setExposureEstimateConfig({
+                        ...(exposureEstimateConfig ?? {
+                            metric: null,
+                            conversionRateInputType: ConversionRateInputType.AUTOMATIC,
+                            manualConversionRate: null,
+                            uniqueUsers: null,
+                        }),
+
+                        eventFilter: {
+                            event: filter.id,
+                            name: filter.name,
+                            properties: filter.properties,
+                            entityType:
+                                filter.type === 'events'
+                                    ? TaxonomicFilterGroupType.Events
+                                    : TaxonomicFilterGroupType.Actions,
+                        },
+                    })
+                }
+            />
+            {exposureEstimateConfig && (
+                <MetricSelectorStep
+                    onChangeMetric={(metric) =>
+                        setExposureEstimateConfig({
+                            ...exposureEstimateConfig,
+                            metric,
+                        })
+                    }
+                    onChangeFunnelConversionRateType={(type) =>
+                        setExposureEstimateConfig({
+                            ...exposureEstimateConfig,
+                            conversionRateInputType: type,
+                        })
+                    }
+                />
+            )}
 
             <div className="deprecated-space-y-6">
                 {!metricResultLoading && uniqueUsers !== null && (

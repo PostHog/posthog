@@ -1,9 +1,9 @@
-import { Meta, Story } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
-import { App } from 'scenes/App'
+import { Meta, StoryObj } from '@storybook/react'
 
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE, toPaginatedResponse } from '~/mocks/handlers'
 
 import funnelTopToBottom from '../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
@@ -14,11 +14,13 @@ import insightsJson from './__mocks__/insights.json'
 const insights = [trendsBarBreakdown, trendsPieBreakdown, funnelTopToBottom]
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Saved Insights',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-18',
+        pageUrl: urls.insights(),
     },
     decorators: [
         mswDecorator({
@@ -36,31 +38,23 @@ const meta: Meta = {
     ],
 }
 export default meta
-export const ListView: Story = () => {
-    useEffect(() => {
-        router.actions.push('/insights')
-    })
-    return <App />
+
+type Story = StoryObj<typeof meta>
+export const ListView: Story = {}
+
+export const CardView: Story = {
+    parameters: {
+        pageUrl: `${urls.insights()}?layoutView=card`,
+        testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
+    },
 }
 
-export const CardView: Story = () => {
-    useEffect(() => {
-        router.actions.push('/insights?layoutView=card')
-    })
-    return <App />
-}
-CardView.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
-}
-
-export const EmptyState: Story = () => {
-    useStorybookMocks({
-        get: {
-            '/api/environments/:team_id/insights': EMPTY_PAGINATED_RESPONSE,
-        },
-    })
-    useEffect(() => {
-        router.actions.push('/insights')
-    })
-    return <App />
+export const EmptyState: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/insights': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
 }

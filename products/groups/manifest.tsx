@@ -4,6 +4,7 @@ export const manifest: ProductManifest = {
     name: 'Groups',
     urls: {
         groups: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}`,
+        groupsNew: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}/new`,
         // :TRICKY: Note that groupKey is provided by user. We need to override urlPatternOptions for kea-router.
         group: (
             groupTypeIndex: string | number,
@@ -16,4 +17,5 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         // TODO: create group node entries in the backend
     },
+    treeItemsProducts: [],
 }

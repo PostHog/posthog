@@ -3,11 +3,12 @@ from zoneinfo import ZoneInfo
 
 from celery import shared_task
 
-from ee.api.sentry_stats import get_stats_for_timerange
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.trends import Trends
+
+from ee.api.sentry_stats import get_stats_for_timerange
 
 
 def check_flags_to_rollback():

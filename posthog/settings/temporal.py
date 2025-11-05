@@ -1,15 +1,22 @@
 import os
 
-from posthog.settings.utils import get_from_env, get_list
+from posthog.settings.base_variables import DEBUG
+from posthog.settings.utils import get_from_env
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
-TEMPORAL_TASK_QUEUE: str = os.getenv("TEMPORAL_TASK_QUEUE", "general-purpose-task-queue")
 TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "127.0.0.1")
 TEMPORAL_PORT: str = os.getenv("TEMPORAL_PORT", "7233")
 TEMPORAL_CLIENT_ROOT_CA: str | None = os.getenv("TEMPORAL_CLIENT_ROOT_CA", None)
 TEMPORAL_CLIENT_CERT: str | None = os.getenv("TEMPORAL_CLIENT_CERT", None)
 TEMPORAL_CLIENT_KEY: str | None = os.getenv("TEMPORAL_CLIENT_KEY", None)
 TEMPORAL_WORKFLOW_MAX_ATTEMPTS: str = os.getenv("TEMPORAL_WORKFLOW_MAX_ATTEMPTS", "3")
+TEMPORAL_USE_PYDANTIC_CONVERTER: bool = get_from_env("TEMPORAL_USE_PYDANTIC_CONVERTER", "0").lower() in [
+    "1",
+    "true",
+    "t",
+    "y",
+    "yes",
+]
 GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = get_from_env(
     "GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS", None, optional=True, type_cast=int
 )
@@ -18,49 +25,11 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
 
-BATCH_EXPORT_S3_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 50  # 50MB
-BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES: int = get_from_env(
-    "BATCH_EXPORT_S3_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES", 0, type_cast=int
-)
+TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
+TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
+TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
 
-BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 100  # 100MB
-BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES: int = get_from_env(
-    "BATCH_EXPORT_SNOWFLAKE_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES", 1024 * 1024 * 300, type_cast=int
-)
-
-BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 50  # 50MB
-BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES: int = get_from_env(
-    "BATCH_EXPORT_POSTGRES_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES", 1024 * 1024 * 300, type_cast=int
-)
-
-BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 100  # 100MB
-BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES: int = get_from_env(
-    "BATCH_EXPORT_BIGQUERY_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES", 0, type_cast=int
-)
-
-BATCH_EXPORT_REDSHIFT_UPLOAD_CHUNK_SIZE_BYTES: int = 1024 * 1024 * 8  # 8MB
-BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES: int = get_from_env(
-    "BATCH_EXPORT_REDSHIFT_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES", 1024 * 1024 * 300, type_cast=int
-)
-
-BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES: int = get_from_env(
-    "BATCH_EXPORT_HTTP_UPLOAD_CHUNK_SIZE_BYTES", 1024 * 1024 * 50, type_cast=int
-)
-BATCH_EXPORT_HTTP_BATCH_SIZE: int = get_from_env("BATCH_EXPORT_HTTP_BATCH_SIZE", 5000, type_cast=int)
-
-BATCH_EXPORT_BUFFER_QUEUE_MAX_SIZE_BYTES: int = 1024 * 1024 * 300  # 300MB
-
-BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS: int = get_from_env("BATCH_EXPORT_HEARTBEAT_TIMEOUT_SECONDS", 30, type_cast=int)
-
-UNCONSTRAINED_TIMESTAMP_TEAM_IDS: list[str] = get_list(os.getenv("UNCONSTRAINED_TIMESTAMP_TEAM_IDS", ""))
-ASYNC_ARROW_STREAMING_TEAM_IDS: list[str] = get_list(os.getenv("ASYNC_ARROW_STREAMING_TEAM_IDS", ""))
-DEFAULT_TIMESTAMP_LOOKBACK_DAYS = 7
-# Comma separated list of overrides in the format "team_id:lookback_days"
-OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(
-    [map(int, o.split(":")) for o in os.getenv("OVERRIDE_TIMESTAMP_TEAM_IDS", "").split(",") if o]  # type: ignore
-)
-
-CLICKHOUSE_MAX_EXECUTION_TIME: int = get_from_env("CLICKHOUSE_MAX_EXECUTION_TIME", 0, type_cast=int)
+CLICKHOUSE_MAX_EXECUTION_TIME: int = get_from_env("CLICKHOUSE_MAX_EXECUTION_TIME", 86400, type_cast=int)  # 1 day
 CLICKHOUSE_MAX_MEMORY_USAGE: int = get_from_env(
     "CLICKHOUSE_MAX_MEMORY_USAGE", 150 * 1000 * 1000 * 1000, type_cast=int
 )  # 150GB
@@ -69,4 +38,31 @@ CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT: int = get_from_env("CLICKHOUSE_MAX_BLOCK_SIZE
 CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
     [map(int, o.split(":")) for o in os.getenv("CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES", "").split(",") if o]  # type: ignore
 )
-CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
+
+
+# Temporal task queues
+# Temporal has a limitation where a worker can only listen to a single queue.
+# To avoid running multiple workers, when running locally (DEBUG=True), we use a single queue for all tasks.
+# In production (DEBUG=False), we use separate queues for each worker type.
+def _set_temporal_task_queue(task_queue: str) -> str:
+    if DEBUG:
+        return "development-task-queue"
+    return task_queue
+
+
+default_task_queue = os.getenv("TEMPORAL_TASK_QUEUE", "general-purpose-task-queue")
+TEMPORAL_TASK_QUEUE: str = _set_temporal_task_queue(default_task_queue)
+DATA_WAREHOUSE_TASK_QUEUE = _set_temporal_task_queue("data-warehouse-task-queue")
+MAX_AI_TASK_QUEUE = _set_temporal_task_queue("max-ai-task-queue")
+BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("batch-exports-task-queue")
+DATA_MODELING_TASK_QUEUE = _set_temporal_task_queue("data-modeling-task-queue")
+SYNC_BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("no-sandbox-python-django")
+GENERAL_PURPOSE_TASK_QUEUE = _set_temporal_task_queue("general-purpose-task-queue")
+TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
+TEST_TASK_QUEUE = _set_temporal_task_queue("test-task-queue")
+BILLING_TASK_QUEUE = _set_temporal_task_queue("billing-task-queue")
+VIDEO_EXPORT_TASK_QUEUE = _set_temporal_task_queue("video-export-task-queue")
+MESSAGING_TASK_QUEUE = _set_temporal_task_queue("messaging-task-queue")
+ANALYTICS_PLATFORM_TASK_QUEUE = _set_temporal_task_queue("analytics-platform-task-queue")
+SESSION_REPLAY_TASK_QUEUE = _set_temporal_task_queue("session-replay-task-queue")
+WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")

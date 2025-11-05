@@ -1,13 +1,17 @@
 import './RollingDateRangeFilter.scss'
 
-import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DateOption, rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
 
 const dateOptions: LemonSelectOptionLeaf<DateOption>[] = [
+    { value: 'seconds', label: 'seconds' },
+    { value: 'minutes', label: 'minutes' },
     { value: 'hours', label: 'hours' },
     { value: 'days', label: 'days' },
     { value: 'weeks', label: 'weeks' },

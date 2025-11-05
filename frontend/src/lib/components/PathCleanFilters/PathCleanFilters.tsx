@@ -1,41 +1,46 @@
-import { closestCenter, DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { restrictToParentElement } from '@dnd-kit/modifiers'
-import { rectSortingStrategy, SortableContext } from '@dnd-kit/sortable'
-import { useState } from 'react'
+import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
+import { useEffect, useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
 
 import { PathCleanFilterAddItemButton } from './PathCleanFilterAddItemButton'
 import { PathCleanFilterItem } from './PathCleanFilterItem'
+import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
 
 export interface PathCleanFiltersProps {
     filters?: PathCleaningFilter[]
     setFilters: (filters: PathCleaningFilter[]) => void
 }
 
-const keyFromFilter = (filter: PathCleaningFilter): string => {
+export const keyFromFilter = (filter: PathCleaningFilter): string => {
     return `${filter.alias}-${filter.regex}`
 }
 
 export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersProps): JSX.Element {
     const [localFilters, setLocalFilters] = useState(filters)
 
-    const updateFilters = (filters: PathCleaningFilter[]): void => {
-        setLocalFilters(filters)
-        setFilters(filters)
+    useEffect(() => {
+        setLocalFilters(ensureFilterOrder(filters))
+    }, [filters])
+
+    const updateFilters = (newFilters: PathCleaningFilter[]): void => {
+        const filtersWithOrder = updateFilterOrder(newFilters)
+        setLocalFilters(filtersWithOrder)
+        setFilters(filtersWithOrder)
     }
 
     const onAddFilter = (filter: PathCleaningFilter): void => {
-        updateFilters([...filters, filter])
+        const filterWithOrder = {
+            ...filter,
+            order: filters.length,
+        }
+        updateFilters([...filters, filterWithOrder])
     }
 
     const onEditFilter = (index: number, filter: PathCleaningFilter): void => {
-        const newFilters = filters.map((f, i) => {
-            if (i === index) {
-                return filter
-            }
-            return f
-        })
+        const newFilters = filters.map((f, i) => (i === index ? filter : f))
         updateFilters(newFilters)
     }
 
@@ -47,9 +52,9 @@ export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersP
         function move(arr: PathCleaningFilter[], from: number, to: number): PathCleaningFilter[] {
             const clone = [...arr]
             Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
-            return clone.map((child, order) => ({ ...child, order }))
+            return clone
         }
-        updateFilters(move(filters, oldIndex, newIndex))
+        updateFilters(move(localFilters, oldIndex, newIndex))
     }
 
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 1 } }))
@@ -63,7 +68,7 @@ export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersP
                             return
                         }
 
-                        const aliases = filters.map((filter) => filter.alias)
+                        const aliases = localFilters.map((filter) => filter.alias)
                         onSortEnd({
                             oldIndex: aliases.indexOf(String(active.id)),
                             newIndex: aliases.indexOf(String(over.id)),

@@ -1,13 +1,14 @@
 from collections import defaultdict
-import re
 from datetime import timedelta
 from typing import Optional
-from collections.abc import Generator
 
 import structlog
 
+from posthog.clickhouse.client import sync_execute
+from posthog.models.property import PropertyName, TableColumn, TableWithProperties
+from posthog.settings import CLICKHOUSE_CLUSTER
+
 from ee.clickhouse.materialized_columns.columns import (
-    DEFAULT_TABLE_COLUMN,
     MaterializedColumn,
     backfill_materialized_columns,
     get_materialized_columns,
@@ -19,91 +20,10 @@ from ee.settings import (
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
-from posthog.cache_utils import instance_memoize
-from posthog.clickhouse.client import sync_execute
-from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.person.sql import (
-    GET_EVENT_PROPERTIES_COUNT,
-    GET_PERSON_PROPERTIES_COUNT,
-)
-from posthog.models.property import PropertyName, TableColumn, TableWithProperties
-from posthog.models.property_definition import PropertyDefinition
-from posthog.models.team import Team
-from posthog.settings import CLICKHOUSE_CLUSTER
 
 Suggestion = tuple[TableWithProperties, TableColumn, PropertyName]
 
 logger = structlog.get_logger(__name__)
-
-
-class TeamManager:
-    @instance_memoize
-    def person_properties(self, team_id: str) -> set[str]:
-        return self._get_properties(GET_PERSON_PROPERTIES_COUNT, team_id)
-
-    @instance_memoize
-    def event_properties(self, team_id: str) -> set[str]:
-        return set(
-            PropertyDefinition.objects.filter(team_id=team_id, type=PropertyDefinition.Type.EVENT).values_list(
-                "name", flat=True
-            )
-        )
-
-    @instance_memoize
-    def person_on_events_properties(self, team_id: str) -> set[str]:
-        return self._get_properties(GET_EVENT_PROPERTIES_COUNT.format(column_name="person_properties"), team_id)
-
-    def _get_properties(self, query, team_id) -> set[str]:
-        rows = sync_execute(query, {"team_id": team_id})
-        return {name for name, _ in rows}
-
-
-class Query:
-    def __init__(
-        self,
-        query_string: str,
-        query_time_ms: float,
-        min_query_time=MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
-    ):
-        self.query_string = query_string
-        self.query_time_ms = query_time_ms
-        self.min_query_time = min_query_time
-
-    @property
-    def cost(self) -> int:
-        return int((self.query_time_ms - self.min_query_time) / 1000) + 1
-
-    @cached_property
-    def is_valid(self):
-        return self.team_id is not None and Team.objects.filter(pk=self.team_id).exists()
-
-    @cached_property
-    def team_id(self) -> Optional[str]:
-        matches = re.findall(r"team_id = (\d+)", self.query_string)
-        return matches[0] if matches else None
-
-    @cached_property
-    def _all_properties(self) -> list[tuple[str, PropertyName]]:
-        return re.findall(r"JSONExtract\w+\((\S+), '([^']+)'\)", self.query_string)
-
-    def properties(
-        self, team_manager: TeamManager
-    ) -> Generator[tuple[TableWithProperties, TableColumn, PropertyName], None, None]:
-        # Reverse-engineer whether a property is an "event" or "person" property by getting their event definitions.
-        # :KLUDGE: Note that the same property will be found on both tables if both are used.
-        # We try to hone in on the right column by looking at the column from which the property is extracted.
-        person_props = team_manager.person_properties(self.team_id)
-        event_props = team_manager.event_properties(self.team_id)
-        person_on_events_props = team_manager.person_on_events_properties(self.team_id)
-
-        for table_column, property in self._all_properties:
-            if property in event_props:
-                yield "events", DEFAULT_TABLE_COLUMN, property
-            if property in person_props:
-                yield "person", DEFAULT_TABLE_COLUMN, property
-
-            if property in person_on_events_props and "person_properties" in table_column:
-                yield "events", "person_properties", property
 
 
 def _analyze(since_hours_ago: int, min_query_time: int, team_id: Optional[int] = None) -> list[Suggestion]:
@@ -201,7 +121,7 @@ def materialize_properties_task(
 
     materialized_columns: dict[TableWithProperties, list[MaterializedColumn]] = defaultdict(list)
     for table, table_column, property_name in result[:maximum]:
-        logger.info(f"Materializing column. table={table}, property_name={property_name}")
+        logger.info(f"Materializing column. table={table}, table_column={table_column} property_name={property_name}")
         if not dry_run:
             materialized_columns[table].append(
                 materialize(table, property_name, table_column=table_column, is_nullable=is_nullable)

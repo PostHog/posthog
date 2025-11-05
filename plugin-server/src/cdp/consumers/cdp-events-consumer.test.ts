@@ -1,87 +1,40 @@
-// eslint-disable-next-line simple-import-sort/imports
-import {
-    getProducedKafkaMessages,
-    getProducedKafkaMessagesForTopic,
-    mockProducer,
-} from '../../../tests/helpers/mocks/producer.mock'
+import { mockProducerObserver } from '../../../tests/helpers/mocks/producer.mock'
 
-import { HogWatcherState } from '../services/hog-watcher.service'
-import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { HogFlow } from '~/schema/hogflow'
+
+import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { createTeam, getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
-    createHogExecutionGlobals,
     insertHogFunction as _insertHogFunction,
-    createKafkaMessage,
+    createHogExecutionGlobals,
     createIncomingEvent,
     createInternalEvent,
+    createKafkaMessage,
 } from '../_tests/fixtures'
-import { CdpProcessedEventsConsumer } from './cdp-processed-events.consumer'
+import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
+import { CyclotronJobQueue } from '../services/job-queue/job-queue'
+import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
+import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { CdpEventsConsumer } from './cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
-const mockConsumer = {
-    on: jest.fn(),
-    commitSync: jest.fn(),
-    commit: jest.fn(),
-    queryWatermarkOffsets: jest.fn(),
-    committed: jest.fn(),
-    assignments: jest.fn(),
-    isConnected: jest.fn(() => true),
-    getMetadata: jest.fn(),
-}
-
-jest.mock('../../../src/kafka/batch-consumer', () => {
-    return {
-        startBatchConsumer: jest.fn(() =>
-            Promise.resolve({
-                join: () => ({
-                    finally: jest.fn(),
-                }),
-                stop: jest.fn(),
-                consumer: mockConsumer,
-            })
-        ),
-    }
-})
-
-jest.mock('../../../src/utils/fetch', () => {
-    return {
-        trackedFetch: jest.fn(() =>
-            Promise.resolve({
-                status: 200,
-                text: () => Promise.resolve(JSON.stringify({ success: true })),
-                json: () => Promise.resolve({ success: true }),
-            })
-        ),
-    }
-})
-
-const mockFetch: jest.Mock = require('../../../src/utils/fetch').trackedFetch
-
 jest.setTimeout(1000)
-
-// Add mock for CyclotronManager
-const mockBulkCreateJobs = jest.fn()
-jest.mock('@posthog/cyclotron', () => ({
-    CyclotronManager: jest.fn().mockImplementation(() => ({
-        connect: jest.fn(),
-        bulkCreateJobs: mockBulkCreateJobs,
-    })),
-}))
 
 /**
  * NOTE: The internal and normal events consumers are very similar so we can test them together
  */
 describe.each([
-    [CdpProcessedEventsConsumer.name, CdpProcessedEventsConsumer, 'destination' as const],
+    [CdpEventsConsumer.name, CdpEventsConsumer, 'destination' as const],
     [CdpInternalEventsConsumer.name, CdpInternalEventsConsumer, 'internal_destination' as const],
 ])('%s', (_name, Consumer, hogType) => {
-    let processor: CdpProcessedEventsConsumer | CdpInternalEventsConsumer
+    let processor: CdpEventsConsumer | CdpInternalEventsConsumer
     let hub: Hub
     let team: Team
     let team2: Team
+    let mockQueueInvocations: jest.Mock
 
     const insertHogFunction = async (hogFunction: Partial<HogFunctionType>) => {
         const teamId = hogFunction.team_id ?? team.id
@@ -98,14 +51,28 @@ describe.each([
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub)
-        const team2Id = await createTeam(hub.postgres, team.organization_id)
-        team2 = (await hub.teamManager.fetchTeam(team2Id))!
+        const otherOrganizationId = await createOrganization(hub.postgres)
+        const team2Id = await createTeam(hub.postgres, otherOrganizationId)
+        team2 = (await getTeam(hub, team2Id))!
 
         processor = new Consumer(hub)
-        await processor.start()
 
-        mockFetch.mockClear()
-        mockBulkCreateJobs.mockClear()
+        // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
+        processor['kafkaConsumer'] = {
+            connect: jest.fn(),
+            disconnect: jest.fn(),
+            isHealthy: jest.fn(),
+        } as any
+
+        processor['cyclotronJobQueue'] = {
+            queueInvocations: jest.fn(),
+            startAsProducer: jest.fn(() => Promise.resolve()),
+            stop: jest.fn(),
+        } as unknown as jest.Mocked<CyclotronJobQueue>
+
+        mockQueueInvocations = jest.mocked(processor['cyclotronJobQueue']['queueInvocations'])
+
+        await processor.start()
     })
 
     afterEach(async () => {
@@ -192,14 +159,16 @@ describe.each([
                     hogFunction: {
                         id: hogFunction.id,
                     },
-                    globals: {
-                        event: globals.event,
+                    state: {
+                        globals: {
+                            event: globals.event,
+                        },
                     },
                 }
             }
 
             it('should process events', async () => {
-                const invocations = await processor.processBatch([globals])
+                const { invocations } = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(2)
                 expect(invocations).toMatchObject([
@@ -208,64 +177,95 @@ describe.each([
                 ])
 
                 // Verify Cyclotron jobs
-                expect(mockBulkCreateJobs).toHaveBeenCalledWith(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            teamId: team.id,
-                            functionId: fnFetchNoFilters.id,
-                            queueName: 'hog',
-                            priority: 1,
-                            vmState: expect.objectContaining({
-                                hogFunctionId: fnFetchNoFilters.id,
-                                teamId: team.id,
-                                queue: 'hog',
-                                globals: expect.any(Object),
-                            }),
-                        }),
-                        expect.objectContaining({
-                            teamId: team.id,
-                            functionId: fnPrinterPageviewFilters.id,
-                            queueName: 'hog',
-                            priority: 1,
-                            vmState: expect.objectContaining({
-                                hogFunctionId: fnPrinterPageviewFilters.id,
-                                teamId: team.id,
-                                queue: 'hog',
-                                globals: expect.any(Object),
-                            }),
-                        }),
-                    ])
+                expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
+            })
+
+            it('should log correct metrics', async () => {
+                const { invocations } = await processor.processBatch([globals])
+
+                expect(invocations).toHaveLength(2)
+                expect(invocations).toMatchObject([
+                    matchInvocation(fnFetchNoFilters, globals),
+                    matchInvocation(fnPrinterPageviewFilters, globals),
+                ])
+
+                expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
+
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                ).toMatchObject(
+                    [
+                        {
+                            key: expect.any(String),
+                            topic: 'clickhouse_app_metrics2_test',
+                            value: {
+                                app_source: 'hog_function',
+                                app_source_id: fnFetchNoFilters.id,
+                                count: 1,
+                                metric_kind: 'other',
+                                metric_name: 'triggered',
+                                team_id: 2,
+                                timestamp: expect.any(String),
+                            },
+                        },
+                        hogType === 'destination' && {
+                            key: expect.any(String),
+                            topic: 'clickhouse_app_metrics2_test',
+                            value: {
+                                app_source: 'hog_function',
+                                app_source_id: fnFetchNoFilters.id,
+                                count: 1,
+                                metric_kind: 'billing',
+                                metric_name: 'billable_invocation',
+                                team_id: 2,
+                                timestamp: expect.any(String),
+                            },
+                        },
+                        {
+                            key: expect.any(String),
+                            topic: 'clickhouse_app_metrics2_test',
+                            value: {
+                                app_source: 'hog_function',
+                                app_source_id: fnPrinterPageviewFilters.id,
+                                count: 1,
+                                metric_kind: 'other',
+                                metric_name: 'triggered',
+                                team_id: 2,
+                                timestamp: expect.any(String),
+                            },
+                        },
+                        hogType === 'destination' && {
+                            key: expect.any(String),
+                            topic: 'clickhouse_app_metrics2_test',
+                            value: {
+                                app_source: 'hog_function',
+                                app_source_id: fnPrinterPageviewFilters.id,
+                                count: 1,
+                                metric_kind: 'billing',
+                                metric_name: 'billable_invocation',
+                                team_id: 2,
+                                timestamp: expect.any(String),
+                            },
+                        },
+                    ].filter((x) => !!x)
                 )
             })
 
             it("should filter out functions that don't match the filter", async () => {
                 globals.event.properties.$current_url = 'https://nomatch.com'
 
-                const invocations = await processor.processBatch([globals])
+                const { invocations } = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(1)
                 expect(invocations).toMatchObject([matchInvocation(fnFetchNoFilters, globals)])
 
                 // Verify only one Cyclotron job is created (for fnFetchNoFilters)
-                expect(mockBulkCreateJobs).toHaveBeenCalledWith(
-                    expect.arrayContaining([
-                        expect.objectContaining({
-                            teamId: team.id,
-                            functionId: fnFetchNoFilters.id,
-                            queueName: 'hog',
-                            priority: 1,
-                            vmState: expect.objectContaining({
-                                hogFunctionId: fnFetchNoFilters.id,
-                                teamId: team.id,
-                                queue: 'hog',
-                                globals: expect.any(Object),
-                            }),
-                        }),
-                    ])
-                )
+                expect(mockQueueInvocations).toHaveBeenCalledWith(invocations)
 
                 // Still verify the metric for the filtered function
-                expect(getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')).toMatchObject([
+                expect(
+                    mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                ).toMatchObject([
                     {
                         key: expect.any(String),
                         topic: 'clickhouse_app_metrics2_test',
@@ -279,22 +279,49 @@ describe.each([
                             timestamp: expect.any(String),
                         },
                     },
+                    {
+                        key: expect.any(String),
+                        topic: 'clickhouse_app_metrics2_test',
+                        value: {
+                            app_source: 'hog_function',
+                            app_source_id: fnFetchNoFilters.id,
+                            count: 1,
+                            metric_kind: 'other',
+                            metric_name: 'triggered',
+                            team_id: 2,
+                            timestamp: expect.any(String),
+                        },
+                    },
+                    ...(hogType !== 'destination'
+                        ? []
+                        : [
+                              {
+                                  key: expect.any(String),
+                                  topic: 'clickhouse_app_metrics2_test',
+                                  value: {
+                                      app_source: 'hog_function',
+                                      app_source_id: fnFetchNoFilters.id,
+                                      count: 1,
+                                      metric_kind: 'billing',
+                                      metric_name: 'billable_invocation',
+                                      team_id: 2,
+                                      timestamp: expect.any(String),
+                                  },
+                              },
+                          ]),
                 ])
             })
 
-            it.each([
-                [HogWatcherState.disabledForPeriod, 'disabled_temporarily'],
-                [HogWatcherState.disabledIndefinitely, 'disabled_permanently'],
-            ])('should filter out functions that are disabled', async (state, metric_name) => {
-                await processor.hogWatcher.forceStateChange(fnFetchNoFilters.id, state)
-                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters.id, state)
+            it('should filter out functions that are disabled', async () => {
+                await processor.hogWatcher.forceStateChange(fnFetchNoFilters, HogWatcherState.disabled)
+                await processor.hogWatcher.forceStateChange(fnPrinterPageviewFilters, HogWatcherState.disabled)
 
-                const invocations = await processor.processBatch([globals])
+                const { invocations } = await processor.processBatch([globals])
 
                 expect(invocations).toHaveLength(0)
-                expect(mockProducer.queueMessages).toHaveBeenCalledTimes(1)
+                expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(2)
 
-                expect(getProducedKafkaMessages()).toMatchObject([
+                expect(mockProducerObserver.getProducedKafkaMessages()).toMatchObject([
                     {
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
@@ -302,7 +329,7 @@ describe.each([
                             app_source_id: fnFetchNoFilters.id,
                             count: 1,
                             metric_kind: 'failure',
-                            metric_name: metric_name,
+                            metric_name: 'disabled_permanently',
                             team_id: 2,
                         },
                     },
@@ -313,7 +340,7 @@ describe.each([
                             app_source_id: fnPrinterPageviewFilters.id,
                             count: 1,
                             metric_kind: 'failure',
-                            metric_name: metric_name,
+                            metric_name: 'disabled_permanently',
                             team_id: 2,
                         },
                     },
@@ -347,7 +374,7 @@ describe.each([
                     ...HOG_FILTERS_EXAMPLES.broken_filters,
                 })
                 await processor.processBatch([globals])
-                expect(getProducedKafkaMessages()).toMatchObject([
+                expect(mockProducerObserver.getProducedKafkaMessages()).toMatchObject([
                     {
                         key: expect.any(String),
                         topic: 'clickhouse_app_metrics2_test',
@@ -369,6 +396,142 @@ describe.each([
                         },
                     },
                 ])
+            })
+        })
+    })
+})
+
+describe('hog flow processing', () => {
+    let processor: CdpEventsConsumer | CdpInternalEventsConsumer
+    let hub: Hub
+    let team: Team
+
+    const insertHogFlow = async (hogFlow: HogFlow) => {
+        const teamId = hogFlow.team_id ?? team.id
+
+        const item = await _insertHogFlow(hub.postgres, hogFlow)
+        // Trigger the reload that django would do
+        processor['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [item.id])
+        return item
+    }
+
+    beforeEach(async () => {
+        await resetTestDatabase()
+        hub = await createHub()
+        team = await getFirstTeam(hub)
+        processor = new CdpEventsConsumer(hub)
+
+        // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
+        processor['kafkaConsumer'] = {
+            connect: jest.fn(),
+            disconnect: jest.fn(),
+            isHealthy: jest.fn(),
+        } as any
+
+        processor['cyclotronJobQueue'] = {
+            queueInvocations: jest.fn(),
+            startAsProducer: jest.fn(() => Promise.resolve()),
+            stop: jest.fn(),
+        } as unknown as jest.Mocked<CyclotronJobQueue>
+
+        await processor.start()
+    })
+
+    afterEach(async () => {
+        jest.setTimeout(10000)
+        await processor.stop()
+        await closeHub(hub)
+    })
+
+    afterAll(() => {
+        jest.useRealTimers()
+    })
+
+    describe('createHogFlowInvocations', () => {
+        let globals: HogFunctionInvocationGlobals
+
+        beforeEach(() => {
+            globals = createHogExecutionGlobals({
+                project: {
+                    id: team.id,
+                } as any,
+                event: {
+                    uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                    event: '$pageview',
+                    properties: {
+                        $current_url: 'https://posthog.com',
+                        $lib_version: '1.0.0',
+                    },
+                } as any,
+            })
+        })
+
+        it('should not create hog flow invocations with no filters', async () => {
+            const hogFlow = new FixtureHogFlowBuilder().withTeamId(team.id).build()
+            hogFlow.trigger = {} as any
+            await insertHogFlow(hogFlow)
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+            expect(invocations).toHaveLength(0)
+        })
+
+        it('should not create hog flow invocations with webhook triggers', async () => {
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withSimpleWorkflow({
+                    trigger: {
+                        type: 'webhook',
+                        template_id: 'test',
+                        inputs: {},
+                    },
+                })
+                .build()
+            await insertHogFlow(hogFlow)
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+            expect(invocations).toHaveLength(0)
+        })
+
+        it('should create hog flow invocations with matching filters', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'event',
+                            filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters ?? {},
+                        },
+                    })
+                    .build()
+            )
+
+            const noInvocations = await processor['createHogFlowInvocations']([
+                {
+                    ...globals,
+                    event: {
+                        ...globals.event,
+                        event: 'not-a-pageview',
+                    },
+                },
+            ])
+
+            expect(noInvocations).toHaveLength(0)
+
+            const invocations = await processor['createHogFlowInvocations']([globals])
+            expect(invocations).toHaveLength(1)
+            expect(invocations[0]).toMatchObject({
+                functionId: hogFlow.id,
+                hogFlow: {
+                    id: hogFlow.id,
+                },
+                id: expect.any(String),
+                queue: 'hogflow',
+                queuePriority: 1,
+                state: {
+                    event: globals.event,
+                    actionStepCount: 0,
+                },
+                teamId: 2,
             })
         })
     })

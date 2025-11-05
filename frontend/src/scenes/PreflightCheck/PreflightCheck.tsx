@@ -1,15 +1,17 @@
 import './PreflightCheck.scss'
 
-import { IconCheckCircle, IconCollapse, IconExpand, IconWarning } from '@posthog/icons'
-import { Link, Spinner } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconCheckCircle, IconCollapse, IconExpand, IconRefresh, IconWarning } from '@posthog/icons'
+import { Link, Spinner } from '@posthog/lemon-ui'
+
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { IconErrorOutline, IconRefresh } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -163,9 +165,9 @@ export function PreflightCheck(): JSX.Element {
                                 <LemonButton
                                     icon={
                                         areChecksExpanded ? (
-                                            <IconCollapse style={{ color: 'var(--text-secondary)' }} />
+                                            <IconCollapse style={{ color: 'var(--color-text-secondary)' }} />
                                         ) : (
-                                            <IconExpand style={{ color: 'var(--text-secondary)' }} />
+                                            <IconExpand style={{ color: 'var(--color-text-secondary)' }} />
                                         )
                                     }
                                     onClick={() => {

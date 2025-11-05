@@ -102,6 +102,7 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     // time series
     [ChartDisplayType.ActionsLineGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsBar]: ChartDisplayType.ActionsLineGraph,
+    [ChartDisplayType.ActionsUnstackedBar]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsAreaGraph]: ChartDisplayType.ActionsLineGraph,
     [ChartDisplayType.ActionsStackedBar]: ChartDisplayType.ActionsLineGraph,
 
@@ -114,10 +115,11 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.WorldMap]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.CalendarHeatmap]: ChartDisplayType.ActionsBarValue,
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */
-const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): InsightQueryNode => {
+export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): InsightQueryNode => {
     const dupQuery = JSON.parse(JSON.stringify(query))
 
     // remove undefined values, empty arrays and empty objects
@@ -159,6 +161,13 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             resultCustomizationBy: undefined,
             goalLines: undefined,
             dashboardDisplay: undefined,
+            showConfidenceIntervals: undefined,
+            confidenceLevel: undefined,
+            showTrendLines: undefined,
+            showMovingAverage: undefined,
+            movingAverageIntervals: undefined,
+            stacked: undefined,
+            detailedResultsAggregationType: undefined,
         }
 
         cleanedQuery.dataColorTheme = undefined

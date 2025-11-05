@@ -1,25 +1,44 @@
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
-    defaultDescriber,
     Description,
-    detectBoolean,
     HumanizedChange,
+    defaultDescriber,
+    detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { AnyPropertyFilter, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import {
+    AnyPropertyFilter,
+    FeatureFlagEvaluationRuntime,
+    FeatureFlagFilters,
+    FeatureFlagGroupType,
+    FeatureFlagType,
+} from '~/types'
 
 const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
     const displayName = name || '(empty string)'
     return id ? <Link to={urls.featureFlag(id)}>{displayName}</Link> : displayName
+}
+
+const getRuntimeLabel = (runtime: string): string => {
+    switch (runtime) {
+        case FeatureFlagEvaluationRuntime.ALL:
+            return 'both client and server'
+        case FeatureFlagEvaluationRuntime.CLIENT:
+            return 'client-side only'
+        case FeatureFlagEvaluationRuntime.SERVER:
+            return 'server-side only'
+        default:
+            return runtime
+    }
 }
 
 const featureFlagActionsMapping: Record<
@@ -248,6 +267,19 @@ const featureFlagActionsMapping: Record<
 
         return { description: [<>{describeChange} experience continuity</>] }
     },
+    evaluation_runtime: function onEvaluationRuntime(change) {
+        const runtimeAfter = change?.after as string
+        const runtimeBefore = change?.before as string
+
+        return {
+            description: [
+                <>
+                    changed the evaluation runtime from <strong>{getRuntimeLabel(runtimeBefore)}</strong> to{' '}
+                    <strong>{getRuntimeLabel(runtimeAfter)}</strong>
+                </>,
+            ],
+        }
+    },
     tags: function onTags(change) {
         const tagsBefore = change?.before as string[]
         const tagsAfter = change?.after as string[]
@@ -274,10 +306,37 @@ const featureFlagActionsMapping: Record<
 
         return { description: changes }
     },
+    evaluation_tags: function onEvaluationTags(change) {
+        const tagsBefore = change?.before as string[]
+        const tagsAfter = change?.after as string[]
+        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
+        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
+
+        const changes: Description[] = []
+        if (addedTags.length) {
+            changes.push(
+                <>
+                    added {pluralize(addedTags.length, 'evaluation tag', 'evaluation tags', false)}{' '}
+                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+        if (removedTags.length) {
+            changes.push(
+                <>
+                    removed {pluralize(removedTags.length, 'evaluation tag', 'evaluation tags', false)}{' '}
+                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+
+        return { description: changes }
+    },
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
     created_by: () => null,
+    updated_at: () => null,
     is_simple_flag: () => null,
     experiment_set: () => null,
     features: () => null,
@@ -295,6 +354,21 @@ const featureFlagActionsMapping: Record<
     status: () => null,
     version: () => null,
     last_modified_by: () => null,
+    last_called_at: () => null,
+    _create_in_folder: () => null,
+    _should_create_usage_dashboard: () => null,
+}
+
+const getActorName = (logItem: ActivityLogItem): JSX.Element => {
+    const userName = userNameForLogItem(logItem)
+    if (logItem.detail.trigger?.job_type === 'scheduled_change') {
+        return (
+            <>
+                <strong>{userName}</strong> <span className="text-muted">(via scheduled change)</span>
+            </>
+        )
+    }
+    return <strong>{userName}</strong>
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -308,11 +382,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
             description: (
                 <SentenceList
                     listParts={[<>created a new feature flag:</>]}
-                    prefix={
-                        <>
-                            <strong>{userNameForLogItem(logItem)}</strong>
-                        </>
-                    }
+                    prefix={getActorName(logItem)}
                     suffix={<> {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>}
                 />
             ),
@@ -333,7 +403,11 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            const possibleLogItem = featureFlagActionsMapping[change.field](change, logItem)
+            const fieldHandler = featureFlagActionsMapping[change.field as keyof FeatureFlagType]
+            if (!fieldHandler) {
+                console.error({ field: change.field, change }, 'No activity describer found for feature flag field')
+            }
+            const possibleLogItem = fieldHandler ? fieldHandler(change, logItem) : null
             if (possibleLogItem) {
                 const { description, suffix } = possibleLogItem
                 if (description) {
@@ -347,17 +421,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
         if (changes.length) {
             return {
-                description: (
-                    <SentenceList
-                        listParts={changes}
-                        prefix={
-                            <>
-                                <strong>{userNameForLogItem(logItem)}</strong>
-                            </>
-                        }
-                        suffix={changeSuffix}
-                    />
-                ),
+                description: <SentenceList listParts={changes} prefix={getActorName(logItem)} suffix={changeSuffix} />,
             }
         }
     }

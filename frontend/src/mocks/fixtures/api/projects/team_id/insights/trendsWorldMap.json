@@ -134,8 +134,6 @@
         "email": "michael@example.com"
     },
     "is_sample": false,
-    "effective_restriction_level": 21,
-    "effective_privilege_level": 37,
     "query": {
         "kind": "InsightVizNode",
         "source": {
@@ -163,9 +161,9 @@
                 }
             ],
             "trendsFilter": {
-                "display": "WorldMap",
-                "resultCustomizationBy": "value"
-            }
+                "display": "WorldMap"
+            },
+            "version": 2
         },
         "full": true
     }

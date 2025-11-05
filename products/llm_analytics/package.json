@@ -1,0 +1,29 @@
+{
+    "name": "@posthog/products-llm-analytics",
+    "scripts": {},
+    "dependencies": {
+        "kea": "^3.1.7",
+        "kea-forms": "^3.2.0",
+        "kea-loaders": "^3.1.1",
+        "kea-router": "^3.4.1"
+    },
+    "devDependencies": {
+        "kea-test-utils": "*"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@storybook/react": "*",
+        "@testing-library/react": "*",
+        "@testing-library/user-event": "*",
+        "@types/react": "*",
+        "classnames": "*",
+        "clsx": "*",
+        "eslint": "*",
+        "jest": "*",
+        "prettier": "*",
+        "react": "*",
+        "stylelint": "*",
+        "typescript": "*",
+        "use-debounce": "*"
+    }
+}

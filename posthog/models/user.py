@@ -4,25 +4,28 @@ from typing import Any, Optional, TypedDict
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
-from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailNormalizer
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey, hash_key_value
 from .team import Team
-from .utils import UUIDClassicModel, generate_random_token, sane_repr
+from .utils import UUIDTClassicModel, generate_random_token, sane_repr
 
 
 class Notifications(TypedDict, total=False):
     plugin_disabled: bool
     error_tracking_issue_assigned: bool
+    discussions_mentioned: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
 
@@ -30,6 +33,7 @@ class Notifications(TypedDict, total=False):
 NOTIFICATION_DEFAULTS: Notifications = {
     "plugin_disabled": True,  # Catch all for any Pipeline destination issue (plugins, hog functions, batch exports)
     "error_tracking_issue_assigned": True,  # Error tracking issue assignment
+    "discussions_mentioned": True,  # Mentions in comments enabled by default
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
 }
@@ -63,7 +67,7 @@ class UserManager(BaseUserManager):
         """Create and save a User with the given email and password."""
         if email is None:
             raise ValueError("Email must be provided!")
-        email = self.normalize_email(email)
+        email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
         user = self.model(email=email, first_name=first_name, **extra_fields)
         if password is not None:
@@ -143,7 +147,7 @@ class ThemeMode(models.TextChoices):
     SYSTEM = "system", "System"
 
 
-class User(AbstractUser, UUIDClassicModel):
+class User(AbstractUser, UUIDTClassicModel):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: list[str] = []
 
@@ -208,27 +212,81 @@ class User(AbstractUser, UUIDClassicModel):
             org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
             if AvailableFeature.ADVANCED_PERMISSIONS in org_available_product_feature_keys:
                 try:
-                    from ee.models import ExplicitTeamMembership
+                    from ee.models.rbac.access_control import AccessControl
                 except ImportError:
                     pass
                 else:
-                    available_private_project_ids = ExplicitTeamMembership.objects.filter(
-                        Q(parent_membership__user=self)
-                    ).values_list("team_id", flat=True)
+                    # Get organization memberships for this user to check access levels
+                    org_memberships = OrganizationMembership.objects.filter(user=self).select_related("organization")
+
+                    # Get teams that are private (have access_level="none" restrictions)
+                    private_team_ids = set(
+                        AccessControl.objects.filter(
+                            resource="project", access_level="none", organization_member=None, role=None
+                        ).values_list("team_id", flat=True)
+                    )
+
+                    # Get teams where user has explicit access
+                    accessible_private_team_ids = set(
+                        AccessControl.objects.filter(
+                            resource="project",
+                            access_level__in=["member", "admin"],
+                            organization_member__in=[membership.id for membership in org_memberships],
+                        ).values_list("team_id", flat=True)
+                    )
+
+                    # Get teams where user has role-based access
+                    try:
+                        from ee.models.rbac.role import RoleMembership
+
+                        user_roles = RoleMembership.objects.filter(
+                            user=self, organization_member__in=[membership.id for membership in org_memberships]
+                        ).values_list("role_id", flat=True)
+
+                        role_accessible_team_ids = set(
+                            AccessControl.objects.filter(
+                                resource="project", access_level__in=["member", "admin"], role__in=user_roles
+                            ).values_list("team_id", flat=True)
+                        )
+                    except ImportError:
+                        role_accessible_team_ids = set()
+
+                    # Get organizations where user is admin or owner (have implicit access to all teams)
                     organizations_where_user_is_admin = OrganizationMembership.objects.filter(
                         user=self, level__gte=OrganizationMembership.Level.ADMIN
                     ).values_list("organization_id", flat=True)
-                    # If project access control IS applicable, make sure
-                    # - project doesn't have access control OR
-                    # - the user has explicit access OR
-                    # - the user is Admin or owner
-                    teams = teams.filter(
-                        Q(access_control=False)
-                        | Q(pk__in=available_private_project_ids)
-                        | Q(organization__pk__in=organizations_where_user_is_admin)
-                    )
 
-        return teams.order_by("access_control", "id")
+                    # Filter teams to include:
+                    # - Teams that are not private (not in private_team_ids) OR
+                    # - Teams where user has explicit access OR
+                    # - Teams where user has role-based access OR
+                    # - Teams in organizations where user is admin/owner
+                    accessible_team_ids = accessible_private_team_ids | role_accessible_team_ids
+
+                    # Build the list of all accessible team IDs
+                    all_accessible_team_ids = set()
+
+                    # Add teams from organizations where user is admin
+                    admin_teams = Team.objects.filter(
+                        organization__pk__in=organizations_where_user_is_admin, organization__members=self
+                    ).values_list("pk", flat=True)
+                    all_accessible_team_ids.update(admin_teams)
+
+                    # Add teams that are not private
+                    non_private_teams = (
+                        Team.objects.filter(organization__members=self)
+                        .exclude(pk__in=private_team_ids)
+                        .values_list("pk", flat=True)
+                    )
+                    all_accessible_team_ids.update(non_private_teams)
+
+                    # Add teams with explicit access
+                    all_accessible_team_ids.update(accessible_team_ids)
+
+                    # Apply the final filter
+                    teams = teams.filter(pk__in=all_accessible_team_ids)
+
+        return teams.order_by("id")
 
     @cached_property
     def organization(self) -> Optional[Organization]:
@@ -236,14 +294,16 @@ class User(AbstractUser, UUIDClassicModel):
             if self.current_team is not None:
                 self.current_organization_id = self.current_team.organization_id
             self.current_organization = self.organizations.first()
-            self.save()
+            if self.current_organization is not None:
+                self.save(update_fields=["current_organization"])
         return self.current_organization
 
     @cached_property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
             self.current_team = self.teams.filter(organization=self.current_organization).first()
-            self.save()
+            if self.current_team:
+                self.save(update_fields=["current_team"])
         return self.current_team
 
     def join(
@@ -254,18 +314,41 @@ class User(AbstractUser, UUIDClassicModel):
     ) -> OrganizationMembership:
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
+
             self.current_organization = organization
-            if (
-                not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-                or level >= OrganizationMembership.Level.ADMIN
-            ):
+            if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
                 # If project access control is NOT applicable, simply prefer open projects just in case
-                self.current_team = organization.teams.order_by("access_control", "id").first()
+                self.current_team = organization.teams.order_by("id").first()
             else:
-                # If project access control IS applicable, make sure the user is assigned a project they have access to
-                # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
-                self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
+                from posthog.rbac.user_access_control import UserAccessControl
+
+                uac = UserAccessControl(user=self, organization_id=str(organization.id))
+                self.current_team = (
+                    uac.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
+                    .order_by("id")
+                    .first()
+                )
             self.save()
+
+        # Auto-assign default role if configured
+        if organization.default_role_id:
+            try:
+                from ee.models import RoleMembership
+
+                RoleMembership.objects.create(
+                    role_id=organization.default_role_id, user=self, organization_member=membership
+                )
+            except Exception as e:
+                capture_exception(
+                    e,
+                    {
+                        "organization_id": organization.id,
+                        "role_id": organization.default_role_id,
+                        "context": "default_role_assignment",
+                        "tag": "platform-features",
+                    },
+                )
+
         self.update_billing_organization_users(organization)
         return membership
 

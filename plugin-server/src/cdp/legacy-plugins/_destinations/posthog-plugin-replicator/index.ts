@@ -83,20 +83,18 @@ export const onEvent = async (
             // TODO: add a timeout signal to make sure we retry if capture is slow, instead of failing the export
         }).then(
             (res) => {
-                if (res.ok) {
+                if (res.status >= 200 && res.status < 300) {
                     logger.log(`Flushed ${batchDescription} to ${config.host}`)
                 } else if (res.status >= 500) {
                     // Server error, retry the batch later
                     logger.error(
-                        `Failed to submit ${batchDescription} to ${config.host} due to server error: ${res.status} ${res.statusText}`
+                        `Failed to submit ${batchDescription} to ${config.host} due to server error: ${res.status}`
                     )
-                    throw new RetryError(`Server error: ${res.status} ${res.statusText}`)
+                    throw new RetryError(`Server error: ${res.status}`)
                 } else {
                     // node-fetch handles 300s internaly, so we're left with 400s here: skip the batch and move forward
                     // We might have old events in ClickHouse that don't pass new stricter checks, don't fail the whole export if that happens
-                    logger.warn(
-                        `Skipping ${batchDescription}, rejected by ${config.host}: ${res.status} ${res.statusText}`
-                    )
+                    logger.warn(`Skipping ${batchDescription}, rejected by ${config.host}: ${res.status}`)
                 }
             },
             (err) => {

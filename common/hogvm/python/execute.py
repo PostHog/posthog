@@ -1,34 +1,33 @@
-from datetime import timedelta
 import re
 import time
-from copy import deepcopy
-from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
+from copy import deepcopy
+from dataclasses import dataclass
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Optional
 
-from common.hogvm.python.debugger import debugger, color_bytecode
+from common.hogvm.python.debugger import color_bytecode, debugger
 from common.hogvm.python.objects import (
-    is_hog_error,
-    new_hog_closure,
     CallFrame,
     ThrowFrame,
-    new_hog_callable,
+    is_hog_error,
     is_hog_upvalue,
+    new_hog_callable,
+    new_hog_closure,
 )
-from common.hogvm.python.operation import Operation, HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0
+from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0, Operation
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
-from dataclasses import dataclass
-
 from common.hogvm.python.utils import (
-    UncaughtHogVMException,
     HogVMException,
+    HogVMMemoryExceededException,
+    HogVMRuntimeExceededException,
+    UncaughtHogVMException,
+    calculate_cost,
     get_nested_value,
     like,
     set_nested_value,
-    calculate_cost,
     unify_comparison_types,
-    HogVMRuntimeExceededException,
-    HogVMMemoryExceededException,
 )
 
 if TYPE_CHECKING:

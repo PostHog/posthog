@@ -37,7 +37,7 @@ export const BillingProductWithoutAddons = (): JSX.Element => {
         },
     })
 
-    const product = billingJson.products.find((product) => product.type === 'session_replay')
+    const product = billingJson.products.find((product) => product.type === 'feature_flags')
 
     return <BillingProduct product={product as BillingProductV2Type} />
 }
@@ -52,6 +52,20 @@ export const BillingProductWithAddons = (): JSX.Element => {
     })
 
     const product = billingJson.products.find((product) => product.type === 'product_analytics')
+
+    return <BillingProduct product={product as BillingProductV2Type} />
+}
+
+export const BillingProductWithStandalonePricingAddon = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/billing/': {
+                ...billingJson,
+            },
+        },
+    })
+
+    const product = billingJson.products.find((product) => product.type === 'session_replay')
 
     return <BillingProduct product={product as BillingProductV2Type} />
 }
@@ -186,6 +200,7 @@ export const BillingProductTemporarilyFree = (): JSX.Element => {
         percentage_usage: 0,
         projected_usage: 76723,
         projected_amount_usd: null,
+        projected_amount_usd_with_limit: null,
         unit: 'row',
         addons: [],
         contact_support: false,

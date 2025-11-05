@@ -1,3 +1,7 @@
+// sort-imports-ignore
+
+// KLUDGE: Do NOT remove the `sort-imports-ignore` comment. It's used to sort the imports.
+// Our KNOWN_NODES resolution will NOT work if the imports here are sorted in a different way.
 import {
     Node,
     NodeViewWrapper,
@@ -15,17 +19,10 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { BindLogic, BuiltLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { useInView } from 'react-intersection-observer'
-import { NotebookNodeResource } from '~/types'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
-import { posthogNodePasteRule, useSyncedAttributes } from './utils'
-import {
-    KNOWN_NODES,
-    NotebookNodeProps,
-    CustomNotebookNodeAttributes,
-    CreatePostHogWidgetNodeOptions,
-    NodeWrapperProps,
-} from '../Notebook/utils'
+import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
+import { KNOWN_NODES } from '../utils'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
@@ -33,7 +30,14 @@ import { SlashCommandsPopover } from '../Notebook/SlashCommands'
 import posthog from 'posthog-js'
 import { NotebookNodeContext } from './NotebookNodeContext'
 import { IconCollapse, IconCopy, IconEllipsis, IconExpand, IconFilter, IconGear, IconPlus, IconX } from '@posthog/icons'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import {
+    CreatePostHogWidgetNodeOptions,
+    CustomNotebookNodeAttributes,
+    NodeWrapperProps,
+    NotebookNodeProps,
+    NotebookNodeResource,
+} from '../types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperProps<T>): JSX.Element {
     const {
@@ -59,7 +63,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const { isEditable, editingNodeId, containerSize } = useValues(mountedNotebookLogic)
     const { unregisterNodeLogic, insertComment, selectComment } = useActions(notebookLogic)
     const [slashCommandsPopoverVisible, setSlashCommandsPopoverVisible] = useState<boolean>(false)
-    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
 
     const logicProps: NotebookNodeLogicProps = {
         ...props,
@@ -83,17 +86,18 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
 
     const setRefs = useCallback(
-        (node) => {
+        (node: HTMLDivElement | null) => {
             setRef(node)
             inViewRef(node)
         },
+        // oxlint-disable-next-line exhaustive-deps
         [inViewRef]
     )
 
-    useEffect(() => {
-        // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
+    // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
+    useOnMountEffect(() => {
         return () => unregisterNodeLogic(nodeId)
-    }, [])
+    })
 
     useWhyDidIRender('NodeWrapper.logicProps', {
         resizeable,
@@ -167,7 +171,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
               }
             : null,
         isEditable ? { label: 'Edit title', onClick: () => toggleEditingTitle(true) } : null,
-        isEditable && hasDiscussions
+        isEditable
             ? sourceComment
                 ? { label: 'Show comment', onClick: () => selectComment(nodeId) }
                 : { label: 'Comment', onClick: () => insertComment({ type: 'node', id: nodeId }) }
@@ -240,7 +244,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                                                             <IconFilter />
                                                                         )
                                                                     ) : (
-                                                                        settingsIcon ?? <IconFilter />
+                                                                        (settingsIcon ?? <IconFilter />)
                                                                     )
                                                                 }
                                                                 active={editingNodeId === nodeId}
@@ -300,7 +304,7 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
                                 <>
                                     <SlashCommandsPopover
                                         mode="add"
-                                        getPos={() => getPos() + 1}
+                                        getPos={() => (getPos() ?? 0) + 1}
                                         visible={slashCommandsPopoverVisible}
                                         onClose={() => setSlashCommandsPopoverVisible(false)}
                                     >
@@ -343,7 +347,7 @@ export const MemoizedNodeWrapper = memo(NodeWrapper) as typeof NodeWrapper
 export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
     options: CreatePostHogWidgetNodeOptions<T>
 ): Node {
-    const { Component, pasteOptions, attributes, serializedText, ...wrapperProps } = options
+    const { Component, pasteOptions, inputOptions, attributes, serializedText, ...wrapperProps } = options
 
     KNOWN_NODES[wrapperProps.nodeType] = options
 
@@ -365,6 +369,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
             if (props.node.attrs.nodeId === null) {
                 posthog.capture('notebook node added', { node_type: props.node.type.name })
             }
+            // oxlint-disable-next-line exhaustive-deps
         }, [props.node.attrs.nodeId])
 
         const nodeProps: NotebookNodeProps<T> & Omit<NodeViewProps, 'attributes' | 'updateAttributes'> = {
@@ -396,6 +401,21 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         },
 
         addAttributes() {
+            const nodeAttributes = Object.fromEntries(
+                Object.entries(attributes as Record<string, any>).map(([name, config]) => {
+                    return [
+                        name,
+                        {
+                            ...config,
+                            parseHTML: (element: HTMLElement) => {
+                                const attribute = element.getAttribute(name)
+                                return attribute ? JSON.parse(atob(attribute)) : null
+                            },
+                        },
+                    ]
+                })
+            )
+
             return {
                 height: {},
                 title: {},
@@ -404,7 +424,7 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                 },
                 __init: { default: null },
                 children: {},
-                ...attributes,
+                ...nodeAttributes,
             }
         },
 
@@ -444,6 +464,18 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
                           editor: this.editor,
                           type: this.type,
                           ...pasteOptions,
+                      }),
+                  ]
+                : []
+        },
+
+        addInputRules() {
+            return inputOptions
+                ? [
+                      posthogNodeInputRule({
+                          editor: this.editor,
+                          type: this.type,
+                          ...inputOptions,
                       }),
                   ]
                 : []

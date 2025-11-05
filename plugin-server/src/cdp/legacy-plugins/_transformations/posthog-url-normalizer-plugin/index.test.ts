@@ -109,7 +109,7 @@ describe('processEvent', () => {
     it('should raise an error if the $current_url is an invalid url', () => {
         const sourceEvent = buildPageViewEvent('invalid url')
 
-        expect(() => processEvent(sourceEvent, meta)).toThrowError(`Unable to normalize invalid URL: "invalid url"`)
+        expect(() => processEvent(sourceEvent, meta)).toThrow(`Unable to normalize invalid URL: "invalid url"`)
     })
 
     it('should log the normalized_url for debugging', () => {

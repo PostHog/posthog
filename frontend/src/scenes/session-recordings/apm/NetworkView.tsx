@@ -1,9 +1,11 @@
 import './NetworkView.scss'
 
-import { LemonTable, Link } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
+
+import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
+import { LemonTable, Link } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'

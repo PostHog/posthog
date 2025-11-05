@@ -1,8 +1,10 @@
-import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect, useState } from 'react'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -40,7 +42,7 @@ export function CreateEnvironmentModal({
     // Anytime the team changes close the modal as it indicates we have created a new team
     useEffect(() => {
         closeModal()
-    }, [currentProject])
+    }, [currentProject]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <LemonModal
@@ -51,10 +53,7 @@ export function CreateEnvironmentModal({
                     Use environments to keep your data completely separate, while sharing the setup (such as dashboards
                     or taxonomy). A common pattern is having separate production, staging, and development environments.
                     <br />
-                    <Link
-                        to="https://posthog.com/docs/settings/projects-and-environments#what-are-environments"
-                        target="_blank"
-                    >
+                    <Link to="https://posthog.com/docs/settings/projects" target="_blank" disableDocsPanel>
                         Learn more in PostHog docs.
                     </Link>
                 </p>

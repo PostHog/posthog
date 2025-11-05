@@ -1,16 +1,11 @@
 import { Link } from 'lib/lemon-ui/Link'
 
+import { CoreFilterDefinition } from '~/types'
+
 type RawCoreFilterDefinition = {
     label: string
     description?: string
-    examples?: (string | number)[]
-    system?: boolean
-}
-
-type CoreFilterDefinition = {
-    label: string
-    description?: string | React.ReactNode
-    examples?: (string | number)[]
+    examples?: (string | number | boolean)[]
     system?: boolean
 }
 

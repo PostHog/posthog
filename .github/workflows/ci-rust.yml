@@ -1,5 +1,4 @@
 name: Rust CI
-
 on:
     workflow_dispatch:
     push:
@@ -23,7 +22,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
               with:
@@ -31,13 +30,13 @@ jobs:
                       rust:
                         # Avoid running rust tests for irrelevant changes
                         - 'rust/**'
+                        - '.github/workflows/ci-rust.yml'
                         - '.github/workflows/rust.yml'
                         - '.github/workflows/rust-docker-build.yml'
-                        - '.github/workflows/rust-hook-migrator-docker.yml'
-                        - '.github/workflows/rust-cyclotron-migrator-docker.yml'
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
+                        - 'docker-compose.dev.yml'
 
     build:
         name: Build Rust services
@@ -52,7 +51,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.rust == 'true'
               with:
                   sparse-checkout: 'rust/'
@@ -60,11 +59,11 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@2d6ac6e12ff6f69821a786a25ca0db906b4e4ba2 # 1.82
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@2e7f9ec7921547d4b46598398ca573513895d0bd # v0.0.4
+              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -81,42 +80,71 @@ jobs:
         strategy:
             matrix:
                 package:
+                    - batch-import-worker
+                    - capture
+                    - common-alloc
+                    - common-cookieless
+                    - common-compression
+                    - common-database
+                    - common-dns
+                    - common-geoip
+                    - common-hypercache
+                    - common-metrics
+                    - common-kafka
+                    - common-profiler
+                    - common-s3
+                    - cyclotron-core
+                    - cyclotron-node
+                    - cyclotron-janitor
+                    - cymbal
+                    - embedding-worker
                     - feature-flags
-                    - others
+                    - health
+                    - hogvm
+                    - hook-api
+                    - hook-common
+                    - hook-janitor
+                    - hook-worker
+                    - kafka-deduplicator
+                    - limiters
+                    - log-capture
+                    - posthog-symbol-data
+                    - property-defs-rs
+                    - serve-metrics
         needs: changes
         runs-on: depot-ubuntu-24.04-4
-        timeout-minutes: 10
+        timeout-minutes: 20
 
         defaults:
             run:
                 working-directory: rust
 
         steps:
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.rust == 'true'
 
-            - name: Setup main repo dependencies for flags
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+            - name: Setup main repo and dependencies
+              if: needs.changes.outputs.rust == 'true'
               run: |
                   docker compose -f ../docker-compose.dev.yml down
                   docker compose -f ../docker-compose.dev.yml up -d
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
-            - name: Setup dependencies
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'others'
+            - name: Dump Kafka logs on failure
+              if: failure()
               run: |
-                  docker compose up kafka redis db echo_server objectstorage -d --wait
-                  docker compose up setup_test_db
-                  echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+                  docker ps -a || true
+                  docker logs --tail=500 rust-kafka-1 || true
+                  docker inspect rust-kafka-1 || true
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@2d6ac6e12ff6f69821a786a25ca0db906b4e4ba2 # 1.82
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@2e7f9ec7921547d4b46598398ca573513895d0bd # v0.0.4
+              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -125,38 +153,50 @@ jobs:
                   sccache --start-server
 
             - name: Set up Python
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
-              uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+              if: needs.changes.outputs.rust == 'true'
+              uses: actions/setup-python@v5
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
-              uses: astral-sh/setup-uv@0c5e2b8115b80b4c7c5ddf6ffdd634974642d182 # v5.4.1
+              id: setup-uv
+              if: needs.changes.outputs.rust == 'true'
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  pyproject-file: 'pyproject.toml'
+                  version: 0.8.19
 
             - name: Install SAML (python3-saml) dependencies
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true' && steps.setup-uv.outputs.cache-hit != 'true'
               run: |
                   sudo apt-get update
-                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl postgresql-client
 
             - name: Install python dependencies
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true'
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
 
+            - name: Install sqlx-cli
+              if: needs.changes.outputs.rust == 'true'
+              run: |
+                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
             - name: Set up databases
-              if: needs.changes.outputs.rust == 'true' && matrix.package == 'feature-flags'
+              if: needs.changes.outputs.rust == 'true'
               env:
                   DEBUG: 'true'
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: cd ../ && python manage.py setup_test_environment --only-postgres
+              run: cd ../ && python manage.py setup_test_environment
+
+            - name: Run sqlx migrations
+              if: needs.changes.outputs.rust == 'true'
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+              run: |
+                  sqlx migrate run --source persons_migrations/
 
             - name: Download MaxMind Database
               if: needs.changes.outputs.rust == 'true'
@@ -165,9 +205,14 @@ jobs:
 
             - name: Run cargo test
               if: needs.changes.outputs.rust == 'true'
+              env:
+                  RUST_BACKTRACE: 1
+                  # Set up dual database environment for feature-flags service
+                  PERSONS_READ_DATABASE_URL: ${{ matrix.package == 'feature-flags' && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
+                  PERSONS_WRITE_DATABASE_URL: ${{ matrix.package == 'feature-flags' && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
               run: |
                   echo "Starting cargo test"
-                  RUST_BACKTRACE=1 cargo test --all-features ${{ matrix.package == 'feature-flags' && '--package feature-flags' || '--workspace --exclude feature-flags' }}
+                  cargo test -p ${{matrix.package}}
                   echo "Cargo test completed"
 
     linting:
@@ -183,7 +228,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.rust == 'true'
               with:
                   sparse-checkout: 'rust/'
@@ -191,13 +236,13 @@ jobs:
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
-              uses: dtolnay/rust-toolchain@2d6ac6e12ff6f69821a786a25ca0db906b4e4ba2 # 1.82
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
               with:
                   components: clippy,rustfmt
 
             - name: Install sccache
               if: needs.changes.outputs.rust == 'true'
-              uses: mozilla-actions/sccache-action@2e7f9ec7921547d4b46598398ca573513895d0bd # v0.0.4
+              uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # v0.0.9
 
             - name: Configure sccache
               if: needs.changes.outputs.rust == 'true'
@@ -230,7 +275,7 @@ jobs:
             # Checkout project code
             # Use sparse checkout to only select files in rust directory
             # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
               if: needs.changes.outputs.rust == 'true'
               with:
                   sparse-checkout: 'rust/'
@@ -238,11 +283,11 @@ jobs:
 
             - name: Install cargo-binstall
               if: needs.changes.outputs.rust == 'true'
-              uses: cargo-bins/cargo-binstall@89e50159140fdba08fc64e36186a014c5c253d33 # main
+              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
 
             - name: Install cargo-shear
               if: needs.changes.outputs.rust == 'true'
-              run: cargo binstall --no-confirm cargo-shear
+              run: cargo binstall --no-confirm cargo-shear@1.1.12
 
             - run: cargo shear
               if: needs.changes.outputs.rust == 'true'

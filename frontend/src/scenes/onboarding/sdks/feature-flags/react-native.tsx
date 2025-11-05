@@ -7,7 +7,7 @@ import { FlagImplementationSnippet } from './flagImplementationSnippet'
 export function FeatureFlagsRNInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallRNInstructions />
+            <SDKInstallRNInstructions hideWizard />
             <FlagImplementationSnippet sdkKey={SDKKey.REACT_NATIVE} />
             <AdvertiseMobileReplay context="flags-onboarding" sdkKey={SDKKey.REACT_NATIVE} />
         </>

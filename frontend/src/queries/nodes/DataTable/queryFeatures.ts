@@ -4,7 +4,9 @@ import {
     isEventsQuery,
     isGroupsQuery,
     isHogQLQuery,
+    isMarketingAnalyticsTableQuery,
     isPersonsNode,
+    isRevenueAnalyticsTopCustomersQuery,
     isRevenueExampleDataWarehouseTablesQuery,
     isRevenueExampleEventsQuery,
     isSessionAttributionExplorerQuery,
@@ -23,6 +25,7 @@ export enum QueryFeature {
     eventPropertyFilters,
     personPropertyFilters,
     groupPropertyFilters,
+    linkDataButton,
     personsSearch,
     groupsSearch,
     savedEventsQueries,
@@ -84,17 +87,27 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.columnConfigurator)
+        features.add(QueryFeature.linkDataButton)
     }
 
     if (
         isWebOverviewQuery(query) ||
         isWebExternalClicksQuery(query) ||
         isWebStatsTableQuery(query) ||
-        isWebGoalsQuery(query)
+        isWebGoalsQuery(query) ||
+        isRevenueAnalyticsTopCustomersQuery(query)
     ) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.hideLoadNextButton)
+        features.add(QueryFeature.displayResponseError)
+    }
+
+    if (isMarketingAnalyticsTableQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.selectAndOrderByColumns)
     }
 
     if (isTracesQuery(query)) {

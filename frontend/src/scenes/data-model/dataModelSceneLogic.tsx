@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
@@ -76,7 +77,7 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
                     table: field.name,
                 })) || [],
         ],
-        allNodes: [(s) => [s.nodeMap], (nodeMap) => [...Object.values(nodeMap)]],
+        allNodes: [(s) => [s.nodeMap], (nodeMap) => Object.values(nodeMap)],
     }),
     subscriptions(({ actions, values }) => ({
         joinedFields: (joinedFields) => {

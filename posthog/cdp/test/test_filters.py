@@ -1,11 +1,16 @@
 import json
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+
 from inline_snapshot import snapshot
 
-from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
-from posthog.cdp.filters import hog_function_filters_to_expr, compile_filters_bytecode
 from posthog.hogql.compiler.bytecode import create_bytecode
+
+from posthog.cdp.filters import compile_filters_bytecode, hog_function_filters_to_expr
 from posthog.models.action.action import Action
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
+
+from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
 class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -64,10 +69,12 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         return json.loads(json.dumps(create_bytecode(res).bytecode))
 
     def test_filters_empty(self):
-        assert self.filters_to_bytecode(filters={}) == snapshot(["_H", HOGQL_BYTECODE_VERSION, 29])
+        bytecode = self.filters_to_bytecode(filters={})
+        assert bytecode == snapshot(["_H", HOGQL_BYTECODE_VERSION, 29])
+        assert execute_bytecode(bytecode, {}).result is True
 
     def test_filters_all_events(self):
-        assert self.filters_to_bytecode(
+        bytecode = self.filters_to_bytecode(
             filters={
                 "events": [
                     {
@@ -78,7 +85,10 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                     }
                 ]
             }
-        ) == snapshot(["_H", HOGQL_BYTECODE_VERSION, 29, 3, 0, 4, 2])
+        )
+        assert bytecode == snapshot(["_H", HOGQL_BYTECODE_VERSION, 29])
+
+        assert execute_bytecode(bytecode, {}).result is True
 
     def test_filters_raises_on_select(self):
         response = compile_filters_bytecode(
@@ -121,8 +131,6 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 18,
                 3,
                 2,
-                4,
-                1,
             ]
         )
 
@@ -150,10 +158,6 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 17,
                 3,
                 2,
-                3,
-                1,
-                4,
-                1,
             ]
         )
 
@@ -262,46 +266,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 1,
                 18,
                 3,
-                5,
-                32,
-                "%@posthog.com%",
-                32,
-                "email",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
                 2,
-                "toString",
-                1,
-                20,
-                32,
-                "%@posthog.com%",
-                32,
-                "email",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
-                2,
-                "toString",
-                1,
-                18,
-                32,
-                "ben",
-                32,
-                "name",
-                32,
-                "properties",
-                32,
-                "person",
-                1,
-                3,
-                11,
                 32,
                 "$pageview",
                 32,
@@ -320,9 +285,120 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 17,
                 3,
                 2,
+                4,
+                2,
                 3,
                 4,
-                4,
+            ]
+        )
+
+
+class TestCohortExprHelpers(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    def test_build_behavioral_event_expr_supported_with_event_filters(self):
+        from posthog.cdp.filters import build_behavioral_event_expr
+
+        behavioral = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "value": "performed_event",
+            "event_type": "events",
+            "event_filters": [{"type": "event", "key": "$browser", "operator": "is_set", "value": "is_set"}],
+        }
+        expr = build_behavioral_event_expr(behavioral, self.team)
+        assert expr is not None
+        bytecode = create_bytecode(expr).bytecode
+        assert bytecode == snapshot(
+            [
+                "_H",
+                HOGQL_BYTECODE_VERSION,
+                32,
+                "$pageview",
+                32,
+                "event",
+                1,
+                1,
+                11,
+                31,
+                32,
+                "$browser",
+                32,
+                "properties",
+                1,
+                2,
+                12,
+                3,
+                2,
+            ]
+        )
+
+    def test_build_behavioral_event_expr_unsupported_returns_none(self):
+        from posthog.cdp.filters import build_behavioral_event_expr
+
+        behavioral = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "value": "performed_event_regularly",
+            "event_type": "events",
+        }
+        expr = build_behavioral_event_expr(behavioral, self.team)
+        # Unsupported behavioral filters return None
+        assert expr is None
+
+    def test_cohort_filters_to_expr_and_bytecode(self):
+        from posthog.cdp.filters import cohort_filters_to_expr
+
+        filters = {
+            "properties": {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "behavioral",
+                        "key": "$pageview",
+                        "value": "performed_event_multiple",
+                        "event_type": "events",
+                        "event_filters": [
+                            {"type": "event", "key": "$browser", "operator": "is_set", "value": "is_set"}
+                        ],
+                    },
+                    {"type": "person", "key": "email", "operator": "exact", "value": "test@example.com"},
+                ],
+            }
+        }
+        expr = cohort_filters_to_expr(filters, self.team)
+        bytecode = create_bytecode(expr).bytecode
+        assert bytecode == snapshot(
+            [
+                "_H",
+                HOGQL_BYTECODE_VERSION,
+                32,
+                "$pageview",
+                32,
+                "event",
+                1,
+                1,
+                11,
+                31,
+                32,
+                "$browser",
+                32,
+                "properties",
+                1,
+                2,
+                12,
+                3,
+                2,
+                32,
+                "test@example.com",
+                32,
+                "email",
+                32,
+                "properties",
+                32,
+                "person",
+                1,
+                3,
+                11,
+                3,
                 2,
             ]
         )

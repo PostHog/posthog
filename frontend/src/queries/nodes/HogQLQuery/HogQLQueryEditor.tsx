@@ -1,18 +1,21 @@
 import { Monaco } from '@monaco-editor/react'
-import { IconMagicWand } from '@posthog/icons'
-import { LemonInput, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import type { IDisposable, editor as importedEditor } from 'monaco-editor'
+import { useEffect, useRef, useState } from 'react'
+
+import { IconMagicWand } from '@posthog/icons'
+import { LemonInput, Link } from '@posthog/lemon-ui'
+
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import { codeEditorLogic, CodeEditorLogicProps } from 'lib/monaco/codeEditorLogic'
-import type { editor as importedEditor, IDisposable } from 'monaco-editor'
-import { useEffect, useRef, useState } from 'react'
-import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
+import { CodeEditorLogicProps, codeEditorLogic } from 'lib/monaco/codeEditorLogic'
+import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { urls } from 'scenes/urls'
 
 import { HogQLQuery } from '~/queries/schema/schema-general'
@@ -75,18 +78,18 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const { hasErrors, error } = useValues(codeEditorLogic(codeEditorLogicProps))
 
     const { editingView } = useValues(
-        dataWarehouseSceneLogic({
+        dataWarehouseSettingsSceneLogic({
             monaco,
             editor,
         })
     )
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
-    }, [])
+    })
 
     return (
         <div className="flex items-start gap-2">
@@ -120,8 +123,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 !aiAvailable
                                     ? 'Environment variable OPENAI_API_KEY is unset for this instance of PostHog'
                                     : !prompt
-                                    ? 'Provide a prompt first'
-                                    : null
+                                      ? 'Provide a prompt first'
+                                      : null
                             }
                             tooltipPlacement="left"
                             loading={promptLoading}
@@ -183,8 +186,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                         !props.setQuery
                                             ? 'No permission to update'
                                             : hasErrors
-                                            ? error ?? 'Query has errors'
-                                            : undefined
+                                              ? (error ?? 'Query has errors')
+                                              : undefined
                                     }
                                     center
                                     fullWidth
@@ -199,7 +202,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     onClick={onUpdateView}
                                     type="primary"
                                     center
-                                    disabledReason={hasErrors ? error ?? 'Query has errors' : ''}
+                                    disabledReason={hasErrors ? (error ?? 'Query has errors') : ''}
                                     data-attr="hogql-query-editor-update-view"
                                 >
                                     Update view
@@ -210,7 +213,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                     onClick={saveAsView}
                                     type="primary"
                                     center
-                                    disabledReason={hasErrors ? error ?? 'Query has errors' : ''}
+                                    disabledReason={hasErrors ? (error ?? 'Query has errors') : ''}
                                     data-attr="hogql-query-editor-save-as-view"
                                     tooltip={
                                         <div>

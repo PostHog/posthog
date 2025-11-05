@@ -1,14 +1,15 @@
 import secrets
 from typing import Optional
 
-import dns.resolver
-import structlog
 from django.db import models
 from django.utils import timezone
 
+import structlog
+import dns.resolver
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
 logger = structlog.get_logger(__name__)
@@ -61,19 +62,22 @@ class OrganizationDomainManager(models.Manager):
                 return True
         return False
 
-    def get_sso_enforcement_for_email_address(self, email: str) -> Optional[str]:
+    def get_sso_enforcement_for_email_address(
+        self, email: str, organization: Organization | None = None
+    ) -> Optional[str]:
         """
         Returns the specific `sso_enforcement` applicable for an email address or an `OrganizationDomain` objects.
         Validates SSO providers are properly configured and all the proper licenses exist.
         """
         domain = email[email.index("@") + 1 :]
-        query = (
-            self.verified_domains()
-            .filter(domain__iexact=domain)
-            .exclude(sso_enforcement="")
-            .values("sso_enforcement", "organization_id", "organization__available_product_features")
-            .first()
-        )
+        queryset = self.verified_domains().filter(domain__iexact=domain).exclude(sso_enforcement="")
+
+        if organization is not None:
+            queryset = queryset.filter(organization=organization)
+
+        query = queryset.values(
+            "sso_enforcement", "organization_id", "organization__available_product_features"
+        ).first()
 
         if not query:
             return None
@@ -114,7 +118,7 @@ class OrganizationDomainManager(models.Manager):
         return candidate_sso_enforcement
 
 
-class OrganizationDomain(UUIDModel):
+class OrganizationDomain(UUIDTModel):
     objects: OrganizationDomainManager = OrganizationDomainManager()
 
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="domains")
@@ -138,6 +142,12 @@ class OrganizationDomain(UUIDModel):
     saml_acs_url = models.CharField(max_length=512, blank=True, null=True)
     saml_x509_cert = models.TextField(blank=True, null=True)
 
+    # ---- SCIM attributes ----
+    scim_enabled = models.BooleanField(default=False)
+    scim_bearer_token = models.CharField(
+        max_length=255, blank=True, null=True, help_text="Hashed bearer token for SCIM authentication"
+    )
+
     class Meta:
         verbose_name = "domain"
 
@@ -155,6 +165,13 @@ class OrganizationDomain(UUIDModel):
         Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places).
         """
         return bool(self.saml_entity_id) and bool(self.saml_acs_url) and bool(self.saml_x509_cert)
+
+    @property
+    def has_scim(self) -> bool:
+        """
+        Returns whether SCIM is configured and enabled for this domain.
+        """
+        return self.scim_enabled and bool(self.scim_bearer_token)
 
     def _complete_verification(self) -> tuple["OrganizationDomain", bool]:
         self.last_verification_retry = None

@@ -1,0 +1,46 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`queries errorTrackingQuery usage in web analytics should return a query with the correct properties 1`] = `
+{
+  "columns": [
+    "error",
+    "users",
+    "occurrences",
+  ],
+  "kind": "DataTableNode",
+  "showActions": false,
+  "showTimings": false,
+  "source": {
+    "assignee": undefined,
+    "dateRange": {
+      "date_from": "-7d",
+      "date_to": null,
+    },
+    "filterGroup": {
+      "type": "AND",
+      "values": [
+        {
+          "type": "AND",
+          "values": [],
+        },
+      ],
+    },
+    "filterTestAccounts": true,
+    "groupKey": undefined,
+    "groupTypeIndex": undefined,
+    "kind": "ErrorTrackingQuery",
+    "limit": 4,
+    "orderBy": "users",
+    "orderDirection": undefined,
+    "personId": undefined,
+    "searchQuery": undefined,
+    "status": undefined,
+    "tags": {
+      "productKey": "error_tracking",
+    },
+    "volumeResolution": 20,
+    "withAggregations": true,
+    "withFirstEvent": false,
+  },
+}
+`;

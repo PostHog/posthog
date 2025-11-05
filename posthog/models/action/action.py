@@ -1,19 +1,20 @@
 from dataclasses import asdict, dataclass
-from typing import Literal, Optional, Union, get_args, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, Optional, Union, get_args
 
 from django.db import models
+from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
 from posthog.hogql.errors import BaseHogQLError
+
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamMixin
 from posthog.plugins.plugin_server_api import drop_action_on_workers, reload_action_on_workers
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-
-from django.db.models import QuerySet
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -37,7 +38,7 @@ class ActionStepJSON:
     properties: Optional[list[dict]] = None
 
 
-class Action(FileSystemSyncMixin, RootTeamMixin, models.Model):
+class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -85,7 +86,7 @@ class Action(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Actions",
+            base_folder=self._get_assigned_folder("Unfiled/Actions"),
             type="action",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",
@@ -137,7 +138,7 @@ class Action(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 self.bytecode_error = None
         except BaseHogQLError as e:
             # There are several known cases when bytecode generation can fail. Instead of spamming
-            # Sentry with errors, ignore those cases for now.
+            # with errors, ignore those cases for now.
             if self.bytecode is not None or self.bytecode_error != str(e):
                 self.bytecode = None
                 self.bytecode_error = str(e)

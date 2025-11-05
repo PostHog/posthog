@@ -1,12 +1,7 @@
 import json
+import math
 from enum import StrEnum
-from typing import (
-    Any,
-    Literal,
-    Optional,
-    Union,
-    cast,
-)
+from typing import Any, Literal, Optional, Union, cast
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
@@ -33,6 +28,7 @@ PropertyType = Literal[
     "cohort",
     "element",
     "static-cohort",
+    "dynamic-cohort",
     "precalculated-cohort",
     "group",
     "recording",
@@ -42,6 +38,10 @@ PropertyType = Literal[
     "hogql",
     "data_warehouse",
     "data_warehouse_person_property",
+    "error_tracking_issue",
+    "log",
+    "revenue_analytics",
+    "flag",
 ]
 
 PropertyName = str
@@ -79,6 +79,7 @@ PropertyIdentifier = tuple[PropertyName, PropertyType, Optional[GroupTypeIndex]]
 NEGATED_OPERATORS = ["is_not", "not_icontains", "not_regex", "is_not_set"]
 CLICKHOUSE_ONLY_PROPERTY_TYPES = [
     "static-cohort",
+    "dynamic-cohort",
     "precalculated-cohort",
     "behavioral",
     "recording",
@@ -90,13 +91,18 @@ VALIDATE_PROP_TYPES = {
     "person": ["key", "value"],
     "data_warehouse": ["key", "value"],
     "data_warehouse_person_property": ["key", "value"],
+    "error_tracking_issue": ["key", "value"],
     "cohort": ["key", "value"],
     "element": ["key", "value"],
     "static-cohort": ["key", "value"],
+    "dynamic-cohort": ["key", "value"],
     "precalculated-cohort": ["key", "value"],
     "group": ["key", "value", "group_type_index"],
     "recording": ["key", "value"],
     "log_entry": ["key", "value"],
+    "log": ["key", "value"],
+    "flag": ["key", "value"],
+    "revenue_analytics": ["key", "value"],
     "behavioral": ["key", "value"],
     "session": ["key", "value"],
     "hogql": ["key"],
@@ -112,7 +118,6 @@ VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {
         {"explicit_datetime"},
     ],
 }
-
 
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
     BehavioralPropertyType.PERFORMED_EVENT: [
@@ -301,7 +306,7 @@ class Property:
         return {key: value for key, value in vars(self).items() if value is not None}
 
     @staticmethod
-    def _parse_value(value: ValueT, convert_to_number: bool = False) -> Any:
+    def _parse_value(value: Any, convert_to_number: bool = False) -> Any:
         if isinstance(value, list):
             return [Property._parse_value(v, convert_to_number) for v in value]
         if value == "true" or value == "True":
@@ -317,13 +322,21 @@ class Property:
         if not convert_to_number:
             try:
                 # tests if string is a number & returns string if it is a number
-                float(value)
-                return value
+                float_val = float(value)
+                # Don't convert scientific notation that becomes infinity
+                if math.isinf(float_val):
+                    pass  # Continue to try JSON parsing
+                else:
+                    return value
             except (ValueError, TypeError):
                 pass
 
         try:
-            return json.loads(value)
+            parsed = json.loads(value)
+            # Don't allow infinity values from json parsing either
+            if isinstance(parsed, int | float) and math.isinf(parsed):
+                return value
+            return parsed
         except (json.JSONDecodeError, TypeError):
             return value
 

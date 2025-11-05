@@ -1,23 +1,20 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import timedelta
 from enum import StrEnum
-from typing import Any, Optional, cast, TYPE_CHECKING, Literal
-from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
-from common.hogvm.python.execute import execute_bytecode, BytecodeResult
-from common.hogvm.python.stl import STL
-from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_program
 from posthog.hogql.visitor import Visitor
-from common.hogvm.python.operation import (
-    Operation,
-    HOGQL_BYTECODE_IDENTIFIER,
-    HOGQL_BYTECODE_VERSION,
-)
+
+from common.hogvm.python.execute import BytecodeResult, execute_bytecode
+from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_VERSION, Operation
+from common.hogvm.python.stl import STL
+from common.hogvm.python.stl.bytecode import BYTECODE_STL
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -93,13 +90,16 @@ def create_bytecode(
     enclosing: Optional["BytecodeCompiler"] = None,
     in_repl: Optional[bool] = False,
     locals: Optional[list[Local]] = None,
+    cohort_membership_supported: Optional[bool] = False,
 ) -> CompiledBytecode:
     supported_functions = supported_functions or set()
     bytecode: list[Any] = []
     if args is None:
         bytecode.append(HOGQL_BYTECODE_IDENTIFIER)
         bytecode.append(HOGQL_BYTECODE_VERSION)
-    compiler = BytecodeCompiler(supported_functions, args, context, enclosing, in_repl, locals)
+    compiler = BytecodeCompiler(
+        supported_functions, args, context, enclosing, in_repl, locals, cohort_membership_supported
+    )
     bytecode.extend(compiler.visit(expr))
     return CompiledBytecode(bytecode, locals=compiler.locals, upvalues=compiler.upvalues)
 
@@ -115,6 +115,7 @@ class BytecodeCompiler(Visitor):
         enclosing: Optional["BytecodeCompiler"] = None,
         in_repl: Optional[bool] = False,
         locals: Optional[list[Local]] = None,
+        cohort_membership_supported: Optional[bool] = False,
     ):
         super().__init__()
         self.enclosing = enclosing
@@ -125,6 +126,7 @@ class BytecodeCompiler(Visitor):
         self.upvalues: list[UpValue] = []
         self.scope_depth = 0
         self.args = args
+        self.cohort_membership_supported = cohort_membership_supported
         # we're in a function definition
         if args is not None:
             for arg in args:
@@ -160,6 +162,11 @@ class BytecodeCompiler(Visitor):
         self.locals.append(Local(name=name, depth=self.scope_depth, is_captured=False))
         return len(self.locals) - 1
 
+    def _declare_iife_local(self) -> int:
+        # Clear it manually by running self.locals.pop()
+        self.locals.append(Local(name="", depth=self.scope_depth, is_captured=False))
+        return len(self.locals) - 1
+
     def visit(self, node: ast.AST | None):
         # In "hog" mode we compile AST nodes to bytecode.
         # In "ast" mode we pass through as they are.
@@ -190,16 +197,101 @@ class BytecodeCompiler(Visitor):
     def visit_compare_operation(self, node: ast.CompareOperation):
         operation = COMPARE_OPERATIONS[node.op]
         if operation in [Operation.IN_COHORT, Operation.NOT_IN_COHORT]:
-            cohort_name = ""
-            if isinstance(node.right, ast.Constant):
-                if isinstance(node.right.value, int):
-                    cohort_name = f" (cohort id={node.right.value})"
+            if self.cohort_membership_supported:
+                if operation == Operation.IN_COHORT:
+                    return self.visit(ast.Call(name="inCohort", args=[node.right]))
                 else:
-                    cohort_name = f" (cohort: {str(node.right.value)})"
-            raise QueryError(
-                f"Can't use cohorts in real-time filters. Please inline the relevant expressions{cohort_name}."
-            )
+                    return self.visit(ast.Call(name="notInCohort", args=[node.right]))
+            else:
+                cohort_name = ""
+                if isinstance(node.right, ast.Constant):
+                    if isinstance(node.right.value, int):
+                        cohort_name = f" (cohort id={node.right.value})"
+                    else:
+                        cohort_name = f" (cohort: {str(node.right.value)})"
+                raise QueryError(
+                    f"Can't use cohorts in real-time filters. Please inline the relevant expressions{cohort_name}."
+                )
         return [*self.visit(node.right), *self.visit(node.left), operation]
+
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        response: list[Any] = []
+
+        result_expr = self._declare_iife_local()
+        response.extend([Operation.NULL])  # return value
+
+        self._start_scope()
+
+        local_expr = self._declare_local("__expr__")
+        response.extend(self.visit(node.expr))
+
+        local_low = self._declare_local("__low__")
+        response.extend(self.visit(node.low))
+
+        local_high = self._declare_local("__high__")
+        response.extend(self.visit(node.high))
+
+        null_check: list[Any] = [
+            # low != null
+            Operation.GET_LOCAL,
+            local_low,
+            Operation.NULL,
+            Operation.NOT_EQ,
+            # high != null
+            Operation.GET_LOCAL,
+            local_high,
+            Operation.NULL,
+            Operation.NOT_EQ,
+            # expr != null
+            Operation.GET_LOCAL,
+            local_expr,
+            Operation.NULL,
+            Operation.NOT_EQ,
+            # ..and
+            Operation.AND,
+            3,
+        ]
+
+        # negative: expr < low OR expr > high
+        # positive: expr >= low AND expr <= high
+        between_expr: list[Any] = [
+            Operation.GET_LOCAL,
+            local_low,
+            Operation.GET_LOCAL,
+            local_expr,
+            Operation.LT if node.negated else Operation.GT_EQ,
+            Operation.GET_LOCAL,
+            local_high,
+            Operation.GET_LOCAL,
+            local_expr,
+            Operation.GT if node.negated else Operation.LT_EQ,
+            Operation.OR if node.negated else Operation.AND,
+            2,
+        ]
+
+        response.extend(
+            [
+                *null_check,
+                # if any are nulls, jump to where we set NULL as the result
+                Operation.JUMP_IF_FALSE,
+                len(between_expr) + 2,
+                # evaluate the between condition, keep it on the stack
+                *between_expr,
+                # jump over the NULL (and set the `cond` as the result value)
+                Operation.JUMP,
+                1,
+                # if anything was null, we jump here and return FALSE
+                Operation.FALSE,
+                # put the last value on the stack into the result value
+                Operation.SET_LOCAL,
+                result_expr,
+            ]
+        )
+        # clear all local variables (pops them off the stack)
+        response.extend(self._end_scope())
+        # release the result IIFE variable, but keep it on the stack
+        self.locals.pop()
+        return response
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         return [
@@ -849,18 +941,42 @@ class BytecodeCompiler(Visitor):
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
         response = []
-        response.extend(self._visit_hogqlx_value("__hx_tag"))
-        response.extend(self._visit_hogqlx_value(node.kind))
-        for attribute in node.attributes:
-            response.extend(self._visit_hogqlx_value(attribute.name))
-            response.extend(self._visit_hogqlx_value(attribute.value))
-        response.append(Operation.DICT)
-        response.append(len(node.attributes) + 1)
+        tag_name = node.kind
+        tag_is_callable = (
+            any(local for local in self.locals if local.name == node.kind) or self._resolve_upvalue(tag_name) != -1
+        )
+        if tag_is_callable:
+            # first the dict as an attribute
+            for attribute in node.attributes:
+                response.extend(self._visit_hogqlx_value(attribute.name))
+                response.extend(self._visit_hogqlx_value(attribute.value))
+            response.append(Operation.DICT)
+            response.append(len(node.attributes))
+            # then the call itself
+            response.extend(self.visit_field(ast.Field(chain=[tag_name])))
+            response.extend([Operation.CALL_LOCAL, 1])
+        else:
+            # first the __hx_tag marker
+            response.extend(self._visit_hogqlx_value("__hx_tag"))
+            response.extend(self._visit_hogqlx_value(node.kind))
+            # then the rest of the attributes
+            for attribute in node.attributes:
+                response.extend(self._visit_hogqlx_value(attribute.name))
+                response.extend(self._visit_hogqlx_value(attribute.value))
+            response.append(Operation.DICT)
+            response.append(len(node.attributes) + 1)
         return response
 
     def _visit_hog_ast(self, node: ast.AST | None):
         if node is None:
             return [Operation.NULL]
+        if isinstance(node, ast.HogQLXTag):
+            tag_name = node.kind
+            tag_is_callable = (
+                any(local for local in self.locals if local.name == node.kind) or self._resolve_upvalue(tag_name) != -1
+            )
+            if tag_is_callable:
+                return self.visit_hogqlx_tag(node)
         response = []
         # We consider any object with the element "__hx_ast" to be a HogQLX AST node
         response.extend([Operation.STRING, "__hx_ast"])

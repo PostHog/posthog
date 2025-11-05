@@ -1,55 +1,8 @@
 import uuid
 from datetime import datetime
-from typing import cast, Any
-from unittest.mock import Mock, patch
+from typing import Any, cast
 
-from django.test import override_settings
 from freezegun import freeze_time
-from rest_framework.exceptions import ValidationError
-
-from posthog.api.instance_settings import get_instance_setting
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType, FunnelVizType
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.funnels import Funnel
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
-from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
-    assert_funnel_results_equal,
-    funnel_breakdown_group_test_factory,
-    funnel_breakdown_test_factory,
-)
-from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import (
-    funnel_conversion_time_test_factory,
-)
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Action, Element, Team
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.group.util import create_group
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import (
-    ActionsNode,
-    ActorsQuery,
-    BaseMathType,
-    BreakdownFilter,
-    BreakdownType,
-    EventPropertyFilter,
-    EventsNode,
-    FunnelConversionWindowTimeUnit,
-    FunnelsActorsQuery,
-    FunnelsFilter,
-    FunnelsQuery,
-    HogQLQueryModifiers,
-    DateRange,
-    PersonsOnEventsMode,
-    PropertyOperator,
-    FunnelMathType,
-    FunnelExclusionEventsNode,
-    IntervalType,
-)
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -60,8 +13,58 @@ from posthog.test.base import (
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
-from posthog.test.test_journeys import journeys_for
+from unittest.mock import Mock, patch
+
+from django.test import override_settings
+
+from rest_framework.exceptions import ValidationError
+
+from posthog.schema import (
+    ActionsNode,
+    ActorsQuery,
+    BaseMathType,
+    BreakdownFilter,
+    BreakdownType,
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    FunnelConversionWindowTimeUnit,
+    FunnelExclusionEventsNode,
+    FunnelMathType,
+    FunnelsActorsQuery,
+    FunnelsFilter,
+    FunnelsQuery,
+    GroupPropertyFilter,
+    HogQLQueryModifiers,
+    IntervalType,
+    PersonsOnEventsMode,
+    PropertyOperator,
+)
+
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.api.instance_settings import get_instance_setting
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType, FunnelVizType
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.funnels import Funnel
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
+    assert_funnel_results_equal,
+    funnel_breakdown_group_test_factory,
+    funnel_breakdown_test_factory,
+)
+from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.models import Action, Element, Team
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.group.util import create_group
+from posthog.models.property_definition import PropertyDefinition
+from posthog.test.test_journeys import journeys_for
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class PseudoFunnelActors:
@@ -160,6 +163,40 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 event="$autocapture",
                 elements=[Element(nth_of_type=1, nth_child=0, tag_name="a", href="/movie")],
                 **kwargs,
+            )
+
+        def _create_groups(self):
+            create_group_type_mapping_without_created_at(
+                team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            )
+            create_group_type_mapping_without_created_at(
+                team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
+            )
+
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:5",
+                properties={"industry": "finance"},
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key="org:6",
+                properties={"industry": "technology"},
+            )
+
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key="company:1",
+                properties={},
+            )
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=1,
+                group_key="company:2",
+                properties={},
             )
 
         def _basic_funnel(self, properties=None, filters=None):
@@ -1052,6 +1089,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     {"id": "user signed up", "type": "events", "order": 1},
                 ],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_window_days": 14,
                 "funnel_window_interval": 2,
                 "funnel_window_interval_unit": "week",
             }
@@ -3721,10 +3759,10 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
 
         def test_funnel_aggregation_with_groups_with_cohort_filtering(self):
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
             )
-            GroupTypeMapping.objects.create(
+            create_group_type_mapping_without_created_at(
                 team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
             )
 
@@ -4880,6 +4918,169 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(results[0]["count"], 0)
             self.assertEqual(results[1]["name"], "added to cart")
             self.assertEqual(results[1]["count"], 0)
+
+        @snapshot_clickhouse_queries
+        def test_funnel_aggregation_with_groups(self):
+            """Basic test for aggregation by groups."""
+            self._create_groups()
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$group_0": "org:5"},
+                    },
+                    {
+                        "event": "user signed up",  # different group, so should count as a different step 1 in funnel
+                        "timestamp": datetime(2020, 1, 10, 14),
+                        "properties": {"$group_0": "org:6"},
+                    },
+                ],
+                "user_2": [
+                    {  # step two in funnel
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                        "properties": {"$group_0": "org:5"},
+                    }
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(event="user signed up"),
+                    EventsNode(event="paid"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-14",
+                ),
+                aggregation_group_type_index=0,
+            )
+            result = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+            assert result[0]["count"] == 2
+            assert result[1]["count"] == 1
+            assert result[1]["average_conversion_time"] == 86400
+
+        @snapshot_clickhouse_queries
+        def test_funnel_aggregation_with_groups_across_persons(self):
+            """Test that aggregation by groups works across different persons."""
+            self._create_groups()
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$group_0": "org:5"},  # industry finance
+                    },
+                    {
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                        "properties": {
+                            "$group_0": "org:6"  # industry technology
+                        },  # second event belongs to different group, so shouldn't complete funnel
+                    },
+                ],
+                "user_2": [
+                    {
+                        "event": "user signed up",  # event belongs to different group, so shouldn't enter funnel
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$group_0": "org:6"},
+                    },
+                    {
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                        "properties": {"$group_0": "org:5"},  # same group, so should complete funnel
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(event="user signed up"),
+                    EventsNode(event="paid"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-14",
+                ),
+                aggregation_group_type_index=0,
+                properties=[
+                    GroupPropertyFilter(
+                        key="industry",
+                        value="finance",
+                        type="group",
+                        group_type_index=0,
+                        operator=PropertyOperator.EXACT,
+                    )
+                ],
+            )
+            result = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+            assert result[0]["count"] == 1
+            assert result[1]["count"] == 1
+
+        def test_funnel_aggregation_with_groups_and_ungrouped_events(self):
+            """Test that ungrouped events don't get lumped together, and are filtered out instead."""
+            self._create_groups()
+
+            events_by_person = {
+                "user_1": [
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                        "properties": {"$group_0": "org:5"},
+                    },
+                    {
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                        "properties": {"$group_0": "org:5"},
+                    },
+                ],
+                "user_2": [
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                    },
+                ],
+                "user_3": [
+                    {
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                    },
+                ],
+                "user_4": [
+                    {
+                        "event": "user signed up",
+                        "timestamp": datetime(2020, 1, 2, 14),
+                    },
+                    {
+                        "event": "paid",
+                        "timestamp": datetime(2020, 1, 3, 14),
+                    },
+                ],
+            }
+            journeys_for(events_by_person, self.team)
+
+            query = FunnelsQuery(
+                series=[
+                    EventsNode(event="user signed up"),
+                    EventsNode(event="paid"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-01",
+                    date_to="2020-01-14",
+                ),
+                aggregation_group_type_index=0,
+            )
+            result = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+            assert result[0]["count"] == 1
+            assert result[1]["count"] == 1
 
     return TestGetFunnel
 

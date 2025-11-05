@@ -1,93 +1,38 @@
-import { KafkaProducerWrapper, TopicMessage } from '../../../src/kafka/producer'
-import { parseJSON } from '../../../src/utils/json-parse'
+/**
+ * NOTE: This file should only be imported for code that wants to fully mock the kafka producer
+ *
+ * If you just want to observe a real producer class then use `producer.spy.ts`
+ */
+import { KafkaProducerObserver } from './producer.spy'
 
-export type ParsedTopicMessage = {
-    topic: string
-    messages: {
-        key: string | null
-        value: Record<string, any> | null
-    }[]
-}
+import { HighLevelProducer } from 'node-rdkafka'
 
-export type DecodedKafkaMessage = {
-    topic: string
-    key?: any
-    value: Record<string, unknown>
-}
+import { KafkaProducerWrapper } from '../../../src/kafka/producer'
+
+const ActualKafkaProducerWrapper = jest.requireActual('../../../src/kafka/producer').KafkaProducerWrapper
 
 jest.mock('../../../src/kafka/producer', () => {
-    const mockKafkaProducer: jest.Mocked<KafkaProducerWrapper> = {
-        producer: {
-            connect: jest.fn(),
-        } as any,
-        disconnect: jest.fn(),
-        produce: jest.fn().mockReturnValue(Promise.resolve()),
-        queueMessages: jest.fn().mockReturnValue(Promise.resolve()),
-        flush: jest.fn().mockReturnValue(Promise.resolve()),
+    const mockHighLevelProducer: jest.Mocked<HighLevelProducer> = {
+        produce: jest.fn((...args) => args[args.length - 1]?.()),
+        flush: jest.fn((...args) => args[args.length - 1]?.()),
+        disconnect: jest.fn((...args) => args[args.length - 1]?.()),
+        connect: jest.fn((...args) => args[args.length - 1]?.()),
+    } as any
+
+    // Rather than calling create we just create a new instance with the underlying node-rdkafka producer mocked.
+    const kafkaProducer = new ActualKafkaProducerWrapper(mockHighLevelProducer)
+
+    class MockKafkaProducer {
+        static create = jest.fn(() => Promise.resolve(kafkaProducer))
     }
 
-    const MockKafkaProducer = {
-        create: jest.fn(() => Promise.resolve(mockKafkaProducer)),
-    }
     return {
         KafkaProducerWrapper: MockKafkaProducer,
-        _producer: mockKafkaProducer,
+        _producer: kafkaProducer,
     }
 })
 
 export const mockProducer = require('../../../src/kafka/producer')._producer as KafkaProducerWrapper
-
-export const getQueuedMessages = (): TopicMessage[] => {
-    return jest.mocked(mockProducer).queueMessages.mock.calls.reduce((acc, call) => {
-        return acc.concat(Array.isArray(call[0]) ? call[0] : [call[0]])
-    }, [] as TopicMessage[])
-}
-
-export const getProducedMessages = (): TopicMessage[] => {
-    return jest.mocked(mockProducer).produce.mock.calls.reduce((acc, call) => {
-        return acc.concat([
-            {
-                topic: call[0].topic,
-                messages: [
-                    {
-                        key: call[0].key,
-                        value: call[0].value,
-                    },
-                ],
-            },
-        ])
-    }, [] as TopicMessage[])
-}
-
-export const getParsedQueuedMessages = (): ParsedTopicMessage[] => {
-    const allMessages = getProducedMessages().concat(getQueuedMessages())
-    return allMessages.map((topicMessage) => ({
-        topic: topicMessage.topic,
-        messages: topicMessage.messages.map((message) => ({
-            key: typeof message.key === 'string' ? message.key : null,
-            value: message.value ? parseJSON(message.value.toString()) : null,
-        })),
-    }))
-}
-
-export const getProducedKafkaMessages = (): DecodedKafkaMessage[] => {
-    const queuedMessages = getParsedQueuedMessages()
-
-    const result: DecodedKafkaMessage[] = []
-
-    for (const topicMessage of queuedMessages) {
-        for (const message of topicMessage.messages) {
-            result.push({
-                topic: topicMessage.topic,
-                key: message.key,
-                value: message.value ?? {},
-            })
-        }
-    }
-
-    return result
-}
-
-export const getProducedKafkaMessagesForTopic = (topic: string): DecodedKafkaMessage[] => {
-    return getProducedKafkaMessages().filter((x) => x.topic === topic)
-}
+export const MockKafkaProducerWrapper = require('../../../src/kafka/producer')
+    .KafkaProducerWrapper as typeof KafkaProducerWrapper
+export const mockProducerObserver = new KafkaProducerObserver(mockProducer)

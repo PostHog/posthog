@@ -1,30 +1,35 @@
 import './PropertiesTable.scss'
 
-import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useMemo, useState } from 'react'
+
+import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { isObject, isURL } from 'lib/utils'
-import { useMemo, useState } from 'react'
-import { NewProperty } from 'scenes/persons/NewProperty'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { NewProperty } from 'scenes/persons/NewProperty'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
-    CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS,
     KNOWN_PROMOTED_PROPERTY_PARENTS,
     POSTHOG_EVENT_PROMOTED_PROPERTIES,
+    isPostHogProperty,
 } from '~/taxonomy/taxonomy'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType, PropertyType } from '~/types'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
+import { JSONViewer } from '../JSONViewer'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
@@ -224,6 +229,7 @@ export function PropertiesTable({
     const { hidePostHogPropertiesInTable, hideNullValues } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable, setHideNullValues } = useActions(userPreferencesLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const objectProperties = useMemo(() => {
         if (!properties || Array.isArray(properties) || !isObject(properties)) {
@@ -237,11 +243,15 @@ export function PropertiesTable({
                 const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
                     [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
                     [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+                    [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
                     [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
                     [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
                     [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
                     [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
                     [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
+                    [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
+                    [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.LogAttributes,
+                    [PropertyDefinitionType.FlagValue]: TaxonomicFilterGroupType.FeatureFlags,
                 }
 
                 const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
@@ -289,10 +299,7 @@ export function PropertiesTable({
                     return false
                 }
                 if (hidePostHogPropertiesInTable) {
-                    const isPostHogProperty = key.startsWith('$') || PROPERTY_KEYS.includes(key)
-                    const isNonDollarPostHogProperty =
-                        isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(key)
-                    return !isPostHogProperty && !isNonDollarPostHogProperty
+                    return !isPostHogProperty(key, isCloudOrDev)
                 }
                 return true
             })
@@ -306,7 +313,7 @@ export function PropertiesTable({
             })
         }
         return entries
-    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues])
+    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (Array.isArray(properties)) {
         return (
@@ -333,10 +340,32 @@ export function PropertiesTable({
                                 ),
                                 fullWidth: true,
                                 render: function Value(_, item: any): JSX.Element {
+                                    const arrayItem = item[1]
+                                    const isComplexStructure =
+                                        Array.isArray(arrayItem) || (isObject(arrayItem) && arrayItem !== null)
+                                    if (!featureFlags[FEATURE_FLAGS.TOGGLE_PROPERTY_ARRAYS]) {
+                                        return (
+                                            <PropertiesTable
+                                                type={type}
+                                                properties={item[1]}
+                                                nestingLevel={nestingLevel + 1}
+                                                useDetectedPropertyType={
+                                                    ['$set', '$set_once'].some((s) => s === rootKey)
+                                                        ? false
+                                                        : useDetectedPropertyType
+                                                }
+                                            />
+                                        )
+                                    }
+
+                                    if (isComplexStructure) {
+                                        return <JSONViewer src={arrayItem} collapsed={true} />
+                                    }
+
                                     return (
-                                        <PropertiesTable
+                                        <ValueDisplay
                                             type={type}
-                                            properties={item[1]}
+                                            value={arrayItem}
                                             nestingLevel={nestingLevel + 1}
                                             useDetectedPropertyType={
                                                 ['$set', '$set_once'].some((s) => s === rootKey)
@@ -386,6 +415,11 @@ export function PropertiesTable({
                 key: 'value',
                 title: 'Value',
                 render: function Value(_, item: any): JSX.Element {
+                    const isComplexStructure = Array.isArray(item[1]) || (isObject(item[1]) && item[1] !== null)
+
+                    if (isComplexStructure && featureFlags[FEATURE_FLAGS.TOGGLE_PROPERTY_ARRAYS]) {
+                        return <JSONViewer src={item[1]} collapsed={true} />
+                    }
                     return (
                         <PropertiesTable
                             type={type}

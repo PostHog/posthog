@@ -1,10 +1,21 @@
 import { S3Client } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 
+import { SessionBatchMetrics } from './metrics'
 import { S3SessionBatchFileStorage } from './s3-session-batch-writer'
 
 jest.mock('@aws-sdk/lib-storage')
 jest.mock('../../../../utils/logger')
+jest.mock('./metrics', () => ({
+    SessionBatchMetrics: {
+        incrementS3BatchesStarted: jest.fn(),
+        incrementS3BatchesUploaded: jest.fn(),
+        incrementS3UploadErrors: jest.fn(),
+        incrementS3UploadTimeouts: jest.fn(),
+        incrementS3BytesWritten: jest.fn(),
+        observeS3UploadLatency: jest.fn(),
+    },
+}))
 
 jest.setTimeout(1000)
 
@@ -47,7 +58,7 @@ describe('S3SessionBatchFileStorage', () => {
         it('should write session data and return bytes written with URL', async () => {
             const writer = storage.newBatch()
             const testData = Buffer.from('test data')
-            const result = await writer.writeSession(testData)
+            const result = await writer.writeSession({ buffer: testData, teamId: 1, sessionId: '123' })
 
             expect(mockUpload).toHaveBeenCalledTimes(1)
             expect(mockUpload).toHaveBeenCalledWith(
@@ -71,7 +82,7 @@ describe('S3SessionBatchFileStorage', () => {
             const writer = storage.newBatch()
             const testData = Buffer.from('test data\nmore test data\n')
 
-            const result = await writer.writeSession(testData)
+            const result = await writer.writeSession({ buffer: testData, teamId: 1, sessionId: '123' })
             await writer.finish()
 
             expect(mockUpload).toHaveBeenCalledTimes(1)
@@ -99,14 +110,16 @@ describe('S3SessionBatchFileStorage', () => {
             const writer = storage.newBatch()
 
             const testData = Buffer.from('test data')
-            await expect(writer.writeSession(testData)).rejects.toThrow(testError)
+            await expect(writer.writeSession({ buffer: testData, teamId: 1, sessionId: '123' })).rejects.toThrow(
+                testError
+            )
         })
 
         it('should handle writing large amounts of data', async () => {
             const writer = storage.newBatch()
             const chunk = Buffer.alloc(1024 * 1024 * 100, 'x') // 100MB
 
-            const result = await writer.writeSession(chunk)
+            const result = await writer.writeSession({ buffer: chunk, teamId: 1, sessionId: '123' })
             await writer.finish()
 
             expect(mockUpload).toHaveBeenCalledTimes(1)
@@ -122,7 +135,7 @@ describe('S3SessionBatchFileStorage', () => {
             const lines = ['line1\n', 'line2\n', 'line3\n']
 
             for (const line of lines) {
-                await writer.writeSession(Buffer.from(line))
+                await writer.writeSession({ buffer: Buffer.from(line), teamId: 1, sessionId: '123' })
             }
             await writer.finish()
 
@@ -145,6 +158,82 @@ describe('S3SessionBatchFileStorage', () => {
             for (const key of keys) {
                 expect(key).toMatch(/^test-prefix\/\d+-[a-z0-9]+$/)
             }
+        })
+    })
+
+    describe('metrics', () => {
+        it('should increment batches started when creating a new batch', () => {
+            storage.newBatch()
+
+            expect(SessionBatchMetrics.incrementS3BatchesStarted).toHaveBeenCalledTimes(1)
+        })
+
+        it('should increment batches uploaded and observe metrics on successful finish', async () => {
+            const writer = storage.newBatch()
+            const testData = Buffer.from('test data')
+
+            await writer.writeSession({ buffer: testData, teamId: 1, sessionId: '123' })
+            await writer.finish()
+
+            expect(SessionBatchMetrics.incrementS3BatchesUploaded).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.observeS3UploadLatency).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementS3BytesWritten).toHaveBeenCalledWith(testData.length)
+        })
+
+        it('should increment upload errors when stream errors occur', async () => {
+            const testError = new Error('Stream error')
+
+            mockUpload.mockImplementationOnce(({ params: { Body: stream } }) => {
+                stream.write = () => {
+                    process.nextTick(() => {
+                        stream.emit('error', testError)
+                    })
+                    return false
+                }
+
+                return {
+                    done: jest.fn().mockResolvedValue(undefined),
+                }
+            })
+
+            const writer = storage.newBatch()
+            const testData = Buffer.from('test data')
+
+            await expect(writer.writeSession({ buffer: testData, teamId: 1, sessionId: '123' })).rejects.toThrow(
+                testError
+            )
+
+            expect(SessionBatchMetrics.incrementS3UploadErrors).toHaveBeenCalledTimes(1)
+        })
+
+        it('should observe correct latency and bytes written for successful upload', async () => {
+            jest.useFakeTimers()
+
+            const writer = storage.newBatch()
+            const testData = Buffer.from('test data')
+
+            await writer.writeSession({ buffer: testData, teamId: 1, sessionId: '123' })
+
+            // Advance time to simulate some upload duration
+            jest.advanceTimersByTime(100)
+
+            await writer.finish()
+
+            expect(SessionBatchMetrics.observeS3UploadLatency).toHaveBeenCalledTimes(1)
+            expect(SessionBatchMetrics.incrementS3BytesWritten).toHaveBeenCalledWith(testData.length)
+
+            // Verify latency is a positive number (should be 0.1 seconds due to our timer advance)
+            const latencyCall = (SessionBatchMetrics.observeS3UploadLatency as jest.Mock).mock.calls[0][0]
+            expect(latencyCall).toBeGreaterThan(0)
+
+            jest.useRealTimers()
+        })
+
+        it('should track multiple batches correctly', () => {
+            storage.newBatch()
+            storage.newBatch()
+
+            expect(SessionBatchMetrics.incrementS3BatchesStarted).toHaveBeenCalledTimes(2)
         })
     })
 
@@ -171,7 +260,7 @@ describe('S3SessionBatchFileStorage', () => {
 
             const writer = storage.newBatch()
             const testData = Buffer.from('test data')
-            await writer.writeSession(testData)
+            await writer.writeSession({ buffer: testData, teamId: 1, sessionId: '123' })
 
             const finishPromise = writer.finish()
 
@@ -181,10 +270,29 @@ describe('S3SessionBatchFileStorage', () => {
             await expect(finishPromise).rejects.toThrow('S3 upload timed out after 5000ms')
         })
 
+        it('should increment timeout metric when upload times out', async () => {
+            // Mock a slow upload that never resolves
+            mockUpload.mockImplementationOnce(() => ({
+                done: () => new Promise(() => {}),
+            }))
+
+            const writer = storage.newBatch()
+            const testData = Buffer.from('test data')
+            await writer.writeSession({ buffer: testData, teamId: 1, sessionId: '123' })
+
+            const finishPromise = writer.finish()
+
+            // Advance timers past the timeout
+            jest.advanceTimersByTime(6000)
+
+            await expect(finishPromise).rejects.toThrow('S3 upload timed out after 5000ms')
+            expect(SessionBatchMetrics.incrementS3UploadTimeouts).toHaveBeenCalledTimes(1)
+        })
+
         it('should clear timeout on successful upload', async () => {
             const writer = storage.newBatch()
             const testData = Buffer.from('test data')
-            await writer.writeSession(testData)
+            await writer.writeSession({ buffer: testData, teamId: 1, sessionId: '123' })
             await writer.finish()
 
             // Advance timers - should not throw since timeout was cleared
@@ -201,7 +309,7 @@ describe('S3SessionBatchFileStorage', () => {
             storage = new S3SessionBatchFileStorage(mockS3Client, 'test-bucket', 'test-prefix', customTimeout)
             const writer = storage.newBatch()
             const testData = Buffer.from('test data')
-            await writer.writeSession(testData)
+            await writer.writeSession({ buffer: testData, teamId: 1, sessionId: '123' })
 
             const finishPromise = writer.finish()
 

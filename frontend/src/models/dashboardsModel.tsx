@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api, { PaginatedResponse } from 'lib/api'
 import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -10,8 +11,8 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
-import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
@@ -93,9 +94,16 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return { count: 0, next: null, previous: null, results: [] }
                     }
-                    const dashboards: PaginatedResponse<DashboardType> = await api.get(
-                        url || `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000`
-                    )
+
+                    if (!teamLogic.values.currentTeam) {
+                        return { count: 0, next: null, previous: null, results: [] }
+                    }
+
+                    let apiUrl =
+                        url ||
+                        `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
+
+                    const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)
 
                     return {
                         ...dashboards,
@@ -107,8 +115,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
         // We're not using this loader as a reducer per se, but just calling it `dashboard`
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
-            __default: null as null | DashboardType,
-            updateDashboard: async ({ id, allowUndo, ...payload }, breakpoint) => {
+            __default: null as null | DashboardType<QueryBasedInsightModel>,
+            updateDashboard: async ({ id, allowUndo, discardResult, ...payload }, breakpoint) => {
                 if (!Object.entries(payload).length) {
                     return
                 }
@@ -147,21 +155,28 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         },
                     })
                 }
-                return getQueryBasedDashboard(response)
+
+                return discardResult ? values.dashboard : getQueryBasedDashboard(response)
             },
-            deleteDashboard: async ({ id, deleteInsights }) =>
-                getQueryBasedDashboard(
+            deleteDashboard: async ({ id, deleteInsights }) => {
+                const deleted = getQueryBasedDashboard(
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: true,
                         delete_insights: deleteInsights,
                     })
-                ) as DashboardType<QueryBasedInsightModel>,
-            restoreDashboard: async ({ id }) =>
-                getQueryBasedDashboard(
+                ) as DashboardType<QueryBasedInsightModel>
+                deleteFromTree('dashboard', String(id))
+                return deleted
+            },
+            restoreDashboard: async ({ id }) => {
+                const restored = getQueryBasedDashboard(
                     await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: false,
                     })
-                ) as DashboardType<QueryBasedInsightModel>,
+                ) as DashboardType<QueryBasedInsightModel>
+                refreshTreeItem('dashboard', String(id))
+                return restored
+            },
             pinDashboard: async ({ id, source }) => {
                 const response = await api.update(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
@@ -250,7 +265,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         nameSortedDashboards: [
             () => [selectors.rawDashboards],
             (rawDashboards) => {
-                return [...Object.values(rawDashboards)]
+                return Object.values(rawDashboards)
                     .filter((dashboard) => !(dashboard.name ?? 'Untitled').startsWith(GENERATED_DASHBOARD_PREFIX))
                     .sort(nameCompareFunction)
             },
@@ -270,7 +285,32 @@ export const dashboardsModel = kea<dashboardsModelType>([
         ],
         pinnedDashboards: [
             () => [selectors.nameSortedDashboards],
-            (nameSortedDashboards) => nameSortedDashboards.filter((d) => d.pinned),
+            (nameSortedDashboards) => {
+                const pinnedDashboards = nameSortedDashboards.filter((dashboard) => dashboard.pinned)
+
+                return [...pinnedDashboards].sort((a, b) => {
+                    const aViewedAt = a.last_viewed_at
+                    const bViewedAt = b.last_viewed_at
+
+                    if (aViewedAt && bViewedAt) {
+                        if (aViewedAt === bViewedAt) {
+                            return nameCompareFunction(a, b)
+                        }
+
+                        return aViewedAt > bViewedAt ? -1 : 1
+                    }
+
+                    if (aViewedAt) {
+                        return -1
+                    }
+
+                    if (bViewedAt) {
+                        return 1
+                    }
+
+                    return nameCompareFunction(a, b)
+                })
+            },
         ],
     })),
     listeners(({ actions, values }) => ({

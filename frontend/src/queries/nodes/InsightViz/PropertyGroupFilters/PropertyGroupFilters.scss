@@ -1,7 +1,7 @@
 .PropertyGroupFilters {
     .property-group {
         padding: 0.5rem;
-        background-color: var(--bg-primary);
+        background-color: var(--color-bg-primary);
         border-width: 1px;
         border-radius: var(--radius);
     }
@@ -20,7 +20,7 @@
             width: 2px;
             height: 100%;
             content: ' ';
-            background-color: var(--border-primary);
+            background-color: var(--color-border-primary);
         }
 
         > span {
@@ -30,7 +30,7 @@
             width: 35px;
             padding: 0.25rem;
             text-align: center;
-            background-color: var(--bg-surface-primary);
+            background-color: var(--color-bg-surface-primary);
         }
     }
 }

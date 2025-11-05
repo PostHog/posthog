@@ -1,13 +1,15 @@
-import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { IconChevronLeft } from '@posthog/icons'
+import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { dayjs } from 'lib/dayjs'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
-import { IconChevronLeft } from 'lib/lemon-ui/icons'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -16,18 +18,18 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
+    SubscriptionBaseProps,
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
     intervalOptions,
     monthlyWeekdayOptions,
-    SubscriptionBaseProps,
     targetTypeOptions,
     timeOptions,
     weekdayOptions,

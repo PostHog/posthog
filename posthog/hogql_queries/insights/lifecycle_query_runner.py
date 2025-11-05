@@ -1,38 +1,36 @@
-from datetime import timedelta, datetime
+from datetime import datetime, timedelta
 from math import ceil
 from typing import Optional
 
-from posthog.caching.insights_api import (
-    BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL,
-    REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
+from posthog.schema import (
+    ActionsNode,
+    CachedLifecycleQueryResponse,
+    DayItem,
+    EventsNode,
+    InsightActorsQueryOptionsResponse,
+    IntervalType,
+    LifecycleQuery,
+    LifecycleQueryResponse,
+    ResolvedDateRangeResponse,
+    StatusItem,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.property import property_to_expr, action_to_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models import Action
+
+from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, compare_interval_length
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_from_series
+from posthog.models import Action
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import (
-    CachedLifecycleQueryResponse,
-    LifecycleQuery,
-    ActionsNode,
-    EventsNode,
-    LifecycleQueryResponse,
-    InsightActorsQueryOptionsResponse,
-    IntervalType,
-    StatusItem,
-    DayItem,
-)
-from posthog.utils import format_label_date
 
 
-class LifecycleQueryRunner(QueryRunner):
+class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     query: LifecycleQuery
-    response: LifecycleQueryResponse
     cached_response: CachedLifecycleQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -129,7 +127,10 @@ class LifecycleQueryRunner(QueryRunner):
 
     def to_actors_query_options(self) -> InsightActorsQueryOptionsResponse:
         return InsightActorsQueryOptionsResponse(
-            day=[DayItem(label=format_label_date(value), value=value) for value in self.query_date_range.all_values()],
+            day=[
+                DayItem(label=format_label_date(value, self.query_date_range, self.team.week_start_day), value=value)
+                for value in self.query_date_range.all_values()
+            ],
             status=[
                 StatusItem(label="Dormant", value="dormant"),
                 StatusItem(label="New", value="new"),
@@ -138,7 +139,7 @@ class LifecycleQueryRunner(QueryRunner):
             ],
         )
 
-    def calculate(self) -> LifecycleQueryResponse:
+    def _calculate(self) -> LifecycleQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 
@@ -161,7 +162,7 @@ class LifecycleQueryRunner(QueryRunner):
         res = []
         for val in results:
             counts = val[1]
-            labels = [format_label_date(item, self.query_date_range.interval_name) for item in val[0]]
+            labels = [format_label_date(item, self.query_date_range, self.team.week_start_day) for item in val[0]]
             days = [
                 item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if self.query_date_range.interval_name == "hour" else ""))
                 for item in val[0]
@@ -203,7 +204,24 @@ class LifecycleQueryRunner(QueryRunner):
                 }
             )
 
-        return LifecycleQueryResponse(results=res, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
+        return LifecycleQueryResponse(
+            results=res,
+            timings=response.timings,
+            hogql=hogql,
+            modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
+        )
+
+    @cached_property
+    def _earliest_timestamp(self) -> datetime | None:
+        if self.query.dateRange and self.query.dateRange.date_from == "all":
+            # Get earliest timestamp across all series in this insight
+            return get_earliest_timestamp_from_series(team=self.team, series=list(self.query.series or []))
+
+        return None
 
     @cached_property
     def query_date_range(self):
@@ -212,6 +230,7 @@ class LifecycleQueryRunner(QueryRunner):
             team=self.team,
             interval=self.query.interval,
             now=datetime.now(),
+            earliest_timestamp_fallback=self._earliest_timestamp,
         )
 
     @cached_property
@@ -302,6 +321,13 @@ class LifecycleQueryRunner(QueryRunner):
             return ast.Field(chain=["events", f"$group_{self.group_type_index}"])
         return ast.Field(chain=["person_id"])
 
+    @property
+    def created_at_field(self):
+        """Returns the correct created_at field to use based on aggregation type."""
+        if self.has_group_type:
+            return ast.Field(chain=["events", f"group_{self.group_type_index}", "created_at"])
+        return ast.Field(chain=["events", "person", "created_at"])
+
     @cached_property
     def events_query(self):
         with self.timings.measure("events_query"):
@@ -317,7 +343,7 @@ class LifecycleQueryRunner(QueryRunner):
             events_query = parse_select(
                 f"""
                     SELECT
-                        min(events.person.created_at) AS created_at,
+                        min({{created_at_field}}) AS created_at,
                         arraySort(groupUniqArray({{trunc_timestamp}})) AS all_activity,
                         arrayPopBack(arrayPushFront(all_activity, {{trunc_created_at}})) as previous_activity,
                         arrayPopFront(arrayPushBack(all_activity, {{trunc_epoch}})) as following_activity,
@@ -337,6 +363,7 @@ class LifecycleQueryRunner(QueryRunner):
                 placeholders={
                     **self.query_date_range.to_placeholders(),
                     "target": ast.Alias(alias="actor_id", expr=self.target_field),
+                    "created_at_field": self.created_at_field,
                     "event_filter": self.event_filter,
                     "trunc_timestamp": self.query_date_range.date_to_start_of_interval_hogql(
                         ast.Field(chain=["events", "timestamp"])

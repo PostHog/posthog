@@ -1,0 +1,81 @@
+# serializer version: 1
+# name: TestChargeStripeBuilder.test_build_charge_query_with_charge_schema
+  '''
+  SELECT id AS id,
+         'stripe.stripe_test' AS source_label,
+         created_at AS timestamp,
+         customer_id AS customer_id,
+         invoice_id AS invoice_id,
+         NULL AS session_id,
+         NULL AS event_name,
+         upper(currency) AS original_currency,
+         toDecimal(amount_captured, 10) AS original_amount,
+         in(original_currency,
+            ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+           if(enable_currency_aware_divider, toDecimal(1, 10), toDecimal(100, 10)) AS currency_aware_divider,
+           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+           'USD' AS currency,
+           convertCurrency(original_currency, currency, currency_aware_amount, _toDate(ifNull(timestamp, toDateTime(0)))) AS amount
+  FROM stripe_test_charge
+  WHERE equals(status, 'succeeded')
+  '''
+# ---
+# name: TestChargeStripeBuilder.test_build_with_charge_schema_but_no_table
+  '''
+  SELECT '' AS id,
+         '' AS source_label,
+         toDateTime('1970-01-01 00:00:00.000000') AS timestamp,
+         '' AS customer_id,
+         '' AS invoice_id,
+         '' AS session_id,
+         '' AS event_name,
+         '' AS original_currency,
+         0 AS original_amount,
+         false AS enable_currency_aware_divider,
+                  0 AS currency_aware_divider,
+                  0 AS currency_aware_amount,
+                  '' AS currency,
+                  0 AS amount
+  WHERE false
+  '''
+# ---
+# name: TestChargeStripeBuilder.test_build_with_no_charge_schema
+  '''
+  SELECT '' AS id,
+         '' AS source_label,
+         toDateTime('1970-01-01 00:00:00.000000') AS timestamp,
+         '' AS customer_id,
+         '' AS invoice_id,
+         '' AS session_id,
+         '' AS event_name,
+         '' AS original_currency,
+         0 AS original_amount,
+         false AS enable_currency_aware_divider,
+                  0 AS currency_aware_divider,
+                  0 AS currency_aware_amount,
+                  '' AS currency,
+                  0 AS amount
+  WHERE false
+  '''
+# ---
+# name: TestChargeStripeBuilder.test_charge_query_currency_conversion
+  '''
+  SELECT id AS id,
+         'stripe.stripe_test' AS source_label,
+         created_at AS timestamp,
+         customer_id AS customer_id,
+         invoice_id AS invoice_id,
+         NULL AS session_id,
+         NULL AS event_name,
+         upper(currency) AS original_currency,
+         toDecimal(amount_captured, 10) AS original_amount,
+         in(original_currency,
+            ['BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF']) AS enable_currency_aware_divider,
+           if(enable_currency_aware_divider, toDecimal(1, 10), toDecimal(100, 10)) AS currency_aware_divider,
+           divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+           'EUR' AS currency,
+           convertCurrency(original_currency, currency, currency_aware_amount, _toDate(ifNull(timestamp, toDateTime(0)))) AS amount
+  FROM stripe_test_charge
+  WHERE equals(status, 'succeeded')
+  '''
+# ---

@@ -45,21 +45,21 @@ runs:
 
               while [ $attempt -le $max_attempts ]; do
                   echo "Attempt $attempt of $max_attempts to start stack..."
-                  
+
                   if docker compose -f docker-compose.dev.yml down && \
                      docker compose -f docker-compose.dev.yml up -d; then
                       echo "Stack started successfully"
                       exit 0
                   fi
-                  
+
                   echo "Failed to start stack on attempt $attempt"
-                  
+
                   if [ $attempt -lt $max_attempts ]; then
                       sleep_time=$((delay * 2 ** (attempt - 1)))
                       echo "Waiting ${sleep_time} seconds before retry..."
                       sleep $sleep_time
                   fi
-                  
+
                   attempt=$((attempt + 1))
               done
 
@@ -71,11 +71,9 @@ runs:
           run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
         - name: Set up Python
-          uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38 # v5
+          uses: actions/setup-python@v5
           with:
               python-version: ${{ inputs.python-version }}
-              cache: pip
-              cache-dependency-path: '**/requirements*.txt'
               token: ${{ inputs.token }}
 
         - name: Install uv
@@ -101,9 +99,9 @@ runs:
           uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
         - name: Set up Node.js
-          uses: actions/setup-node@1a4442cacd436585916779262731d5b162bc6ec7 # v3
+          uses: actions/setup-node@v4
           with:
-              node-version: 18.12.1
+              node-version: 22.17.1
               cache: pnpm
 
         # tests would intermittently fail in GH actions
@@ -147,7 +145,7 @@ runs:
               sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
               sudo ldconfig
               cd ..
-              uv pip install ./common/hogql_parser
+              pip install ./common/hogql_parser
 
         - name: Set up needed files
           shell: bash
@@ -186,7 +184,7 @@ runs:
               pytest ${{
                   inputs.person-on-events == 'true'
                   && './posthog/clickhouse/ ./posthog/queries/ ./posthog/api/test/test_insight* ./posthog/api/test/dashboards/test_dashboard.py'
-                  || 'posthog'
+                  || 'posthog products'
               }} ${{ inputs.person-on-events == 'true' && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                   --ignore=posthog/temporal \
                   --ignore=common/hogvm/python/test \
@@ -234,8 +232,8 @@ runs:
           run: docker compose -f docker-compose.dev.yml logs
 
         - name: Upload updated timing data as artifacts
-          uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
-          if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:24.8.7.41' }}
+          uses: actions/upload-artifact@v4
+          if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.6.9.98' }}
           with:
               name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
               path: .test_durations

@@ -1,20 +1,20 @@
 import asyncio
 import hashlib
-import posthoganalytics
+
 from django.conf import settings
+
+import posthoganalytics
 from rest_framework import serializers, status
+from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.event_usage import groups
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
-from posthog.permissions import OrganizationAdminWritePermissions
+from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
-
-from rest_framework.response import Response
 
 
 def generate_target_cname(organization_id, domain) -> str:
@@ -28,8 +28,8 @@ def generate_target_cname(organization_id, domain) -> str:
 def _capture_proxy_event(request, record: ProxyRecord, event_type: str) -> None:
     organization = Organization.objects.get(id=record.organization_id)
     posthoganalytics.capture(
-        request.user.distinct_id,
-        f"managed reverse proxy {event_type}",
+        distinct_id=str(request.user.distinct_id),
+        event=f"managed reverse proxy {event_type}",
         properties={
             "proxy_record_id": record.id,
             "domain": record.domain,
@@ -58,7 +58,7 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
 class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = ProxyRecordSerializer
-    permission_classes = [OrganizationAdminWritePermissions]
+    permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
 
     def list(self, request, *args, **kwargs):
         queryset = self.organization.proxy_records.order_by("-created_at")
@@ -88,7 +88,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 "create-proxy",
                 inputs,
                 id=workflow_id,
-                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             )
         )
 
@@ -118,7 +118,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                     "delete-proxy",
                     inputs,
                     id=workflow_id,
-                    task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                    task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                 )
             )
             record.status = ProxyRecord.Status.DELETING

@@ -3,23 +3,16 @@ from functools import cached_property
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
-from dateutil.relativedelta import relativedelta
 from django.utils import timezone
-from posthog.models.filters.base_filter import BaseFilter
-from posthog.models.filters import AnyFilter
-from posthog.models.filters.mixins.interval import IntervalMixin
 
+from dateutil.relativedelta import relativedelta
+
+from posthog.models.filters import AnyFilter
+from posthog.models.filters.base_filter import BaseFilter
+from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.team import Team
-from posthog.queries.util import (
-    TIME_IN_SECONDS,
-    get_earliest_timestamp,
-    get_start_of_interval_sql,
-)
-from posthog.utils import (
-    DEFAULT_DATE_FROM_DAYS,
-    relative_date_parse,
-    relative_date_parse_with_delta_mapping,
-)
+from posthog.queries.util import TIME_IN_SECONDS, get_earliest_timestamp, get_start_of_interval_sql
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
 
 class QueryDateRange:
@@ -35,6 +28,7 @@ class QueryDateRange:
     _team: Team
     _table: str
     _should_round: Optional[bool]
+    _earliest_timestamp_fallback: Optional[datetime]
 
     def __init__(
         self,
@@ -42,12 +36,14 @@ class QueryDateRange:
         team: Team,
         should_round: Optional[bool] = None,
         table="",
+        earliest_timestamp_fallback: Optional[datetime] = None,
     ) -> None:
         filter.team = team  # This is a dirty - but the easiest - way to get the team into the filter
         self._filter = filter
         self._team = team
         self._table = f"{table}." if table else ""
         self._should_round = should_round
+        self._earliest_timestamp_fallback = earliest_timestamp_fallback
 
     @cached_property
     def date_to_param(self) -> datetime:
@@ -71,6 +67,9 @@ class QueryDateRange:
         return date_to
 
     def get_earliest_timestamp(self):
+        if self._earliest_timestamp_fallback:
+            return self._earliest_timestamp_fallback
+
         return get_earliest_timestamp(self._team.pk)
 
     @property

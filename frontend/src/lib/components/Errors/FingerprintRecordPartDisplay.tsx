@@ -1,10 +1,12 @@
+import { useRef } from 'react'
+
 import { Tooltip } from '@posthog/lemon-ui'
+
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { IconFingerprint } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
-import { useRef } from 'react'
 
-import { FingerprintRecordPart } from './stackFrameLogic'
+import { FingerprintRecordPart } from './types'
 
 export function FingerprintRecordPartDisplay({
     part,
@@ -16,15 +18,15 @@ export function FingerprintRecordPartDisplay({
     const iconRef = useRef<HTMLDivElement>(null)
     const isHovering = useIsHovering(iconRef)
     return (
-        <Tooltip title={getPartPieces(part)} placement="right">
-            <span ref={iconRef}>
+        <Tooltip title={renderPartTooltip(part)} placement="right">
+            <span ref={iconRef} className="inline-flex items-center">
                 <IconFingerprint className={className} color={isHovering ? 'red' : 'gray'} fontSize="17px" />
             </span>
         </Tooltip>
     )
 }
 
-function getPartPieces(component: FingerprintRecordPart): React.ReactNode {
+function renderPartTooltip(component: FingerprintRecordPart): React.ReactNode {
     if (component.type === 'manual') {
         return null
     }

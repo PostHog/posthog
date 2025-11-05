@@ -16,5 +16,5 @@ jobs:
               with:
                   workflow: .github/workflows/clickhouse-udfs.yml
                   repo: posthog/posthog-cloud-infra
-                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
                   ref: refs/heads/main

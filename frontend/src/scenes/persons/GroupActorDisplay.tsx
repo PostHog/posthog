@@ -1,6 +1,7 @@
 import './PersonDisplay.scss'
 
 import { IconInfo } from '@posthog/icons'
+
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'

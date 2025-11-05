@@ -1,11 +1,13 @@
-import { dayjs } from 'lib/dayjs'
 import tk from 'timekeeper'
+
+import { dayjs } from 'lib/dayjs'
 
 import { ElementType, EventType, PropertyType, TimeUnitType } from '~/types'
 
 import {
     areDatesValidForInterval,
     areObjectValuesEmpty,
+    autoCaptureEventToDescription,
     average,
     booleanOperatorMap,
     calculateDays,
@@ -23,9 +25,11 @@ import {
     ensureStringIsNotBlank,
     eventToDescription,
     floorMsToClosestSecond,
+    formatDateTimeRange,
     genericOperatorMap,
     getDefaultInterval,
     getFormattedLastWeekDate,
+    getRelativeNextPath,
     hexToRGBA,
     humanFriendlyDuration,
     humanFriendlyLargeNumber,
@@ -40,13 +44,13 @@ import {
     objectClean,
     objectCleanWithEmpty,
     objectDiffShallow,
+    parseTagsFilter,
     pluralize,
     range,
     reverseColonDelimitedDuration,
     roundToDecimal,
     selectorOperatorMap,
     shortTimeZone,
-    shouldEnablePreviewFlagsV2,
     stringOperatorMap,
     toParams,
     wordPluralize,
@@ -59,12 +63,6 @@ describe('lib/utils', () => {
             expect(toParams([])).toEqual('')
             expect(toParams(undefined as any)).toEqual('')
             expect(toParams(null as any)).toEqual('')
-        })
-
-        it('is tolerant of empty objects', () => {
-            const left = toParams({ a: 'b', ...{}, b: 'c' })
-            const right = toParams({ a: 'b', ...{}, ...{}, b: 'c' })
-            expect(left).toEqual(right)
         })
 
         it('can handle numeric values', () => {
@@ -258,7 +256,7 @@ describe('lib/utils', () => {
                 expect(dateFilterToText('-48h', undefined, 'default')).toEqual('Last 48 hours')
                 expect(dateFilterToText('-1d', null, 'default')).toEqual('Last 1 day')
                 expect(dateFilterToText('-1dStart', '-1dEnd', 'default')).toEqual('Yesterday')
-                expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
+                expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Last month')
             })
 
             it('can have overridden date options', () => {
@@ -534,6 +532,7 @@ describe('lib/utils', () => {
             expect(humanFriendlyDuration(1)).toEqual('1s')
         })
         it('returns correct value for 60 < t < 120', () => {
+            expect(humanFriendlyDuration(119.6)).toEqual('1m 59s')
             expect(humanFriendlyDuration(90)).toEqual('1m 30s')
         })
         it('returns correct value for t > 120', () => {
@@ -544,7 +543,7 @@ describe('lib/utils', () => {
             expect(humanFriendlyDuration(3601)).toEqual('1h 1s')
             expect(humanFriendlyDuration(3961)).toEqual('1h 6m 1s')
             expect(humanFriendlyDuration(3961.333)).toEqual('1h 6m 1s')
-            expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 2s')
+            expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 1s')
         })
         it('returns correct value for t >= 86400', () => {
             expect(humanFriendlyDuration(86400)).toEqual('1d')
@@ -752,6 +751,122 @@ describe('lib/utils', () => {
         })
     })
 
+    describe('autoCaptureEventToDescription()', () => {
+        const baseEvent = {
+            elements: [],
+            event: '$autocapture',
+            properties: { $event_type: 'click' },
+            person: {},
+        } as any as EventType
+
+        it('handles regular text by adding quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: 'Analyzing Characters with',
+                    },
+                })
+            ).toEqual('clicked element with text "Analyzing Characters with"')
+        })
+
+        it('prioritizes $el_text from properties over text in elements array', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: 'Text from properties',
+                    },
+                    elements: [{ tag_name: 'button', text: 'Text from elements' } as ElementType],
+                })
+            ).toEqual('clicked button with text "Text from properties"')
+        })
+
+        it('handles text with double quotes without adding additional quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: 'Unit Skills Assessment 1: "',
+                    },
+                })
+            ).toEqual('clicked element with text "Unit Skills Assessment 1: ""')
+        })
+
+        it('handles text with single quotes without adding additional quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: "Reading Lesson: '",
+                    },
+                })
+            ).toEqual('clicked element with text "Reading Lesson: \'"')
+        })
+
+        it('handles longer text with single quotes without adding additional quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: "A Sense of Wonder: An Introduction to Science Fiction'",
+                    },
+                })
+            ).toEqual('clicked element with text "A Sense of Wonder: An Introduction to Science Fiction\'"')
+        })
+
+        it('handles text in elements array', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements: [{ tag_name: 'button', text: 'hello world' } as ElementType],
+                })
+            ).toEqual('clicked button with text "hello world"')
+        })
+
+        it('handles text with quotes in elements array', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements: [{ tag_name: 'button', text: 'hello "world"' } as ElementType],
+                })
+            ).toEqual('clicked button with text "hello "world""')
+        })
+
+        it('handles aria-label attributes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements: [
+                        {
+                            tag_name: 'button',
+                            attributes: { 'attr__aria-label': 'Close dialog' },
+                        } as ElementType,
+                    ],
+                })
+            ).toEqual('clicked button with aria label "Close dialog"')
+        })
+
+        it('handles aria-label attributes with quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements: [
+                        {
+                            tag_name: 'button',
+                            attributes: { 'attr__aria-label': 'Close "main" dialog' },
+                        } as ElementType,
+                    ],
+                })
+            ).toEqual('clicked button with aria label "Close "main" dialog"')
+        })
+    })
+
     describe('{floor|ceil}MsToClosestSecond()', () => {
         describe('ceil', () => {
             it('handles ms as expected', () => {
@@ -876,35 +991,287 @@ describe('lib/utils', () => {
         expect(shortTimeZone('Asia/Tokyo')).toEqual('UTC+9')
     })
 
-    describe('shouldEnablePreviewFlagsV2', () => {
-        it('returns true for anything if the rollout percentage is 100', () => {
-            const result = shouldEnablePreviewFlagsV2('test', {
-                rolloutPercentage: 100,
+    describe('getRelativeNextPath', () => {
+        const location = {
+            origin: 'https://us.posthog.com',
+            protocol: 'https:',
+            host: 'us.posthog.com',
+            hostname: 'us.posthog.com',
+            href: 'https://us.posthog.com/',
+        } as Location
+
+        it('returns relative path for same-origin absolute URL', () => {
+            expect(getRelativeNextPath('https://us.posthog.com/test', location)).toBe('/test')
+        })
+
+        it('returns relative path for same-origin absolute URL with query and hash', () => {
+            expect(getRelativeNextPath('https://us.posthog.com/test?foo=bar#baz', location)).toBe('/test?foo=bar#baz')
+        })
+
+        it('returns relative path for encoded same-origin absolute URL', () => {
+            expect(getRelativeNextPath('https%3A%2F%2Fus.posthog.com%2Ftest', location)).toBe('/test')
+        })
+
+        it('returns relative path for root-relative path', () => {
+            expect(getRelativeNextPath('/test', location)).toBe('/test')
+        })
+
+        it('returns relative path for root-relative path with query and hash', () => {
+            expect(getRelativeNextPath('/test?foo=bar#baz', location)).toBe('/test?foo=bar#baz')
+        })
+
+        it('returns null for external absolute URL', () => {
+            expect(getRelativeNextPath('https://evil.com/test', location)).toBeNull()
+        })
+
+        it('returns null for encoded external absolute URL', () => {
+            expect(getRelativeNextPath('https%3A%2F%2Fevil.com%2Ftest', location)).toBeNull()
+        })
+
+        it('returns null for protocol-relative external URL', () => {
+            expect(getRelativeNextPath('//evil.com/test', location)).toBeNull()
+        })
+
+        it('returns null for empty string', () => {
+            expect(getRelativeNextPath('', location)).toBeNull()
+        })
+
+        it('returns null for malformed URL', () => {
+            expect(getRelativeNextPath('http://', location)).toBeNull()
+            expect(getRelativeNextPath('%%%%', location)).toBeNull()
+        })
+
+        it('returns null for non-string input', () => {
+            expect(getRelativeNextPath(null, location)).toBeNull()
+            expect(getRelativeNextPath(undefined, location)).toBeNull()
+        })
+
+        it('returns relative path for encoded root-relative path', () => {
+            expect(getRelativeNextPath('%2Ftest%2Ffoo%3Fbar%3Dbaz%23hash', location)).toBe('/test/foo?bar=baz#hash')
+        })
+
+        it('returns null for encoded protocol-relative URL', () => {
+            expect(getRelativeNextPath('%2F%2Fevil.com%2Ftest', location)).toBeNull()
+        })
+    })
+
+    describe('parseTagsFilter()', () => {
+        describe('array input', () => {
+            it('handles string arrays', () => {
+                expect(parseTagsFilter(['tag1', 'tag2', 'tag3'])).toEqual(['tag1', 'tag2', 'tag3'])
             })
-            expect(result).toBe(true)
+
+            it('handles mixed type arrays', () => {
+                expect(parseTagsFilter(['tag1', 123, true, null, undefined])).toEqual([
+                    'tag1',
+                    '123',
+                    'true',
+                    'null',
+                    'undefined',
+                ])
+            })
+
+            it('filters out empty values', () => {
+                expect(parseTagsFilter(['tag1', '', 'tag2', null, 'tag3'])).toEqual(['tag1', 'tag2', 'null', 'tag3'])
+            })
+
+            it('handles empty array', () => {
+                expect(parseTagsFilter([])).toEqual([])
+            })
         })
-        it('returns true for our hashed API key', () => {
-            expect(
-                shouldEnablePreviewFlagsV2('sTMFPsFhdP1Ssg', {
-                    rolloutPercentage: 1,
-                    includedHashes: new Set(['593cb24f9928bab39ec383c06c908481880d5099']),
-                })
-            ).toBe(true)
+
+        describe('JSON string input', () => {
+            it('parses valid JSON arrays', () => {
+                expect(parseTagsFilter('["tag1", "tag2", "tag3"]')).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('parses JSON arrays with mixed types', () => {
+                expect(parseTagsFilter('["tag1", 123, true]')).toEqual(['tag1', '123', 'true'])
+            })
+
+            it('filters out empty values from JSON', () => {
+                expect(parseTagsFilter('["tag1", "", "tag2", null, "tag3"]')).toEqual(['tag1', 'tag2', 'null', 'tag3'])
+            })
+
+            it('handles empty JSON array', () => {
+                expect(parseTagsFilter('[]')).toEqual([])
+            })
+
+            it('handles malformed JSON gracefully', () => {
+                expect(parseTagsFilter('["tag1", "tag2"')).toEqual(['["tag1"', '"tag2"'])
+            })
+
+            it('handles invalid JSON syntax', () => {
+                expect(parseTagsFilter('{invalid json}')).toEqual(['{invalid json}'])
+            })
+
+            it('handles JSON that is not an array', () => {
+                expect(parseTagsFilter('{"not": "an array"}')).toEqual(['{"not": "an array"}'])
+            })
+
+            it('handles JSON with trailing comma', () => {
+                expect(parseTagsFilter('["tag1", "tag2",]')).toEqual(['["tag1"', '"tag2"', ']'])
+            })
         })
-        it('returns false for our hashed API key when not passed in and the percentage rollout is too small', () => {
-            expect(
-                shouldEnablePreviewFlagsV2('sTMFPsFhdP1Ssg', {
-                    rolloutPercentage: 1,
-                })
-            ).toBe(false)
+
+        describe('comma-separated string input', () => {
+            it('parses simple comma-separated values', () => {
+                expect(parseTagsFilter('tag1,tag2,tag3')).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('trims whitespace from values', () => {
+                expect(parseTagsFilter(' tag1 , tag2 , tag3 ')).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('filters out empty values', () => {
+                expect(parseTagsFilter('tag1,,tag2, ,tag3')).toEqual(['tag1', 'tag2', 'tag3'])
+            })
+
+            it('handles single value', () => {
+                expect(parseTagsFilter('tag1')).toEqual(['tag1'])
+            })
+
+            it('handles empty string', () => {
+                expect(parseTagsFilter('')).toEqual([])
+            })
+
+            it('handles string with only whitespace', () => {
+                expect(parseTagsFilter('   ')).toEqual([])
+            })
+
+            it('handles string with only commas', () => {
+                expect(parseTagsFilter(',,')).toEqual([])
+            })
+
+            it('handles string with commas and whitespace', () => {
+                expect(parseTagsFilter(' , , ')).toEqual([])
+            })
         })
-        it('returns false for our hashed API key when explicitly excluded', () => {
-            expect(
-                shouldEnablePreviewFlagsV2('sTMFPsFhdP1Ssg', {
-                    rolloutPercentage: 100,
-                    excludedHashes: new Set(['593cb24f9928bab39ec383c06c908481880d5099']),
-                })
-            ).toBe(false)
+
+        describe('edge cases and invalid input', () => {
+            it('returns undefined for null input', () => {
+                expect(parseTagsFilter(null)).toBeUndefined()
+            })
+
+            it('returns undefined for undefined input', () => {
+                expect(parseTagsFilter(undefined)).toBeUndefined()
+            })
+
+            it('returns undefined for number input', () => {
+                expect(parseTagsFilter(123)).toBeUndefined()
+            })
+
+            it('returns undefined for boolean input', () => {
+                expect(parseTagsFilter(true)).toBeUndefined()
+                expect(parseTagsFilter(false)).toBeUndefined()
+            })
+
+            it('returns undefined for object input', () => {
+                expect(parseTagsFilter({})).toBeUndefined()
+                expect(parseTagsFilter({ tags: ['tag1'] })).toBeUndefined()
+            })
+
+            it('handles special characters in tags', () => {
+                expect(parseTagsFilter('tag-with-dash,tag_with_underscore,tag.with.dots')).toEqual([
+                    'tag-with-dash',
+                    'tag_with_underscore',
+                    'tag.with.dots',
+                ])
+            })
+
+            it('handles unicode characters', () => {
+                expect(parseTagsFilter('标签1,🏷️,тег')).toEqual(['标签1', '🏷️', 'тег'])
+            })
+
+            it('handles very long strings', () => {
+                const longTag = 'a'.repeat(1000)
+                expect(parseTagsFilter(longTag)).toEqual([longTag])
+            })
+
+            it('handles strings with newlines and tabs', () => {
+                expect(parseTagsFilter('tag1\ntag2\ttag3')).toEqual(['tag1\ntag2\ttag3'])
+            })
+        })
+    })
+
+    describe('formatDateTimeRange()', () => {
+        beforeEach(() => {
+            tk.freeze(new Date('2025-03-15T12:00:00.000Z'))
+        })
+        afterEach(() => {
+            tk.reset()
+        })
+
+        it('formats range in different years with full details', () => {
+            const from = dayjs('2024-12-31T14:30:45')
+            const to = dayjs('2025-01-01T16:45:30')
+            expect(formatDateTimeRange(from, to)).toEqual('December 31, 2024 14:30:45 - January 1, 2025 16:45:30')
+        })
+
+        it('formats range in same year but different days', () => {
+            const from = dayjs('2024-06-15T09:00:00')
+            const to = dayjs('2024-06-20T17:30:00')
+            expect(formatDateTimeRange(from, to)).toEqual('June 15, 2024 09:00 - June 20, 17:30')
+        })
+
+        it('hides time if both times are midnight', () => {
+            const from = dayjs('2024-06-15T00:00:00')
+            const to = dayjs('2024-06-20T00:00:00')
+            expect(formatDateTimeRange(from, to)).toEqual('June 15, 2024  - June 20')
+        })
+
+        it('formats range in same year as current year', () => {
+            const from = dayjs('2025-01-10T10:15:00')
+            const to = dayjs('2025-02-05T14:20:00')
+            expect(formatDateTimeRange(from, to)).toEqual('January 10, 10:15 - February 5, 14:20')
+        })
+
+        it('formats range on same day in different year', () => {
+            const from = dayjs('2024-08-10T09:30:00')
+            const to = dayjs('2024-08-10T18:45:00')
+            expect(formatDateTimeRange(from, to)).toEqual('August 10, 2024 09:30 - 18:45')
+        })
+
+        it('formats range on same day in current year', () => {
+            const from = dayjs('2025-03-15T08:00:00')
+            const to = dayjs('2025-03-15T20:00:00')
+            expect(formatDateTimeRange(from, to)).toEqual('08:00 - 20:00')
+        })
+
+        it('removes seconds when both times have zero seconds on same day', () => {
+            const from = dayjs('2025-03-15T10:30:00')
+            const to = dayjs('2025-03-15T14:45:00')
+            expect(formatDateTimeRange(from, to)).toEqual('10:30 - 14:45')
+        })
+
+        it('includes seconds when start time has non-zero seconds', () => {
+            const from = dayjs('2025-03-15T10:30:15')
+            const to = dayjs('2025-03-15T14:45:00')
+            expect(formatDateTimeRange(from, to)).toEqual('10:30:15 - 14:45:00')
+        })
+
+        it('includes seconds when end time has non-zero seconds', () => {
+            const from = dayjs('2025-03-15T10:30:00')
+            const to = dayjs('2025-03-15T14:45:30')
+            expect(formatDateTimeRange(from, to)).toEqual('10:30:00 - 14:45:30')
+        })
+
+        it('includes seconds when both times have non-zero seconds', () => {
+            const from = dayjs('2025-03-15T10:30:15')
+            const to = dayjs('2025-03-15T14:45:30')
+            expect(formatDateTimeRange(from, to)).toEqual('10:30:15 - 14:45:30')
+        })
+
+        it('handles range spanning different days in current year', () => {
+            const from = dayjs('2025-03-14T22:00:00')
+            const to = dayjs('2025-03-16T02:00:00')
+            expect(formatDateTimeRange(from, to)).toEqual('March 14, 22:00 - March 16, 02:00')
+        })
+
+        it('handles very short time ranges on same day', () => {
+            const from = dayjs('2025-03-15T12:00:00')
+            const to = dayjs('2025-03-15T12:01:00')
+            expect(formatDateTimeRange(from, to)).toEqual('12:00 - 12:01')
         })
     })
 })

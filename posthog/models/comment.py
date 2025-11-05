@@ -1,16 +1,18 @@
 from typing import cast
+
 from django.db import models
+
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.signals import mutable_receiver
-
-from posthog.models.utils import UUIDModel, RootTeamMixin
+from posthog.models.utils import RootTeamMixin, UUIDTModel
 
 # NOTE: This model is meant to be loosely related to the `activity_log` as they are similar in function and approach
 
 
-class Comment(UUIDModel, RootTeamMixin):
+class Comment(UUIDTModel, RootTeamMixin):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     content = models.TextField(blank=True, null=True)
+    rich_content = models.JSONField(blank=True, null=True)
     version = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -49,7 +51,11 @@ def log_comment_activity(sender, instance: Comment, created: bool, **kwargs):
 
         # If it is a reply, the scope is the original comment
         item_id = cast(str, instance.source_comment_id) or instance.item_id
-        scope = "Comment" if instance.source_comment_id else instance.scope
+        # Map 'recording' to 'Replay' for activity log
+        # this is only necessary while we still have comments with scope 'recording'
+        # after we stop allowing 'recording' as a scope this can be removed
+        corrected_scope = "Replay" if instance.scope == "recording" else instance.scope
+        scope = "Comment" if instance.source_comment_id else corrected_scope
 
         log_activity(
             organization_id=None,

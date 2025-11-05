@@ -1,22 +1,14 @@
 import json
-from posthog.constants import ExperimentNoResultsErrorKeys
-from posthog.hogql import ast
-from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
-from posthog.hogql_queries.experiments.funnels_statistics import (
-    are_results_significant,
-    calculate_credible_intervals,
-    calculate_probabilities,
-)
-from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
-    are_results_significant_v2,
-    calculate_credible_intervals_v2,
-    calculate_probabilities_v2,
-)
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models.experiment import Experiment
-from ..insights.funnels.funnels_query_runner import FunnelsQueryRunner
+from datetime import UTC, datetime, timedelta
+from typing import Any, Optional, cast
+from zoneinfo import ZoneInfo
+
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
+    BreakdownFilter,
     CachedExperimentFunnelsQueryResponse,
+    DateRange,
     ExperimentFunnelsQuery,
     ExperimentFunnelsQueryResponse,
     ExperimentSignificanceCode,
@@ -25,18 +17,26 @@ from posthog.schema import (
     FunnelsFilter,
     FunnelsQuery,
     FunnelsQueryResponse,
-    DateRange,
-    BreakdownFilter,
 )
-from typing import Optional, Any, cast
-from zoneinfo import ZoneInfo
-from rest_framework.exceptions import ValidationError
-from datetime import datetime, timedelta, UTC
+
+from posthog.hogql import ast
+
+from posthog.clickhouse.query_tagging import tag_queries
+from posthog.constants import ExperimentNoResultsErrorKeys
+from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.hogql_queries.experiments.funnels_statistics_v2 import (
+    are_results_significant_v2,
+    calculate_credible_intervals_v2,
+    calculate_probabilities_v2,
+)
+from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.models.experiment import Experiment
+
+from ..insights.funnels.funnels_query_runner import FunnelsQueryRunner
 
 
 class ExperimentFunnelsQueryRunner(QueryRunner):
     query: ExperimentFunnelsQuery
-    response: ExperimentFunnelsQueryResponse
     cached_response: CachedExperimentFunnelsQueryResponse
 
     def __init__(self, *args, **kwargs):
@@ -51,14 +51,21 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.stats_version = self.experiment.get_stats_config("version") or 1
-
         self.prepared_funnels_query = self._prepare_funnel_query()
         self.funnels_query_runner = FunnelsQueryRunner(
             query=self.prepared_funnels_query, team=self.team, timings=self.timings, limit_context=self.limit_context
         )
 
-    def calculate(self) -> ExperimentFunnelsQueryResponse:
+    def _calculate(self) -> ExperimentFunnelsQueryResponse:
+        # Adding experiment specific tags to the tag collection
+        # This will be available as labels in Prometheus
+        tag_queries(
+            query_type="ExperimentFunnelsQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            experiment_feature_flag_key=self.feature_flag.key,
+        )
+
         funnels_result = self.funnels_query_runner.calculate()
 
         self._validate_event_variants(funnels_result)
@@ -71,14 +78,9 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
             # Statistical analysis
             control_variant, test_variants = self._get_variants_with_base_stats(funnels_result)
-            if self.stats_version == 2:
-                probabilities = calculate_probabilities_v2(control_variant, test_variants)
-                significance_code, loss = are_results_significant_v2(control_variant, test_variants, probabilities)
-                credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
-            else:
-                probabilities = calculate_probabilities(control_variant, test_variants)
-                significance_code, loss = are_results_significant(control_variant, test_variants, probabilities)
-                credible_intervals = calculate_credible_intervals([control_variant, *test_variants])
+            probabilities = calculate_probabilities_v2(control_variant, test_variants)
+            significance_code, loss = are_results_significant_v2(control_variant, test_variants, probabilities)
+            credible_intervals = calculate_credible_intervals_v2([control_variant, *test_variants])
         except Exception as e:
             raise ValueError(f"Error calculating experiment funnel results: {str(e)}") from e
 
@@ -93,7 +95,7 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
             },
             significant=significance_code == ExperimentSignificanceCode.SIGNIFICANT,
             significance_code=significance_code,
-            stats_version=self.stats_version,
+            stats_version=2,
             expected_loss=loss,
             credible_intervals=credible_intervals,
         )

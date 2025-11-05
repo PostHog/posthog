@@ -112,3 +112,5 @@ DEFAULT_PLAYLISTS = [
         "description": "All session recordings longer than 1 minute",
     },
 ]
+
+DEFAULT_PLAYLIST_NAMES = [p["name"] for p in DEFAULT_PLAYLISTS]

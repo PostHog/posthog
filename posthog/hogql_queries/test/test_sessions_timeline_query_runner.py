@@ -1,10 +1,11 @@
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from unittest.mock import patch
 
-from freezegun import freeze_time
-from posthog.hogql_queries.sessions_timeline_query_runner import SessionsTimelineQueryRunner
 from posthog.schema import EventType, SessionsTimelineQuery, TimelineEntry
+
+from posthog.hogql_queries.sessions_timeline_query_runner import SessionsTimelineQueryRunner
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
 
@@ -445,6 +446,7 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
             distinct_id="person1",
             first_timestamp="2023-10-01 12:30:00",
             last_timestamp="2023-10-01 12:39:00",
+            ensure_analytics_event_in_session=False,
         )
 
         runner = self._create_runner(SessionsTimelineQuery(before="2023-10-02T06:00:00Z", after="2023-10-01T06:00:00Z"))

@@ -1,17 +1,21 @@
 import json
-import subprocess
 import tempfile
-from inline_snapshot import snapshot
+import subprocess
+
 import pytest
+
 from django.test import TestCase
+
+from inline_snapshot import snapshot
+
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.models.action.action import Action
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.organization import Organization
-from posthog.models.project import Project
 from posthog.models.plugin import TranspilerError
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.project import Project
 from posthog.models.user import User
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class TestSiteFunctions(TestCase):
@@ -148,7 +152,7 @@ function onLoad() {
         assert "console.log(globals);" in result
         assert "const filterMatches = " in result
         assert '__getGlobal("event") == "$pageview"' in result
-        assert "const filterMatches = !!(!!((__getGlobal" in result
+        assert 'const filterMatches = (__getGlobal("event") == "$pageview")' in result
         assert "if (!filterMatches) { return; }" in result
 
     def test_get_transpiled_function_with_invalid_template_input(self):
@@ -237,7 +241,9 @@ function onLoad() {
         self.hog_function.hog = "export function onLoad() { console.log(inputs.groupInfo); }"
         self.hog_function.inputs = {"groupInfo": {"value": "{groups['company']}"}}
 
-        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=0, project=self.project)
+        create_group_type_mapping_without_created_at(
+            team=self.team, group_type="company", group_type_index=0, project=self.project
+        )
 
         result = self.compile_and_run()
 
@@ -257,7 +263,7 @@ function onLoad() {
 
     def test_get_transpiled_function_with_complex_filters(self):
         action = Action.objects.create(team=self.team, name="Test Action")
-        action.steps = [{"event": "$pageview", "url": "https://example.com"}]  # type: ignore
+        action.steps = [{"event": "$pageview", "url": "https://example.com"}]
         action.save()
 
         self.hog_function.hog = "export function onEvent(globals) { console.log(globals); }"
@@ -290,8 +296,8 @@ function onLoad() {
         result = self.compile_and_run()
 
         assert "console.log(inputs);" in result
-        assert 'const filterMatches = !!(!!((__getGlobal("event") == "$pageview")));' in result
-        assert 'if (!!(!!((__getGlobal("event") == "$autocapture")))) {' in result
+        assert 'const filterMatches = (__getGlobal("event") == "$pageview");' in result
+        assert 'if ((__getGlobal("event") == "$autocapture")) {' in result
         assert "const newInputs = structuredClone(inputs);" in result
         assert 'newInputs["greeting"] = concat("Hallo, ", __getProperty' in result
 

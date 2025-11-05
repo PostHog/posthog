@@ -1,8 +1,16 @@
-from typing import Literal, Optional, cast
 from collections.abc import Callable
+from typing import Literal, cast
 
-from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor, ParserRuleContext
+from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
+from hogql_parser import (
+    parse_expr as _parse_expr_cpp,
+    parse_full_template_string as _parse_full_template_string_cpp,
+    parse_order_expr as _parse_order_expr_cpp,
+    parse_program as _parse_program_cpp,
+    parse_select as _parse_select_cpp,
+)
+from opentelemetry import trace
 from prometheus_client import Histogram
 
 from posthog.hogql import ast
@@ -12,16 +20,11 @@ from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
-from posthog.hogql.parse_string import parse_string_literal_text, parse_string_literal_ctx, parse_string_text_ctx
+from posthog.hogql.parse_string import parse_string_literal_ctx, parse_string_literal_text, parse_string_text_ctx
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
-from hogql_parser import (
-    parse_expr as _parse_expr_cpp,
-    parse_order_expr as _parse_order_expr_cpp,
-    parse_select as _parse_select_cpp,
-    parse_full_template_string as _parse_full_template_string_cpp,
-    parse_program as _parse_program_cpp,
-)
+
+tracer = trace.get_tracer(__name__)
 
 
 def safe_lambda(f):
@@ -71,8 +74,8 @@ RULE_TO_HISTOGRAM: dict[Literal["expr", "order_expr", "select", "full_template_s
 
 def parse_string_template(
     string: str,
-    placeholders: Optional[dict[str, ast.Expr]] = None,
-    timings: Optional[HogQLTimings] = None,
+    placeholders: dict[str, ast.Expr] | None = None,
+    timings: HogQLTimings | None = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.Call:
@@ -90,9 +93,9 @@ def parse_string_template(
 
 def parse_expr(
     expr: str,
-    placeholders: Optional[dict[str, ast.Expr]] = None,
-    start: Optional[int] = 0,
-    timings: Optional[HogQLTimings] = None,
+    placeholders: dict[str, ast.Expr] | None = None,
+    start: int | None = 0,
+    timings: HogQLTimings | None = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.Expr:
@@ -111,8 +114,8 @@ def parse_expr(
 
 def parse_order_expr(
     order_expr: str,
-    placeholders: Optional[dict[str, ast.Expr]] = None,
-    timings: Optional[HogQLTimings] = None,
+    placeholders: dict[str, ast.Expr] | None = None,
+    timings: HogQLTimings | None = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.OrderExpr:
@@ -129,25 +132,28 @@ def parse_order_expr(
 
 def parse_select(
     statement: str,
-    placeholders: Optional[dict[str, ast.Expr]] = None,
-    timings: Optional[HogQLTimings] = None,
+    placeholders: dict[str, ast.Expr] | None = None,
+    timings: HogQLTimings | None = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     if timings is None:
         timings = HogQLTimings()
     with timings.measure(f"parse_select_{backend}"):
-        with RULE_TO_HISTOGRAM["select"].labels(backend=backend).time():
+        with (
+            RULE_TO_HISTOGRAM["select"].labels(backend=backend).time(),
+            tracer.start_as_current_span("parse_statement_to_node"),
+        ):
             node = RULE_TO_PARSE_FUNCTION[backend]["select"](statement)
         if placeholders:
-            with timings.measure("replace_placeholders"):
+            with timings.measure("replace_placeholders"), tracer.start_as_current_span("replace_placeholders"):
                 node = replace_placeholders(node, placeholders)
     return node
 
 
 def parse_program(
     source: str,
-    timings: Optional[HogQLTimings] = None,
+    timings: HogQLTimings | None = None,
     *,
     backend: Literal["python", "cpp"] = "cpp",
 ) -> ast.Program:
@@ -192,7 +198,7 @@ class HogQLErrorListener(ErrorListener):
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
-    def __init__(self, start: Optional[int] = 0):
+    def __init__(self, start: int | None = 0):
         super().__init__()
         self.start = start
 
@@ -908,7 +914,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ArrayAccess(array=object, property=property, nullish=True)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprBetween")
+        expr = self.visit(ctx.columnExpr(0))
+        low = self.visit(ctx.columnExpr(1))
+        high = self.visit(ctx.columnExpr(2))
+        return ast.BetweenExpr(expr=expr, low=low, high=high, negated=bool(ctx.NOT()))
 
     def visitColumnExprParens(self, ctx: HogQLParser.ColumnExprParensContext):
         return self.visit(ctx.columnExpr())
@@ -1166,7 +1175,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ExprCall(expr=expr, args=[self.visit(ctx.selectSetStmt())])
 
     def visitHogqlxChildElement(self, ctx: HogQLParser.HogqlxChildElementContext):
-        return self.visit(ctx.hogqlxTagElement() or ctx.columnExpr())
+        if ctx.hogqlxTagElement():
+            return self.visit(ctx.hogqlxTagElement())
+        if ctx.hogqlxText():
+            return self.visit(ctx.hogqlxText())
+        return self.visit(ctx.columnExpr())
+
+    def visitHogqlxText(self, ctx: HogQLParser.HogqlxTextContext):
+        return ast.Constant(value=ctx.HOGQLX_TEXT_TEXT().getText())
 
     def visitHogqlxTagElementClosed(self, ctx: HogQLParser.HogqlxTagElementClosedContext):
         kind = self.visit(ctx.identifier())
@@ -1181,14 +1197,25 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         attributes = [self.visit(a) for a in ctx.hogqlxTagAttribute()] if ctx.hogqlxTagAttribute() else []
 
-        if ctx.hogqlxChildElement():
-            for a in attributes:
-                if a.name == "children":
-                    raise SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute")
-            children = []
-            for element in ctx.hogqlxChildElement():
-                children.append(self.visit(element))
-            attributes.append(ast.HogQLXAttribute(name="children", value=children))
+        # ── collect child nodes, discarding pure-indentation whitespace ──
+        kept_children = []
+        for element in ctx.hogqlxChildElement():
+            child = self.visit(element)
+
+            if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                v = child.value
+                only_ws = v.isspace()
+                has_nl = "\n" in v or "\r" in v
+                if only_ws and has_nl:
+                    continue  # drop indentation text node
+
+            kept_children.append(child)
+
+        if kept_children:
+            if any(a.name == "children" for a in attributes):
+                raise SyntaxError("Can't have a HogQLX tag with both children and a 'children' attribute")
+            attributes.append(ast.HogQLXAttribute(name="children", value=kept_children))
+
         return ast.HogQLXTag(kind=opening, attributes=attributes)
 
     def visitHogqlxTagAttribute(self, ctx: HogQLParser.HogqlxTagAttributeContext):

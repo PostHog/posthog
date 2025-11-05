@@ -1,5 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import {
     DISPLAY_TYPES_WITHOUT_DETAILED_RESULTS,
     DISPLAY_TYPES_WITHOUT_LEGEND,
@@ -9,25 +12,27 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
-import posthog from 'posthog-js'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
+import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { AggregationType } from 'scenes/insights/views/InsightsTable/insightsTableDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
+import { extractValidationError, getAllEventNames, queryFromKind } from '~/queries/nodes/InsightViz/utils'
 import {
     BreakdownFilter,
     CompareFilter,
-    DatabaseSchemaField,
     DataWarehouseNode,
+    DatabaseSchemaField,
     DateRange,
     FunnelExclusionSteps,
+    FunnelsFilter,
     FunnelsQuery,
     InsightFilter,
     InsightQueryNode,
@@ -107,10 +112,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
         updateDisplay: (display: ChartDisplayType | undefined) => ({ display }),
-        updateHiddenLegendIndexes: (hiddenLegendIndexes: number[] | undefined) => ({ hiddenLegendIndexes }),
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
         toggleFormulaMode: true,
+        removeFormulaNode: (formulas: TrendsFormulaNode[]) => ({ formulas }),
+        setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
+            detailedResultsAggregationType,
+        }),
     }),
 
     reducers({
@@ -155,22 +163,23 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isPaths: [(s) => [s.querySource], (q) => isPathsQuery(q)],
         isStickiness: [(s) => [s.querySource], (q) => isStickinessQuery(q)],
         isLifecycle: [(s) => [s.querySource], (q) => isLifecycleQuery(q)],
-        isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)],
+        isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)], // this is for filtering out world map
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsCompare: [
             (s) => [s.querySource, s.display, s.dateRange],
             (q, display, dateRange) =>
                 (isTrendsQuery(q) || isStickinessQuery(q)) &&
                 display !== ChartDisplayType.WorldMap &&
+                display !== ChartDisplayType.CalendarHeatmap &&
                 dateRange?.date_from !== 'all',
         ],
         supportsPercentStackView: [(s) => [s.querySource], (q) => supportsPercentStackView(q)],
         supportsValueOnSeries: [
-            (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.display],
-            (isTrends, isStickiness, isLifecycle, display) => {
+            (s) => [s.isTrends, s.isFunnels, s.isStickiness, s.isLifecycle, s.display],
+            (isTrends, isFunnels, isStickiness, isLifecycle, display) => {
                 if (isTrends || isStickiness) {
                     return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)
-                } else if (isLifecycle) {
+                } else if (isLifecycle || isFunnels) {
                     return true
                 }
                 return false
@@ -196,7 +205,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
         formulaNodes: [
             (s) => [s.querySource],
-            (querySource: InsightQueryNode | null) => {
+            (querySource: InsightQueryNode | null): TrendsFormulaNode[] => {
                 const formula = getFormula(querySource)
                 const formulas = getFormulas(querySource)
 
@@ -218,9 +227,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
         showMultipleYAxes: [(s) => [s.querySource], (q) => (q ? getShowMultipleYAxes(q) : null)],
         resultCustomizationBy: [(s) => [s.querySource], (q) => (q ? getResultCustomizationBy(q) : null)],
-        goalLines: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? getGoalLines(q) : null)],
+        goalLines: [(s) => [s.querySource], (q) => (isTrendsQuery(q) || isFunnelsQuery(q) ? getGoalLines(q) : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
+        detailedResultsAggregationType: [
+            (s) => [s.querySource],
+            (querySource): AggregationType | undefined => {
+                if (isTrendsQuery(querySource)) {
+                    return querySource.trendsFilter?.detailedResultsAggregationType as AggregationType | undefined
+                }
+            },
+        ],
         funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
         retentionFilter: [(s) => [s.querySource], (q) => (isRetentionQuery(q) ? q.retentionFilter : null)],
         pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
@@ -265,18 +282,20 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         isSingleSeries: [
-            (s) => [s.isTrends, s.formula, s.formulas, s.series, s.breakdownFilter],
+            (s) => [s.isTrends, s.formula, s.formulas, s.formulaNodes, s.series, s.breakdownFilter],
             (
                 isTrends: boolean,
                 formula: string | undefined,
                 formulas: string[] | undefined,
+                formulaNodes: TrendsFormulaNode[] | undefined,
                 series: any[],
                 breakdownFilter: BreakdownFilter | null
             ): boolean => {
-                return (
-                    ((isTrends && (!!formula || (formulas && formulas.length > 0))) || (series || []).length <= 1) &&
-                    !breakdownFilter?.breakdown
-                )
+                const hasSingleFormula =
+                    (formula && !formulas) ||
+                    (formulas && formulas.length === 1) ||
+                    (formulaNodes && formulaNodes.length === 1)
+                return (isTrends && hasSingleFormula) || ((series || []).length <= 1 && !breakdownFilter?.breakdown)
             },
         ],
         isBreakdownSeries: [
@@ -286,7 +305,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             },
         ],
 
-        isDataWarehouseSeries: [
+        hasDataWarehouseSeries: [
             (s) => [s.isTrends, s.series],
             (isTrends, series): boolean => {
                 return isTrends && (series || []).length > 0 && !!series?.some((node) => isDataWarehouseNode(node))
@@ -294,11 +313,17 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
 
         currentDataWarehouseSchemaColumns: [
-            (s) => [s.series, s.isSingleSeries, s.isDataWarehouseSeries, s.isBreakdownSeries, s.dataWarehouseTablesMap],
+            (s) => [
+                s.series,
+                s.isSingleSeries,
+                s.hasDataWarehouseSeries,
+                s.isBreakdownSeries,
+                s.dataWarehouseTablesMap,
+            ],
             (
                 series,
                 isSingleSeries,
-                isDataWarehouseSeries,
+                hasDataWarehouseSeries,
                 isBreakdownSeries,
                 dataWarehouseTablesMap
             ): DatabaseSchemaField[] => {
@@ -306,7 +331,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     !series ||
                     series.length === 0 ||
                     (!isSingleSeries && !isBreakdownSeries) ||
-                    !isDataWarehouseSeries
+                    !hasDataWarehouseSeries
                 ) {
                     return []
                 }
@@ -396,13 +421,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
         validationError: [
             (s) => [s.insightDataError],
-            (insightDataError): string | null => {
-                // We use 512 for query timeouts
-                // Async queries put the error message on data.error_message, while synchronous ones use detail
-                return insightDataError?.status === 400 || insightDataError?.status === 512
-                    ? (insightDataError.detail || insightDataError.data?.error_message)?.replace('Try ', 'Try ') // Add unbreakable space for better line breaking
-                    : null
-            },
+            (insightDataError): string | null => extractValidationError(insightDataError),
         ],
 
         timezone: [(s) => [s.insightData], (insightData) => insightData?.timezone || 'UTC'],
@@ -561,11 +580,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateDisplay: ({ display }) => {
             actions.updateInsightFilter({ display })
         },
-        updateHiddenLegendIndexes: ({ hiddenLegendIndexes }) => {
-            actions.updateInsightFilter({ hiddenLegendIndexes })
+
+        setDetailedResultsAggregationType: ({ detailedResultsAggregationType }) => {
+            actions.updateInsightFilter({
+                detailedResultsAggregationType: detailedResultsAggregationType,
+            })
         },
 
-        // data loading side effects i.e. diplaying loading screens for queries with longer duration
+        // data loading side effects i.e. displaying loading screens for queries with longer duration
         loadData: async ({ queryId }, breakpoint) => {
             actions.setTimedOutQueryId(null)
 
@@ -575,7 +597,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 actions.setTimedOutQueryId(queryId)
                 const tags = {
                     kind: values.querySource?.kind,
-                    scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
+                    scene: sceneLogic.isMounted() ? sceneLogic.values.activeSceneId : null,
                 }
                 posthog.capture('insight timeout message shown', tags)
             }
@@ -590,6 +612,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             // Only if formula mode is already open should we trigger a query.
             if (values.hasFormula) {
                 actions.updateInsightFilter({ formula: undefined, formulas: undefined, formulaNodes: [] })
+            }
+        },
+        removeFormulaNode: ({ formulas }) => {
+            if (formulas.length === 0) {
+                actions.toggleFormulaMode()
+                return
+            }
+
+            const filledFormulas = formulas.filter((v) => v.formula.trim() !== '')
+            if (filledFormulas.length > 0) {
+                actions.updateInsightFilter({
+                    formula: undefined,
+                    formulas: undefined,
+                    formulaNodes: filledFormulas,
+                })
             }
         },
     })),
@@ -651,6 +688,19 @@ const handleQuerySourceUpdateSideEffects = (
                 `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
             ;(mergedUpdate as TrendsQuery).interval = 'week'
+        }
+    }
+
+    // clamp the funnel steps
+    if (
+        maybeChangedSeries &&
+        isFunnelsQuery(currentState) &&
+        ((insightFilter as FunnelsFilter)?.funnelFromStep != null ||
+            (insightFilter as FunnelsFilter)?.funnelToStep != null)
+    ) {
+        ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
+            ...(insightFilter as FunnelsFilter),
+            ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, maybeChangedSeries),
         }
     }
 
@@ -730,6 +780,11 @@ const handleQuerySourceUpdateSideEffects = (
 
     // Remove breakdown filter if display type is BoldNumber because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
+        mergedUpdate['breakdownFilter'] = null
+    }
+
+    // Remove breakdown filter if display type is Heatmap because it is not supported
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.CalendarHeatmap) {
         mergedUpdate['breakdownFilter'] = null
     }
 

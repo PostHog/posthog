@@ -1,6 +1,6 @@
-import { captureException } from '@sentry/react'
-import api, { getJSONOrNull } from 'lib/api'
 import posthog from 'posthog-js'
+
+import api, { getJSONOrNull } from 'lib/api'
 import { getResponseBytes } from 'scenes/insights/utils'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
@@ -46,7 +46,7 @@ export async function captureTimeToSeeData(teamId: number | null, payload: TimeT
         } catch (e) {
             // NOTE: As this is only telemetry, we don't want to block the user if it fails
             console.warn('Failed to capture time to see data', e)
-            captureException(e)
+            posthog.captureException(e)
         }
     }
 }

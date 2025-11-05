@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
@@ -87,7 +88,7 @@ export const projectLogic = kea<projectLogicType>([
                 createProject: async ({ name }: { name: string }) => {
                     try {
                         return await api.create('api/projects/', { name })
-                    } catch (error: any) {
+                    } catch {
                         lemonToast.error('Failed to create project')
                         return values.currentProject
                     }

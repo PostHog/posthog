@@ -1,15 +1,14 @@
 import { Histogram } from 'prom-client'
-import { RustyHook } from 'worker/rusty-hook'
 
 import { Action, Hook, HookPayload, PostIngestionEvent, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
 import { convertToHookPayload } from '../../utils/event'
-import { trackedFetch } from '../../utils/fetch'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { legacyFetch } from '../../utils/request'
+import { TeamManager } from '../../utils/team-manager'
+import { RustyHook } from '../../worker/rusty-hook'
 import { AppMetric, AppMetrics } from './app-metrics'
-import { OrganizationManager } from './organization-manager'
-import { TeamManager } from './team-manager'
 import { WebhookFormatter } from './webhook-formatter'
 
 export const webhookProcessStepDuration = new Histogram({
@@ -32,7 +31,6 @@ export async function instrumentWebhookStep<T>(tag: string, run: () => Promise<T
 export class HookCommander {
     postgres: PostgresRouter
     teamManager: TeamManager
-    organizationManager: OrganizationManager
     rustyHook: RustyHook
     appMetrics: AppMetrics
     siteUrl: string
@@ -42,14 +40,12 @@ export class HookCommander {
     constructor(
         postgres: PostgresRouter,
         teamManager: TeamManager,
-        organizationManager: OrganizationManager,
         rustyHook: RustyHook,
         appMetrics: AppMetrics,
         timeout: number
     ) {
         this.postgres = postgres
         this.teamManager = teamManager
-        this.organizationManager = organizationManager
         if (process.env.SITE_URL) {
             this.siteUrl = process.env.SITE_URL
         } else {
@@ -69,7 +65,7 @@ export class HookCommander {
         }
         logger.debug('🔍', `Found ${actionMatches.length} matching actions`)
 
-        const team = await this.teamManager.fetchTeam(event.teamId)
+        const team = await this.teamManager.getTeam(event.teamId)
 
         if (!team) {
             return
@@ -88,7 +84,7 @@ export class HookCommander {
             })
         }
 
-        if (await this.organizationManager.hasAvailableFeature(team.id, 'zapier')) {
+        if (await this.teamManager.hasAvailableFeature(team.id, 'zapier')) {
             await instrumentWebhookStep('postRestHook', async () => {
                 const restHooks = actionMatches.flatMap((action) => action.hooks.map((hook) => ({ hook, action })))
 
@@ -191,11 +187,10 @@ export class HookCommander {
 
         try {
             await instrumentWebhookStep('fetch', async () => {
-                const request = await trackedFetch(url, {
+                const request = await legacyFetch(url, {
                     method: 'POST',
                     body: JSON.stringify(body, null, 4),
                     headers: { 'Content-Type': 'application/json' },
-                    timeout: this.EXTERNAL_REQUEST_TIMEOUT,
                 })
                 // special handling for hooks
                 if (hook && request.status === 410) {

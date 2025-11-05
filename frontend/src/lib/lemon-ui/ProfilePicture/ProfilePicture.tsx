@@ -2,16 +2,17 @@ import './ProfilePicture.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
-import { fullName, inStorybookTestRunner } from 'lib/utils'
 import md5 from 'md5'
 import React, { useMemo, useState } from 'react'
+
+import { HedgehogBuddyProfile } from 'lib/components/HedgehogBuddy/HedgehogBuddyRender'
+import { fullName, inStorybookTestRunner } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { MinimalHedgehogConfig, UserBasicType } from '~/types'
 
-import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
+import { IconRobot } from '../icons'
 
 export interface ProfilePictureProps {
     user?:
@@ -51,12 +52,12 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
             return // There are no guarantees on how long it takes to fetch a Gravatar, so we skip this in snapshots
         }
         // Check if Gravatar exists
-        const emailOrNameWithEmail = email || (name?.includes('@') ? name : undefined)
-        if (emailOrNameWithEmail) {
-            const emailHash = md5(emailOrNameWithEmail.trim().toLowerCase())
-            return `https://www.gravatar.com/avatar/${emailHash}?s=96&d=404`
+        const identifier = email || (name?.includes('@') ? name : undefined)
+        if (identifier) {
+            const hash = md5(identifier.trim().toLowerCase())
+            return `https://www.gravatar.com/avatar/${hash}?s=96&d=404`
         }
-    }, [email, hedgehogProfile])
+    }, [email, hedgehogProfile, name])
 
     const pictureComponent = (
         <span className={clsx('ProfilePicture', size, className)} ref={ref}>
@@ -84,6 +85,7 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
                 <img
                     className="absolute top-0 left-0 w-full h-full rounded-full"
                     src={gravatarUrl}
+                    loading="lazy"
                     title={title || `This is the Gravatar for ${combinedNameAndEmail}`}
                     alt=""
                     onError={() => setGravatarLoaded(false)}

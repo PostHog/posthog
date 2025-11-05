@@ -1,11 +1,10 @@
-import * as Sentry from '@sentry/react'
-import crypto from 'crypto'
 import equal from 'fast-deep-equal'
+import posthog from 'posthog-js'
+import { CSSProperties } from 'react'
+
 import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import posthog from 'posthog-js'
-import { CSSProperties } from 'react'
 
 import {
     ActionType,
@@ -83,22 +82,25 @@ export function toParams(obj: Record<string, any>, explodeArrays: boolean = fals
 
     return Object.entries(obj)
         .filter((item) => item[1] != undefined && item[1] != null)
-        .reduce((acc, [key, val]) => {
-            /**
-             *  query parameter arrays can be handled in two ways
-             *  either they are encoded as a single query parameter
-             *    a=[1, 2] => a=%5B1%2C2%5D
-             *  or they are "exploded" so each item in the array is sent separately
-             *    a=[1, 2] => a=1&a=2
-             **/
-            if (explodeArrays && Array.isArray(val)) {
-                val.forEach((v) => acc.push([key, v]))
-            } else {
-                acc.push([key, val])
-            }
+        .reduce(
+            (acc, [key, val]) => {
+                /**
+                 *  query parameter arrays can be handled in two ways
+                 *  either they are encoded as a single query parameter
+                 *    a=[1, 2] => a=%5B1%2C2%5D
+                 *  or they are "exploded" so each item in the array is sent separately
+                 *    a=[1, 2] => a=1&a=2
+                 **/
+                if (explodeArrays && Array.isArray(val)) {
+                    val.forEach((v) => acc.push([key, v]))
+                } else {
+                    acc.push([key, val])
+                }
 
-            return acc
-        }, [] as [string, any][])
+                return acc
+            },
+            [] as [string, any][]
+        )
         .map(([key, val]) => `${key}=${handleVal(val)}`)
         .join('&')
 }
@@ -109,11 +111,14 @@ export function fromParamsGivenUrl(url: string): Record<string, any> {
         : url
               .replace(/^\?/, '')
               .split('&')
-              .reduce((paramsObject, paramString) => {
-                  const [key, value] = paramString.split('=')
-                  paramsObject[key] = decodeURIComponent(value)
-                  return paramsObject
-              }, {} as Record<string, any>)
+              .reduce(
+                  (paramsObject, paramString) => {
+                      const [key, value] = paramString.split('=')
+                      paramsObject[key] = decodeURIComponent(value)
+                      return paramsObject
+                  },
+                  {} as Record<string, any>
+              )
 }
 
 export function fromParams(): Record<string, any> {
@@ -126,6 +131,33 @@ export function tryDecodeURIComponent(value: string): string {
     } catch {
         return value
     }
+}
+
+// Parse a tags filter value coming from URL search params.
+// Supports:
+// - Repeated params handled upstream and aggregated as an array
+// - JSON array string (e.g. "[\"a\",\"b\"]")
+// - Comma-separated string (e.g. "a,b")
+export function parseTagsFilter(raw: unknown): string[] | undefined {
+    if (Array.isArray(raw)) {
+        return (raw as unknown[]).map((v) => String(v)).filter(Boolean)
+    }
+    if (typeof raw === 'string') {
+        // Try JSON first
+        try {
+            const parsed = JSON.parse(raw)
+            if (Array.isArray(parsed)) {
+                return parsed.map((v) => String(v)).filter(Boolean)
+            }
+        } catch {
+            // Fall through to comma-separated
+        }
+        return raw
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+    }
+    return undefined
 }
 
 /** Return percentage from number, e.g. 0.234 is 23.4%. */
@@ -185,7 +217,10 @@ export function lowercaseFirstLetter(string: string): string {
     return string.charAt(0).toLowerCase() + string.slice(1)
 }
 
-export function fullName(props: { first_name?: string; last_name?: string }): string {
+export function fullName(props?: { first_name?: string; last_name?: string }): string {
+    if (!props) {
+        return 'Unknown User'
+    }
     return `${props.first_name || ''} ${props.last_name || ''}`.trim()
 }
 
@@ -211,6 +246,15 @@ export const stringOperatorMap: Record<string, string> = {
     not_regex: "≁ doesn't match regex",
     is_set: '✓ is set',
     is_not_set: '✕ is not set',
+}
+
+export const stringArrayOperatorMap: Record<string, string> = {
+    exact: '= equals',
+    is_not: "≠ doesn't equal",
+    icontains: '∋ contains',
+    not_icontains: "∌ doesn't contain",
+    regex: '∼ matches regex',
+    not_regex: "≁ doesn't match regex",
 }
 
 export const numericOperatorMap: Record<string, string> = {
@@ -254,26 +298,39 @@ export const cohortOperatorMap: Record<string, string> = {
     not_in: 'user not in',
 }
 
+export const featureFlagOperatorMap: Record<string, string> = {
+    flag_evaluates_to: '= evaluates to',
+}
+
 export const stickinessOperatorMap: Record<string, string> = {
-    exact: 'Exactly',
-    gte: 'At least',
-    lte: 'At most (but at least once)',
+    exact: '= Exactly',
+    gte: '≥ At least',
+    lte: '≤ At most (but at least once)',
 }
 
 export const cleanedPathOperatorMap: Record<string, string> = {
     is_cleaned_path_exact: '= equals',
 }
 
+export const assigneeOperatorMap: Record<string, string> = {
+    exact: '= is',
+    is_not: '≠ is not',
+    is_not_set: '✕ is not set',
+}
+
 export const allOperatorsMapping: Record<string, string> = {
+    ...assigneeOperatorMap,
     ...stickinessOperatorMap,
     ...dateTimeOperatorMap,
     ...stringOperatorMap,
+    ...stringArrayOperatorMap,
     ...numericOperatorMap,
     ...genericOperatorMap,
     ...booleanOperatorMap,
     ...durationOperatorMap,
     ...selectorOperatorMap,
     ...cohortOperatorMap,
+    ...featureFlagOperatorMap,
     ...cleanedPathOperatorMap,
     // slight overkill to spread all of these into the map
     // but gives freedom for them to diverge more over time
@@ -287,6 +344,9 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
     Duration: durationOperatorMap,
     Selector: selectorOperatorMap,
     Cohort: cohortOperatorMap,
+    Flag: featureFlagOperatorMap,
+    Assignee: assigneeOperatorMap,
+    StringArray: stringArrayOperatorMap,
 }
 
 export function chooseOperatorMap(propertyType: PropertyType | undefined): Record<string, string> {
@@ -356,10 +416,14 @@ export function isNonEmptyObject(candidate: unknown): candidate is Record<string
 }
 
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
-export function objectClean<T extends Record<string | number | symbol, unknown>>(obj: T): T {
+export function objectClean<T extends Record<string | number | symbol, unknown>>(
+    obj: T,
+    options?: { removeNulls?: boolean }
+): T {
+    const { removeNulls = false } = options || {}
     const response = { ...obj }
     Object.keys(response).forEach((key) => {
-        if (response[key] === undefined) {
+        if (removeNulls ? response[key] == null : response[key] === undefined) {
             delete response[key]
         }
     })
@@ -402,12 +466,15 @@ export const removeUndefinedAndNull = (obj: any): any => {
     if (Array.isArray(obj)) {
         return obj.map(removeUndefinedAndNull)
     } else if (obj && typeof obj === 'object') {
-        return Object.entries(obj).reduce((acc, [key, value]) => {
-            if (value !== undefined && value !== null) {
-                acc[key] = removeUndefinedAndNull(value)
-            }
-            return acc
-        }, {} as Record<string, any>)
+        return Object.entries(obj).reduce(
+            (acc, [key, value]) => {
+                if (value !== undefined && value !== null) {
+                    acc[key] = removeUndefinedAndNull(value)
+                }
+                return acc
+            },
+            {} as Record<string, any>
+        )
     }
     return obj
 }
@@ -433,6 +500,10 @@ export function idToKey(array: Record<string, any>[], keyField: string = 'id'): 
         object[element[keyField]] = element
     }
     return object
+}
+
+export function makeDelay(ms: number): () => Promise<void> {
+    return () => delay(ms)
 }
 
 export function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -476,11 +547,19 @@ export function slugify(text: string): string {
 export const DEFAULT_DECIMAL_PLACES = 2
 
 /** Format number with comma as the thousands separator. */
-export function humanFriendlyNumber(d: number, precision: number = DEFAULT_DECIMAL_PLACES): string {
-    if (isNaN(precision) || precision < 0) {
-        precision = DEFAULT_DECIMAL_PLACES
+export function humanFriendlyNumber(
+    d: number,
+    maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
+    minimumFractionDigits: number = 0
+): string {
+    if (isNaN(maximumFractionDigits) || maximumFractionDigits < 0) {
+        maximumFractionDigits = DEFAULT_DECIMAL_PLACES
     }
-    return d.toLocaleString('en-US', { maximumFractionDigits: precision })
+    if (isNaN(minimumFractionDigits) || minimumFractionDigits < 0) {
+        minimumFractionDigits = 0
+    }
+
+    return d.toLocaleString('en-US', { maximumFractionDigits, minimumFractionDigits })
 }
 
 export function humanFriendlyLargeNumber(d: number): string {
@@ -579,7 +658,7 @@ export function humanFriendlyDuration(
     const days = Math.floor(d / 86400)
     const h = Math.floor((d % 86400) / 3600)
     const m = Math.floor((d % 3600) / 60)
-    const s = Math.round((d % 3600) % 60)
+    const s = Math.floor((d % 3600) % 60)
 
     const dayDisplay = days > 0 ? days + 'd' : ''
     const hDisplay = h > 0 ? h + 'h' : ''
@@ -623,6 +702,13 @@ export function humanFriendlyDetailedTime(
         formatString = `${formatDate} ${formatTime}`
     }
     return parsedDate.format(formatString)
+}
+
+export function detailedTime(date: dayjs.Dayjs | string | null | undefined): string {
+    if (!date) {
+        return ''
+    }
+    return dayjs(date).format('MMMM DD, YYYY h:mm:ss A')
 }
 
 // Pad numbers with leading zeros
@@ -731,7 +817,7 @@ export function isExternalLink(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    const regexp = /^(https?:|mailto:)/
+    const regexp = /^(https?:|mailto:|\/api\/)/
     return !!input.trim().match(regexp)
 }
 
@@ -800,7 +886,9 @@ export function autoCaptureEventToDescription(
     }
 
     const getValue = (): string | null => {
-        if (event.elements?.[0]?.text) {
+        if (event.properties.$el_text) {
+            return `${shortForm ? '' : 'with text '}"${event.properties.$el_text}"`
+        } else if (event.elements?.[0]?.text) {
             return `${shortForm ? '' : 'with text '}"${event.elements[0].text}"`
         } else if (event.elements?.[0]?.attributes?.['attr__aria-label']) {
             return `${shortForm ? '' : 'with aria label '}"${event.elements[0].attributes['attr__aria-label']}"`
@@ -835,9 +923,10 @@ export function determineDifferenceType(
     return 'minute'
 }
 
-const DATE_FORMAT = 'MMMM D, YYYY'
-const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
-const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
+export const DATE_FORMAT = 'MMMM D, YYYY'
+export const DATE_TIME_FORMAT = 'MMMM D, YYYY HH:mm:ss'
+export const DATE_FORMAT_WITHOUT_YEAR = 'MMMM D'
+export const DATE_FORMAT_WITHOUT_DAY = 'HH:mm:ss'
 
 export const formatDate = (date: dayjs.Dayjs, format?: string): string => {
     return date.format(format ?? DATE_FORMAT)
@@ -854,6 +943,51 @@ export const formatDateRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs, form
         formatFrom = DATE_FORMAT_WITHOUT_YEAR
     }
     return `${dateFrom.format(formatFrom)} - ${dateTo.format(formatTo)}`
+}
+
+export const formatDateTimeRange = (dateFrom: dayjs.Dayjs, dateTo: dayjs.Dayjs): string => {
+    const MONTHDAY = 'MMMM D'
+    const COMMA = ', '
+    const YEAR = 'YYYY '
+    const TIME = 'HH:mm'
+    const SECONDS = ':ss'
+
+    let fromComponents = [MONTHDAY, COMMA, YEAR, TIME, SECONDS]
+    let toComponents = [MONTHDAY, COMMA, YEAR, TIME, SECONDS]
+    if (dateFrom.year() === dateTo.year()) {
+        toComponents = toComponents.filter((x) => x !== YEAR)
+        if (dateTo.year() === dayjs().year()) {
+            fromComponents = fromComponents.filter((x) => x !== YEAR)
+        }
+
+        if (dateFrom.date() === dateTo.date()) {
+            toComponents = toComponents.filter((x) => x !== MONTHDAY)
+            toComponents = toComponents.filter((x) => x !== COMMA)
+            if (dateTo.date() === dayjs().date()) {
+                fromComponents = fromComponents.filter((x) => x !== MONTHDAY)
+                fromComponents = fromComponents.filter((x) => x !== COMMA)
+            }
+        }
+
+        if (dateFrom.isSame(dayjs(dateFrom).startOf('day')) && dateTo.isSame(dayjs(dateTo).startOf('day'))) {
+            fromComponents = fromComponents.filter((x) => x !== TIME)
+            toComponents = toComponents.filter((x) => x !== TIME)
+        }
+
+        if (dateFrom.second() === 0 && dateTo.second() === 0) {
+            fromComponents = fromComponents.filter((x) => x !== SECONDS)
+            toComponents = toComponents.filter((x) => x !== SECONDS)
+        }
+
+        if (!fromComponents.includes(YEAR) && !fromComponents.includes(TIME)) {
+            fromComponents = fromComponents.filter((x) => x !== COMMA)
+        }
+
+        if (!toComponents.includes(YEAR) && !toComponents.includes(TIME)) {
+            toComponents = toComponents.filter((x) => x !== COMMA)
+        }
+    }
+    return `${dateFrom.format(fromComponents.join(''))} - ${dateTo.format(toComponents.join(''))}`
 }
 
 export const dateMapping: DateMappingOption[] = [
@@ -920,11 +1054,10 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'day',
     },
     {
-        key: 'Previous month',
+        key: 'Last month',
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
-        inactive: true,
         defaultInterval: 'day',
     },
     {
@@ -953,6 +1086,8 @@ const dateOptionsMap = {
     w: 'week',
     d: 'day',
     h: 'hour',
+    M: 'minute',
+    s: 'second',
 } as const
 
 export function dateFilterToText(
@@ -1016,6 +1151,12 @@ export function dateFilterToText(
                 case 'week':
                     date = dayjs().subtract(counter * 7, 'd')
                     break
+                case 'minute':
+                    date = dayjs().subtract(counter, 'm')
+                    break
+                case 'second':
+                    date = dayjs().subtract(counter, 's')
+                    break
                 default:
                     date = dayjs().subtract(counter, 'd')
                     break
@@ -1063,8 +1204,12 @@ export function dateStringToComponents(date: string | null): DateComponents | nu
     return { amount, unit, clip: clip as 'Start' | 'End' }
 }
 
-export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset?: Dayjs): Dayjs {
-    const dayjsInstance = offset ?? dayjs()
+export function componentsToDayJs(
+    { amount, unit, clip }: DateComponents,
+    offset?: Dayjs,
+    timezone: string = 'UTC'
+): Dayjs {
+    const dayjsInstance = offset ?? dayjs().tz(timezone)
     let response: dayjs.Dayjs
     switch (unit) {
         case 'year':
@@ -1085,6 +1230,12 @@ export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset
         case 'hour':
             response = dayjsInstance.add(amount, 'hour')
             break
+        case 'minute':
+            response = dayjsInstance.add(amount, 'minute')
+            break
+        case 'second':
+            response = dayjsInstance.add(amount, 'second')
+            break
         default:
             throw new UnexpectedNeverError(unit)
     }
@@ -1098,17 +1249,30 @@ export function componentsToDayJs({ amount, unit, clip }: DateComponents, offset
 }
 
 /** Convert a string like "-30d" or "2022-02-02" or "-1mEnd" to `Dayjs().startOf('day')` */
-export function dateStringToDayJs(date: string | null): dayjs.Dayjs | null {
+export function dateStringToDayJs(date: string | null, timezone: string = 'UTC'): dayjs.Dayjs | null {
     if (isDate.test(date || '')) {
-        return dayjs(date)
+        return dayjs(date).tz(timezone)
     }
     const dateComponents = dateStringToComponents(date)
     if (!dateComponents) {
         return null
     }
-    const offset: dayjs.Dayjs = dayjs().startOf('day')
-    const response = componentsToDayJs(dateComponents, offset)
+    const offset: dayjs.Dayjs = dayjs().tz(timezone).startOf('day')
+    const response = componentsToDayJs(dateComponents, offset, timezone)
     return response
+}
+
+export function isValidRelativeOrAbsoluteDate(date: string): boolean {
+    if (isStringDateRegex.test(date)) {
+        return true
+    }
+    if (dayjs(date).isValid()) {
+        return true
+    }
+    if (date === 'all') {
+        return true
+    }
+    return false
 }
 
 export const getDefaultInterval = (dateFrom: string | null, dateTo: string | null): IntervalType => {
@@ -1129,6 +1293,15 @@ export const getDefaultInterval = (dateFrom: string | null, dateTo: string | nul
     }
 
     if (parsedDateFrom?.unit === 'day' || parsedDateTo?.unit === 'day' || dateFrom === 'mStart') {
+        return 'day'
+    }
+
+    if (
+        (parsedDateFrom?.unit === 'month' && parsedDateFrom.amount <= 3) ||
+        (parsedDateTo?.unit === 'month' && parsedDateTo.amount <= 3) ||
+        (parsedDateFrom?.unit === 'quarter' && parsedDateFrom.amount <= 1) ||
+        (parsedDateTo?.unit === 'quarter' && parsedDateTo.amount <= 1)
+    ) {
         return 'day'
     }
 
@@ -1194,6 +1367,11 @@ export const areDatesValidForInterval = (
         return (
             parsedOldDateTo.diff(parsedOldDateFrom, 'minute') >= 2 &&
             parsedOldDateTo.diff(parsedOldDateFrom, 'minute') < 60 * 12 // 12 hours. picked based on max graph resolution
+        )
+    } else if (interval === 'second') {
+        return (
+            parsedOldDateTo.diff(parsedOldDateFrom, 'second') >= 2 &&
+            parsedOldDateTo.diff(parsedOldDateFrom, 'second') < 60 * 60 // 1 hour
         )
     }
     throw new UnexpectedNeverError(interval)
@@ -1505,9 +1683,19 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
         return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
         posthog.captureException(e)
-        Sentry.captureException(e)
         return null
     }
+}
+
+export function timeZoneLabel(timeZone: string, offset: number): string {
+    const formattedZone = timeZone.replace(/\//g, ' / ').replace(/_/g, ' ')
+    const sign = offset === 0 ? '±' : offset > 0 ? '+' : '-'
+    const hours = Math.floor(Math.abs(offset))
+    const minutes = Math.round((Math.abs(offset) % 1) * 60)
+        .toString()
+        .padStart(2, '0')
+
+    return `${formattedZone} (UTC${sign}${hours}:${minutes})`
 }
 
 export function humanTzOffset(timezone?: string): string {
@@ -1700,7 +1888,7 @@ export function validateJson(value: string): boolean {
     try {
         JSON.parse(value)
         return true
-    } catch (error) {
+    } catch {
         return false
     }
 }
@@ -1708,13 +1896,9 @@ export function validateJson(value: string): boolean {
 export function tryJsonParse(value: string, fallback?: any): any {
     try {
         return JSON.parse(value)
-    } catch (error) {
+    } catch {
         return fallback
     }
-}
-
-export function validateJsonFormItem(_: any, value: string): Promise<string | void> {
-    return validateJson(value) ? Promise.resolve() : Promise.reject('Not valid JSON!')
 }
 
 export function ensureStringIsNotBlank(s?: string | null): string | null {
@@ -1748,10 +1932,6 @@ export function findLastIndex<T>(array: Array<T>, predicate: (value: T, index: n
     return -1
 }
 
-export function isEllipsisActive(e: HTMLElement | null): boolean {
-    return !!e && e.offsetWidth < e.scrollWidth
-}
-
 export function isGroupType(actor: ActorType): actor is GroupActorType {
     return actor.type === 'group'
 }
@@ -1765,24 +1945,19 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
 
-/** Sorting function for Array.prototype.sort that works for numbers and strings automatically. */
-export const autoSorter = (a: any, b: any): number => {
-    return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))
-}
-
 // https://stackoverflow.com/questions/175739/how-can-i-check-if-a-string-is-a-valid-number
-export function isNumeric(x: any): boolean {
+export function isNumeric(x: unknown): x is number {
     if (typeof x === 'number') {
-        return true
+        return !isNaN(x) && isFinite(x)
     }
-    if (typeof x != 'string') {
+    if (typeof x !== 'string' || x.trim() === '') {
         return false
     }
-    return !isNaN(Number(x)) && !isNaN(parseFloat(x))
+    return !isNaN(Number(x))
 }
 
 /**
- * Check if the argument is nullish (null or undefined).
+ * Check if the argument is not nullish (null or undefined).
  *
  * Useful as a typeguard, e.g. when passed to Array.filter()
  *
@@ -1876,6 +2051,17 @@ export function calculateDays(timeValue: number, timeUnit: TimeUnitType): number
         return timeValue * 7
     }
     return timeValue
+}
+
+// Compute the ISO week string for a given date
+// Useful above to show the toast once per week
+export function getISOWeekString(date = new Date()): string {
+    const dayjs_date = dayjs(date)
+
+    const year = dayjs_date.year()
+    const week = dayjs_date.week()
+
+    return `${year}-W${week}`
 }
 
 export function range(startOrEnd: number, end?: number): number[] {
@@ -2044,25 +2230,44 @@ export const getJSHeapMemory = (): {
     return {}
 }
 
-interface PreviewFlagsV2Config {
-    rolloutPercentage: number
-    includedHashes?: Set<string>
-    excludedHashes?: Set<string>
+export function getRelativeNextPath(nextPath: string | null | undefined, location: Location): string | null {
+    if (!nextPath || typeof nextPath !== 'string') {
+        return null
+    }
+    let decoded: string
+    try {
+        decoded = decodeURIComponent(nextPath)
+    } catch {
+        decoded = nextPath
+    }
+
+    // Protocol-relative URLs (e.g., //evil.com/test) are not allowed
+    if (decoded.startsWith('//')) {
+        return null
+    }
+
+    // Root-relative path
+    if (decoded.startsWith('/')) {
+        return decoded
+    }
+
+    // Try to parse as a full URL
+    try {
+        const url = new URL(decoded)
+        if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin === location.origin) {
+            return url.pathname + url.search + url.hash
+        }
+        return null
+    } catch {
+        return null
+    }
 }
 
-export function shouldEnablePreviewFlagsV2(apiKey: string, config: PreviewFlagsV2Config): boolean {
-    const hashHex = crypto.createHash('sha1').update(`preview_flags_v2.${apiKey}`).digest('hex')
-
-    // Check explicit includes/excludes first
-    if (config.includedHashes && config.includedHashes.has(hashHex)) {
-        return true
+export const formatPercentage = (x: number, options?: { precise?: boolean }): string => {
+    if (options?.precise) {
+        return (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
+    } else if (x >= 1000) {
+        return humanFriendlyLargeNumber(x) + '%'
     }
-    if (config.excludedHashes && config.excludedHashes.has(hashHex)) {
-        return false
-    }
-
-    // For all other keys, use percentage rollout
-    // Use first 8 characters of hash for percentage calculation to avoid floating point precision issues
-    const normalizedHash = parseInt(hashHex.slice(0, 8), 16) / 0xffffffff
-    return normalizedHash <= config.rolloutPercentage / 100
+    return (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
 }

@@ -38,26 +38,41 @@ describe('reverseProxyCheckerLogic', () => {
         useMockedValues([])
 
         logic.mount()
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({
-            hasReverseProxy: false,
+
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
         })
+            .toFinishAllListeners()
+            .toMatchValues({
+                hasReverseProxy: false,
+            })
     })
 
     it('should not have a reverse proxy set - when data with no lib_custom_api_host values', async () => {
         useMockedValues(doesNotHaveReverseProxyValues)
 
         logic.mount()
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({
-            hasReverseProxy: false,
+
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
         })
+            .toFinishAllListeners()
+            .toMatchValues({
+                hasReverseProxy: false,
+            })
     })
 
     it('should have a reverse proxy set', async () => {
         useMockedValues(hasReverseProxyValues)
 
         logic.mount()
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({
-            hasReverseProxy: true,
+
+        await expectLogic(logic, () => {
+            logic.actions.loadHasReverseProxy()
         })
+            .toFinishAllListeners()
+            .toMatchValues({
+                hasReverseProxy: true,
+            })
     })
 })

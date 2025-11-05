@@ -1,44 +1,260 @@
 # This module is responsible for adding tags/metadata to outgoing clickhouse queries in a thread-safe manner
-
-import threading
-from typing import Any, Optional
+import uuid
+import contextvars
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
+from enum import StrEnum
+from typing import Any, Optional
 
-thread_local_storage = threading.local()
+# from posthog.clickhouse.client.connection import Workload
+# from posthog.schema import PersonsOnEventsMode
+from cachetools import cached
+from pydantic import BaseModel, ConfigDict
 
 
-def get_query_tags():
+class AccessMethod(StrEnum):
+    PERSONAL_API_KEY = "personal_api_key"
+    OAUTH = "oauth"
+
+
+class Product(StrEnum):
+    API = "api"
+    BATCH_EXPORT = "batch_export"
+    FEATURE_FLAGS = "feature_flags"
+    MAX_AI = "max_ai"
+    MESSAGING = "messaging"
+    WORKFLOWS = "workflows"
+    PRODUCT_ANALYTICS = "product_analytics"
+    REPLAY = "replay"
+    SESSION_SUMMARY = "session_summary"
+    WAREHOUSE = "warehouse"
+    EXPERIMENTS = "experiments"
+    SDK_DOCTOR = "sdk_doctor"
+
+
+class Feature(StrEnum):
+    BEHAVIORAL_COHORTS = "behavioral_cohorts"
+    COHORT = "cohort"
+    QUERY = "query"
+    INSIGHT = "insight"
+    DASHBOARD = "dashboard"
+    CACHE_WARMUP = "cache_warmup"
+    DATA_MODELING = "data_modeling"
+    IMPORT_PIPELINE = "import_pipeline"
+
+
+class TemporalTags(BaseModel):
+    """
+    Tags for temporalio workflows and activities.
+    """
+
+    workflow_namespace: Optional[str] = None
+    workflow_type: Optional[str] = None
+    workflow_id: Optional[str] = None
+    workflow_run_id: Optional[str] = None
+    activity_type: Optional[str] = None
+    activity_id: Optional[str] = None
+    attempt: Optional[int] = None
+
+    model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
+
+
+class DagsterTags(BaseModel):
+    """
+    Tags for Dagster runs
+
+    Check: https://docs.dagster.io/api/dagster/internals#dagster.DagsterRun
+    """
+
+    job_name: Optional[str] = None
+    run_id: Optional[str] = None
+    tags: Optional[dict[str, str]] = None
+    root_run_id: Optional[str] = None
+    parent_run_id: Optional[str] = None
+    job_snapshot_id: Optional[str] = None
+    execution_plan_snapshot_id: Optional[str] = None
+
+    op_name: Optional[str] = None
+    asset_key: Optional[str] = None
+
+
+class QueryTags(BaseModel):
+    team_id: Optional[int] = None
+    user_id: Optional[int] = None
+    access_method: Optional[AccessMethod] = None
+    api_key_mask: Optional[str] = None
+    api_key_label: Optional[str] = None
+    org_id: Optional[uuid.UUID] = None
+    product: Optional[Product] = None
+
+    # at this moment: request for HTTP request, celery, dagster and temporal are used, please don't use others.
+    kind: Optional[str] = None
+    id: Optional[str] = None
+    session_id: Optional[uuid.UUID] = None
+
+    # temporalio tags
+    temporal: Optional[TemporalTags] = None
+    # dagster specific tags
+    dagster: Optional[DagsterTags] = None
+
+    query: Optional[object] = None
+    query_settings: Optional[object] = None
+    query_time_range_days: Optional[int] = None
+    query_type: Optional[str] = None
+
+    route_id: Optional[str] = None
+    workload: Optional[str] = None  # enum connection.Workload
+    dashboard_id: Optional[int] = None
+    insight_id: Optional[int] = None
+    exported_asset_id: Optional[int] = None
+    export_format: Optional[str] = None
+    chargeable: Optional[int] = None
+    request_name: Optional[str] = None
+    name: Optional[str] = None
+
+    http_referer: Optional[str] = None
+    http_request_id: Optional[uuid.UUID] = None
+    http_user_agent: Optional[str] = None
+
+    alert_config_id: Optional[uuid.UUID] = None
+    batch_export_id: Optional[uuid.UUID] = None
+    cache_key: Optional[str] = None
+    celery_task_id: Optional[uuid.UUID] = None
+    clickhouse_exception_type: Optional[str] = None
+    client_query_id: Optional[str] = None
+    cohort_id: Optional[int] = None
+    entity_math: Optional[list[str]] = None
+
+    # replays
+    replay_playlist_id: Optional[int] = None
+
+    # experiments
+    experiment_feature_flag_key: Optional[str] = None
+    experiment_id: Optional[int] = None
+    experiment_name: Optional[str] = None
+    experiment_is_data_warehouse_query: Optional[bool] = None
+
+    feature: Optional[Feature] = None
+    filter: Optional[object] = None
+    filter_by_type: Optional[list[str]] = None
+    breakdown_by: Optional[list[str]] = None
+
+    # data warehouse
+    trend_volume_display: Optional[str] = None
+    table_id: Optional[uuid.UUID] = None
+    warehouse_query: Optional[bool] = None
+
+    trend_volume_type: Optional[str] = None
+
+    has_joins: Optional[bool] = None
+    has_json_operations: Optional[bool] = None
+
+    modifiers: Optional[object] = None
+    number_of_entities: Optional[int] = None
+    person_on_events_mode: Optional[str] = None  # PersonsOnEventsMode
+
+    timings: Optional[dict[str, float]] = None
+    trigger: Optional[str] = None
+
+    # used by billing
+    usage_report: Optional[str] = None
+
+    user_email: Optional[str] = None
+
+    # constant query tags
+    git_commit: Optional[str] = None
+    container_hostname: Optional[str] = None
+    service_name: Optional[str] = None
+
+    model_config = ConfigDict(validate_assignment=True, use_enum_values=True)
+
+    def update(self, **kwargs):
+        for field, value in kwargs.items():
+            setattr(self, field, value)
+
+    def with_temporal(self, temporal_tags: TemporalTags):
+        self.kind = "temporal"
+        self.temporal = temporal_tags
+
+    def with_dagster(self, dagster_tags: DagsterTags):
+        """Tags for dagster runs and activities."""
+        self.kind = "dagster"
+        self.dagster = dagster_tags
+
+    def to_json(self) -> str:
+        return self.model_dump_json(exclude_none=True)
+
+
+query_tags: contextvars.ContextVar = contextvars.ContextVar("query_tags")
+
+
+@cached(cache={})
+def __get_constant_tags() -> dict[str, str]:
+    # import locally to avoid circular imports
+    from posthog.settings import CONTAINER_HOSTNAME, OTEL_SERVICE_NAME, TEST
+
+    if TEST:
+        return {"git_commit": "test", "container_hostname": "test", "service_name": "test"}
+
+    from posthog.git import get_git_commit_short
+
+    return {
+        "git_commit": get_git_commit_short() or "",
+        "container_hostname": CONTAINER_HOSTNAME,
+        "service_name": OTEL_SERVICE_NAME or "",
+    }
+
+
+def create_base_tags(**kwargs) -> QueryTags:
+    return QueryTags(**{**kwargs, **__get_constant_tags()})
+
+
+def get_query_tags() -> QueryTags:
     try:
-        return thread_local_storage.query_tags
-    except AttributeError:
-        return {}
+        qt = query_tags.get()
+    except LookupError:
+        qt = create_base_tags()
+        query_tags.set(qt)
+    return qt
 
 
 def get_query_tag_value(key: str) -> Optional[Any]:
     try:
-        return thread_local_storage.query_tags[key]
+        return getattr(get_query_tags(), key)
     except (AttributeError, KeyError):
         return None
 
 
-def tag_queries(**kwargs):
-    tags = {key: value for key, value in kwargs.items() if value is not None}
-    try:
-        thread_local_storage.query_tags.update(tags)
-    except AttributeError:
-        thread_local_storage.query_tags = tags
+def update_tags(new_query_tags: QueryTags):
+    current_tags = get_query_tags()
+    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags.update(**new_query_tags.model_dump(exclude_none=True))
+    query_tags.set(updated_tags)
+
+
+def tag_queries(**kwargs) -> None:
+    """
+    The purpose of tag_queries is to pass additional context for ClickHouse executed queries. The tags
+    are serialized into ClickHouse' system.query_log.log_comment column.
+
+    :param kwargs: Key->value pairs of tags to be set.
+    """
+    current_tags = get_query_tags()
+    updated_tags = current_tags.model_copy(deep=True)
+    updated_tags.update(**kwargs)
+    query_tags.set(updated_tags)
 
 
 def clear_tag(key):
-    try:
-        thread_local_storage.query_tags.pop(key, None)
-    except AttributeError:
-        pass
+    with suppress(LookupError):
+        current_tags = query_tags.get()
+        updated_tags = current_tags.model_copy(deep=True)
+        setattr(updated_tags, key, None)
+        query_tags.set(updated_tags)
 
 
 def reset_query_tags():
-    thread_local_storage.query_tags = {}
+    query_tags.set(create_base_tags())
 
 
 class QueryCounter:
@@ -74,10 +290,12 @@ def tags_context(**tags_to_set: Any) -> Generator[None, None, None]:
         # tags will be restored to original state after context
     ```
     """
+    tags_copy: Optional[QueryTags] = None
     try:
-        original_tags = dict(get_query_tags())  # Make a copy of current tags
+        tags_copy = get_query_tags().model_copy(deep=True)
         if tags_to_set:
             tag_queries(**tags_to_set)
         yield
     finally:
-        thread_local_storage.query_tags = original_tags
+        if tags_copy:
+            query_tags.set(tags_copy)

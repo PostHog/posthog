@@ -1,16 +1,18 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { useLayoutEffect, useRef } from 'react'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import { capitalizeFirstLetter } from 'lib/utils'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { Notebook } from 'scenes/notebooks/Notebook/Notebook'
-import { JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 
 import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { getQueryFromInsightLike } from '~/queries/nodes/InsightViz/utils'
 
+import { JSONContent } from '../RichContentEditor/types'
 import { tabToName } from './constants'
 import { searchBarLogic } from './searchBarLogic'
 import { SearchResult as ResultType } from './types'
@@ -63,12 +65,14 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
                 ref={ref}
             >
                 <div className="px-2 py-3 w-full gap-y-0.5 flex flex-col items-start">
-                    <span className="text-muted-3000 text-xs">
-                        {result.type !== 'group'
-                            ? tabToName[result.type]
-                            : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
+                    <span className="text-tertiary text-xs">
+                        {result.type === 'tree_item'
+                            ? `Product`
+                            : result.type !== 'group'
+                              ? tabToName[result.type]
+                              : `${capitalizeFirstLetter(aggregationLabel(result.extra_fields.group_type_index).plural)}`}
                     </span>
-                    <span className="text-text-3000 font-bold">
+                    <span className="text-primary font-bold">
                         <ResultName result={result} />
                     </span>
                 </div>
@@ -101,6 +105,12 @@ export const ResultName = ({ result }: ResultNameProps): JSX.Element | null => {
         return <span>{extra_fields.title}</span>
     } else if (type === 'group') {
         return <span>{groupDisplayId(extra_fields.group_key, extra_fields.group_properties)}</span>
+    } else if (type === 'tree_item') {
+        return (
+            <span className="flex gap-x-1">
+                {extra_fields.icon} {extra_fields.path}
+            </span>
+        )
     }
     return <span>{extra_fields.name}</span>
 }

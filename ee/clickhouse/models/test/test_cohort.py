@@ -1,38 +1,42 @@
+import re
 import uuid
 from datetime import datetime, timedelta
-import re
 from typing import Optional
 
-from django.utils import timezone
 from freezegun import freeze_time
-from rest_framework.exceptions import ValidationError
-
-from posthog.clickhouse.client import sync_execute
-from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
-from posthog.hogql.hogql import HogQLContext
-from posthog.models.action import Action
-from posthog.models.cohort import Cohort, get_and_update_pending_version
-from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
-from posthog.models.cohort.util import format_filter_query
-from posthog.models.filters import Filter
-from posthog.models.organization import Organization
-from posthog.models.person import Person
-from posthog.models.property.util import parse_prop_grouped_clauses
-from posthog.models.team import Team
-from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
-from posthog.queries.util import PersonPropertiesMode
-from posthog.schema import PersonsOnEventsMode
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_insert_cohortpeople_queries,
     snapshot_clickhouse_queries,
-    also_test_with_materialized_columns,
 )
+
+from django.utils import timezone
+
+from rest_framework.exceptions import ValidationError
+
+from posthog.schema import PersonsOnEventsMode
+
+from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
+from posthog.hogql.hogql import HogQLContext
+
+from posthog.clickhouse.client import sync_execute
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
+from posthog.models.cohort.util import format_filter_query
+from posthog.models.filters import Filter
+from posthog.models.organization import Organization
+from posthog.models.person import Person
 from posthog.models.person.sql import GET_LATEST_PERSON_SQL, GET_PERSON_IDS_BY_FILTER
+from posthog.models.property.util import parse_prop_grouped_clauses
+from posthog.models.team import Team
+from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
+from posthog.queries.util import PersonPropertiesMode
 
 
 def _create_action(**kwargs):
@@ -1098,8 +1102,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
         )
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
+        self.assertEqual(len(result), 2)  # because we didn't precalculate the cohort, both people are in the cohort
+        distinct_ids = [r[1] for r in result]
+        self.assertCountEqual(distinct_ids, ["1", "2"])
 
     @snapshot_clickhouse_insert_cohortpeople_queries
     def test_cohortpeople_with_not_in_cohort_operator_for_behavioural_cohorts(self):
@@ -1368,6 +1373,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             name="cohort1",
         )
 
+        self.calculate_cohort_hogql_test_harness(cohort2, 0)
         self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
         result = self._get_cohortpeople(cohort1)
@@ -1493,20 +1499,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         self.assertCountEqual([r[0] for r in results_team1], [person2_team1.uuid])
         self.assertCountEqual([r[0] for r in results_team2], [person1_team2.uuid])
-
-    def test_increment_cohort(self):
-        cohort1 = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
-            name="cohort1",
-            pending_version=None,
-        )
-        new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 1
-        new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 2
-        new_version = get_and_update_pending_version(cohort1)
-        assert new_version == 3
 
     def test_cohortpeople_action_all_events(self):
         # Create an action that matches all events (no specific event defined)
@@ -1799,6 +1791,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             },
             name="cohort_3",
         )
+        self.calculate_cohort_hogql_test_harness(cohort_1, 0)
+        self.calculate_cohort_hogql_test_harness(cohort_2, 0)
         self.calculate_cohort_hogql_test_harness(cohort_3, 0)
 
         results = self._get_cohortpeople(cohort_3)

@@ -15,7 +15,7 @@ use cymbal::{
 use metrics::histogram;
 use rdkafka::types::RDKafkaErrorCode;
 use tokio::task::JoinHandle;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 common_alloc::used!();
@@ -103,7 +103,7 @@ async fn main() {
                     offsets.push(offset);
                 }
                 Err(RecvErr::Kafka(e)) => {
-                    panic!("Kafka error: {}", e)
+                    panic!("Kafka error: {e}")
                 }
                 Err(err) => {
                     // If we failed to parse the message, or it was empty, just log and continue, our
@@ -118,13 +118,13 @@ async fn main() {
 
         histogram!(EVENT_BATCH_SIZE).record(to_process.len() as f64);
         let handle_batch_start = common_metrics::timing_guard(HANDLE_BATCH_TIME, &[]);
-        let processed = match handle_batch(to_process, context.clone()).await {
+        let processed = match handle_batch(to_process, &offsets, context.clone()).await {
             Ok(events) => events,
             Err(failure) => {
                 let (index, err) = (failure.index, failure.error);
                 let offset = &offsets[index];
                 error!("Error handling event: {:?}; offset: {:?}", err, offset);
-                panic!("Unhandled error: {:?}; offset: {:?}", err, offset);
+                panic!("Unhandled error: {err:?}; offset: {offset:?}");
             }
         };
         handle_batch_start.label("outcome", "completed").fin();
@@ -135,7 +135,7 @@ async fn main() {
             Ok(txn) => txn,
             Err(e) => {
                 error!("Failed to start kafka transaction, {:?}", e);
-                panic!("Failed to start kafka transaction: {:?}", e);
+                panic!("Failed to start kafka transaction: {e:?}");
             }
         };
 
@@ -144,6 +144,7 @@ async fn main() {
         metrics::counter!(EVENTS_WRITTEN).increment(to_emit.len() as u64);
 
         let emit_time = common_metrics::timing_guard(EMIT_EVENTS_TIME, &[]);
+        debug!("Emitting {} events", to_emit.len());
         let results = txn
             .send_keyed_iter_to_kafka(
                 &context.config.events_topic,
@@ -174,10 +175,7 @@ async fn main() {
                         "Failed to send event to kafka: {:?}, related to offset {:?}",
                         e, offset
                     );
-                    panic!(
-                        "Failed to send event to kafka: {:?}, related to offset {:?}",
-                        e, offset
-                    );
+                    panic!("Failed to send event to kafka: {e:?}, related to offset {offset:?}");
                 }
             }
         }
@@ -195,10 +193,7 @@ async fn main() {
                     "Failed to associate offsets with kafka transaction, {:?}",
                     e
                 );
-                panic!(
-                    "Failed to associate offsets with kafka transaction, {:?}",
-                    e
-                );
+                panic!("Failed to associate offsets with kafka transaction, {e:?}");
             }
         }
 
@@ -206,7 +201,7 @@ async fn main() {
             Ok(_) => {}
             Err(e) => {
                 error!("Failed to commit kafka transaction, {:?}", e);
-                panic!("Failed to commit kafka transaction, {:?}", e);
+                panic!("Failed to commit kafka transaction, {e:?}");
             }
         }
 

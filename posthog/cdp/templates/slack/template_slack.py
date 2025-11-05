@@ -1,7 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionSubTemplate, SUB_TEMPLATE_COMMON
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="stable",
     free=True,
     type="destination",
@@ -10,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Sends a message to a Slack channel",
     icon_url="/static/services/slack.png",
     category=["Customer Success"],
-    hog="""
+    code_language="hog",
+    code="""
 let res := fetch('https://slack.com/api/chat.postMessage', {
   'body': {
     'channel': inputs.channel,
@@ -113,177 +113,5 @@ if (res.status != 200 or res.body.ok == false) {
             "required": False,
             "hidden": False,
         },
-    ],
-    sub_templates=[
-        HogFunctionSubTemplate(
-            id="early-access-feature-enrollment",
-            name="Post to Slack on feature enrollment",
-            # description="Posts a message to Slack when a user enrolls or un-enrolls in an early access feature",
-            filters=SUB_TEMPLATE_COMMON["early-access-feature-enrollment"].filters,
-            input_schema_overrides={
-                "blocks": {
-                    "default": [
-                        {
-                            "text": {
-                                "text": "*{person.name}* {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'",
-                                "type": "mrkdwn",
-                            },
-                            "type": "section",
-                        },
-                        {
-                            "type": "actions",
-                            "elements": [
-                                {
-                                    "url": "{person.url}",
-                                    "text": {"text": "View Person in PostHog", "type": "plain_text"},
-                                    "type": "button",
-                                },
-                            ],
-                        },
-                    ],
-                },
-                "text": {
-                    "default": "*{person.name}* {event.properties.$feature_enrollment ? 'enrolled in' : 'un-enrolled from'} the early access feature for '{event.properties.$feature_flag}'",
-                },
-            },
-        ),
-        HogFunctionSubTemplate(
-            id="survey-response",
-            name="Post to Slack on survey response",
-            description="Posts a message to Slack when a user responds to a survey",
-            filters=SUB_TEMPLATE_COMMON["survey-response"].filters,
-            input_schema_overrides={
-                "blocks": {
-                    "default": [
-                        {
-                            "text": {
-                                "text": "*{person.name}* responded to survey *{event.properties.$survey_name}*",
-                                "type": "mrkdwn",
-                            },
-                            "type": "section",
-                        },
-                        {
-                            "type": "actions",
-                            "elements": [
-                                {
-                                    "url": "{project.url}/surveys/{event.properties.$survey_id}",
-                                    "text": {"text": "View Survey", "type": "plain_text"},
-                                    "type": "button",
-                                },
-                                {
-                                    "url": "{person.url}",
-                                    "text": {"text": "View Person", "type": "plain_text"},
-                                    "type": "button",
-                                },
-                            ],
-                        },
-                    ],
-                },
-                "text": {
-                    "default": "*{person.name}* responded to survey *{event.properties.$survey_name}*",
-                },
-            },
-        ),
-        HogFunctionSubTemplate(
-            id="activity-log",
-            name="Post to Slack on team activity",
-            description="",
-            filters=SUB_TEMPLATE_COMMON["activity-log"].filters,
-            type="internal_destination",
-            input_schema_overrides={
-                "blocks": {
-                    "default": [
-                        {
-                            "text": {
-                                "text": "*{person.properties.email}* {event.properties.activity} {event.properties.scope} {event.properties.item_id} ",
-                                "type": "mrkdwn",
-                            },
-                            "type": "section",
-                        }
-                    ],
-                },
-                "text": {
-                    "default": "*{person.properties.email}* {event.properties.activity} {event.properties.scope} {event.properties.item_id}",
-                },
-            },
-        ),
-        HogFunctionSubTemplate(
-            name="Post to Slack on issue created",
-            description="Post to a Slack channel when an issue is created",
-            id=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].id,
-            type=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].type,
-            filters=SUB_TEMPLATE_COMMON["error-tracking-issue-created"].filters,
-            input_schema_overrides={
-                "blocks": {
-                    "default": [
-                        {"type": "header", "text": {"type": "plain_text", "text": "🔴 {event.properties.name}"}},
-                        {"type": "section", "text": {"type": "plain_text", "text": "New issue created"}},
-                        {"type": "section", "text": {"type": "mrkdwn", "text": "```{event.properties.description}```"}},
-                        {
-                            "type": "context",
-                            "elements": [
-                                {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
-                                {"type": "mrkdwn", "text": "Alert: <{source.url}|{source.name}>"},
-                            ],
-                        },
-                        {"type": "divider"},
-                        {
-                            "type": "actions",
-                            "elements": [
-                                {
-                                    "url": "{project.url}/error_tracking/{event.distinct_id}",
-                                    "text": {"text": "View Issue", "type": "plain_text"},
-                                    "type": "button",
-                                }
-                            ],
-                        },
-                    ],
-                    "hidden": True,
-                },
-                "text": {
-                    "default": "New issue created: {event.properties.name}",
-                    "hidden": True,
-                },
-            },
-        ),
-        HogFunctionSubTemplate(
-            name="Post to Slack on issue reopened",
-            description="Post to a Slack channel when an issue is reopened",
-            id=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].id,
-            type=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].type,
-            filters=SUB_TEMPLATE_COMMON["error-tracking-issue-reopened"].filters,
-            input_schema_overrides={
-                "blocks": {
-                    "default": [
-                        {"type": "header", "text": {"type": "plain_text", "text": "🔄 {event.properties.name}"}},
-                        {"type": "section", "text": {"type": "plain_text", "text": "Issue reopened"}},
-                        {"type": "section", "text": {"type": "mrkdwn", "text": "```{event.properties.description}```"}},
-                        {
-                            "type": "context",
-                            "elements": [
-                                {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
-                                {"type": "mrkdwn", "text": "Alert: <{source.url}|{source.name}>"},
-                            ],
-                        },
-                        {"type": "divider"},
-                        {
-                            "type": "actions",
-                            "elements": [
-                                {
-                                    "url": "{project.url}/error_tracking/{event.distinct_id}",
-                                    "text": {"text": "View Issue", "type": "plain_text"},
-                                    "type": "button",
-                                }
-                            ],
-                        },
-                    ],
-                    "hidden": True,
-                },
-                "text": {
-                    "default": "Issue reopened: {event.properties.name}",
-                    "hidden": True,
-                },
-            },
-        ),
     ],
 )

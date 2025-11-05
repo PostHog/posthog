@@ -1,9 +1,11 @@
 import dataclasses
 from copy import deepcopy
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+
 from posthog.hogql.escape_sql import escape_hogql_string
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
+
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -12,7 +14,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Avo",
     icon_url="/static/services/avo.png",
     category=["Analytics"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.apiKey) or empty(inputs.environment)) {
     print('API Key and environment has to be set. Skipping...')
     return
@@ -137,6 +140,8 @@ class TemplateAvoMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         apiKey = obj.config.get("avoApiKey", "")
         environment = obj.config.get("environment", "dev")

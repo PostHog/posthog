@@ -2,24 +2,27 @@ import './InsightTooltip.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { InsightLabel } from 'lib/components/InsightLabel'
-import { IconHandClick } from 'lib/lemon-ui/icons'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { shortTimeZone } from 'lib/utils'
 import { ReactNode } from 'react'
+
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { dayjs } from 'lib/dayjs'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { IconHandClick } from 'lib/lemon-ui/icons'
+import { shortTimeZone } from 'lib/utils'
 import { formatAggregationValue } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 
 import {
     COL_CUTOFF,
-    getFormattedDate,
-    getTooltipTitle,
     InsightTooltipProps,
-    invertDataSource,
     InvertedSeriesDatum,
     ROW_CUTOFF,
     SeriesDatum,
+    getFormattedDate,
+    getTooltipTitle,
+    invertDataSource,
 } from './insightTooltipUtils'
 
 export function ClickToInspectActors({
@@ -45,7 +48,7 @@ export function ClickToInspectActors({
 }
 
 function renderDatumToTableCell(
-    datumMathProperty: string | undefined,
+    datumMathProperty: string | undefined | null,
     datumValue: number | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction,
     renderCount: (value: number) => React.ReactNode,
@@ -82,31 +85,40 @@ export function InsightTooltip({
     embedded = false,
     hideColorCol = false,
     hideInspectActorsSection = false,
-    formula,
     rowCutoff = ROW_CUTOFF,
     colCutoff = COL_CUTOFF,
     showHeader = true,
     groupTypeLabel = 'people',
     breakdownFilter,
+    interval,
+    dateRange,
 }: InsightTooltipProps): JSX.Element {
-    // If multiple entities exist (i.e., pageview + autocapture) and there is a breakdown/compare/multi-group happening, itemize entities as columns to save vertical space..
-    // If only a single entity exists, itemize entity counts as rows.
-    // Throw these rules out the window if `formula` is set
+    // Display entities as columns if multiple exist (e.g., pageview + autocapture, or multiple formulas)
+    // and the insight has a breakdown or compare option enabled. This gives us space for labels
+    // in the first column of each row.
     const itemizeEntitiesAsColumns =
-        !!formula ||
-        ((seriesData?.length ?? 0) > 1 &&
-            (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined))
+        (seriesData?.length ?? 0) > 1 &&
+        (seriesData?.[0]?.breakdown_value !== undefined || seriesData?.[0]?.compare_label !== undefined)
 
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { weekStartDay } = useValues(teamLogic)
+    const formattedDate = getFormattedDate(date, {
+        interval,
+        dateRange,
+        timezone,
+        weekStartDay,
+    })
+
+    const concreteTooltipTitle = altTitle ? getTooltipTitle(seriesData, altTitle, formattedDate) : null
 
     const title: ReactNode | null =
-        getTooltipTitle(seriesData, altTitle, date) ||
+        concreteTooltipTitle ||
         (date
-            ? `${getFormattedDate(date, seriesData?.[0]?.filter?.interval)} (${
-                  timezone ? shortTimeZone(timezone) : 'UTC'
-              })`
+            ? `${interval === 'day' ? `${dayjs.tz(date, timezone).format('dddd')}, ` : ''}${formattedDate} (${timezone ? shortTimeZone(timezone) : 'UTC'})`
             : null)
-    const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
+    const rightTitle: ReactNode | null = altRightTitle
+        ? getTooltipTitle(seriesData, altRightTitle, formattedDate)
+        : null
 
     if (itemizeEntitiesAsColumns) {
         hideColorCol = true
@@ -132,20 +144,22 @@ export function InsightTooltip({
                 colCutoff
             )
             const dataColumns: LemonTableColumn<InvertedSeriesDatum, keyof InvertedSeriesDatum | undefined>[] = []
-            truncatedCols.forEach((seriesColumn, colIdx) => {
+            truncatedCols.forEach((seriesColumn) => {
+                const colIdx = seriesColumn.order
                 dataColumns.push({
                     key: colIdx.toString(),
                     className: 'datum-counts-column',
                     align: 'right',
                     title:
                         (colIdx === 0 ? rightTitle : undefined) ||
-                        (!altTitle &&
+                        (!concreteTooltipTitle &&
+                            numDataPoints > 1 &&
                             renderSeries(
                                 <InsightLabel
                                     action={seriesColumn.action}
                                     fallbackName={seriesColumn.label}
-                                    hideBreakdown
                                     showSingleName
+                                    hideBreakdown
                                     hideCompare
                                     hideIcon
                                     allowWrap
@@ -154,7 +168,9 @@ export function InsightTooltip({
                                 colIdx
                             )),
                     render: function renderSeriesColumnData(_, datum) {
-                        const seriesColumnData: SeriesDatum | undefined = datum.seriesData?.[colIdx]
+                        const seriesColumnData: SeriesDatum | undefined = datum.seriesData.find(
+                            (s) => s.order === colIdx
+                        )
                         return renderDatumToTableCell(
                             seriesColumnData?.action?.math_property,
                             seriesColumnData?.count,
@@ -165,11 +181,12 @@ export function InsightTooltip({
                     },
                 })
             })
-            dataColumns.sort(
-                (a, b) =>
-                    (truncatedCols[parseInt(a.key as string)]?.action?.order || 0) -
-                    (truncatedCols[parseInt(b.key as string)]?.action?.order || 0)
-            )
+            dataColumns.sort((a, b) => {
+                const itemA = truncatedCols?.find((s) => s.order === parseInt(a.key as string))
+                const itemB = truncatedCols?.find((s) => s.order === parseInt(b.key as string))
+
+                return (itemA?.order || 0) - (itemB?.order || 0)
+            })
             columns.push(...dataColumns)
         }
 
@@ -197,7 +214,7 @@ export function InsightTooltip({
 
     columns.push({
         key: 'datum',
-        width: 120,
+        width: 200,
         title: <span className="whitespace-nowrap">{title}</span>,
         sticky: true,
         render: function renderDatum(_, datum, rowIdx) {
@@ -205,8 +222,8 @@ export function InsightTooltip({
                 <InsightLabel
                     action={datum.action}
                     fallbackName={datum.label}
-                    hideBreakdown
                     showSingleName
+                    hideBreakdown
                     hideCompare
                     hideIcon
                     allowWrap

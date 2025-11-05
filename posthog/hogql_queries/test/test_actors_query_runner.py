@@ -1,40 +1,47 @@
+from datetime import UTC, datetime
 from typing import cast
 
 import pytest
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
-from posthog.hogql import ast
-from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.hogql.visitor import clear_locations
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.group.util import create_group
-from posthog.models.utils import UUIDT
+from django.test import override_settings
+
 from posthog.schema import (
     ActorsQuery,
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
-    EventPropertyFilter,
-    PersonPropertyFilter,
-    HogQLPropertyFilter,
-    PropertyOperator,
-    HogQLQuery,
-    LifecycleQuery,
     DateRange,
+    EventPropertyFilter,
     EventsNode,
-    IntervalType,
+    FunnelsActorsQuery,
+    FunnelsQuery,
+    HogQLPropertyFilter,
+    HogQLQuery,
+    HogQLQueryModifiers,
     InsightActorsQuery,
+    IntervalType,
+    LifecycleQuery,
+    PersonPropertyFilter,
+    PersonsArgMaxVersion,
+    PersonsOnEventsMode,
+    PropertyOperator,
     TrendsQuery,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    flush_persons_and_events,
-    _create_event,
-)
-from freezegun import freeze_time
-from django.test import override_settings
+
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql.visitor import clear_locations
+
+from posthog.clickhouse.client import sync_execute
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.models.group.util import create_group
+from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.models.utils import UUIDT
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -172,6 +179,80 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = self._create_runner(ActorsQuery(select=["properties.email as email"]))
         results = runner.calculate().results
         self.assertEqual(results[0], [f"jacob0@{self.random_uuid}.posthog.com"])
+
+    def test_persons_query_order_by_person_display_name(self):
+        _create_person(
+            properties={"email": "tom@posthog.com"},
+            distinct_ids=["2", "some-random-uid"],
+            team=self.team,
+        )
+        _create_person(
+            properties={"email": "arthur@posthog.com"},
+            distinct_ids=["7", "another-random-uid"],
+            team=self.team,
+        )
+        _create_person(
+            properties={"email": "chris@posthog.com"},
+            distinct_ids=["3", "yet-another-random-uid"],
+            team=self.team,
+        )
+        flush_persons_and_events()
+        test_cases = [
+            (
+                "ascending",
+                ["person_display_name -- Person ASC"],
+                ["arthur@posthog.com", "chris@posthog.com", "tom@posthog.com"],
+            ),
+            (
+                "descending",
+                ["person_display_name -- Person DESC"],
+                ["tom@posthog.com", "chris@posthog.com", "arthur@posthog.com"],
+            ),
+            ("no ordering", [], ["tom@posthog.com", "arthur@posthog.com", "chris@posthog.com"]),
+        ]
+        for msg, order_by, expected in test_cases:
+            with self.subTest(msg):
+                runner = self._create_runner(ActorsQuery(select=["person_display_name -- Person"], orderBy=order_by))
+                results = runner.calculate().results
+                response_order = [person[0]["display_name"] for person in results]
+                self.assertEqual(response_order, expected)
+
+    def test_persons_query_order_by_person_display_name_when_column_is_not_selected(self):
+        _create_person(
+            properties={"email": "tom@posthog.com", "name": "Tom"},
+            distinct_ids=["2", "some-random-uid"],
+            team=self.team,
+        )
+        _create_person(
+            properties={"email": "arthur@posthog.com", "name": "Arthur"},
+            distinct_ids=["7", "another-random-uid"],
+            team=self.team,
+        )
+        _create_person(
+            properties={"email": "chris@posthog.com", "name": "Chris"},
+            distinct_ids=["3", "yet-another-random-uid"],
+            team=self.team,
+        )
+        flush_persons_and_events()
+        test_cases = [
+            (
+                "ascending",
+                ["person_display_name -- Person ASC"],
+                ["Arthur", "Chris", "Tom"],
+            ),
+            (
+                "descending",
+                ["person_display_name -- Person DESC"],
+                ["Tom", "Chris", "Arthur"],
+            ),
+            ("no ordering", [], ["Tom", "Arthur", "Chris"]),
+        ]
+        for msg, order_by, expected in test_cases:
+            with self.subTest(msg):
+                runner = self._create_runner(ActorsQuery(select=["properties.name"], orderBy=order_by))
+                results = runner.calculate().results
+                response_order = [person[0] for person in results]
+                self.assertEqual(response_order, expected)
 
     def test_persons_query_limit(self):
         self.random_uuid = self._create_random_persons()
@@ -430,7 +511,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 3
 
     def test_default_group_actors_query(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -505,3 +586,165 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         group = response.results[1][0]
         assert group["id"] == "org2"
         assert set(group.keys()) == {"id", "group_type_index"}
+
+    @patch("posthog.hogql_queries.insights.paginators.execute_hogql_query", wraps=execute_hogql_query)
+    def test_funnel_source_with_poe_mode(self, spy_execute_hogql_query):
+        self.team.modifiers = {
+            **(self.team.modifiers or {}),
+            "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+        }
+        self.team.save()
+
+        self.random_uuid = self._create_random_persons()
+        funnel_query = FunnelsQuery(
+            series=[
+                EventsNode(event="clicky-1"),
+                EventsNode(event="clicky-2"),
+            ],
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+        )
+
+        runner = self._create_runner(ActorsQuery(source=FunnelsActorsQuery(funnelStep=1, source=funnel_query)))
+
+        runner.calculate()
+
+        # Verify that execute_hogql_query was called with the correct modifiers
+        called_modifiers: HogQLQueryModifiers = spy_execute_hogql_query.call_args[1]["modifiers"]
+        self.assertEqual(called_modifiers.personsOnEventsMode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
+
+    def test_person_display_name_default(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User"},
+        )
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {"user@email.com"}
+
+    def test_person_display_name_custom(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User", "numeric_prop": 123},
+        )
+        self.team.person_display_name_properties = ["name", "numeric_prop"]
+        self.team.save()
+        self.team.refresh_from_db()
+        flush_persons_and_events()
+        PropertyDefinition.objects.create(
+            team_id=self.team.pk,
+            name="numeric_prop",
+            property_type=PropertyType.Numeric,
+            is_numerical=True,
+            type=PropertyDefinition.Type.PERSON,
+        )
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {"Test User"}
+
+    def test_person_display_name_fallback(self):
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User"},
+        )
+        self.team.person_display_name_properties = ["nonexistent"]
+        self.team.save()
+        self.team.refresh_from_db()
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {str(person.uuid)}
+
+    def test_person_display_name_with_spaces_in_property_name(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "Property With Spaces": "Test User With Spaces"},
+        )
+        self.team.person_display_name_properties = ["Property With Spaces"]
+        self.team.save()
+        self.team.refresh_from_db()
+        flush_persons_and_events()
+        query = ActorsQuery(select=["person_display_name"])
+        runner = self._create_runner(query)
+        response = runner.calculate()
+        display_names = [row[0]["display_name"] for row in response.results]
+        assert set(display_names) == {"Test User With Spaces"}
+
+    def test_select_property_name_with_spaces(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "Property With Spaces": "Test User With Spaces"},
+        )
+        flush_persons_and_events()
+        query = ActorsQuery(select=['properties."Property With Spaces"'])
+        runner = self._create_runner(query)
+
+        response = runner.calculate()
+
+        self.assertEqual(response.results[0][0], "Test User With Spaces")
+
+    def test_direct_actors_query_uses_latest_person_data_after_property_deletion(self):
+        """Test that direct ActorsQuery uses latest person data and doesn't show deleted properties."""
+        # Create a person with email property first
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["user_with_email"],
+            properties={"email": "test@example.com", "name": "Test User"},
+        )
+        flush_persons_and_events()
+
+        # Simulate property deletion by directly inserting a newer version in ClickHouse
+        # This mimics what happens when a person property is deleted via the API
+
+        # Insert a newer version without the email property (simulating deletion)
+        sync_execute(
+            """
+            INSERT INTO person (
+                id, team_id, properties, is_identified, is_deleted, version, created_at
+            ) VALUES (
+                %(person_id)s, %(team_id)s, %(properties)s, 1, 0, %(version)s, %(created_at)s
+            )
+            """,
+            {
+                "person_id": str(person.uuid),
+                "team_id": self.team.pk,
+                "properties": '{"name": "Test User"}',  # email property removed
+                "version": 1,  # Newer version
+                "created_at": datetime.now(UTC),
+            },
+        )
+
+        # Test: Query for persons with email containing '@' should return NO results
+        # because the latest version doesn't have an email property
+        query = ActorsQuery(
+            select=["person_display_name -- Person ", "id", "created_at"],
+            search="@",  # This searches email property among others
+        )
+        runner = self._create_runner(query)
+        response = runner.calculate()
+
+        # Should return no results because latest version doesn't have email with @
+        person_ids_in_results = [row[1] for row in response.results]
+        self.assertNotIn(
+            str(person.uuid),
+            person_ids_in_results,
+            "Person with deleted email property should not appear in search results for '@'",
+        )
+
+        # Verify that direct ActorsQuery is using PersonsArgMaxVersion.V2
+        self.assertEqual(
+            runner.modifiers.personsArgMaxVersion,
+            PersonsArgMaxVersion.V2,
+            "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data",
+        )

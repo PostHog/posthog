@@ -6,13 +6,22 @@ members = [
     "batch-import-worker",
     "capture",
     "common/alloc",
+    "common/cache",
     "common/cookieless",
+    "common/database",
     "common/dns",
     "common/health",
+    "common/kafka",
     "common/limiters",
     "common/metrics",
+    "common/profiler",
+    "common/redis",
+    "common/s3",
+    "common/serve_metrics",
     "common/symbol_data",
     "common/types",
+    "common/compression",
+    "common/hypercache",
     "feature-flags",
     "hook-api",
     "hook-common",
@@ -21,9 +30,12 @@ members = [
     "cyclotron-core",
     "cyclotron-node",
     "cyclotron-janitor",
-    "cyclotron-fetch",
     "cymbal",
+    "embedding-worker",
     "common/geoip",
+    "common/hogvm",
+    "log-capture",
+    "kafka-deduplicator",
 ]
 
 [workspace.lints.rust]
@@ -54,6 +66,7 @@ envconfig = "0.10.0"
 eyre = "0.6.9"
 flate2 = "1.0"
 futures = { version = "0.3.29" }
+futures-util = { version = "0.3.31" }
 governor = { version = "0.5.1", features = ["dashmap"] }
 http = { version = "1.1.0" }
 http-body-util = "0.1.0"
@@ -67,7 +80,7 @@ opentelemetry-otlp = "0.15.0"
 opentelemetry_sdk = { version = "0.22.1", features = ["trace", "rt-tokio"] }
 public-suffix = "0.1.2"
 rand = "0.8.5"
-rdkafka = { version = "0.37.0", features = ["ssl", "tracing"] }
+rdkafka = { version = "0.37.0", features = ["tracing", "ssl-vendored"] }
 reqwest = { version = "0.12.3", features = ["json", "stream"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = { version = "1.0" }
@@ -89,7 +102,7 @@ time = { version = "0.3.36", features = [
     "parsing",
     "serde",
 ] }
-thiserror = { version = "1.0" }
+thiserror = { version = "2.0" }
 tokio = { version = "1.34.0", features = ["full"] }
 tower = { version = "0.4.13", features = ["default", "limit"] }
 tower-http = { version = "0.5.2", features = ["cors", "limit", "trace"] }
@@ -97,7 +110,7 @@ tracing = "0.1.40"
 tracing-opentelemetry = "0.23.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 url = "2.5.0"
-uuid = { version = "1.6.1", features = ["v7", "serde"] }
+uuid = { version = "1.6.1", features = ["v4", "v7", "serde"] }
 neon = "1"
 quick_cache = "0.6.9"
 ahash = "0.8.11"
@@ -106,7 +119,18 @@ aws-sdk-s3 = "1.58.0"
 mockall = "0.13.0"
 moka = { version = "0.12.8", features = ["sync", "future"] }
 posthog-rs = { version = "0.3.5", features = ["async-client"] }
+redis = { version = "0.32.7", features = ["tokio-comp", "cluster", "cluster-async"] }
 regex = "1.11.1"
+lz-str = "0.2.1"
+opentelemetry-proto = "0.29.0"
+tonic = "0.12.3"
+clickhouse = { version = "0.13.2", features = [
+    "uuid",
+    "time",
+    "inserter",
+    "rustls-tls",
+] }
 
 # Used for decrypting django encrypted fields
 fernet = "0.2"
+tiktoken-rs = "0.7.0"

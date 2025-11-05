@@ -1,20 +1,7 @@
+from datetime import datetime
 from typing import Any, cast
 
 from freezegun import freeze_time
-from datetime import datetime
-from posthog.hogql import ast
-from posthog.hogql.ast import CompareOperationOp
-from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Person, Team, Element
-from posthog.models.organization import Organization
-from posthog.schema import (
-    CachedEventsQueryResponse,
-    EventMetadataPropertyFilter,
-    EventsQuery,
-    EventPropertyFilter,
-    HogQLQueryModifiers,
-    PropertyOperator,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -24,6 +11,22 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from posthog.schema import (
+    CachedEventsQueryResponse,
+    EventMetadataPropertyFilter,
+    EventPropertyFilter,
+    EventsQuery,
+    HogQLQueryModifiers,
+    PropertyOperator,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.ast import CompareOperationOp
+
+from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+from posthog.models import Element, Person, Team
+from posthog.models.organization import Organization
 
 
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -504,3 +507,245 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert "cityHash" in response_presorted.hogql
 
         assert response_regular.results == response_presorted.results
+
+    def test_select_person_column(self):
+        self._create_events(
+            [
+                ("id3", "2020-01-11T12:00:01Z", {"some": "thing"}),
+                ("id4", "2020-01-11T12:00:02Z", {"some": "other"}),
+            ]
+        )
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["person"],
+            orderBy=["timestamp ASC"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        # Should return two rows, each with a person dict
+        for row in response.results:
+            person = row[0]
+            assert isinstance(person, dict)
+            assert person["properties"]["foo"] == "bar"
+            assert person["distinct_id"] in ["id1", "id2"]
+            assert "uuid" in person
+            assert "created_at" in person
+
+    def test_person_display_name_field(self):
+        # Default: no custom display name properties
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_email",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_anon",
+            properties={},
+        )
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["event", "person_display_name -- Person"],
+            orderBy=["timestamp ASC"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        # Should use default display name property (email)
+        display_names = [row[1]["display_name"] for row in response.results]
+        assert set(display_names) == {"user@email.com"}
+
+    def test_person_display_name_field_2(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_email",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_anon",
+            properties={},
+        )
+        flush_persons_and_events()
+
+        # Now set custom person_display_name_properties on team
+        self.team.person_display_name_properties = ["name"]
+        self.team.save()
+        self.team.refresh_from_db()
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["event", "person_display_name -- Person"],
+            orderBy=["timestamp ASC"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        display_names = [row[1]["display_name"] for row in response.results]
+        assert set(display_names) == {"Test User"}
+
+    def test_person_display_name_field_fallback(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_email",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_anon",
+            properties={},
+        )
+        flush_persons_and_events()
+
+        # If property is missing, fallback to distinct_id
+        self.team.person_display_name_properties = ["nonexistent"]
+        self.team.save()
+        self.team.refresh_from_db()
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["event", "person_display_name -- Person"],
+            orderBy=["timestamp ASC"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        display_names = [row[1]["display_name"] for row in response.results]
+        assert set(display_names) == {"id_email", "id_anon"}
+
+    def test_person_display_name_field_with_spaces_in_property_name(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_spaced"],
+            properties={"email": "user@email.com", "Property With Spaces": "Test User With Spaces"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_spaced",
+            properties={},
+        )
+        flush_persons_and_events()
+
+        # Configure the team to use the property with spaces as display name
+        self.team.person_display_name_properties = ["Property With Spaces"]
+        self.team.save()
+        self.team.refresh_from_db()
+
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["event", "person_display_name -- Person"],
+            orderBy=["timestamp ASC"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        display_names = [row[1]["display_name"] for row in response.results]
+        assert set(display_names) == {"Test User With Spaces"}
+
+    def test_virtual_property(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_spaced"],
+            properties={
+                "email": "user@email.com",
+                "Property With Spaces": "Test User With Spaces",
+                "$initial_utm_source": "facebook",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_spaced",
+            properties={"utm_source": "facebook"},
+        )
+        flush_persons_and_events()
+
+        # Configure the team to use the property with spaces as display name
+        self.team.person_display_name_properties = ["Property With Spaces"]
+        self.team.save()
+        self.team.refresh_from_db()
+
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["event", "person_display_name -- Person", "person.properties.$virt_initial_channel_type"],
+            orderBy=["timestamp ASC"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert response.results[0][2] == "Organic Social"
+
+    def test_orderby_person_display_name_field(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email", "id_anon"],
+            properties={"email": "user@email.com", "name": "Test User"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["id_email_2", "id_anon_2"],
+            properties={"email": "user2@email.com", "name": "Test User 2"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_email",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_email_2",
+            properties={},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_email_2",
+            properties={},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="id_anon",
+            properties={},
+        )
+        flush_persons_and_events()
+
+        query = EventsQuery(
+            kind="EventsQuery",
+            select=["event", "person_display_name -- Person"],
+            orderBy=["person_display_name -- Person  DESC"],
+        )
+        runner = EventsQueryRunner(query=query, team=self.team)
+        response = runner.run()
+        assert isinstance(response, CachedEventsQueryResponse)
+        # Should use default display name property (email)
+        display_names = [row[1]["display_name"] for row in response.results]
+        assert display_names[0] == "user@email.com"

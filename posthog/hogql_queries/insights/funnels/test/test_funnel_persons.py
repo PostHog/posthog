@@ -2,18 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 from uuid import UUID
 
-from django.utils import timezone
 from freezegun import freeze_time
-
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Cohort
-from posthog.models.event.util import bulk_create_events
-from posthog.models.person.util import bulk_create_persons
-from posthog.models.team.team import Team
-from posthog.schema import ActorsQuery, BaseMathType, FunnelsActorsQuery, FunnelsQuery
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -22,6 +11,19 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
 )
+
+from django.utils import timezone
+
+from posthog.schema import ActorsQuery, BaseMathType, FunnelsActorsQuery, FunnelsQuery
+
+from posthog.constants import INSIGHT_FUNNELS
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.models import Cohort
+from posthog.models.event.util import bulk_create_events
+from posthog.models.person.util import bulk_create_persons
+from posthog.models.team.team import Team
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
@@ -34,7 +36,6 @@ def get_actors(
     filters: dict[str, Any],
     team: Team,
     funnel_step: Optional[int] = None,
-    funnel_custom_steps: Optional[list[int]] = None,
     funnel_step_breakdown: Optional[str | float | list[str | float]] = None,
     funnel_trends_drop_off: Optional[bool] = None,
     funnel_trends_entrance_period_start: Optional[str] = None,
@@ -45,7 +46,6 @@ def get_actors(
     funnel_actors_query = FunnelsActorsQuery(
         source=funnels_query,
         funnelStep=funnel_step,
-        funnelCustomSteps=funnel_custom_steps,
         funnelStepBreakdown=funnel_step_breakdown,
         funnelTrendsDropOff=funnel_trends_drop_off,
         funnelTrendsEntrancePeriodStart=funnel_trends_entrance_period_start,
@@ -292,89 +292,6 @@ class BaseTestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         results = get_actors(filters, self.team, funnel_step=1, offset=100)
         self.assertEqual(10, len(results))
 
-    def test_steps_with_custom_steps_parameter_are_equivalent_to_funnel_step(self):
-        self._create_sample_data_multiple_dropoffs()
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        parameters = [
-            # funnelStep,  funnel_custom_steps, count
-            (1, [1, 2, 3], 35),
-            (2, [2, 3], 15),
-            (3, [3], 5),
-            (-2, [1], 20),
-            (-3, [2], 10),
-        ]
-
-        for funnelStep, funnel_custom_steps, expected_count in parameters:
-            results = get_actors(filters, self.team, funnel_step=funnelStep)
-
-            new_results = get_actors(
-                filters, self.team, funnel_step=funnelStep, funnel_custom_steps=funnel_custom_steps
-            )
-
-            self.assertEqual(new_results, results)
-            self.assertEqual(len(results), expected_count)
-
-    def test_steps_with_custom_steps_parameter_where_funnel_step_equivalence_isnt_possible(self):
-        self._create_sample_data_multiple_dropoffs()
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        parameters = [
-            # funnel_custom_steps, count
-            ([1, 2], 30),
-            ([1, 3], 25),
-            ([3, 1], 25),
-            ([1, 3, 3, 1], 25),
-        ]
-
-        for funnel_custom_steps, expected_count in parameters:
-            new_results = get_actors(filters, self.team, funnel_custom_steps=funnel_custom_steps)
-
-            self.assertEqual(len(new_results), expected_count)
-
-    def test_steps_with_custom_steps_parameter_overrides_funnel_step(self):
-        self._create_sample_data_multiple_dropoffs()
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-
-        results = get_actors(
-            filters, self.team, funnel_step=1, funnel_custom_steps=[3]
-        )  # funnelStep=1 means custom steps = [1,2,3]
-
-        self.assertEqual(len(results), 5)
-
     @also_test_with_materialized_columns(["$browser"])
     def test_first_step_breakdowns(self):
         person1, person2 = self._create_browser_breakdown_events()
@@ -460,21 +377,9 @@ class BaseTestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         # self.assertCountEqual([val[0]["id"] for val in results], [person2.uuid])
         self.assertCountEqual([results[0][0]], [person2.uuid])
 
-        # Check custom_steps give same answers for breakdowns
-        custom_step_results = get_actors(
-            filters, self.team, funnel_step=1, funnel_custom_steps=[1, 2, 3], funnel_step_breakdown=["EE"]
-        )
-        self.assertEqual(results, custom_step_results)
-
         results = get_actors(filters, self.team, funnel_step=1, funnel_step_breakdown=["PL"])
         # self.assertCountEqual([val[0]["id"] for val in results], [person1.uuid])
         self.assertCountEqual([results[0][0]], [person1.uuid])
-
-        # Check custom_steps give same answers for breakdowns
-        custom_step_results = get_actors(
-            filters, self.team, funnel_step=1, funnel_custom_steps=[1, 2, 3], funnel_step_breakdown=["PL"]
-        )
-        self.assertEqual(results, custom_step_results)
 
     @also_test_with_materialized_columns(["$browser"], verify_no_jsonextract=False)
     def test_funnel_cohort_breakdown_persons(self):

@@ -6,9 +6,6 @@ import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_10
 import billingJsonWithCredits from '~/mocks/fixtures/_billing_with_credits.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import organizationCurrent from '~/mocks/fixtures/api/organizations/@current/@current.json'
-import batchExports from '~/mocks/fixtures/api/organizations/@current/batchExports.json'
-import exportsUnsubscribeConfigs from '~/mocks/fixtures/api/organizations/@current/plugins/exportsUnsubscribeConfigs.json'
 
 import { Billing } from './Billing'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
@@ -20,6 +17,13 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2024-03-10',
+        testOptions: {
+            // Needs a slightly larger width to push the rendered scene away from breakpoint boundary
+            viewport: {
+                width: 1300,
+                height: 720,
+            },
+        },
     },
     decorators: [
         mswDecorator({
@@ -116,6 +120,12 @@ export const BillingPurchaseCreditsModal = (): JSX.Element => {
                 email: 'test@posthog.com',
                 cc_last_four: '1234',
                 cc_brand: 'Visa',
+                credit_brackets: [
+                    { discount: 0.1, annual_credit_from_inclusive: 3333, annual_credit_to_exclusive: 25000 },
+                    { discount: 0.2, annual_credit_from_inclusive: 25000, annual_credit_to_exclusive: 80000 },
+                    { discount: 0.25, annual_credit_from_inclusive: 80000, annual_credit_to_exclusive: 153847 },
+                    { discount: 0.35, annual_credit_from_inclusive: 153847, annual_credit_to_exclusive: null },
+                ],
             },
         },
     })
@@ -133,49 +143,4 @@ export const BillingUnsubscribeModal = (): JSX.Element => {
     })
 
     return <UnsubscribeSurveyModal product={billingJson.products[0]} />
-}
-
-export const BillingUnsubscribeModal_DataPipelines = (): JSX.Element => {
-    useStorybookMocks({
-        get: {
-            '/api/billing/': {
-                ...billingJson,
-            },
-            '/api/organizations/@current/plugins/exports_unsubscribe_configs/': exportsUnsubscribeConfigs,
-            '/api/organizations/@current/batch_exports': batchExports,
-            '/api/organizations/@current/': {
-                ...organizationCurrent,
-            },
-        },
-    })
-    const product = billingJson.products[0]
-    product.addons = [
-        {
-            type: 'data_pipelines',
-            subscribed: true,
-            name: 'Data Pipelines',
-            description: 'Add-on description',
-            price_description: 'Add-on price description',
-            image_url: 'Add-on image URL',
-            docs_url: 'Add-on documentation URL',
-            tiers: [],
-            tiered: false,
-            unit: '',
-            unit_amount_usd: '0',
-            current_amount_usd: '0',
-            current_usage: 0,
-            projected_usage: 0,
-            projected_amount_usd: '0',
-            plans: [],
-            usage_key: '',
-            contact_support: false,
-            inclusion_only: false,
-            features: [],
-        },
-    ]
-
-    return <UnsubscribeSurveyModal product={product} />
-}
-BillingUnsubscribeModal_DataPipelines.parameters = {
-    testOptions: { waitForSelector: '.LemonTable__content' },
 }

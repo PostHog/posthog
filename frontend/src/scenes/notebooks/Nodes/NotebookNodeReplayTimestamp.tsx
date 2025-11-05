@@ -1,15 +1,18 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
+import { Node, NodeViewProps, mergeAttributes } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { NotebookNodeType, NotebookTarget } from '~/types'
-import { dayjs } from 'lib/dayjs'
-import { JSONContent } from '../Notebook/utils'
 import clsx from 'clsx'
-import { urls } from 'scenes/urls'
-import { LemonButton } from '@posthog/lemon-ui'
-import { notebookLogic } from '../Notebook/notebookLogic'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
+
 import { openNotebook } from '~/models/notebooksModel'
+
+import { notebookLogic } from '../Notebook/notebookLogic'
+import { NotebookNodeType, NotebookTarget } from '../types'
 
 export interface NotebookNodeReplayTimestampAttrs {
     playbackTime?: number
@@ -25,6 +28,7 @@ const Component = (props: NodeViewProps): JSX.Element => {
         const logicById = sourceNodeId ? findNodeLogicById(sourceNodeId) : null
 
         return logicById ?? findNodeLogic(NotebookNodeType.Recording, { id: sessionRecordingId })
+        // oxlint-disable-next-line exhaustive-deps
     }, [findNodeLogic])
 
     const handlePlayInNotebook = (): void => {
@@ -95,17 +99,4 @@ export const NotebookNodeReplayTimestamp = Node.create({
 
 export function formatTimestamp(time: number): string {
     return dayjs.duration(time, 'milliseconds').format('HH:mm:ss').replace(/^00:/, '').trim()
-}
-
-export function buildTimestampCommentContent(attrs: NotebookNodeReplayTimestampAttrs): JSONContent {
-    return {
-        type: 'paragraph',
-        content: [
-            {
-                type: NotebookNodeType.ReplayTimestamp,
-                attrs,
-            },
-            { type: 'text', text: ' ' },
-        ],
-    }
 }

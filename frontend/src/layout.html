@@ -6,7 +6,7 @@
     <title>PostHog</title>
     {% include "head.html" %}
 
-    <script>
+    <script nonce="{{ request.csp_nonce }}">
         const posthogJSApiKey = "{{ js_posthog_api_key|escapejs }}";
         let posthogHost = "{{ js_posthog_host|escapejs }}";
         if (posthogHost.trim().length === 0) {
@@ -154,7 +154,7 @@
         input:focus+label {
             transform: translate(0, 0) scale(1);
             cursor: pointer;
-            color: var(--accent);
+            color: var(--color-accent);
         }
 
         h2 {

@@ -1,0 +1,72 @@
+{
+    "cache_key": "cache_5af00efb9d69bc726976f21244a03042",
+    "cache_target_age": "2025-05-30T20:24:26.606038Z",
+    "calculation_trigger": null,
+    "columns": null,
+    "error": null,
+    "hogql": null,
+    "is_cached": true,
+    "last_refresh": "2025-05-29T20:24:26.606038Z",
+    "modifiers": {
+        "bounceRateDurationSeconds": null,
+        "bounceRatePageViewMode": "count_pageviews",
+        "convertToProjectTimezone": true,
+        "customChannelTypeRules": null,
+        "dataWarehouseEventsModifiers": null,
+        "debug": null,
+        "formatCsvAllowDoubleQuotes": null,
+        "inCohortVia": "auto",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_joined",
+        "propertyGroupsMode": null,
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "sessionsV2JoinMode": "string",
+        "useMaterializedViews": true,
+        "usePresortedEventsTable": false,
+        "useWebAnalyticsPreAggregatedTables": null
+    },
+    "next_allowed_client_refresh": "2025-05-29T20:25:26.606038Z",
+    "query_status": null,
+    "results": [
+        {
+            "action": {
+                "days": [
+                    "2025-01-01T00:00:00-03:00",
+                    "2025-02-01T00:00:00-03:00",
+                    "2025-03-01T00:00:00-03:00",
+                    "2025-04-01T00:00:00-03:00",
+                    "2025-05-01T00:00:00-03:00"
+                ],
+                "id": "stripe.saas",
+                "name": "stripe.saas"
+            },
+            "data": [57108.46, 96657.07, 68204.82, 87459.76, 65818.62],
+            "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+            "label": "stripe.saas",
+            "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
+        },
+        {
+            "action": {
+                "days": [
+                    "2025-01-01T00:00:00-03:00",
+                    "2025-02-01T00:00:00-03:00",
+                    "2025-03-01T00:00:00-03:00",
+                    "2025-04-01T00:00:00-03:00",
+                    "2025-05-01T00:00:00-03:00"
+                ],
+                "id": "stripe.merch",
+                "name": "stripe.merch"
+            },
+            "data": [6657.07, 7500, 17108.46, 32000.82, 12818.62],
+            "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
+            "label": "stripe.merch",
+            "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
+        }
+    ],
+    "timezone": "America/Sao_Paulo",
+    "timings": null
+}

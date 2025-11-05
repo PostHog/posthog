@@ -1,7 +1,9 @@
 import logging
 
 import pytest
+
 from django.core.management import call_command
+
 from semantic_version.base import Version
 
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS

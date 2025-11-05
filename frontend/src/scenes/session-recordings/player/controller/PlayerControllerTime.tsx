@@ -1,23 +1,25 @@
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
+
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { ONE_FRAME_MS, sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { HotKeyOrModifier } from '~/types'
 
-import { playerSettingsLogic, TimestampFormat } from '../playerSettingsLogic'
+import { TimestampFormat, playerSettingsLogic } from '../playerSettingsLogic'
 import { seekbarLogic } from './seekbarLogic'
 
 function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Element {
-    const { logicProps, currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
-    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
+    const { logicProps, currentPlayerTimeSeconds, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
+    const { isScrubbing, scrubbingTimeSeconds } = useValues(seekbarLogic(logicProps))
 
-    const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
+    const startTimeSeconds = (isScrubbing ? scrubbingTimeSeconds : currentPlayerTimeSeconds) ?? 0
     const endTimeSeconds = Math.floor(sessionPlayerData.durationMs / 1000)
 
     const fixedUnits = endTimeSeconds > 3600 ? 3 : 2
@@ -40,7 +42,10 @@ function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Ele
     )
 }
 
-export function Timestamp({ size }: { size: 'small' | 'normal' }): JSX.Element {
+export function Timestamp({
+    size,
+    noPadding,
+}: { size: 'small' | 'normal' } & Pick<LemonButtonProps, 'noPadding'>): JSX.Element {
     const { logicProps, currentTimestamp, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(logicProps))
     const { timestampFormat } = useValues(playerSettingsLogic)
@@ -53,7 +58,8 @@ export function Timestamp({ size }: { size: 'small' | 'normal' }): JSX.Element {
     return (
         <LemonButton
             data-attr="recording-timestamp"
-            className="text-center whitespace-nowrap font-mono text-xs"
+            className="text-center whitespace-nowrap font-mono text-xs inline"
+            noPadding={noPadding}
             onClick={() => {
                 const values = Object.values(TimestampFormat)
                 const nextIndex = (values.indexOf(timestampFormat) + 1) % values.length
@@ -109,11 +115,12 @@ export function SeekSkip({ direction }: { direction: 'forward' | 'backward' }): 
                 size="xsmall"
                 noPadding={true}
                 onClick={() => (direction === 'forward' ? seekForward() : seekBackward())}
+                className="ph-no-rageclick"
             >
                 <div className="PlayerControlSeekIcon">
                     <span className="PlayerControlSeekIcon__seconds">{jumpTimeSeconds}</span>
                     <IconSkipBackward
-                        className={clsx('PlayerControlSeekIcon__icon', {
+                        className={cn('text-2xl PlayerControlSeekIcon__icon', {
                             'PlayerControlSeekIcon__icon--forward': direction === 'forward',
                         })}
                     />

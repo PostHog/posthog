@@ -2,6 +2,7 @@ import { UniqueIdentifier } from '@dnd-kit/core'
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { VerticalNestedDND, VerticalNestedDNDProps } from './VerticalNestedDND'
+
 type Story = StoryObj<typeof VerticalNestedDND>
 const meta: Meta<typeof VerticalNestedDND> = {
     title: 'Components/VerticalNestedDND',

@@ -21,7 +21,7 @@
 
     label {
         --tick-length: 12.73; // Approximation of tick length, which is (3 + 6) * sqrt(2)
-        --box-color: var(--accent);
+        --box-color: var(--color-accent);
 
         display: flex;
         gap: 0.5rem;
@@ -33,13 +33,15 @@
             flex-shrink: 0;
             width: 1rem;
             height: 1rem;
-            background: var(--bg-surface-primary);
-            border: 1.5px solid var(--border-primary);
+            background: var(--color-bg-surface-primary);
+            border: 1.5px solid var(--color-border-primary);
             border-radius: 0.25rem; // Intentionally a bit smaller than --radius
-            transition: border 200ms ease, background 200ms ease;
+            transition:
+                border 200ms ease,
+                background 200ms ease;
 
             path {
-                stroke: var(--bg-surface-primary);
+                stroke: var(--color-bg-surface-primary);
                 stroke-dasharray: var(--tick-length);
                 stroke-dashoffset: var(--tick-length);
                 transition: stroke-dashoffset 200ms ease;
@@ -47,9 +49,14 @@
         }
     }
 
-    &.LemonCheckbox--disabled label {
-        color: var(--text-secondary);
-        cursor: not-allowed;
+    &.LemonCheckbox--disabled {
+        .LemonCheckbox__box {
+            opacity: var(--opacity-disabled);
+        }
+
+        label {
+            cursor: not-allowed;
+        }
     }
 
     &.LemonCheckbox--full-width {
@@ -67,7 +74,7 @@
     &.LemonCheckbox:not(.LemonCheckbox--disabled):hover,
     &.LemonCheckbox:not(.LemonCheckbox--disabled):active {
         label {
-            --box-color: var(--accent-hover);
+            --box-color: var(--color-accent-hover);
 
             .LemonCheckbox__box {
                 border-color: var(--box-color);
@@ -76,7 +83,7 @@
     }
 
     &.LemonCheckbox:not(.LemonCheckbox--disabled):active label {
-        --box-color: var(--accent-hover);
+        --box-color: var(--color-accent-hover);
     }
 
     &.LemonCheckbox--checked {
@@ -98,8 +105,8 @@
         label {
             min-height: var(--lemon-checkbox-height);
             padding: 0 0.75rem;
-            background: var(--bg-surface-primary);
-            border: 1px solid var(--border-primary);
+            background: var(--color-bg-surface-primary);
+            border: 1px solid var(--color-border-primary);
             border-radius: var(--radius);
         }
 

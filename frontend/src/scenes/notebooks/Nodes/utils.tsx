@@ -1,14 +1,17 @@
-import { ExtendedRegExpMatchArray, NodeViewProps, PasteRule } from '@tiptap/core'
-import posthog from 'posthog-js'
+import { ExtendedRegExpMatchArray, InputRule, NodeViewProps, PasteRule } from '@tiptap/core'
 import { NodeType } from '@tiptap/pm/model'
-import { Editor as TTEditor } from '@tiptap/core'
-import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../Notebook/utils'
+import posthog from 'posthog-js'
 import { useCallback, useMemo, useRef } from 'react'
+
+import { TTEditor } from 'lib/components/RichContentEditor/types'
 import { tryJsonParse, uuid } from 'lib/utils'
+
+import { CustomNotebookNodeAttributes, NotebookNodeAttributes } from '../types'
 
 export const INTEGER_REGEX_MATCH_GROUPS = '([0-9]*)(.*)'
 export const SHORT_CODE_REGEX_MATCH_GROUPS = '([0-9a-zA-Z]*)(.*)'
 export const UUID_REGEX_MATCH_GROUPS = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(.*)'
+export const OPTIONAL_PROJECT_NON_CAPTURE_GROUP = '(?:/project/[0-9]*)?'
 
 export function createUrlRegex(path: string | RegExp, origin?: string): RegExp {
     origin = (origin || window.location.origin).replace('.', '\\.')
@@ -28,6 +31,33 @@ export function posthogNodePasteRule(options: {
     ) => Promise<Record<string, any> | null | undefined> | Record<string, any> | null | undefined
 }): PasteRule {
     return new PasteRule({
+        find: typeof options.find === 'string' ? createUrlRegex(options.find) : options.find,
+        handler: ({ match, chain, range }) => {
+            if (match.input) {
+                chain().deleteRange(range).run()
+
+                void Promise.resolve(options.getAttributes(match)).then((attributes) => {
+                    if (attributes) {
+                        options.editor.commands.insertContent({
+                            type: options.type.name,
+                            attrs: attributes,
+                        })
+                    }
+                })
+            }
+        },
+    })
+}
+
+export function posthogNodeInputRule(options: {
+    find: string | RegExp
+    type: NodeType
+    editor: TTEditor
+    getAttributes: (
+        match: ExtendedRegExpMatchArray
+    ) => Promise<Record<string, any> | null | undefined> | Record<string, any> | null | undefined
+}): InputRule {
+    return new InputRule({
         find: typeof options.find === 'string' ? createUrlRegex(options.find) : options.find,
         handler: ({ match, chain, range }) => {
             if (match.input) {
@@ -102,11 +132,11 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
         (attrs: Partial<NotebookNodeAttributes<T>>): void => {
             // We call the update whilst json stringifying
             const stringifiedAttrs = Object.keys(attrs).reduce(
-                (acc, x) => ({
-                    ...acc,
-                    [x]: attrs[x] && typeof attrs[x] === 'object' ? JSON.stringify(attrs[x]) : attrs[x],
-                }),
-                {}
+                (acc, x) => {
+                    acc[x] = attrs[x] && typeof attrs[x] === 'object' ? JSON.stringify(attrs[x]) : attrs[x]
+                    return acc
+                },
+                {} as Record<string, any>
             )
 
             const hasChanges = Object.keys(stringifiedAttrs).some(
@@ -120,6 +150,7 @@ export function useSyncedAttributes<T extends CustomNotebookNodeAttributes>(
             // NOTE: queueMicrotask protects us from TipTap's flushSync calls, ensuring we never modify the state whilst the flush is happening
             queueMicrotask(() => props.updateAttributes(stringifiedAttrs))
         },
+        // oxlint-disable-next-line exhaustive-deps
         [props.updateAttributes]
     )
 

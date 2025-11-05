@@ -1,69 +1,51 @@
-import { LemonBanner, LemonButton, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { useState } from 'react'
+
+import { LemonBanner, LemonButton, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
+
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { AvailableFeature, Experiment } from '~/types'
 
-import { experimentLogic } from '../experimentLogic'
 import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
-import { MAX_PRIMARY_METRICS, MAX_SECONDARY_METRICS } from '../MetricsView/const'
 import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
+import { MetricContext } from './experimentMetricModalLogic'
+import { sharedMetricModalLogic } from './sharedMetricModalLogic'
 
 export function SharedMetricModal({
-    experimentId,
-    isSecondary,
+    experiment,
+    onSave,
+    onDelete,
 }: {
-    experimentId: Experiment['id']
-    isSecondary?: boolean
-}): JSX.Element {
-    const {
-        experiment,
-        compatibleSharedMetrics,
-        isPrimarySharedMetricModalOpen,
-        isSecondarySharedMetricModalOpen,
-        editingSharedMetricId,
-        primaryMetricsLengthWithSharedMetrics,
-        secondaryMetricsLengthWithSharedMetrics,
-    } = useValues(experimentLogic({ experimentId }))
-    const {
-        closePrimarySharedMetricModal,
-        closeSecondarySharedMetricModal,
-        addSharedMetricsToExperiment,
-        removeSharedMetricFromExperiment,
-        restoreUnmodifiedExperiment,
-    } = useActions(experimentLogic({ experimentId }))
+    experiment: Experiment
+    onSave: (metrics: SharedMetric[], context: MetricContext) => void
+    onDelete: (metric: SharedMetric, context: MetricContext) => void
+}): JSX.Element | null {
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { isModalOpen, context, compatibleSharedMetrics, sharedMetricId, isCreateMode, isEditMode } =
+        useValues(sharedMetricModalLogic)
+    const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
-    const mode = editingSharedMetricId ? 'edit' : 'create'
-
-    const { hasAvailableFeature } = useValues(userLogic)
 
     if (!compatibleSharedMetrics) {
-        return <></>
-    }
-
-    const isOpen = isSecondary ? isSecondarySharedMetricModalOpen : isPrimarySharedMetricModalOpen
-    const onClose = (): void => {
-        restoreUnmodifiedExperiment()
-        isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
+        return null
     }
 
     const addSharedMetricDisabledReason = (): string | undefined => {
         if (selectedMetricIds.length === 0) {
             return 'Please select at least one metric'
         }
-        if (!isSecondary && primaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > MAX_PRIMARY_METRICS) {
-            return `You can only add up to ${MAX_PRIMARY_METRICS} primary metrics.`
-        }
-        if (isSecondary && secondaryMetricsLengthWithSharedMetrics + selectedMetricIds.length > MAX_SECONDARY_METRICS) {
-            return `You can only add up to ${MAX_SECONDARY_METRICS} secondary metrics.`
-        }
+    }
+
+    const closeModal = (): void => {
+        setSelectedMetricIds([])
+        closeSharedMetricModal()
     }
 
     const availableSharedMetrics = compatibleSharedMetrics.filter(
@@ -82,19 +64,23 @@ export function SharedMetricModal({
 
     return (
         <LemonModal
-            isOpen={isOpen}
-            onClose={onClose}
-            width={500}
-            title={mode === 'create' ? 'Select one or more shared metrics' : 'Shared metric'}
+            isOpen={isModalOpen}
+            onClose={closeModal}
+            maxWidth={800}
+            title={isCreateMode ? 'Select one or more shared metrics' : 'Shared metric'}
             footer={
                 <div className="flex justify-between w-full">
                     <div>
-                        {editingSharedMetricId && (
+                        {isEditMode && (
                             <LemonButton
                                 status="danger"
                                 onClick={() => {
-                                    removeSharedMetricFromExperiment(editingSharedMetricId)
-                                    isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
+                                    const metric = compatibleSharedMetrics.find((m) => m.id === sharedMetricId)
+                                    if (!metric) {
+                                        return
+                                    }
+
+                                    onDelete(metric, context)
                                 }}
                                 type="secondary"
                             >
@@ -103,18 +89,20 @@ export function SharedMetricModal({
                         )}
                     </div>
                     <div className="flex gap-2">
-                        <LemonButton onClick={onClose} type="secondary">
+                        <LemonButton onClick={closeModal} type="secondary">
                             Cancel
                         </LemonButton>
                         {/* Changing the existing metric is a pain because saved metrics are stored separately */}
                         {/* Only allow deletion for now */}
-                        {mode === 'create' && (
+                        {isCreateMode && (
                             <LemonButton
                                 onClick={() => {
-                                    addSharedMetricsToExperiment(selectedMetricIds, {
-                                        type: isSecondary ? 'secondary' : 'primary',
-                                    })
-                                    isSecondary ? closeSecondarySharedMetricModal() : closePrimarySharedMetricModal()
+                                    const metrics = selectedMetricIds
+                                        .map((metricId) => compatibleSharedMetrics.find((m) => m.id === metricId))
+                                        .filter((metric): metric is SharedMetric => metric !== undefined)
+
+                                    onSave(metrics, context)
+                                    setSelectedMetricIds([])
                                 }}
                                 type="primary"
                                 disabledReason={addSharedMetricDisabledReason()}
@@ -126,7 +114,7 @@ export function SharedMetricModal({
                 </div>
             }
         >
-            {mode === 'create' && (
+            {isCreateMode && (
                 <div className="deprecated-space-y-2">
                     {availableSharedMetrics.length > 0 ? (
                         <>
@@ -217,7 +205,11 @@ export function SharedMetricModal({
                                 ]}
                                 footer={
                                     <div className="flex items-center justify-center m-2">
-                                        <LemonButton to={urls.experimentsSharedMetrics()} size="xsmall" type="tertiary">
+                                        <LemonButton
+                                            to={`${urls.experiments()}?tab=shared-metrics`}
+                                            size="xsmall"
+                                            type="tertiary"
+                                        >
                                             See all shared metrics
                                         </LemonButton>
                                     </div>
@@ -241,12 +233,12 @@ export function SharedMetricModal({
                 </div>
             )}
 
-            {editingSharedMetricId && (
+            {isEditMode && (
                 <div>
                     {(() => {
-                        const metric = compatibleSharedMetrics.find((m: SharedMetric) => m.id === editingSharedMetricId)
+                        const metric = compatibleSharedMetrics.find((m: SharedMetric) => m.id === sharedMetricId)
                         if (!metric) {
-                            return <></>
+                            return null
                         }
 
                         return (

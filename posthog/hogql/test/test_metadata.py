@@ -1,11 +1,23 @@
 from typing import Optional
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
 from django.test import override_settings
 
+from posthog.schema import (
+    HogLanguage,
+    HogQLMetadata,
+    HogQLMetadataResponse,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    SessionTableVersion,
+)
+
 from posthog.hogql.metadata import get_hogql_metadata
+
 from posthog.models import Cohort, PropertyDefinition
-from posthog.schema import HogLanguage, HogQLMetadata, HogQLMetadataResponse, HogQLQuery
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from products.data_warehouse.backend.models import ExternalDataSource, ExternalDataSourceType
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
@@ -24,9 +36,11 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-    def _select(self, query: str) -> HogQLMetadataResponse:
+    def _select(self, query: str, modifiers: Optional[HogQLQueryModifiers] = None) -> HogQLMetadataResponse:
         return get_hogql_metadata(
-            query=HogQLMetadata(kind="HogQLMetadata", language=HogLanguage.HOG_QL, query=query, response=None),
+            query=HogQLMetadata(
+                kind="HogQLMetadata", language=HogLanguage.HOG_QL, query=query, response=None, modifiers=modifiers
+            ),
             team=self.team,
         )
 
@@ -286,7 +300,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_valid_view_nested_view(self):
         saved_query_response = self.client.post(
-            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
                 "name": "event_view",
                 "query": {
@@ -461,8 +475,9 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_table_collector_multiple_tables(self):
         metadata = self._select(
-            "SELECT events.event, persons.name FROM events JOIN persons ON events.person_id = persons.id"
+            "SELECT events.event, persons.properties.name FROM events JOIN persons ON events.person_id = persons.id"
         )
+        self.assertEqual(metadata.isValid, True)
         self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons"]))
 
     def test_table_collector_with_cte(self):
@@ -477,16 +492,18 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     def test_table_collector_subquery(self):
         metadata = self._select("""
             SELECT * FROM (
-                SELECT event FROM events
+                SELECT person_id FROM events
                 UNION ALL
-                SELECT event FROM events_summary
+                SELECT id FROM persons
             )
         """)
-        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "events_summary"]))
+        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons"]))
 
     def test_table_in_filter(self):
-        metadata = self._select("SELECT * FROM events WHERE event IN (SELECT event FROM events_summary)")
-        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "events_summary"]))
+        metadata = self._select("SELECT * FROM events WHERE events.person_id IN (SELECT id FROM persons)")
+        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons"]))
 
     def test_table_collector_complex_query(self):
         metadata = self._select("""
@@ -496,10 +513,53 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 GROUP BY person_id
             )
             SELECT
-                p.name,
+                p.properties.name,
                 uc.count
             FROM persons p
             LEFT JOIN user_counts uc ON p.id = uc.person_id
-            LEFT JOIN cohorts c ON p.cohort_id = c.id
+            LEFT JOIN cohort_people c ON p.id = c.person_id
         """)
-        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons", "cohorts"]))
+        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events", "persons", "cohort_people"]))
+
+    def test_experimental_join_condition(self):
+        metadata = self._select("""
+        SELECT t1.a
+        FROM
+            (SELECT number AS a, number * 10 AS b FROM numbers(5)) AS t1
+        JOIN
+            (SELECT number AS key, number * 2 AS c, number * 3 AS d FROM numbers(5)) AS t2
+        ON t1.a = t2.key
+        WHERE t1.b > 0 AND t2.c < t2.d
+        """)
+        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["numbers"]))
+
+    def test_table_collector_lazy_join(self):
+        metadata = self._select(
+            """
+        SELECT events.session.id FROM events
+        """,
+            modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3),
+        )
+        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["events"]))
+        self.assertEqual(sorted(metadata.ch_table_names or []), sorted(["events", "raw_sessions_v3"]))
+
+    def test_views_type_resolution(self):
+        _source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="prefix",
+        )
+
+        metadata = self._select("SELECT metadata, metadata.name AS name FROM stripe.prefix.customer_revenue_view")
+        self.assertEqual(metadata.isValid, True)
+        self.assertEqual(sorted(metadata.table_names or []), sorted(["stripe.prefix.customer_revenue_view"]))
+
+        # Doesn't include `name` because it's a property access and not a field
+        # TODO: Should *probably* update the code to resolve that type as well
+        self.assertEqual([notice.message for notice in metadata.notices or []], ["Field 'metadata' is of type 'JSON'"])

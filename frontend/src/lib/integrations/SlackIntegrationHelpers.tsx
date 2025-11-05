@@ -1,3 +1,6 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo, useState } from 'react'
+
 import {
     LemonBanner,
     LemonButton,
@@ -6,9 +9,9 @@ import {
     Link,
     ProfilePicture,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
+import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconSlackExternal } from 'lib/lemon-ui/icons'
-import { useEffect, useMemo, useState } from 'react'
 
 import { IntegrationType, SlackChannelType } from '~/types'
 
@@ -47,9 +50,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         slackChannelByIdLoading,
         isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
+        getChannelRefreshButtonDisabledReason,
     } = useValues(slackIntegrationLogic({ id: integration.id }))
     const { loadAllSlackChannels, loadSlackChannelById } = useActions(slackIntegrationLogic({ id: integration.id }))
     const [localValue, setLocalValue] = useState<string | null>(null)
+
+    usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date `getChannelRefreshButtonDisabledReason`
 
     // If slackChannels aren't loaded, make sure we display only the channel name and not the actual underlying value
     const rawSlackChannelOptions = useMemo(() => getSlackChannelOptions(slackChannels), [slackChannels])
@@ -100,6 +106,11 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 mode="single"
                 data-attr="select-slack-channel"
                 placeholder="Select a channel..."
+                action={{
+                    children: <span className="Link">Refresh channels</span>,
+                    onClick: () => loadAllSlackChannels(true),
+                    disabledReason: getChannelRefreshButtonDisabledReason(),
+                }}
                 emptyStateComponent={
                     <p className="text-secondary italic p-1">
                         No channels found. Make sure the PostHog Slack App is installed in the channel.{' '}
@@ -132,7 +143,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                                 See the Docs for more information
                             </Link>
                         </span>
-                        <LemonButton type="secondary" onClick={loadAllSlackChannels} loading={allSlackChannelsLoading}>
+                        <LemonButton
+                            type="secondary"
+                            disabledReason={getChannelRefreshButtonDisabledReason()}
+                            onClick={() => loadAllSlackChannels(true)}
+                            loading={allSlackChannelsLoading}
+                        >
                             Check again
                         </LemonButton>
                     </div>

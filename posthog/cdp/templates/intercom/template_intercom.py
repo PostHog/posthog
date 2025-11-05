@@ -1,7 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
+    status="stable",
     free=False,
     type="destination",
     id="template-intercom",
@@ -9,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Update contacts in Intercom",
     icon_url="/static/services/intercom.png",
     category=["Customer Success"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
     return
@@ -17,7 +18,7 @@ if (empty(inputs.email)) {
 
 let regions := {
     'US': 'api.intercom.io',
-    'EU': 'api.eu.intercom.io',
+    'Europe': 'api.eu.intercom.io',
     'AU': 'api.au.intercom.io',
 }
 
@@ -161,8 +162,8 @@ if (res.status >= 400) {
     },
 )
 
-template_send_event: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+template_send_event: HogFunctionTemplateDC = HogFunctionTemplateDC(
+    status="stable",
     free=False,
     type="destination",
     id="template-intercom-event",
@@ -170,7 +171,8 @@ template_send_event: HogFunctionTemplate = HogFunctionTemplate(
     description="Send events to Intercom",
     icon_url="/static/services/intercom.png",
     category=["Customer Success"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
     return
@@ -178,7 +180,7 @@ if (empty(inputs.email)) {
 
 let regions := {
     'US': 'api.intercom.io',
-    'EU': 'api.eu.intercom.io',
+    'Europe': 'api.eu.intercom.io',
     'AU': 'api.au.intercom.io',
 }
 

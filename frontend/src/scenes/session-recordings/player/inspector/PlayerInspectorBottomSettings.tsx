@@ -1,12 +1,12 @@
 import './PlayerInspectorList.scss'
 
-import { BaseIcon, IconCheck } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { BaseIcon, IconCheck } from '@posthog/icons'
+
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
-
-import { FilterableInspectorListItemTypes } from '~/types'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'
@@ -80,8 +80,8 @@ function ShowOnlyMatching(): JSX.Element {
     const { showOnlyMatching, miniFiltersForType } = useValues(miniFiltersLogic)
     const { setShowOnlyMatching } = useActions(miniFiltersLogic)
 
-    const hasEventsFiltersSelected = miniFiltersForType(FilterableInspectorListItemTypes.EVENTS).some((x) => x.enabled)
-    const hasEventsToDisplay = allItemsByItemType[FilterableInspectorListItemTypes.EVENTS]?.length > 0
+    const hasEventsFiltersSelected = miniFiltersForType('events').some((x) => x.enabled)
+    const hasEventsToDisplay = allItemsByItemType['events']?.length > 0
 
     return (
         <SettingsToggle
@@ -91,7 +91,7 @@ function ShowOnlyMatching(): JSX.Element {
                     : 'Show only events that match the current filters'
             }
             label="Show only matching events"
-            active={hasEventsToDisplay && showOnlyMatching}
+            active={hasEventsToDisplay && showOnlyMatching && allowMatchingEventsFilter}
             onClick={() => {
                 setShowOnlyMatching(!showOnlyMatching)
             }}

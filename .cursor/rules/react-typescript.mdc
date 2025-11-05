@@ -1,6 +1,6 @@
 ---
 description: Rules for writing frontend code at PostHog (mostly React + Typescript with Kea)
-globs: frontend/*.tsx, frontend/*.ts
+globs: frontend/**/*.ts,frontend/**/*.tsx,products/**/*.ts,products/**/*.tsx
 alwaysApply: false
 ---
 
@@ -43,6 +43,7 @@ UI and Styling
     - Follow BEM for modals (.DashboardMenu__modal)
     - Import styles directly (MyComponent.scss)
   - Replace custom SCSS with Tailwind when possible
+  - When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.
 
 Testing Requirements
   - Logic tests for all Kea logic files

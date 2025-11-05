@@ -60,12 +60,7 @@ async fn project_property_definitions_handler(
 
     let total_count: i64 = match qmgr.pool.fetch_one(count_query).await {
         Ok(row) => row.get(0),
-        Err(e) => {
-            return Err(ApiError::QueryError(format!(
-                "executing count query: {}",
-                e
-            )))
-        }
+        Err(e) => return Err(ApiError::QueryError(format!("executing count query: {e}"))),
     };
 
     let mut prop_defs: Vec<PropertyDefinition> = vec![];
@@ -73,15 +68,14 @@ async fn project_property_definitions_handler(
         Ok(result) => {
             for row in result {
                 let pd = PropertyDefinition::from_row(&row).map_err(|e| {
-                    ApiError::QueryError(format!("deserializing prop defs row: {}", e))
+                    ApiError::QueryError(format!("deserializing prop defs row: {e}"))
                 })?;
                 prop_defs.push(pd);
             }
         }
         Err(e) => {
             return Err(ApiError::QueryError(format!(
-                "executing prop defs query: {}",
-                e
+                "executing prop defs query: {e}"
             )))
         }
     }

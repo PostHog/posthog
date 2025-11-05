@@ -1,33 +1,34 @@
 import enum
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
 from django.db import models
 from django.db.models import QuerySet
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+
 import structlog
 
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.action.action import Action
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import (
     get_hog_function_status,
     patch_hog_function_status,
     reload_hog_functions_on_workers,
 )
 from posthog.utils import absolute_uri
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
-DEFAULT_STATE = {"state": 0, "tokens": 0, "rating": 0}
+DEFAULT_STATE = {"state": 0, "tokens": 0}
 
 logger = structlog.get_logger(__name__)
 
@@ -36,37 +37,31 @@ class HogFunctionState(enum.Enum):
     UNKNOWN = 0
     HEALTHY = 1
     DEGRADED = 2
-    DISABLED_TEMPORARILY = 3
-    DISABLED_PERMANENTLY = 4
+    DISABLED = 3
+    FORCEFULLY_DEGRADED = 11
+    FORCEFULLY_DISABLED = 12
 
 
 class HogFunctionType(models.TextChoices):
     DESTINATION = "destination"
     SITE_DESTINATION = "site_destination"
     INTERNAL_DESTINATION = "internal_destination"
+    SOURCE_WEBHOOK = "source_webhook"
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
-    EMAIL = "email"
-    BROADCAST = "broadcast"
 
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.DESTINATION,
     HogFunctionType.TRANSFORMATION,
     HogFunctionType.INTERNAL_DESTINATION,
-    HogFunctionType.BROADCAST,
-)
-TYPES_WITH_COMPILED_FILTERS = (
-    HogFunctionType.DESTINATION,
-    HogFunctionType.INTERNAL_DESTINATION,
-    HogFunctionType.TRANSFORMATION,
-    HogFunctionType.BROADCAST,
+    HogFunctionType.SOURCE_WEBHOOK,
 )
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 
 
-class HogFunction(FileSystemSyncMixin, UUIDModel):
+class HogFunction(FileSystemSyncMixin, UUIDTModel):
     class Meta:
         indexes = [
             models.Index(fields=["type", "enabled", "team"]),
@@ -81,6 +76,8 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
     type = models.CharField(max_length=24, null=True, blank=True)
+
+    # DEPRECATED: This was an idea that is no longer used
     kind = models.CharField(max_length=24, null=True, blank=True)
 
     icon_url = models.TextField(null=True, blank=True)
@@ -100,6 +97,13 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     mappings = models.JSONField(null=True, blank=True)
     masking = models.JSONField(null=True, blank=True)
     template_id = models.CharField(max_length=400, null=True, blank=True)
+    hog_function_template = models.ForeignKey(
+        "posthog.HogFunctionTemplate",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="hog_functions",
+    )
     execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
     @classmethod
@@ -110,6 +114,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
     def get_file_system_representation(self) -> FileSystemRepresentation:
         folder = "Unfiled/Destinations"
         href = f"/pipeline/destinations/hog-{self.pk}/configuration"
+        type = self.type
 
         if self.type == HogFunctionType.SITE_APP:
             folder = "Unfiled/Site apps"
@@ -117,13 +122,13 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
         elif self.type == HogFunctionType.TRANSFORMATION:
             folder = "Unfiled/Transformations"
             href = f"/pipeline/transformations/hog-{self.pk}/configuration"
-        elif self.type == HogFunctionType.BROADCAST:
-            folder = "Unfiled/Broadcasts"
-            href = f"/messaging/broadcasts/{self.pk}"
+        elif self.type == HogFunctionType.SOURCE_WEBHOOK:
+            folder = "Unfiled/Sources"
+            href = f"/functions/{self.pk}/configuration"
 
         return FileSystemRepresentation(
-            base_folder=folder,
-            type=f"hog_function/{self.type}",  # sync with APIScopeObject in scopes.py
+            base_folder=self._get_assigned_folder(folder),
+            type=f"hog_function/{type}",  # sync with APIScopeObject in scopes.py
             ref=str(self.pk),
             name=self.name or "Untitled",
             href=href,
@@ -136,17 +141,13 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
 
     @property
     def template(self) -> Optional[HogFunctionTemplate]:
-        from posthog.api.hog_function_template import HogFunctionTemplates
+        if self.hog_function_template:
+            return self.hog_function_template
 
         if not self.template_id:
             return None
 
-        template = HogFunctionTemplates.template(self.template_id)
-
-        if template:
-            return template
-
-        return None
+        return HogFunctionTemplate.get_template(self.template_id)
 
     @property
     def filter_action_ids(self) -> list[int]:
@@ -220,7 +221,7 @@ class HogFunction(FileSystemSyncMixin, UUIDModel):
         from posthog.cdp.filters import compile_filters_bytecode
 
         self.move_secret_inputs()
-        if self.type in TYPES_WITH_COMPILED_FILTERS:
+        if self.type not in TYPES_WITH_TRANSPILED_FILTERS:
             self.filters = compile_filters_bytecode(self.filters, self.team)
 
         return super().save(*args, **kwargs)

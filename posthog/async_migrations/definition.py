@@ -51,10 +51,7 @@ class AsyncMigrationOperationSQL(AsyncMigrationOperation):
             self._execute_op(query_id, self.rollback, self.rollback_settings)
 
     def _execute_op(self, query_id: str, sql: str, settings: Optional[dict]):
-        from posthog.async_migrations.utils import (
-            execute_op_clickhouse,
-            execute_op_postgres,
-        )
+        from posthog.async_migrations.utils import execute_op_clickhouse, execute_op_postgres
 
         if self.database == AnalyticsDBMS.CLICKHOUSE:
             execute_op_clickhouse(

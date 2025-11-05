@@ -2,29 +2,24 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 from uuid import UUID
 
-import posthoganalytics
 from django.db.models import QuerySet
-from rest_framework import (
-    exceptions,
-    mixins,
-    request,
-    response,
-    serializers,
-    status,
-    viewsets,
-)
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
+import posthoganalytics
+from rest_framework import exceptions, mixins, permissions, request, response, serializers, status, viewsets
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
+from posthog.helpers.email_utils import EmailNormalizer
 from posthog.models import OrganizationInvite, OrganizationMembership
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.permissions import OrganizationMemberPermissions, TimeSensitiveActionPermission, UserCanInvitePermission
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.tasks.email import send_invite
 
 
@@ -61,7 +56,7 @@ class OrganizationInviteManager:
     ) -> QuerySet:
         filters: dict[str, Any] = {
             "organization_id": organization_id,
-            "target_email": target_email,
+            "target_email__iexact": target_email,
         }
 
         if not include_expired:
@@ -134,8 +129,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
 
     def validate_target_email(self, email: str):
-        local_part, domain = email.split("@")
-        return f"{local_part}@{domain.lower()}"
+        return EmailNormalizer.normalize(email)
 
     def validate_level(self, level: int) -> int:
         # Validate that the user can't invite someone with a higher permission level than their own
@@ -160,7 +154,29 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         team_error = "Project does not exist on this organization, or it is private and you do not have access to it."
         if not private_project_access:
             return None
+
+        # Note: this validation is checking if the inviting user has permission to invite others to the project with the specified access level, not whether the project itself has access controls enabled.
+        # checking if the inviting user has permission to invite a user to the project with the given level
         for item in private_project_access:
+            # Validate the level field
+            level = item.get("level")
+            if level not in ["member", "admin"]:
+                import posthoganalytics
+
+                request = self.context.get("request")
+                user = request.user if request else None
+
+                posthoganalytics.capture_exception(
+                    Exception("Invalid access level used in private_project_access"),
+                    properties={
+                        "field": "private_project_access.level",
+                        "value": str(level),
+                        "user_id": user.id if user else None,
+                        "organization_id": self.context.get("organization_id"),
+                    },
+                )
+
+                raise exceptions.ValidationError('The "level" field must be a valid access level.')
             # if the project is private, if user is not an admin of the team, they can't invite to it
             organization: Organization = Organization.objects.get(id=self.context["organization_id"])
             if not organization:
@@ -169,40 +185,60 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             try:
                 team: Team = teams.get(id=item["id"])
             except Team.DoesNotExist:
-                raise exceptions.ValidationError(
-                    team_error,
-                )
-            is_private = team.access_control
-            if not is_private:
-                continue
+                raise exceptions.ValidationError(team_error)
+
             try:
-                team_membership: ExplicitTeamMembership | OrganizationMembership = ExplicitTeamMembership.objects.get(
-                    team_id=item["id"],
-                    parent_membership__user=self.context["request"].user,
+                # Check if the user is an org admin/owner - org admins/owners can invite with any level
+                OrganizationMembership.objects.get(
+                    organization_id=self.context["organization_id"],
+                    user=self.context["request"].user,
+                    level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
                 )
-            except ExplicitTeamMembership.DoesNotExist:
-                try:
-                    # No explicit team membership. Try getting the implicit team membership - any org owners and admins can invite to any team
-                    team_membership = OrganizationMembership.objects.get(
-                        organization_id=self.context["organization_id"],
-                        user=self.context["request"].user,
-                        level__in=[OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.OWNER],
-                    )
-                except OrganizationMembership.DoesNotExist:
+                continue
+            except OrganizationMembership.DoesNotExist:
+                # User is not an org admin/owner
+                pass
+
+            from ee.models.rbac.access_control import AccessControl
+
+            # Check if the team has an access control row that applies to the entire resource
+            team_access_controls = AccessControl.objects.filter(
+                team_id=item["id"],
+                resource="project",
+                resource_id=str(item["id"]),
+                organization_member=None,
+                role=None,
+            )
+
+            # If no access controls exist, continue (team can be accessed by anyone in the organization)
+            if not team_access_controls.exists():
+                continue
+
+            # Check if there's an access control with level 'none' (private team)
+            private_team_access = team_access_controls.filter(access_level="none").exists()
+
+            if private_team_access:
+                # Team is private, check if user has admin access
+                uac = UserAccessControl(user=self.context["request"].user, team=team)
+                access_level = uac.access_level_for_object(team)
+                if access_level == "none":
+                    raise exceptions.ValidationError(team_error)
+
+                # Check if user is trying to invite with a higher level than their own
+                user_level_rank = {"member": 1, "admin": 2}.get(access_level or "", 0)
+                requested_level_rank = {"member": 1, "admin": 2}.get(level, 0)
+
+                if requested_level_rank > user_level_rank:
                     raise exceptions.ValidationError(
-                        team_error,
+                        "You cannot invite to a private project with a higher level than your own."
                     )
-            if team_membership.level < item["level"]:
-                raise exceptions.ValidationError(
-                    "You cannot invite to a private project with a higher level than your own.",
-                )
 
         return private_project_access
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
         if OrganizationMembership.objects.filter(
             organization_id=self.context["organization_id"],
-            user__email=validated_data["target_email"],
+            user__email__iexact=validated_data["target_email"],
         ).exists():
             raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
 
@@ -264,15 +300,38 @@ class OrganizationInviteViewSet(
     lookup_field = "id"
     ordering = "-created_at"
 
+    def dangerously_get_permissions(self):
+        if self.action in ["create", "bulk", "update", "partial_update"]:
+            write_permissions = [
+                permission()
+                for permission in [
+                    permissions.IsAuthenticated,
+                    OrganizationMemberPermissions,
+                    UserCanInvitePermission,
+                    TimeSensitiveActionPermission,
+                ]
+            ]
+            return write_permissions
+
+        if self.action == "destroy":
+            # Only admins and owners can delete invites
+            from posthog.permissions import OrganizationAdminWritePermissions
+
+            delete_permissions = [
+                permission()
+                for permission in [
+                    permissions.IsAuthenticated,
+                    OrganizationMemberPermissions,
+                    OrganizationAdminWritePermissions,
+                    TimeSensitiveActionPermission,
+                ]
+            ]
+            return delete_permissions
+
+        raise NotImplementedError()
+
     def safely_get_queryset(self, queryset):
         return queryset.select_related("created_by").order_by(self.ordering)
-
-    def lowercase_email_domain(self, email: str):
-        # According to the email RFC https://www.rfc-editor.org/rfc/rfc1035, anything before the @ can be
-        # case-sensitive but the domain should not be. There have been a small number of customers who type in their emails
-        # with a capitalized domain. We shouldn't prevent them from inviting teammates because of this.
-        local_part, domain = email.split("@")
-        return f"{local_part}@{domain.lower()}"
 
     def create(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data.copy())
@@ -286,7 +345,12 @@ class OrganizationInviteViewSet(
 
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    @action(methods=["POST"], detail=False, required_scopes=["organization_member:write"])
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["organization_member:write"],
+        permission_classes=[UserCanInvitePermission],
+    )
     def bulk(self, request: request.Request, **kwargs) -> response.Response:
         data = cast(Any, request.data)
         user = cast(User, self.request.user)
@@ -294,8 +358,8 @@ class OrganizationInviteViewSet(
         session_id = request.headers.get("X-Posthog-Session-Id")
         if user.distinct_id:
             posthoganalytics.capture(
-                user.distinct_id,
-                "bulk invite attempted",
+                distinct_id=str(user.distinct_id),
+                event="bulk invite attempted",
                 properties={
                     "invitees_count": len(data),
                     "$current_url": current_url,

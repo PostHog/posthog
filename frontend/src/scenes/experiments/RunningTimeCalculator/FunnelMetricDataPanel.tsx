@@ -1,5 +1,7 @@
-import { IconInfo } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconInfo } from '@posthog/icons'
+
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -9,7 +11,11 @@ import { experimentLogic } from '../experimentLogic'
 import { UniqueUsersPanel } from './components'
 import { ConversionRateInputType, runningTimeCalculatorLogic } from './runningTimeCalculatorLogic'
 
-export const FunnelMetricDataPanel = (): JSX.Element => {
+export const FunnelMetricDataPanel = ({
+    onChangeType,
+}: {
+    onChangeType: (type: ConversionRateInputType) => void
+}): JSX.Element => {
     const { experimentId } = useValues(experimentLogic)
     const { conversionRateInputType, uniqueUsers, automaticConversionRateDecimal, manualConversionRate } = useValues(
         runningTimeCalculatorLogic({ experimentId })
@@ -21,7 +27,7 @@ export const FunnelMetricDataPanel = (): JSX.Element => {
     return (
         <div>
             <div className="grid grid-cols-3 gap-4">
-                <UniqueUsersPanel uniqueUsers={uniqueUsers} />
+                <UniqueUsersPanel uniqueUsers={uniqueUsers ?? 0} />
                 <div>
                     <div className="card-secondary">
                         <span>Conversion rate input</span>
@@ -57,6 +63,7 @@ export const FunnelMetricDataPanel = (): JSX.Element => {
                         ]}
                         onChange={(value) => {
                             setConversionRateInputType(value)
+                            onChangeType(value as ConversionRateInputType)
                         }}
                         value={conversionRateInputType}
                     />
@@ -65,7 +72,7 @@ export const FunnelMetricDataPanel = (): JSX.Element => {
                             <LemonInput
                                 className="w-[80px] mt-2"
                                 min={0}
-                                step={0.01}
+                                step={1}
                                 max={100}
                                 type="number"
                                 value={manualConversionRate || undefined}

@@ -1,18 +1,18 @@
-from dateutil.relativedelta import relativedelta, MO
-from django.utils import timezone
-import pytz
-
-from datetime import datetime
-import structlog
-
-from posthog.email import EmailMessage
-from posthog.models import AlertConfiguration
-from posthog.schema import (
-    ChartDisplayType,
-    NodeKind,
-    AlertCalculationInterval,
-)
 from dataclasses import dataclass
+from datetime import datetime
+
+from django.utils import timezone
+
+import pytz
+import structlog
+from dateutil.relativedelta import MO, relativedelta
+
+from posthog.schema import AlertCalculationInterval, ChartDisplayType, NodeKind
+
+from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.email import EmailMessage
+from posthog.exceptions_capture import capture_exception
+from posthog.models import AlertConfiguration
 
 logger = structlog.get_logger(__name__)
 
@@ -114,31 +114,78 @@ def next_check_time(alert: AlertConfiguration) -> datetime:
             raise ValueError(f"Invalid alert calculation interval: {alert.calculation_interval}")
 
 
-def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
-    subject = f"PostHog alert {alert.name} is firing"
-    campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
-    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
-    alert_url = f"{insight_url}?alert_id={alert.id}"
-    message = EmailMessage(
-        campaign_key=campaign_key,
-        subject=subject,
-        template_name="alert_check_firing",
-        template_context={
-            "match_descriptions": breaches,
-            "insight_url": insight_url,
-            "insight_name": alert.insight.name,
-            "alert_url": alert_url,
-            "alert_name": alert.name,
-        },
-    )
-    targets = alert.subscribed_users.all().values_list("email", flat=True)
-    if not targets:
-        raise RuntimeError(f"no targets configured for the alert {alert.id}")
-    for target in targets:
-        message.add_recipient(email=target)
+def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> None:
+    """Trigger all HogFunctions linked to the alert as notification destinations by producing an internal event."""
 
-    logger.info(f"Send notifications about {len(breaches)} anomalies", alert_id=alert.id)
-    message.send()
+    logger.info(
+        "Triggering internal event for alert destinations/hog functions",
+        alert_id=alert.id,
+        properties=properties,
+    )
+
+    try:
+        props = {
+            "alert_id": str(alert.id),
+            "alert_name": alert.name,
+            "insight_name": alert.insight.name,
+            "insight_id": alert.insight.short_id,
+            "state": alert.state,
+            "last_checked_at": alert.last_checked_at.isoformat() if alert.last_checked_at else None,
+            **properties,
+        }
+
+        produce_internal_event(
+            team_id=alert.team_id,
+            event=InternalEventEvent(
+                event="$insight_alert_firing",
+                distinct_id=f"team_{alert.team_id}",
+                properties=props,
+            ),
+        )
+
+    except Exception as e:
+        capture_exception(
+            e,
+            additional_properties={
+                "alert_id": str(alert.id),
+                "feature": "alerts",
+            },
+        )
+        logger.error(
+            "Failed to produce internal event for alert destinations/hog functions",
+            alert_id=alert.id,
+            error=str(e),
+            exc_info=True,
+        )
+
+
+def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str]) -> None:
+    email_targets = alert.subscribed_users.all().values_list("email", flat=True)
+    if email_targets:
+        subject = f"PostHog alert {alert.name} is firing"
+        campaign_key = f"alert-firing-notification-{alert.id}-{timezone.now().timestamp()}"
+        insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+        alert_url = f"{insight_url}?alert_id={alert.id}"
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=subject,
+            template_name="alert_check_firing",
+            template_context={
+                "match_descriptions": breaches,
+                "insight_url": insight_url,
+                "insight_name": alert.insight.name,
+                "alert_url": alert_url,
+                "alert_name": alert.name,
+            },
+        )
+
+        for target in email_targets:
+            message.add_recipient(email=target)
+
+        logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
+        message.send()
+
+    trigger_alert_hog_functions(alert=alert, properties={"breaches": ", ".join(breaches)})
 
 
 def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> None:
@@ -162,8 +209,6 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> Non
     #     },
     # )
     # targets = alert.subscribed_users.all().values_list("email", flat=True)
-    # if not targets:
-    #     raise RuntimeError(f"no targets configured for the alert {alert.id}")
     # for target in targets:
     #     message.add_recipient(email=target)
 

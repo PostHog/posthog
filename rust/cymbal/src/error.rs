@@ -10,18 +10,17 @@ use thiserror::Error;
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum ResolveError {
     #[error(transparent)]
     UnhandledError(#[from] UnhandledError),
     #[error(transparent)]
     ResolutionError(#[from] FrameError),
-    #[error(transparent)]
-    EventError(#[from] EventError),
 }
 
 // An unhandled failure at some stage of the event pipeline, as
 // well as the index of the item in the input buffer that caused
 // the failure, so we can print the offset of problematic message
+#[derive(Debug)]
 pub struct PipelineFailure {
     pub index: usize,
     pub error: UnhandledError,
@@ -67,6 +66,10 @@ pub enum UnhandledError {
 pub enum FrameError {
     #[error(transparent)]
     JavaScript(#[from] JsResolveErr),
+    #[error(transparent)]
+    Hermes(#[from] HermesError),
+    #[error(transparent)]
+    Proguard(#[from] ProguardError),
     #[error("No symbol set for chunk id: {0}")]
     MissingChunkIdData(String),
 }
@@ -123,15 +126,43 @@ pub enum JsResolveErr {
     NoSourcemapUploaded(String),
 }
 
+#[derive(Debug, Error, Serialize, Deserialize)]
+pub enum HermesError {
+    #[error("Data error: {0}")]
+    DataError(#[from] SymbolDataError),
+    #[error("Invalid map: {0}")]
+    InvalidMap(String),
+    #[error("No sourcemap uploaded for chunk id: {0}")]
+    NoSourcemapUploaded(String),
+    #[error("No chunk id sent with frame")]
+    NoChunkId,
+    #[error("No token for column {0} on chunk {1}")]
+    NoTokenForColumn(u32, String),
+}
+
+#[derive(Debug, Error, Serialize, Deserialize)]
+pub enum ProguardError {
+    #[error("Data error: {0}")]
+    DataError(#[from] SymbolDataError),
+    #[error("Invalid mapping")]
+    InvalidMapping,
+    #[error("No proguard map uploaded for id: {0}")]
+    MissingMap(String),
+    #[error("No map ID sent with frame")]
+    NoMapId,
+    #[error("No original frames could be derived from this raw frame")]
+    NoOriginalFrames,
+}
+
 #[derive(Debug, Error, Clone)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
     WrongEventType(String, Uuid),
-    #[error("No properties: {0}")]
+    #[error("No properties on event {0}")]
     NoProperties(Uuid),
-    #[error("Invalid properties: {0}, serde error: {1}")]
+    #[error("Invalid properties on event {0}, serde error: {1}")]
     InvalidProperties(Uuid, String),
-    #[error("Empty exception list: {0}")]
+    #[error("Empty exception list on event {0}")]
     EmptyExceptionList(Uuid),
     #[error("Invalid event timestamp: {0}, {1}")]
     InvalidTimestamp(String, String),
@@ -145,9 +176,29 @@ pub enum EventError {
     FilteredByTeamId,
 }
 
-impl From<JsResolveErr> for Error {
+impl From<JsResolveErr> for ResolveError {
     fn from(e: JsResolveErr) -> Self {
         FrameError::JavaScript(e).into()
+    }
+}
+
+impl From<HermesError> for ResolveError {
+    fn from(e: HermesError) -> Self {
+        FrameError::Hermes(e).into()
+    }
+}
+
+impl From<ProguardError> for ResolveError {
+    fn from(e: ProguardError) -> Self {
+        FrameError::Proguard(e).into()
+    }
+}
+
+impl From<FrameError> for UnhandledError {
+    fn from(e: FrameError) -> Self {
+        // TODO - this should be unreachable, but I need to reconsider the error enum structure to make it possible to assert that
+        // at the type level. Leaving for a later refactor for now.
+        UnhandledError::Other(format!("Unhandled resolution error: {e}"))
     }
 }
 

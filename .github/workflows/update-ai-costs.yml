@@ -1,0 +1,87 @@
+name: Update AI Costs
+
+on:
+    workflow_dispatch: # Allow manual triggering
+    schedule:
+        # Run at 10am UTC and 8pm UTC on weekdays (Monday-Friday)
+        - cron: '0 10 * * 1-5' # 10am UTC
+        - cron: '0 20 * * 1-5' # 8pm UTC
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    update-ai-costs:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.17.1
+                  cache: 'pnpm'
+
+            - name: Install dependencies
+              env:
+                  HUSKY: 0
+              run: |
+                  cd plugin-server
+                  pnpm install --frozen-lockfile --ignore-scripts
+
+            - name: Update AI costs
+              run: |
+                  cd plugin-server
+                  pnpm update-ai-costs
+
+            - name: Format generated files
+              run: |
+                  cd plugin-server
+                  pnpm prettier --write src/ingestion/ai-costs/providers/canonical-providers.ts src/ingestion/ai-costs/providers/llm-costs.json
+
+            - name: Check for changes
+              id: check-changes
+              run: |
+                  if git diff --quiet plugin-server/src/ingestion/ai-costs/providers/canonical-providers.ts plugin-server/src/ingestion/ai-costs/providers/llm-costs.json; then
+                    echo "changes=false" >> $GITHUB_OUTPUT
+                    echo "No changes detected in AI costs"
+                  else
+                    echo "changes=true" >> $GITHUB_OUTPUT
+                    echo "Changes detected in AI costs"
+                    git diff --stat plugin-server/src/ingestion/ai-costs/providers/canonical-providers.ts plugin-server/src/ingestion/ai-costs/providers/llm-costs.json
+                  fi
+
+            - name: Create Pull Request
+              if: steps.check-changes.outputs.changes == 'true'
+              uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v5
+              with:
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  commit-message: 'chore(llma): update LLM costs'
+                  title: 'chore(llma): Update LLM costs'
+                  body: |
+                      This is an automated PR to update LLM pricing models.
+
+                      ## Reviewer checklist
+
+                      Please verify that there aren't any odd changes in the pricing by checking against the official pricing pages:
+
+                      - [Anthropic Pricing](https://claude.com/pricing#api)
+                      - [OpenAI Pricing](https://openai.com/api/pricing/)
+                      - [Google AI (Gemini) Pricing](https://ai.google.dev/pricing)
+                      - [Mistral AI Pricing](https://mistral.ai/pricing#api-pricing)
+                  branch: chore/llma-update-ai-costs
+                  base: master
+                  delete-branch: true
+                  labels: |
+                      automated
+                      llm-analytics
+                  team-reviewers: |
+                      team-llm-analytics

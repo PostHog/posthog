@@ -16,14 +16,9 @@ async fn janitor_test(db: PgPool) {
     // kinda gross, but the from_pool methods are better suited to test usage
     let default_worker_cfg = WorkerConfig::default();
     let should_compress_vm_state = default_worker_cfg.should_compress_vm_state();
-    let should_use_bulk_job_copy = default_worker_cfg.should_use_bulk_job_copy();
 
     let worker = Worker::from_pool(db.clone(), default_worker_cfg);
-    let manager = QueueManager::from_pool(
-        db.clone(),
-        should_compress_vm_state,
-        should_use_bulk_job_copy,
-    );
+    let manager = QueueManager::from_pool(db.clone(), should_compress_vm_state, false);
 
     // Purposefully MUCH smaller than would be used in production, so
     // we can simulate stalled or poison jobs quickly
@@ -69,6 +64,7 @@ async fn janitor_test(db: PgPool) {
 
     let uuid = Uuid::now_v7();
     let job_init = JobInit {
+        id: None,
         team_id: 1,
         queue_name: queue_name.clone(),
         priority: 0,

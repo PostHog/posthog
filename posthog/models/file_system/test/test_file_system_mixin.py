@@ -1,16 +1,8 @@
 from django.test import TestCase
 
-from posthog.models import (
-    Team,
-    User,
-    Organization,
-    FeatureFlag,
-    Experiment,
-    Insight,
-    Dashboard,
-    Notebook,
-    FileSystem,
-)
+from posthog.models import Dashboard, Experiment, FeatureFlag, FileSystem, Insight, Organization, Team, User
+
+from products.notebooks.backend.models import Notebook
 
 
 class TestFileSystemSyncMixin(TestCase):
@@ -167,3 +159,36 @@ class TestFileSystemSyncMixin(TestCase):
         note.delete()
         fs_entry2 = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note_id)).first()
         assert fs_entry2 is None
+
+    def test_notebook_internal_visibility(self):
+        note = Notebook.objects.create(
+            team=self.team, title="My Notebook", created_by=self.user, visibility=Notebook.Visibility.INTERNAL
+        )
+        fs_entry = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note.id)).first()
+
+        assert fs_entry is None, "Should not create file system entry for internal notebook"
+        assert note.get_file_system_representation().should_delete, "Internal notebook should be set for deletion"
+
+    def test_notebook_internal_visibility_delete_existing_entry(self):
+        note = Notebook.objects.create(
+            team=self.team, title="My Notebook", created_by=self.user, visibility=Notebook.Visibility.INTERNAL
+        )
+        fs_entry = FileSystem.objects.create(
+            team=self.team,
+            path=f"{note._get_assigned_folder('Unfiled/Notebooks')}/My Notebook",
+            depth=2,
+            type="notebook",
+            ref=str(note.short_id),
+            href=f"/notebooks/{note.short_id}",
+            meta={"created_at": str(note.created_at)},
+            shortcut=False,
+            created_by_id=self.user.id,
+            created_at=note.created_at,
+        )
+        fs_entry_id = fs_entry.id
+
+        note.save()
+
+        assert (
+            FileSystem.objects.filter(id=fs_entry_id).exists() is False
+        ), "Existing entries for internal notebooks should be deleted"

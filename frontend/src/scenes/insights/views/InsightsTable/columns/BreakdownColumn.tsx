@@ -1,4 +1,5 @@
 import { Link } from '@posthog/lemon-ui'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { isURL } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'

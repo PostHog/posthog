@@ -1,15 +1,32 @@
 """Test utilities that deal with test event generation."""
 
-import datetime as dt
-import itertools
 import json
+import uuid
 import random
 import typing
-import uuid
+import datetime as dt
+import itertools
 
-from posthog.models.raw_sessions.sql import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
-from posthog.temporal.common.clickhouse import ClickHouseClient
+import aiohttp.client_exceptions
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
+
+from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
+from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseError
 from posthog.temporal.tests.utils.datetimes import date_range
+
+
+@retry(
+    retry=retry_if_exception_type(
+        (aiohttp.client_exceptions.ClientOSError, aiohttp.client_exceptions.ServerDisconnectedError, ClickHouseError)
+    ),
+    # on attempts expired, raise the exception encountered in our code, not tenacity's retry error
+    reraise=True,
+    wait=wait_random_exponential(multiplier=0.2, max=3),
+    stop=stop_after_attempt(5),
+)
+async def execute_query(clickhouse_client: ClickHouseClient, query: str, *data):
+    """Try to prevent flakiness in CI by retrying the query if it fails."""
+    return await clickhouse_client.execute_query(query, *data)
 
 
 class EventValues(typing.TypedDict):
@@ -100,28 +117,33 @@ def generate_test_events(
     return events
 
 
+async def truncate_table(client: ClickHouseClient, table: str):
+    await execute_query(client, f"TRUNCATE TABLE IF EXISTS `{table}`")
+
+
 async def insert_event_values_in_clickhouse(
     client: ClickHouseClient, events: list[EventValues], table: str = "sharded_events", insert_sessions: bool = False
 ):
     """Execute an insert query to insert provided EventValues into sharded_events."""
-    await client.execute_query(
+    await execute_query(
+        client,
         f"""
-        INSERT INTO `{table}` (
-            uuid,
-            event,
-            timestamp,
-            _timestamp,
-            person_id,
-            team_id,
-            properties,
-            elements_chain,
-            distinct_id,
-            inserted_at,
-            created_at,
-            person_properties
-        )
-        VALUES
-        """,
+    INSERT INTO `{table}` (
+        uuid,
+        event,
+        timestamp,
+        _timestamp,
+        person_id,
+        team_id,
+        properties,
+        elements_chain,
+        distinct_id,
+        inserted_at,
+        created_at,
+        person_properties
+    )
+    VALUES
+    """,
         *[
             (
                 event["uuid"],
@@ -152,10 +174,13 @@ async def insert_sessions_in_clickhouse(client: ClickHouseClient, table: str = "
             "`$session_id`", "JSONExtractString(properties, '$session_id')"
         )
 
-    await client.execute_query(f"""
+    await execute_query(
+        client,
+        f"""
     INSERT INTO raw_sessions
     {generate_sessions_query}
-    """)
+    """,
+    )
 
 
 async def generate_test_events_in_clickhouse(

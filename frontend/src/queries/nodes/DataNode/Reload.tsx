@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { IconRefresh } from 'lib/lemon-ui/icons'
+
+import { IconRefresh } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 

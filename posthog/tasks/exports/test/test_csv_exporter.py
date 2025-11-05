@@ -1,20 +1,24 @@
 from datetime import datetime
 from io import BytesIO
 from typing import Any, Optional
+
+import pytest
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 from unittest import mock
 from unittest.mock import ANY, MagicMock, Mock, patch
 
-import pytest
+from django.test import override_settings
+from django.utils.timezone import now
+
 from boto3 import resource
 from botocore.client import Config
 from dateutil.relativedelta import relativedelta
-from django.test import override_settings
-from django.utils.timezone import now
-from freezegun import freeze_time
 from openpyxl import load_workbook
 from requests.exceptions import HTTPError
 
 from posthog.hogql.constants import CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL
+
 from posthog.models import ExportedAsset
 from posthog.models.utils import UUIDT
 from posthog.settings import (
@@ -31,7 +35,6 @@ from posthog.tasks.exports.csv_exporter import (
     _convert_response_to_csv_data,
     add_query_params,
 )
-from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
 
@@ -372,12 +375,10 @@ class TestCSVExporter(APIBaseTest):
         with pytest.raises(UnexpectedEmptyJsonResponse, match="JSON is None when calling API for data"):
             csv_exporter.export_tabular(self._create_asset())
 
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 5)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_hogql_query(
-        self, mocked_uuidt: Any, DEFAULT_RETURNED_ROWS=5, MAX_SELECT_RETURNED_ROWS=10
-    ) -> None:
+    def test_csv_exporter_hogql_query(self, mocked_uuidt: Any, DEFAULT_RETURNED_ROWS=5, CSV_EXPORT_LIMIT=10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
@@ -418,9 +419,9 @@ class TestCSVExporter(APIBaseTest):
 
             assert exported_asset.content is None
 
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query(self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS=10) -> None:
+    def test_csv_exporter_events_query(self, mocked_uuidt: Any, CSV_EXPORT_LIMIT=10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
@@ -453,7 +454,7 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(len(lines), 12)
             self.assertEqual(
                 lines[0],
-                "event,*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at",
+                "event,*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at,*.person_mode",
             )
             self.assertEqual(lines[11], "")
             first_row = lines[1].split(",")
@@ -461,11 +462,9 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(first_row[2], "$pageview")
             self.assertEqual(first_row[5], str(self.team.pk))
 
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 10)
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 10)
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_csv_exporter_events_query_with_columns(
-        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
-    ) -> None:
+    def test_csv_exporter_events_query_with_columns(self, mocked_uuidt: Any, CSV_EXPORT_LIMIT: int = 10) -> None:
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         for i in range(15):
             _create_event(
@@ -499,7 +498,7 @@ class TestCSVExporter(APIBaseTest):
             self.assertEqual(len(lines), 12)
             self.assertEqual(
                 lines[0],
-                "*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at",
+                "*.uuid,*.event,*.properties.prop,*.timestamp,*.team_id,*.distinct_id,*.elements_chain,*.created_at,*.person_mode",
             )
             self.assertEqual(lines[11], "")
             first_row = lines[1].split(",")
@@ -808,13 +807,13 @@ class TestCSVExporter(APIBaseTest):
             lines = (content or "").strip().splitlines()
 
             expected_lines = [
-                "series,21-Mar-2023,22-Mar-2023,23-Mar-2023,24-Mar-2023,25-Mar-2023,26-Mar-2023,27-Mar-2023,28-Mar-2023",
-                "Chrome - current,2.0,0.0,0.0,0.0,0.0,0.0,0.0,3.0",
-                "Firefox - current,1.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
-                "Safari - current,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
-                "Chrome - previous,0.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
-                "Firefox - previous,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
-                "Safari - previous,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
+                "series,$browser,21-Mar-2023,22-Mar-2023,23-Mar-2023,24-Mar-2023,25-Mar-2023,26-Mar-2023,27-Mar-2023,28-Mar-2023",
+                "Chrome - current,Chrome,2.0,0.0,0.0,0.0,0.0,0.0,0.0,3.0",
+                "Firefox - current,Firefox,1.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
+                "Safari - current,Safari,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0",
+                "Chrome - previous,Chrome,0.0,0.0,0.0,0.0,0.0,0.0,0.0,2.0",
+                "Firefox - previous,Firefox,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
+                "Safari - previous,Safari,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0",
             ]
 
             self.assertEqual(lines, expected_lines)
@@ -884,5 +883,233 @@ class TestCSVExporter(APIBaseTest):
                     "actor.id,actor.is_identified,actor.created_at,actor.distinct_ids.0,event_count,event_distinct_ids.0",
                     "4beb316f-23aa-2584-66d3-4a1b8ab458f2,False,2022-06-01 12:00:00+00:00,user_1,2,user_1",
                     "d0780d6b-ccd0-44fa-a227-47efe4f3f30d,,,user_2,1,user_2",
+                ],
+            )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_query_with_formula(
+        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
+    ) -> None:
+        with freeze_time("2024-05-15T12:00:00.000Z"):
+            _create_person(distinct_ids=["formula_test_user_xyz"], team=self.team)
+
+        events_by_person = {
+            "formula_test_user_xyz": [
+                {"event": "formula_test_event_a", "timestamp": datetime(2024, 5, 15, 13, 46)},
+                {"event": "formula_test_event_b", "timestamp": datetime(2024, 5, 15, 13, 47)},
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2024-05-15", "date_from": "2024-05-15"},
+                    "series": [
+                        {"kind": "EventsNode", "event": "formula_test_event_a", "name": "Event A", "math": "total"},
+                        {"kind": "EventsNode", "event": "formula_test_event_b", "name": "Event B", "math": "total"},
+                    ],
+                    "interval": "day",
+                    "trendsFilter": {
+                        "showLegend": True,
+                        "display": "ActionsTable",
+                        "formula": "A+B",
+                    },
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            self.assertEqual(
+                lines,
+                [
+                    "series,Total Sum",
+                    "Formula (A+B),2.0",
+                ],
+            )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_query_with_formula_and_single_breakdown(
+        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
+    ) -> None:
+        with freeze_time("2024-06-10T12:00:00.000Z"):
+            _create_person(distinct_ids=["breakdown_user_single"], team=self.team)
+
+        _create_event(
+            event="breakdown_single_event_a",
+            distinct_id="breakdown_user_single",
+            team=self.team,
+            timestamp=datetime(2024, 6, 10, 13, 46),
+            properties={"country": "USA"},
+        )
+        _create_event(
+            event="breakdown_single_event_b",
+            distinct_id="breakdown_user_single",
+            team=self.team,
+            timestamp=datetime(2024, 6, 10, 13, 47),
+            properties={"country": "USA"},
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2024-06-10", "date_from": "2024-06-10"},
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "breakdown_single_event_a",
+                            "name": "Event A",
+                            "math": "total",
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "event": "breakdown_single_event_b",
+                            "name": "Event B",
+                            "math": "total",
+                        },
+                    ],
+                    "interval": "day",
+                    "trendsFilter": {
+                        "showLegend": True,
+                        "display": "ActionsTable",
+                        "formula": "A+B",
+                    },
+                    "breakdownFilter": {
+                        "breakdown": "country",
+                        "breakdown_type": "event",
+                    },
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+            self.assertEqual(
+                lines,
+                [
+                    "series,country,Total Sum",
+                    "Formula (A+B),USA,2.0",
+                ],
+            )
+
+    @patch("posthog.models.exported_asset.UUIDT")
+    def test_csv_exporter_trends_query_with_formula_and_multiple_breakdowns(
+        self, mocked_uuidt: Any, MAX_SELECT_RETURNED_ROWS: int = 10
+    ) -> None:
+        with freeze_time("2024-07-20T12:00:00.000Z"):
+            _create_person(distinct_ids=["multi_breakdown_user_1"], team=self.team)
+            _create_person(distinct_ids=["multi_breakdown_user_2"], team=self.team)
+
+        _create_event(
+            event="multi_breakdown_event_a",
+            distinct_id="multi_breakdown_user_1",
+            team=self.team,
+            timestamp=datetime(2024, 7, 20, 13, 46),
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="multi_breakdown_event_b",
+            distinct_id="multi_breakdown_user_1",
+            team=self.team,
+            timestamp=datetime(2024, 7, 20, 13, 47),
+            properties={"$browser": "Chrome"},
+        )
+        _create_event(
+            event="multi_breakdown_event_a",
+            distinct_id="multi_breakdown_user_2",
+            team=self.team,
+            timestamp=datetime(2024, 7, 20, 13, 48),
+            properties={"$browser": "Firefox"},
+        )
+        flush_persons_and_events()
+
+        exported_asset = ExportedAsset(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.CSV,
+            export_context={
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_to": "2024-07-20", "date_from": "2024-07-20"},
+                    "series": [
+                        {
+                            "kind": "EventsNode",
+                            "event": "multi_breakdown_event_a",
+                            "name": "Event A",
+                            "math": "total",
+                        },
+                        {
+                            "kind": "EventsNode",
+                            "event": "multi_breakdown_event_b",
+                            "name": "Event B",
+                            "math": "total",
+                        },
+                    ],
+                    "interval": "day",
+                    "trendsFilter": {
+                        "showLegend": True,
+                        "display": "ActionsTable",
+                        "formula": "A+B",
+                    },
+                    "breakdownFilter": {
+                        "breakdowns": [
+                            {"property": "distinct_id", "type": "event_metadata"},
+                            {"property": "$browser", "type": "event"},
+                        ]
+                    },
+                }
+            },
+        )
+        exported_asset.save()
+        mocked_uuidt.return_value = "a-guid"
+
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
+            csv_exporter.export_tabular(exported_asset)
+
+            assert (
+                exported_asset.content_location
+                == f"{TEST_PREFIX}/csv/team-{self.team.id}/task-{exported_asset.id}/a-guid"
+            )
+
+            content = object_storage.read(exported_asset.content_location)
+            lines = (content or "").strip().split("\r\n")
+
+            # Sort data lines for consistent comparison (order may vary)
+            data_lines = sorted(lines[1:])
+
+            self.assertEqual(
+                lines[0:1] + data_lines,
+                [
+                    "series,distinct_id,$browser,Total Sum",
+                    "Formula (A+B),multi_breakdown_user_1,Chrome,2.0",
+                    "Formula (A+B),multi_breakdown_user_2,Firefox,1.0",
                 ],
             )

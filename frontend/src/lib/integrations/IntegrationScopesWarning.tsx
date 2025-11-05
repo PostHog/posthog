@@ -1,16 +1,17 @@
+import { useMemo } from 'react'
+
 import api from 'lib/api'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
-import { useMemo } from 'react'
 
-import { HogFunctionInputSchemaType, IntegrationType } from '~/types'
+import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'
 
 export function IntegrationScopesWarning({
     integration,
     schema,
 }: {
     integration: IntegrationType
-    schema?: HogFunctionInputSchemaType
+    schema?: CyclotronJobInputSchemaType
 }): JSX.Element {
     const getScopes = useMemo((): string[] => {
         const scopes: any[] = []

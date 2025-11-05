@@ -1,34 +1,20 @@
 // NOTE: PostIngestionEvent is our context event - it should never be sent directly to an output, but rather transformed into a lightweight schema
-
-import { CyclotronJob, CyclotronJobUpdate } from '@posthog/cyclotron'
-import { Bytecodes } from '@posthog/hogvm'
 import { DateTime } from 'luxon'
-import RE2 from 're2'
 import { gunzip, gzip } from 'zlib'
 
+import { sanitizeForUTF8 } from '~/utils/strings'
+
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
-import { safeClickhouseString } from '../utils/db/utils'
 import { parseJSON } from '../utils/json-parse'
-import { logger } from '../utils/logger'
-import { captureException } from '../utils/posthog'
-import { castTimestampOrNow, clickHouseTimestampToISO, UUIDT } from '../utils/utils'
-import { MAX_GROUP_TYPES_PER_TEAM } from '../worker/ingestion/group-type-manager'
+import { castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
 import { CdpInternalEvent } from './schema'
-import {
-    HogFunctionCapturedEvent,
-    HogFunctionFilterGlobals,
-    HogFunctionInvocation,
-    HogFunctionInvocationGlobals,
-    HogFunctionInvocationGlobalsWithInputs,
-    HogFunctionInvocationLogEntry,
-    HogFunctionInvocationQueueParameters,
-    HogFunctionInvocationSerialized,
-    HogFunctionLogEntrySerialized,
-    HogFunctionType,
-} from './types'
+import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerialized, MinimalLogEntry } from './types'
+
 // ID of functions that are hidden from normal users and used by us for special testing
 // For example, transformations use this to only run if in comparison mode
 export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
+export const MAX_LOG_LENGTH = 10000
+const TRUNCATION_SUFFIX = '... (truncated)'
 
 export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'email',
@@ -40,7 +26,7 @@ export const PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES = [
     'UserName',
 ]
 
-const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
+export const getPersonDisplayName = (team: Team, distinctId: string, properties: Record<string, any>): string => {
     const personDisplayNameProperties = team.person_display_name_properties ?? PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
     const customPropertyKey = personDisplayNameProperties.find((x) => properties?.[x])
     const propertyIdentifier = customPropertyKey ? properties[customPropertyKey] : undefined
@@ -121,6 +107,19 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
         }
     }
 
+    let properties = data.event.properties
+
+    // KLUDGE: spread the properties of the exception event that caused the internal issue event
+    // so those properties can be used to filter CDP destinations for error tracking alerts
+    if (
+        isInternalErrorTrackingEvent(data.event) &&
+        'exception_props' in properties &&
+        typeof properties.exception_props === 'object'
+    ) {
+        properties = { ...properties, ...properties.exception_props }
+        delete properties.exception_props
+    }
+
     const context: HogFunctionInvocationGlobals = {
         project: {
             id: team.id,
@@ -132,7 +131,7 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
             event: data.event.event,
             elements_chain: '', // Not applicable but left here for compatibility
             distinct_id: data.event.distinct_id,
-            properties: data.event.properties,
+            properties: properties,
             timestamp: data.event.timestamp,
             url: data.event.url ?? '',
         },
@@ -140,140 +139,6 @@ export function convertInternalEventToHogFunctionInvocationGlobals(
     }
 
     return context
-}
-
-function getElementsChainHref(elementsChain: string): string {
-    // Adapted from SQL: extract(elements_chain, '(?::|\")href="(.*?)"'),
-    const hrefRegex = new RE2(/(?::|")href="(.*?)"/)
-    const hrefMatch = hrefRegex.exec(elementsChain)
-    return hrefMatch ? hrefMatch[1] : ''
-}
-
-function getElementsChainTexts(elementsChain: string): string[] {
-    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")text="(.*?)"')),
-    const textRegex = new RE2(/(?::|")text="(.*?)"/g)
-    const textMatches = new Set<string>()
-    let textMatch
-    while ((textMatch = textRegex.exec(elementsChain)) !== null) {
-        textMatches.add(textMatch[1])
-    }
-    return Array.from(textMatches)
-}
-
-function getElementsChainIds(elementsChain: string): string[] {
-    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?::|\")attr_id="(.*?)"')),
-    const idRegex = new RE2(/(?::|")attr_id="(.*?)"/g)
-    const idMatches = new Set<string>()
-    let idMatch
-    while ((idMatch = idRegex.exec(elementsChain)) !== null) {
-        idMatches.add(idMatch[1])
-    }
-    return Array.from(idMatches)
-}
-
-function getElementsChainElements(elementsChain: string): string[] {
-    // Adapted from SQL: arrayDistinct(extractAll(elements_chain, '(?:^|;)(a|button|form|input|select|textarea|label)(?:\\.|$|:)'))
-    const elementRegex = new RE2(/(?:^|;)(a|button|form|input|select|textarea|label)(?:\.|$|:)/g)
-    const elementMatches = new Set<string>()
-    let elementMatch
-    while ((elementMatch = elementRegex.exec(elementsChain)) !== null) {
-        elementMatches.add(elementMatch[1])
-    }
-    return Array.from(elementMatches)
-}
-
-export function convertToHogFunctionFilterGlobal(globals: HogFunctionInvocationGlobals): HogFunctionFilterGlobals {
-    const groups: Record<string, any> = {}
-
-    // We need to add default empty groups so that filtering works as it expects it to always exist
-    for (let i = 0; i < MAX_GROUP_TYPES_PER_TEAM; i++) {
-        groups[`group_${i}`] = {
-            key: null,
-            index: i,
-            properties: {},
-        }
-    }
-
-    for (const [_groupType, group] of Object.entries(globals.groups || {})) {
-        groups[`group_${group.index}`] = {
-            key: group.id,
-            index: group.index,
-            properties: group.properties,
-        }
-        groups[_groupType] = groups[`group_${group.index}`]
-    }
-
-    const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
-    const response = {
-        ...groups,
-        event: globals.event.event,
-        elements_chain: elementsChain,
-        elements_chain_href: '',
-        elements_chain_texts: [] as string[],
-        elements_chain_ids: [] as string[],
-        elements_chain_elements: [] as string[],
-        timestamp: globals.event.timestamp,
-        properties: globals.event.properties,
-        person: globals.person ? { id: globals.person.id, properties: globals.person.properties } : undefined,
-        pdi: globals.person
-            ? {
-                  distinct_id: globals.event.distinct_id,
-                  person_id: globals.person.id,
-                  person: { id: globals.person.id, properties: globals.person.properties },
-              }
-            : undefined,
-        distinct_id: globals.event.distinct_id,
-    } satisfies HogFunctionFilterGlobals
-
-    // The elements_chain_* fields are stored as materialized columns in ClickHouse.
-    // We use the same formula to calculate them here.
-    if (elementsChain) {
-        const cache: Record<string, any> = {}
-        Object.defineProperties(response, {
-            elements_chain_href: {
-                get: () => {
-                    cache.elements_chain_href ??= getElementsChainHref(elementsChain)
-                    return cache.elements_chain_href
-                },
-            },
-            elements_chain_texts: {
-                get: () => {
-                    cache.elements_chain_texts ??= getElementsChainTexts(elementsChain)
-                    return cache.elements_chain_texts
-                },
-            },
-            elements_chain_ids: {
-                get: () => {
-                    cache.elements_chain_ids ??= getElementsChainIds(elementsChain)
-                    return cache.elements_chain_ids
-                },
-            },
-            elements_chain_elements: {
-                get: () => {
-                    cache.elements_chain_elements ??= getElementsChainElements(elementsChain)
-                    return cache.elements_chain_elements
-                },
-            },
-        })
-    }
-
-    return response
-}
-
-export const convertToCaptureEvent = (event: HogFunctionCapturedEvent, team: Team): any => {
-    return {
-        uuid: new UUIDT().toString(),
-        distinct_id: safeClickhouseString(event.distinct_id),
-        data: JSON.stringify({
-            event: event.event,
-            distinct_id: event.distinct_id,
-            properties: event.properties,
-            timestamp: event.timestamp,
-        }),
-        now: DateTime.now().toISO(),
-        sent_at: DateTime.now().toISO(),
-        token: team.api_token,
-    }
 }
 
 export const gzipObject = async <T extends object>(object: T): Promise<string> => {
@@ -297,8 +162,8 @@ export const unGzipObject = async <T extends object>(data: string): Promise<T> =
     return parseJSON(res.toString())
 }
 
-export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogFunctionLogEntrySerialized[] => {
-    const preparedLogs: HogFunctionLogEntrySerialized[] = []
+export const fixLogDeduplication = (logs: LogEntry[]): LogEntrySerialized[] => {
+    const preparedLogs: LogEntrySerialized[] = []
     const sortedLogs = logs.sort((a, b) => a.timestamp.toMillis() - b.timestamp.toMillis())
 
     if (sortedLogs.length === 0) {
@@ -317,7 +182,7 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
 
         previousTimestamp = logEntry.timestamp
 
-        const sanitized: HogFunctionLogEntrySerialized = {
+        const sanitized: LogEntrySerialized = {
             ...logEntry,
             timestamp: castTimestampOrNow(logEntry.timestamp, TimestampFormat.ClickHouse),
         }
@@ -327,136 +192,70 @@ export const fixLogDeduplication = (logs: HogFunctionInvocationLogEntry[]): HogF
     return preparedLogs
 }
 
-export function createInvocation(
-    globals: HogFunctionInvocationGlobalsWithInputs,
-    hogFunction: HogFunctionType,
-    functionToExecute?: [string, any[]]
-): HogFunctionInvocation {
-    return {
-        id: new UUIDT().toString(),
-        globals,
-        teamId: hogFunction.team_id,
-        hogFunction,
-        queue: 'hog',
-        priority: 1,
-        timings: [],
-        functionToExecute,
-    }
-}
-
-export function serializeHogFunctionInvocation(invocation: HogFunctionInvocation): HogFunctionInvocationSerialized {
-    const serializedInvocation: HogFunctionInvocationSerialized = {
-        ...invocation,
-        hogFunctionId: invocation.hogFunction.id,
-        // We clear the params as they are never used in the serialized form
-        queueParameters: undefined,
-    }
-
-    delete (serializedInvocation as any).hogFunction
-
-    return serializedInvocation
-}
-
-function prepareQueueParams(
-    _params?: HogFunctionInvocation['queueParameters']
-): Pick<CyclotronJobUpdate, 'parameters' | 'blob'> {
-    let parameters: HogFunctionInvocation['queueParameters'] = _params
-    let blob: CyclotronJobUpdate['blob'] = undefined
-
-    if (!parameters) {
-        return { parameters, blob }
-    }
-
-    const { body, ...rest } = parameters
-    parameters = rest
-    blob = body ? Buffer.from(body) : undefined
-
-    return {
-        parameters,
-        blob,
-    }
-}
-
-export function invocationToCyclotronJobUpdate(invocation: HogFunctionInvocation): CyclotronJobUpdate {
-    const updates = {
-        priority: invocation.priority,
-        vmState: serializeHogFunctionInvocation(invocation),
-        queueName: invocation.queue,
-        ...prepareQueueParams(invocation.queueParameters),
-    }
-    return updates
-}
-
-export function cyclotronJobToInvocation(job: CyclotronJob, hogFunction: HogFunctionType): HogFunctionInvocation {
-    const parsedState = job.vmState as HogFunctionInvocationSerialized
-    const params = job.parameters as HogFunctionInvocationQueueParameters | undefined
-
-    if (job.blob && params) {
-        // Deserialize the blob into the params
-        try {
-            params.body = job.blob ? Buffer.from(job.blob).toString('utf-8') : undefined
-        } catch (e) {
-            logger.error('Error parsing blob', e, job.blob)
-            captureException(e)
-        }
-    }
-
-    return {
-        id: job.id,
-        globals: parsedState.globals,
-        teamId: hogFunction.team_id,
-        hogFunction,
-        priority: job.priority,
-        queue: (job.queueName as any) ?? 'hog',
-        queueParameters: params,
-        vmState: parsedState.vmState,
-        timings: parsedState.timings,
-    }
-}
-
-/** Build bytecode that calls a function in another imported bytecode */
-export function buildExportedFunctionInvoker(
-    exportBytecode: any[],
-    exportGlobals: any,
-    functionName: string,
-    args: any[]
-): Bytecodes {
-    let argBytecodes: any[] = []
-    for (let i = 0; i < args.length; i++) {
-        argBytecodes = [
-            ...argBytecodes,
-            33, // integer
-            i + 1, // (index in args array)
-            32, // string
-            '__args',
-            1, // get global
-            2, // (chain length)
-        ]
-    }
-    const bytecode = [
-        '_H',
-        1,
-        ...argBytecodes,
-        32, // string
-        'x',
-        2, // call global
-        'import',
-        1, // (arg count)
-        32, // string
-        functionName,
-        45, // get property
-        54, // call local
-        args.length,
-        35, // pop
-    ]
-    return {
-        bytecodes: {
-            x: { bytecode: exportBytecode, globals: exportGlobals },
-            root: { bytecode, globals: { __args: args } },
-        },
-    }
-}
-
-export function isLegacyPluginHogFunction(hogFunction: HogFunctionType): boolean {
+export function isLegacyPluginHogFunction(hogFunction: Pick<HogFunctionType, 'template_id'>): boolean {
     return hogFunction.template_id?.startsWith('plugin-') ?? false
+}
+
+export function isSegmentPluginHogFunction(hogFunction: Pick<HogFunctionType, 'template_id'>): boolean {
+    return hogFunction.template_id?.startsWith('segment-') ?? false
+}
+
+export function isNativeHogFunction(hogFunction: Pick<HogFunctionType, 'template_id'>): boolean {
+    return hogFunction.template_id?.startsWith('native-') ?? false
+}
+
+export function isInternalErrorTrackingEvent(event: CdpInternalEvent['event']): boolean {
+    return ['$error_tracking_issue_created', '$error_tracking_issue_reopened'].includes(event.event)
+}
+
+export function filterExists<T>(value: T): value is NonNullable<T> {
+    return Boolean(value)
+}
+
+export const sanitizeLogMessage = (args: any[], sensitiveValues?: string[], maxLength = MAX_LOG_LENGTH): string => {
+    let message = args.map((arg) => (typeof arg !== 'string' ? JSON.stringify(arg) : arg)).join(', ')
+
+    // Find and replace any sensitive values
+    sensitiveValues?.forEach((sensitiveValue) => {
+        message = message.replaceAll(sensitiveValue, '***REDACTED***')
+    })
+
+    let truncateAt = maxLength
+
+    // Check if we're in the middle of a surrogate pair
+    if (truncateAt > 0 && truncateAt < message.length + TRUNCATION_SUFFIX.length) {
+        const charAtTruncate = message.charCodeAt(truncateAt)
+        const charBeforeTruncate = message.charCodeAt(truncateAt - 1)
+
+        // If we're about to cut after a high surrogate or before a low surrogate
+        if ((charBeforeTruncate & 0xfc00) === 0xd800 || (charAtTruncate & 0xfc00) === 0xdc00) {
+            // Move back to avoid cutting through the surrogate pair
+            truncateAt--
+            // If we moved back and are still at a high surrogate, move back one more
+            if (truncateAt > 0 && (message.charCodeAt(truncateAt - 1) & 0xfc00) === 0xd800) {
+                truncateAt--
+            }
+        }
+        message = sanitizeForUTF8(message.slice(0, truncateAt) + TRUNCATION_SUFFIX)
+    }
+
+    return message
+}
+
+export const logEntry = (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
+    return {
+        level,
+        timestamp: DateTime.now(),
+        message: sanitizeLogMessage(args),
+    }
+}
+
+export const createAddLogFunction = (logs: MinimalLogEntry[]) => {
+    return (level: 'debug' | 'warn' | 'error' | 'info', ...args: any[]) => {
+        logs.push({
+            level,
+            timestamp: DateTime.now(),
+            message: sanitizeLogMessage(args),
+        })
+    }
 }

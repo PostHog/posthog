@@ -2,6 +2,7 @@ import './CompactList.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'

@@ -1,9 +1,11 @@
+import { useActions, useValues } from 'kea'
+import { Dispatch, SetStateAction, useState } from 'react'
+
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { Dispatch, SetStateAction, useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 

@@ -1,12 +1,13 @@
 import uuid
-from unittest import mock
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from unittest import mock
 
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
-from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
+
+from products.data_warehouse.backend.models import ExternalDataSchema, ExternalDataSource
 
 from .data import BALANCE_TRANSACTIONS
 
@@ -95,6 +96,7 @@ async def test_stripe_source_incremental(team, mock_stripe_api, external_data_so
     Then, after resetting the 'max_created' value, we expect the incremental sync to return the most recent 2 balance
     transactions when it is called again.
     """
+
     table_name = "stripe_balancetransaction"
 
     # mock the API so it doesn't return all data on initial sync
@@ -116,7 +118,6 @@ async def test_stripe_source_incremental(team, mock_stripe_api, external_data_so
     api_calls_made = mock_stripe_api.get_all_api_calls()
     assert len(api_calls_made) == 1
     assert parse_qs(urlparse(api_calls_made[0].url).query) == {
-        "created[gt]": ["0"],
         "limit": ["100"],
     }
 
@@ -137,8 +138,12 @@ async def test_stripe_source_incremental(team, mock_stripe_api, external_data_so
 
     api_calls_made = mock_stripe_api.get_all_api_calls()
     # Check that the API was called once more
-    assert len(api_calls_made) == 2
+    assert len(api_calls_made) == 3
     assert parse_qs(urlparse(api_calls_made[1].url).query) == {
+        "created[lt]": [str(BALANCE_TRANSACTIONS[4]["created"])],
+        "limit": ["100"],
+    }
+    assert parse_qs(urlparse(api_calls_made[2].url).query) == {
         "created[gt]": [f"{third_item_created}"],
         "limit": ["100"],
     }

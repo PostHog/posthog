@@ -1,6 +1,7 @@
-import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
+
+import { LemonInputSelect, LemonInputSelectOption } from '@posthog/lemon-ui'
 
 import { GoogleAdsConversionActionType, IntegrationType } from '~/types'
 

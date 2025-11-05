@@ -9,11 +9,11 @@
 .SearchBarTab {
     // TODO: not working, look to fix
     &:hover {
-        border-left: 2px solid var(--border-primary);
+        border-left: 2px solid var(--color-border-primary);
     }
 
     &.SearchBarTab__active {
-        border-color: var(--accent);
+        border-color: var(--color-accent);
     }
 }
 

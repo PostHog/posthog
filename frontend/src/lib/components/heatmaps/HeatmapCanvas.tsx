@@ -1,21 +1,25 @@
 import heatmapsJs, { Heatmap as HeatmapJS } from 'heatmap.js'
 import { useValues } from 'kea'
+import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
+
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 import { cn } from 'lib/utils/css-classes'
-import { MutableRefObject, useCallback, useEffect, useMemo, useRef } from 'react'
 
+import { ScrollDepthCanvas } from './ScrollDepthCanvas'
 import { useMousePosition } from './useMousePosition'
 
 function HeatmapMouseInfo({
     heatmapJsRef,
     containerRef,
+    context,
 }: {
     heatmapJsRef: MutableRefObject<HeatmapJS<'value', 'x', 'y'> | undefined>
     containerRef: MutableRefObject<HTMLDivElement | null | undefined>
+    context: 'in-app' | 'toolbar'
 }): JSX.Element | null {
     const shiftPressed = useShiftKeyPressed()
-    const { heatmapTooltipLabel } = useValues(heatmapDataLogic)
+    const { heatmapTooltipLabel } = useValues(heatmapDataLogic({ context }))
 
     const mousePosition = useMousePosition(containerRef?.current)
     const value = heatmapJsRef.current?.getValueAt(mousePosition)
@@ -54,12 +58,17 @@ function HeatmapMouseInfo({
 export function HeatmapCanvas({
     positioning = 'fixed',
     widthOverride,
+    context,
+    exportToken,
 }: {
     positioning?: 'absolute' | 'fixed'
     widthOverride?: number | null
+    context: 'in-app' | 'toolbar'
+    exportToken?: string
 }): JSX.Element | null {
-    const { heatmapJsData, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette } =
-        useValues(heatmapDataLogic)
+    const { heatmapJsData, heatmapFilters, windowWidth, windowHeight, heatmapColorPalette, isReady } = useValues(
+        heatmapDataLogic({ context, exportToken })
+    )
 
     const heatmapsJsRef = useRef<HeatmapJS<'value', 'x', 'y'>>()
     const heatmapsJsContainerRef = useRef<HTMLDivElement | null>()
@@ -105,11 +114,11 @@ export function HeatmapCanvas({
         })
 
         updateHeatmapData()
-    }, [])
+    }, []) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         updateHeatmapData()
-    }, [heatmapJsData])
+    }, [heatmapJsData]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!heatmapsJsContainerRef.current) {
@@ -117,25 +126,43 @@ export function HeatmapCanvas({
         }
 
         heatmapsJsRef.current?.configure({
-            ...heatmapConfig,
+            ...heatmapConfig, // oxlint-disable-line react-hooks/exhaustive-deps
             container: heatmapsJsContainerRef.current,
             gradient: heatmapJSColorGradient,
         })
     }, [heatmapJSColorGradient])
 
-    if (!heatmapFilters.enabled || heatmapFilters.type === 'scrolldepth') {
+    if (!heatmapFilters.enabled) {
         return null
     }
 
+    if (heatmapFilters.type === 'scrolldepth') {
+        return (
+            <ScrollDepthCanvas
+                key={`scrolldepth-${heatmapFilters.type}-${exportToken ? 'export' : `${widthOverride ?? windowWidth}x${windowHeight}`}`}
+                positioning={positioning}
+                context={context}
+                exportToken={exportToken}
+            />
+        )
+    }
+
     return (
-        <div className={cn('inset-0 overflow-hidden w-full h-full', positioning)} data-attr="heatmap-canvas">
-            {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas */}
+        <div
+            className={cn(
+                'inset-0 overflow-hidden w-full h-full',
+                positioning,
+                isReady ? 'heatmaps-ready' : 'heatmaps-loading'
+            )}
+            data-attr="heatmap-canvas"
+        >
+            {/* NOTE: We key on the window dimensions which triggers a recreation of the canvas except when it's an export */}
             <div
-                key={`${widthOverride ?? windowWidth}x${windowHeight}`}
+                key={exportToken ? 'export-heatmap' : `${widthOverride ?? windowWidth}x${windowHeight}`}
                 className="absolute inset-0"
                 ref={setHeatmapContainer}
             />
-            <HeatmapMouseInfo heatmapJsRef={heatmapsJsRef} containerRef={heatmapsJsContainerRef} />
+            <HeatmapMouseInfo heatmapJsRef={heatmapsJsRef} containerRef={heatmapsJsContainerRef} context={context} />
         </div>
     )
 }

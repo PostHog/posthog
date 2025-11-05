@@ -13,123 +13,84 @@
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
     "engines": {
-        "node": ">=18 <19"
+        "node": ">=22 <23"
     },
     "packageManager": "pnpm@9.15.5+sha256.8472168c3e1fd0bff287e694b053fccbbf20579a3ff9526b6333beab8df65a8d",
     "scripts": {
         "prepare": "husky install",
-        "schema:build": "pnpm --filter=@posthog/frontend run schema:build:json && pnpm run schema:build:python",
+        "schema:build": "bin/hogli build:schema",
         "schema:build:python": "bash bin/build-schema-python.sh",
         "taxonomy:build": "pnpm run taxonomy:build:json",
-        "taxonomy:build:json": "python bin/build-taxonomy-json.py && prettier --write ./frontend/src/taxonomy/core-filter-definitions-by-group.json",
-        "grammar:build": "npm run grammar:build:python && npm run grammar:build:cpp",
-        "grammar:build:python": "cd posthog/hogql/grammar && antlr -Dlanguage=Python3 HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
-        "grammar:build:cpp": "cd posthog/hogql/grammar && antlr -o ../../../common/hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
+        "taxonomy:build:json": "python bin/build-taxonomy-json.py",
+        "grammar:build": "pnpm grammar:build:python && pnpm grammar:build:cpp",
+        "grammar:build:python": "cd posthog/hogql/grammar && cat HogQLLexer.python.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 |sed s/isOpeningTag/self.isOpeningTag/ >> HogQLLexer.g4 && antlr -Dlanguage=Python3 HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
+        "grammar:build:cpp": "cd posthog/hogql/grammar && cat HogQLLexer.cpp.g4 > HogQLLexer.g4 && tail -n +2 HogQLLexer.common.g4 >> HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -Dlanguage=Cpp HogQLLexer.g4 && rm HogQLLexer.g4 && antlr -o ../../../common/hogql_parser -visitor -no-listener -Dlanguage=Cpp HogQLParser.g4",
+        "generate:source-configs": "DEBUG=1 python manage.py generate_source_configs",
+        "// DEPRECATED - use hogli migrations:run instead": "",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
+        "// DEPRECATED - use hogli migrations:run instead ": "",
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
-        "mypy-baseline-sync": "TEST=1 mypy -p posthog | mypy-baseline sync",
-        "mypy-check": "TEST=1 mypy -p posthog | mypy-baseline filter",
-        "format:backend": "./bin/ruff.sh .",
+        "mypy-baseline-sync": "TEST=1 mypy . | mypy-baseline sync",
+        "mypy-check": "TEST=1 mypy . | mypy-baseline filter",
+        "// DEPRECATED - use hogli format:python instead": "",
+        "format:backend": "./bin/ruff.sh format .",
+        "// DEPRECATED - use hogli format:js instead": "",
         "format:frontend": "pnpm --filter=@posthog/frontend run format",
+        "// DEPRECATED - use hogli format instead": "",
         "format": "pnpm format:backend && pnpm format:frontend",
         "cleandep": "rm -rf node_modules && pnpm -r exec rm -rf node_modules",
-        "storybook": "pnpm turbo --filter=@posthog/storybook start"
+        "storybook": "pnpm turbo --filter=@posthog/storybook start",
+        "// DEPRECATED - use hogli start instead": "",
+        "start": "./bin/start",
+        "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true"
     },
     "dependencies": {
         "concurrently": "^5.3.0",
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
-        "turbo": "^2.4.2"
+        "turbo": "^2.4.2",
+        "uuid": "^10.0.0"
     },
     "devDependencies": {
         "@parcel/packager-ts": "2.13.3",
         "@parcel/transformer-typescript-types": "2.13.3",
-        "eslint": "^8.57.0",
-        "eslint-config-prettier": "^9.1.0",
-        "eslint-plugin-compat": "^4.2.0",
-        "eslint-plugin-cypress": "^2.15.1",
-        "eslint-plugin-eslint-comments": "^3.2.0",
-        "eslint-plugin-import": "^2.29.0",
-        "eslint-plugin-jest": "^28.6.0",
-        "eslint-plugin-posthog": "workspace:*",
-        "eslint-plugin-react": "^7.33.2",
-        "eslint-plugin-react-google-translate": "^0.0.114",
-        "eslint-plugin-react-hooks": "^4.6.2",
-        "eslint-plugin-simple-import-sort": "^10.0.0",
-        "eslint-plugin-storybook": "^0.6.15",
-        "eslint-plugin-unused-imports": "^3.1.0",
-        "prettier": "^2.8.8",
+        "@trivago/prettier-plugin-sort-imports": "^5.2.2",
+        "@types/uuid": "^10.0.0",
+        "markdownlint-cli2": "^0.18.1",
+        "oxlint": "^1.8.0",
+        "prettier": "^3.6.2",
         "stylelint": "^15.11.0",
-        "stylelint-config-recess-order": "^4.3.0",
+        "stylelint-config-recess-order": "^4.6.0",
         "stylelint-config-standard-scss": "^11.1.0",
-        "stylelint-order": "^6.0.3",
-        "syncpack": "^13.0.1"
+        "stylelint-order": "^6.0.4",
+        "syncpack": "^13.0.4"
     },
     "optionalDependencies": {
-        "fsevents": "^2.3.2"
+        "fsevents": "^2.3.3"
     },
     "pnpm": {
         "overrides": {
             "playwright": "1.45.0",
-            "typescript": "~4.9.5"
+            "typescript": "5.2.2",
+            "@posthog/icons": "0.35.0"
         },
         "patchedDependencies": {
-            "node-rdkafka@2.17.0": "patches/node-rdkafka@2.17.0.patch",
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",
-            "dayjs@1.11.11": "patches/dayjs@1.11.11.patch"
+            "dayjs@1.11.11": "patches/dayjs@1.11.11.patch",
+            "chartjs-plugin-crosshair@2.0.0": "patches/chartjs-plugin-crosshair@2.0.0.patch"
         }
     },
     "lint-staged": {
-        "*.{json,yaml,yml}": "prettier --write",
-        "*.{css,scss}": [
-            "stylelint --fix",
-            "prettier --write"
-        ],
-        "cypress/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "playwright/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "frontend/src/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "products/*/manifest.tsx": [
-            "eslint --cache -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "products/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "common/**/src/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "common/**/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint --cache -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "frontend/*.mjs": [
-            "eslint -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "ee/frontend/**/*.{js,jsx,mjs,ts,tsx}": [
-            "eslint -c .eslintrc.js --fix",
-            "prettier --write"
-        ],
-        "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [
-            "pnpm --dir plugin-server exec eslint --fix",
-            "pnpm --dir plugin-server exec prettier --write"
-        ],
-        "funnel-udf/**/*.rs": "rustfmt",
+        "*.{json,yaml,yml}": "bin/hogli format:yaml",
+        "*.{css,scss}": "bin/hogli format:css",
+        "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:js",
+        "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": "bin/hogli format:plugin-server",
+        "funnel-udf/**/*.rs": "bin/hogli format:rust",
         "!(posthog/hogql/grammar/*)*.{py,pyi}": [
-            "./bin/ruff.sh check --fix",
-            "./bin/ruff.sh format"
-        ]
+            "bin/hogli lint:python:fix",
+            "bin/hogli format:python"
+        ],
+        "*.{md,mdx}": "bin/hogli format:markdown"
     },
     "browserslist": {
         "development": [

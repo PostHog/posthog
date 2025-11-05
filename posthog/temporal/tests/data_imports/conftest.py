@@ -1,29 +1,34 @@
-import functools
 import json
 import uuid
+import functools
 from concurrent.futures import ThreadPoolExecutor
+
+import pytest
 from unittest import mock
 
-import aioboto3
-import pytest
-import pytest_asyncio
-from asgiref.sync import sync_to_async
 from django.conf import settings
 from django.test import override_settings
+
+import aioboto3
+import pytest_asyncio
+from asgiref.sync import sync_to_async
 from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
-from posthog.hogql.query import execute_hogql_query
 from posthog.schema import HogQLQueryResponse
+
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.utils import ExternalDataWorkflowInputs
-from posthog.warehouse.models import ExternalDataJob
-from posthog.warehouse.models.external_data_job import get_latest_run_if_exists
-from posthog.warehouse.models.external_table_definitions import external_tables
+
+from products.data_warehouse.backend.models import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_job import get_latest_run_if_exists
+from products.data_warehouse.backend.models.external_table_definitions import external_tables
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()
@@ -77,8 +82,8 @@ async def run_external_data_job_workflow(
     external_data_source,
     external_data_schema,
     table_name,
-    expected_rows_synced,
-    expected_total_rows,
+    expected_rows_synced: int | None,
+    expected_total_rows: int | None,
     expected_columns: list[str] | None = None,
 ) -> HogQLQueryResponse:
     workflow_id = str(uuid.uuid4())
@@ -92,24 +97,25 @@ async def run_external_data_job_workflow(
     with (
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
+            BUCKET_PATH=BUCKET_NAME,
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
             AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
             AIRBYTE_BUCKET_REGION="us-east-1",
             AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
         ),
-        mock.patch(
-            "posthog.temporal.data_imports.pipelines.pipeline.pipeline.trigger_compaction_job"
-        ) as mock_trigger_compaction_job,
+        mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
         mock.patch(
             "posthog.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
+        # make sure intended error of line 175 in posthog/warehouse/models/table.py doesn't trigger flag calls
+        mock.patch("posthoganalytics.capture_exception", return_value=None),
         mock.patch.object(AwsCredentials, "to_session_credentials", _mock_to_session_credentials),
         mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", _mock_to_object_store_rs_credentials),
     ):
         async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
             async with Worker(
                 activity_environment.client,
-                task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                 workflows=[ExternalDataJobWorkflow],
                 activities=ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -120,7 +126,7 @@ async def run_external_data_job_workflow(
                     ExternalDataJobWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -129,9 +135,10 @@ async def run_external_data_job_workflow(
 
     assert run is not None
     assert run.status == ExternalDataJob.Status.COMPLETED
-    assert run.rows_synced == expected_rows_synced
+    if expected_rows_synced is not None:
+        assert run.rows_synced == expected_rows_synced
 
-    mock_trigger_compaction_job.assert_called()
+    mock_compact_table.assert_called()
     mock_get_data_import_finished_metric.assert_called_with(
         source_type=external_data_source.source_type, status=ExternalDataJob.Status.COMPLETED.lower()
     )
@@ -146,7 +153,8 @@ async def run_external_data_job_workflow(
         columns_str = ", ".join(expected_columns)
 
     res = await sync_to_async(execute_hogql_query)(f"SELECT {columns_str} FROM {table_name}", team)
-    assert len(res.results) == expected_total_rows
+    if expected_total_rows is not None:
+        assert len(res.results) == expected_total_rows
     if expected_columns is not None:
         assert set(expected_columns) == set(res.columns or [])
 
@@ -675,6 +683,350 @@ def stripe_subscription():
 
 
 @pytest.fixture
+def stripe_dispute():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/disputes",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "dp_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "dispute",
+                    "amount": 1000,
+                    "balance_transactions": [],
+                    "charge": "ch_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "created": 1680644467,
+                    "currency": "usd",
+                    "evidence": {
+                        "access_activity_log": null,
+                        "billing_address": null,
+                        "cancellation_policy": null,
+                        "cancellation_policy_disclosure": null,
+                        "cancellation_rebuttal": null,
+                        "customer_communication": null,
+                        "customer_email_address": "customer@example.com",
+                        "customer_name": "John Doe",
+                        "customer_purchase_ip": null,
+                        "customer_signature": null,
+                        "duplicate_charge_documentation": null,
+                        "duplicate_charge_explanation": null,
+                        "duplicate_charge_id": null,
+                        "product_description": null,
+                        "receipt": null,
+                        "refund_policy": null,
+                        "refund_policy_disclosure": null,
+                        "refund_refusal_explanation": null,
+                        "service_date": null,
+                        "service_documentation": null,
+                        "shipping_address": null,
+                        "shipping_carrier": null,
+                        "shipping_date": null,
+                        "shipping_documentation": null,
+                        "shipping_tracking_number": null,
+                        "uncategorized_file": null,
+                        "uncategorized_text": null
+                    },
+                    "evidence_details": {
+                        "due_by": 1681249267,
+                        "has_evidence": false,
+                        "past_due": false,
+                        "submission_count": 0
+                    },
+                    "is_charge_refundable": true,
+                    "livemode": false,
+                    "metadata": {},
+                    "network_reason_code": "4855",
+                    "payment_intent": "pi_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "reason": "fraudulent",
+                    "status": "warning_needs_response"
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_payout():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/payouts",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "po_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "payout",
+                    "amount": 2000,
+                    "arrival_date": 1680648000,
+                    "automatic": true,
+                    "balance_transaction": "txn_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "created": 1680644467,
+                    "currency": "usd",
+                    "description": "STRIPE PAYOUT",
+                    "destination": "ba_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "failure_balance_transaction": null,
+                    "failure_code": null,
+                    "failure_message": null,
+                    "livemode": false,
+                    "metadata": {},
+                    "method": "standard",
+                    "original_payout": null,
+                    "reconciliation_status": "completed",
+                    "reversed_by": null,
+                    "source_type": "card",
+                    "statement_descriptor": null,
+                    "status": "paid",
+                    "type": "bank_account"
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_refund():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/refunds",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "re_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "refund",
+                    "amount": 500,
+                    "balance_transaction": "txn_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "charge": "ch_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "created": 1680644467,
+                    "currency": "usd",
+                    "description": null,
+                    "failure_balance_transaction": null,
+                    "failure_reason": null,
+                    "instructions_email": null,
+                    "metadata": {},
+                    "next_action": null,
+                    "payment_intent": "pi_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "reason": "requested_by_customer",
+                    "receipt_number": null,
+                    "source_transfer_reversal": null,
+                    "status": "succeeded",
+                    "transfer_reversal": null
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_invoiceitem():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/invoiceitems",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "ii_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "invoiceitem",
+                    "amount": 1500,
+                    "currency": "usd",
+                    "customer": "cus_NffrFeUfNV2Hib",
+                    "date": 1680644467,
+                    "description": "One-time setup fee",
+                    "discountable": true,
+                    "discounts": [],
+                    "invoice": null,
+                    "livemode": false,
+                    "metadata": {},
+                    "period": {
+                        "end": 1680644467,
+                        "start": 1680644467
+                    },
+                    "price": {
+                        "id": "price_1MtHbELkdIwHu7ixl4OzzPMv",
+                        "object": "price",
+                        "active": true,
+                        "billing_scheme": "per_unit",
+                        "created": 1680644467,
+                        "currency": "usd",
+                        "livemode": false,
+                        "lookup_key": null,
+                        "metadata": {},
+                        "nickname": null,
+                        "product": "prod_NffrFeUfNV2Hib",
+                        "recurring": null,
+                        "tax_behavior": "unspecified",
+                        "tiers_mode": null,
+                        "transform_quantity": null,
+                        "type": "one_time",
+                        "unit_amount": 1500,
+                        "unit_amount_decimal": "1500"
+                    },
+                    "proration": false,
+                    "quantity": 1,
+                    "subscription": null,
+                    "tax_rates": [],
+                    "test_clock": null,
+                    "unit_amount": 1500,
+                    "unit_amount_decimal": "1500"
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_credit_note():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/credit_notes",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "cn_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "credit_note",
+                    "amount": 1000,
+                    "currency": "usd",
+                    "customer": "cus_NffrFeUfNV2Hib",
+                    "created": 1680644467,
+                    "discount_amount": 0,
+                    "discount_amounts": [],
+                    "invoice": "in_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "lines": {
+                        "object": "list",
+                        "data": [
+                            {
+                                "id": "cnli_1MtHbELkdIwHu7ixl4OzzPMv",
+                                "object": "credit_note_line_item",
+                                "amount": 1000,
+                                "description": "Credit for returned item",
+                                "discount_amount": 0,
+                                "discount_amounts": [],
+                                "invoice_line_item": "il_1MtHbELkdIwHu7ixl4OzzPMv",
+                                "livemode": false,
+                                "quantity": 1,
+                                "tax_amounts": [],
+                                "tax_rates": [],
+                                "type": "invoice_line_item",
+                                "unit_amount": 1000,
+                                "unit_amount_decimal": "1000"
+                            }
+                        ],
+                        "has_more": false,
+                        "total_count": 1,
+                        "url": "/v1/credit_notes/cn_1MtHbELkdIwHu7ixl4OzzPMv/lines"
+                    },
+                    "livemode": false,
+                    "memo": "Credit for returned item",
+                    "metadata": {},
+                    "number": "ABCD-1234",
+                    "out_of_band_amount": null,
+                    "pdf": "https://pay.stripe.com/credit_notes/cn_1MtHbELkdIwHu7ixl4OzzPMv/pdf",
+                    "reason": "duplicate",
+                    "refund": null,
+                    "status": "issued",
+                    "subtotal": 1000,
+                    "tax_amounts": [],
+                    "total": 1000,
+                    "type": "post_payment",
+                    "voided_at": null
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_customer_balance_transaction():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/credit_notes",
+            "has_more": false,
+            "data": [
+                {
+                    "amount": 123,
+                    "checkout_session": null,
+                    "created": 1744275509,
+                    "credit_note": null,
+                    "currency": "usd",
+                    "customer": "cus_OyUnzb0sjasdsd",
+                    "description": "Credit expired",
+                    "ending_balance": 0,
+                    "id": "cbtxn_1RCGwLEuIatRXSdz53OwYsdfsd",
+                    "invoice_id": null,
+                    "livemode": true,
+                    "metadata": {},
+                    "object": "customer_balance_transaction",
+                    "type": "adjustment"
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
+def stripe_customer_payment_method():
+    return json.loads(
+        """
+        {
+            "object": "list",
+            "url": "/v1/payment_methods",
+            "has_more": false,
+            "data": [
+                {
+                    "id": "pm_1MtHbELkdIwHu7ixl4OzzPMv",
+                    "object": "payment_method",
+                    "customer": "cus_NffrFeUfNV2Hib",
+                    "created": 1680644467,
+                    "livemode": false,
+                    "redaction": {
+                        "reason": "duplicate"
+                    },
+                    "metadata": {},
+                    "billing_details": {
+                        "address": {
+                            "city": "San Francisco",
+                            "country": "US",
+                            "line1": "510 Townsend St",
+                            "line2": "Apt 345",
+                            "postal_code": "94103",
+                            "state": "CA"
+                        },
+                        "email": "test@example.com",
+                        "name": "Test test",
+                        "phone": "+15555555555"
+                    },
+                    "card": {
+                        "brand": "visa",
+                        "last4": "4242",
+                        "exp_month": 12,
+                        "exp_year": 2024,
+                        "fingerprint": "mToisGZ01V71BCos"
+                    },
+                    "type": "card"
+                }
+            ]
+        }
+        """
+    )
+
+
+@pytest.fixture
 def zendesk_brands():
     return json.loads(
         """
@@ -971,6 +1323,7 @@ def zendesk_tickets():
             "next_page": "https://{subdomain}.zendesk.com/api/v2/incremental/tickets.json?per_page=3&start_time=1390362485",
             "tickets": [
                 {
+                    "generated_timestamp": 1,
                     "assignee_id": 235323,
                     "collaborator_ids": [
                         35334,

@@ -1,12 +1,14 @@
 import { useActions } from 'kea'
 import { useValues } from 'kea'
-import { IconRefresh } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useMemo } from 'react'
+
+import { IconRefresh } from '@posthog/icons'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { ExperimentIdType } from '~/types'
 
-import { authorizedUrlListLogic, AuthorizedUrlListType, KeyedAppUrl } from './authorizedUrlListLogic'
+import { AuthorizedUrlListType, KeyedAppUrl, authorizedUrlListLogic } from './authorizedUrlListLogic'
 
 type EmptyStateProps = {
     type: AuthorizedUrlListType

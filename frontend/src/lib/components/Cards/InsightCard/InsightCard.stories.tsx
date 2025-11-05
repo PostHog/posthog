@@ -1,7 +1,8 @@
 import { Meta, Story } from '@storybook/react'
 import { useState } from 'react'
 
-import { InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { TileFilters } from '~/queries/schema/schema-general'
+import { AccessControlLevel, DashboardTile, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
 
 import EXAMPLE_DATA_TABLE_NODE_EVENTS_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableEvents.json'
 import EXAMPLE_DATA_TABLE_NODE_HOGQL_QUERY from '../../../../mocks/fixtures/api/projects/team_id/insights/dataTableHogQL.json'
@@ -17,6 +18,20 @@ import EXAMPLE_TRENDS_TABLE from '../../../../mocks/fixtures/api/projects/team_i
 import EXAMPLE_TRENDS_HORIZONTAL_BAR from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
 import EXAMPLE_TRENDS_WORLD_MAP from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
 import { InsightCard as InsightCardComponent } from './index'
+
+const defaultTile = {
+    id: 1,
+    filters_overrides: {
+        properties: [
+            {
+                key: '$browser',
+                operator: 'exact',
+                type: 'event',
+                value: ['Chrome'],
+            },
+        ],
+    } as TileFilters,
+} as DashboardTile<QueryBasedInsightModel>
 
 const examples = [
     EXAMPLE_TRENDS,
@@ -39,7 +54,6 @@ const meta: Meta = {
     component: InsightCardComponent,
     parameters: {
         mockDate: '2023-07-01',
-        featureFlags: ['hogql'],
     },
     argTypes: {
         insightName: {
@@ -60,6 +74,7 @@ const meta: Meta = {
         highlighted: {
             control: { type: 'boolean' },
         },
+        tile: defaultTile,
     },
 }
 export default meta
@@ -71,6 +86,7 @@ export const InsightCard: Story = (args) => {
         <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
             {!wasItemRemoved && (
                 <InsightCardComponent
+                    tile={args.tile}
                     insight={
                         {
                             ...EXAMPLE_TRENDS,
@@ -92,6 +108,7 @@ export const InsightCard: Story = (args) => {
                 />
             )}
             <InsightCardComponent
+                tile={args.tile}
                 insight={
                     {
                         ...EXAMPLE_TRENDS,
@@ -111,6 +128,7 @@ export const InsightCard: Story = (args) => {
                 showResizeHandles={args.resizable}
             />
             <InsightCardComponent
+                tile={args.tile}
                 insight={
                     {
                         ...EXAMPLE_TRENDS,
@@ -129,6 +147,7 @@ export const InsightCard: Story = (args) => {
                 showResizeHandles={args.resizable}
             />
             <InsightCardComponent
+                tile={args.tile}
                 insight={
                     {
                         ...EXAMPLE_FUNNEL,
@@ -153,6 +172,7 @@ export const InsightCard: Story = (args) => {
                 showResizeHandles={args.resizable}
             />
             <InsightCardComponent
+                tile={args.tile}
                 insight={
                     {
                         ...EXAMPLE_FUNNEL,
@@ -170,6 +190,7 @@ export const InsightCard: Story = (args) => {
             />
             {examples.map((e) => (
                 <InsightCardComponent
+                    tile={args.tile}
                     key={e.id}
                     insight={e as unknown as QueryBasedInsightModel}
                     rename={() => {}}
@@ -182,6 +203,201 @@ export const InsightCard: Story = (args) => {
                     showResizeHandles={args.resizable}
                 />
             ))}
+        </div>
+    )
+}
+
+// Access Control Stories
+export const AccessControlNoAccess: Story = () => {
+    return (
+        <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
+            <InsightCardComponent
+                tile={defaultTile}
+                insight={
+                    {
+                        ...EXAMPLE_TRENDS,
+                        name: 'Sales Analysis - Restricted',
+                        description: 'This insight contains sensitive sales data.',
+                        user_access_level: 'none',
+                    } as unknown as QueryBasedInsightModel
+                }
+                rename={() => {}}
+                duplicate={() => {}}
+                placement="SavedInsightGrid"
+            />
+        </div>
+    )
+}
+
+export const AccessControlViewerAccess: Story = () => {
+    const [insightColor, setInsightColor] = useState<InsightColor | null>(null)
+
+    return (
+        <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
+            <InsightCardComponent
+                tile={defaultTile}
+                insight={
+                    {
+                        ...EXAMPLE_TRENDS,
+                        name: 'User Engagement Metrics - View Only',
+                        description: 'You can view this insight but cannot edit it.',
+                        user_access_level: AccessControlLevel.Viewer,
+                    } as unknown as QueryBasedInsightModel
+                }
+                ribbonColor={insightColor}
+                updateColor={setInsightColor}
+                rename={() => {}}
+                duplicate={() => {}}
+                placement="SavedInsightGrid"
+            />
+        </div>
+    )
+}
+
+export const AccessControlEditorAccess: Story = () => {
+    const [insightColor, setInsightColor] = useState<InsightColor | null>(null)
+    const [wasItemRemoved, setWasItemRemoved] = useState(false)
+
+    return (
+        <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
+            {!wasItemRemoved && (
+                <InsightCardComponent
+                    tile={defaultTile}
+                    insight={
+                        {
+                            ...EXAMPLE_TRENDS,
+                            name: 'Product Analytics - Full Access',
+                            description: 'You can view, edit, and manage this insight.',
+                            user_access_level: AccessControlLevel.Editor,
+                        } as unknown as QueryBasedInsightModel
+                    }
+                    ribbonColor={insightColor}
+                    updateColor={setInsightColor}
+                    removeFromDashboard={() => setWasItemRemoved(true)}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement="SavedInsightGrid"
+                />
+            )}
+        </div>
+    )
+}
+
+export const AccessControlManagerAccess: Story = () => {
+    const [insightColor, setInsightColor] = useState<InsightColor | null>(null)
+    const [wasItemRemoved, setWasItemRemoved] = useState(false)
+
+    return (
+        <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
+            {!wasItemRemoved && (
+                <InsightCardComponent
+                    tile={defaultTile}
+                    insight={
+                        {
+                            ...EXAMPLE_TRENDS,
+                            name: 'Executive Dashboard - Manager Access',
+                            description: 'You have full management permissions for this insight.',
+                            user_access_level: AccessControlLevel.Manager,
+                        } as unknown as QueryBasedInsightModel
+                    }
+                    ribbonColor={insightColor}
+                    updateColor={setInsightColor}
+                    removeFromDashboard={() => setWasItemRemoved(true)}
+                    deleteWithUndo={async () => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement="SavedInsightGrid"
+                />
+            )}
+        </div>
+    )
+}
+
+export const AccessControlLegacyInsight: Story = () => {
+    const [insightColor, setInsightColor] = useState<InsightColor | null>(null)
+    const [wasItemRemoved, setWasItemRemoved] = useState(false)
+
+    return (
+        <div className="grid gap-4 grid-cols-2 min-w-[50rem]">
+            {!wasItemRemoved && (
+                <InsightCardComponent
+                    tile={defaultTile}
+                    insight={
+                        {
+                            ...EXAMPLE_TRENDS,
+                            name: 'Legacy Insight - No Access Control',
+                            description: 'This insight was created before access control was implemented.',
+                            // user_access_level is intentionally undefined to test fallback behavior
+                        } as unknown as QueryBasedInsightModel
+                    }
+                    ribbonColor={insightColor}
+                    updateColor={setInsightColor}
+                    removeFromDashboard={() => setWasItemRemoved(true)}
+                    deleteWithUndo={async () => {}}
+                    rename={() => {}}
+                    duplicate={() => {}}
+                    placement="SavedInsightGrid"
+                />
+            )}
+        </div>
+    )
+}
+
+export const AccessControlMixedPermissions: Story = () => {
+    const [insightColor, setInsightColor] = useState<InsightColor | null>(null)
+
+    return (
+        <div className="grid gap-4 grid-cols-3 min-w-[75rem]">
+            {/* No Access */}
+            <InsightCardComponent
+                tile={defaultTile}
+                insight={
+                    {
+                        ...EXAMPLE_TRENDS,
+                        name: 'Restricted Data',
+                        user_access_level: 'none',
+                    } as unknown as QueryBasedInsightModel
+                }
+                rename={() => {}}
+                duplicate={() => {}}
+                placement="SavedInsightGrid"
+            />
+
+            {/* Viewer Access */}
+            <InsightCardComponent
+                tile={defaultTile}
+                insight={
+                    {
+                        ...EXAMPLE_FUNNEL,
+                        name: 'View Only Funnel',
+                        user_access_level: AccessControlLevel.Viewer,
+                    } as unknown as QueryBasedInsightModel
+                }
+                ribbonColor={insightColor}
+                updateColor={setInsightColor}
+                rename={() => {}}
+                duplicate={() => {}}
+                placement="SavedInsightGrid"
+            />
+
+            {/* Editor Access */}
+            <InsightCardComponent
+                tile={defaultTile}
+                insight={
+                    {
+                        ...EXAMPLE_RETENTION,
+                        name: 'Editable Retention',
+                        user_access_level: AccessControlLevel.Editor,
+                    } as unknown as QueryBasedInsightModel
+                }
+                ribbonColor={insightColor}
+                updateColor={setInsightColor}
+                removeFromDashboard={() => {}}
+                deleteWithUndo={async () => {}}
+                rename={() => {}}
+                duplicate={() => {}}
+                placement="SavedInsightGrid"
+            />
         </div>
     )
 }

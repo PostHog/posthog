@@ -1,7 +1,13 @@
 import './CodeEditor.scss'
 
-import MonacoEditor, { DiffEditor as MonacoDiffEditor, type EditorProps, loader, Monaco } from '@monaco-editor/react'
+import MonacoEditor, { type EditorProps, Monaco, DiffEditor as MonacoDiffEditor, loader } from '@monaco-editor/react'
 import { BuiltLogic, useMountedLogic, useValues } from 'kea'
+import * as monaco from 'monaco-editor'
+import { IDisposable, editor, editor as importedEditor } from 'monaco-editor'
+import { useEffect, useMemo, useRef, useState } from 'react'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
@@ -10,10 +16,8 @@ import { initHogLanguage } from 'lib/monaco/languages/hog'
 import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
 import { initHogTemplateLanguage } from 'lib/monaco/languages/hogTemplate'
+import { initLiquidLanguage } from 'lib/monaco/languages/liquid'
 import { inStorybookTestRunner } from 'lib/utils'
-import { editor, editor as importedEditor, IDisposable } from 'monaco-editor'
-import * as monaco from 'monaco-editor'
-import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
@@ -68,6 +72,9 @@ function initEditor(
     }
     if (editorProps?.language === 'hogJson') {
         initHogJsonLanguage(monaco)
+    }
+    if (editorProps?.language === 'liquid') {
+        initLiquidLanguage(monaco)
     }
     if (options.tabFocusMode || editorProps.onPressUpNoValue) {
         editor.onKeyDown((evt) => {
@@ -152,6 +159,8 @@ export function CodeEditor({
     })
     useMountedLogic(builtCodeEditorLogic)
 
+    const { isVisible } = usePageVisibility()
+
     // Create DIV with .monaco-editor inside <body> for monaco's popups.
     // Without this monaco's tooltips will be mispositioned if inside another modal or popup.
     const monacoRoot = useMemo(() => {
@@ -162,11 +171,10 @@ export function CodeEditor({
         body?.appendChild(monacoRoot)
         return monacoRoot
     }, [])
-    useEffect(() => {
-        return () => {
-            monacoRoot?.remove()
-        }
-    }, [])
+
+    useOnMountEffect(() => {
+        return () => monacoRoot?.remove()
+    })
 
     useEffect(() => {
         if (!monaco) {
@@ -200,11 +208,12 @@ export function CodeEditor({
 
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
-    useEffect(() => {
+    const mutationObserver = useRef<MutationObserver | null>(null)
+    useOnMountEffect(() => {
         return () => {
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
-    }, [])
+    })
 
     const editorOptions: editor.IStandaloneEditorConstructionOptions = {
         minimap: {
@@ -234,6 +243,42 @@ export function CodeEditor({
     const editorOnMount = (editor: importedEditor.IStandaloneCodeEditor, monaco: Monaco): void => {
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
+
+        // Override Monaco's suggestion widget styling to prevent truncation
+        const styleId = 'monaco-suggestion-widget-fix'
+        const overrideSuggestionWidgetStyling = (): void => {
+            // Only add style tag if it doesn't already exist
+            if (!document.getElementById(styleId)) {
+                const style = document.createElement('style')
+                style.id = styleId
+                style.textContent = `
+                .monaco-editor .suggest-widget .monaco-list .monaco-list-row.string-label>.contents>.main>.left>.monaco-icon-label {
+                   flex-shrink: 0;
+                }
+                `
+                document.head.appendChild(style)
+            }
+        }
+
+        // Apply styling immediately
+        overrideSuggestionWidgetStyling()
+
+        // Monitor for suggestion widget creation and apply styling
+        const observer = new MutationObserver(() => {
+            const suggestWidget = document.querySelector('.monaco-editor .suggest-widget')
+            if (suggestWidget) {
+                overrideSuggestionWidgetStyling()
+            }
+        })
+
+        mutationObserver.current = observer
+        observer.observe(document.body, { childList: true, subtree: true })
+
+        // Clean up observers
+        monacoDisposables.current.push({
+            dispose: () => observer.disconnect(),
+        })
+
         if (onPressCmdEnter) {
             monacoDisposables.current.push(
                 editor.addAction({
@@ -268,16 +313,47 @@ export function CodeEditor({
         onMount?.(editor, monaco)
     }
 
+    useEffect(() => {
+        if (!mutationObserver.current) {
+            return
+        }
+
+        if (isVisible) {
+            mutationObserver.current.observe(document.body, { childList: true, subtree: true })
+        } else {
+            mutationObserver.current.disconnect()
+        }
+    }, [isVisible])
+
     if (originalValue) {
         // If originalValue is provided, we render a diff editor instead
+        const diffEditorOnMount = (diff: importedEditor.IStandaloneDiffEditor, monaco: Monaco): void => {
+            const modifiedEditor = diff.getModifiedEditor()
+            setMonacoAndEditor([monaco, modifiedEditor])
+
+            if (editorProps.onChange) {
+                const disposable = modifiedEditor.onDidChangeModelContent((event: editor.IModelContentChangedEvent) => {
+                    editorProps.onChange?.(modifiedEditor.getValue(), event)
+                })
+                monacoDisposables.current.push(disposable)
+            }
+            onMount?.(modifiedEditor, monaco)
+        }
+
         return (
             <MonacoDiffEditor
                 key={queryKey}
-                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 loading={<Spinner />}
+                theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 original={originalValue}
                 modified={value}
-                options={editorOptions}
+                options={{
+                    ...editorOptions,
+                    renderSideBySide: false,
+                    acceptSuggestionOnEnter: 'on',
+                    renderGutterMenu: false,
+                }}
+                onMount={diffEditorOnMount}
                 {...editorProps}
             />
         )

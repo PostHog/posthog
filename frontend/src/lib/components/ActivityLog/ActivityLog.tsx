@@ -1,11 +1,14 @@
 import './ActivityLog.scss'
 
-import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { activityLogLogic, ActivityLogLogicProps } from 'lib/components/ActivityLog/activityLogLogic'
+import { useRef, useState } from 'react'
+
+import { IconCollapse, IconExpand } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+
+import { ActivityLogLogicProps, activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,7 +16,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useRef, useState } from 'react'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, ProductKey } from '~/types'
@@ -44,7 +47,7 @@ const Empty = ({ scope }: { scope: string | string[] }): JSX.Element => {
     )
 }
 
-const SkeletonLog = (): JSX.Element => {
+export const SkeletonLog = (): JSX.Element => {
     return (
         <div className="ActivityLogRow items-start">
             <LemonSkeleton.Circle />
@@ -58,12 +61,12 @@ const SkeletonLog = (): JSX.Element => {
 
 const Loading = (): JSX.Element => {
     return (
-        <>
+        <div className="space-y-4">
             <SkeletonLog />
             <SkeletonLog />
             <SkeletonLog />
             <SkeletonLog />
-        </>
+        </div>
     )
 }
 
@@ -108,6 +111,14 @@ const JsonDiffViewer = ({ field, before, after }: JsonDiffViewerProps): JSX.Elem
                 width={width}
                 options={{
                     renderOverviewRuler: false,
+                    scrollBeyondLastLine: false,
+                    hideUnchangedRegions: {
+                        enabled: true,
+                        contextLineCount: 3,
+                        minimumLineCount: 3,
+                        revealLineCount: 20,
+                    },
+                    diffAlgorithm: 'advanced',
                 }}
             />
         </div>
@@ -198,32 +209,35 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
     const { humanizedActivity, activityLoading, pagination } = useValues(logic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { billingLoading } = useValues(billingLogic)
 
     const paginationState = usePagination(humanizedActivity || [], pagination)
 
     return (
         <div className="ActivityLog">
             {caption && <div className="page-caption">{caption}</div>}
-            <PayGateMini
-                feature={AvailableFeature.AUDIT_LOGS}
-                overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
-            >
-                {activityLoading && humanizedActivity.length === 0 ? (
-                    <Loading />
-                ) : humanizedActivity.length === 0 ? (
-                    <Empty scope={scope} />
-                ) : (
-                    <>
-                        <div className="deprecated-space-y-2">
-                            {humanizedActivity.map((logItem, index) => (
-                                <ActivityLogRow key={index} logItem={logItem} />
-                            ))}
-                        </div>
-                        <LemonDivider />
-                        <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
-                    </>
-                )}
-            </PayGateMini>
+            {(activityLoading && humanizedActivity.length === 0) || billingLoading ? (
+                <Loading />
+            ) : (
+                <PayGateMini
+                    feature={AvailableFeature.AUDIT_LOGS}
+                    overrideShouldShowGate={user?.is_impersonated || !!featureFlags[FEATURE_FLAGS.AUDIT_LOGS_ACCESS]}
+                >
+                    {humanizedActivity.length === 0 ? (
+                        <Empty scope={scope} />
+                    ) : (
+                        <>
+                            <div className="deprecated-space-y-2">
+                                {humanizedActivity.map((logItem, index) => (
+                                    <ActivityLogRow key={index} logItem={logItem} />
+                                ))}
+                            </div>
+                            <LemonDivider />
+                            <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
+                        </>
+                    )}
+                </PayGateMini>
+            )}
         </div>
     )
 }

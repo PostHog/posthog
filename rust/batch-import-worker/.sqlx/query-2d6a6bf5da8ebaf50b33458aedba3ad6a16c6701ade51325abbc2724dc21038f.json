@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE posthog_batchimport\n            SET\n                status = $2,\n                status_message = $3,\n                display_status_message = $4,\n                state = $5,\n                updated_at = now(),\n                lease_id = $6,\n                leased_until = $7\n            WHERE id = $1 AND lease_id = $8\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2d6a6bf5da8ebaf50b33458aedba3ad6a16c6701ade51325abbc2724dc21038f"
+}

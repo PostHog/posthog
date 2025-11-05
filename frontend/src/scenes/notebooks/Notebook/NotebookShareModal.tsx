@@ -1,12 +1,13 @@
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useState } from 'react'
+
 import { IconCopy } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+
 import { SHARING_MODAL_WIDTH } from 'lib/components/Sharing/SharingModal'
 import { base64Encode } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import posthog from 'posthog-js'
-import { useState } from 'react'
 import { urls } from 'scenes/urls'
 
 import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
@@ -44,17 +45,13 @@ export function NotebookShareModal({ shortId }: NotebookShareModalProps): JSX.El
             }
         >
             <div className="deprecated-space-y-4">
-                <FlaggedFeature flag="role-based-access-control">
-                    <>
-                        <AccessControlPopoutCTA
-                            resourceType={AccessControlResourceType.Notebook}
-                            callback={() => {
-                                closeShareModal()
-                            }}
-                        />
-                        <LemonDivider />
-                    </>
-                </FlaggedFeature>
+                <AccessControlPopoutCTA
+                    resourceType={AccessControlResourceType.Notebook}
+                    callback={() => {
+                        closeShareModal()
+                    }}
+                />
+                <LemonDivider />
                 <h3>Internal Link</h3>
                 {!isLocalOnly ? (
                     <>

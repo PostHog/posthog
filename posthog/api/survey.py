@@ -1,26 +1,31 @@
 import os
-from contextlib import contextmanager
-from datetime import datetime, timedelta, UTC
 import re
-from typing import Any, cast, TypedDict
-from enum import Enum
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
+from typing import Any, TypedDict, cast
 from urllib.parse import urlparse
 
-import nh3
-import posthoganalytics
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Min
 from django.http import HttpResponse, JsonResponse
+from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
+
+import nh3
+import orjson
+import structlog
+import posthoganalytics
+from axes.decorators import axes_dispatch
 from loginas.utils import is_impersonated_session
 from nanoid import generate
-from rest_framework import request, serializers, status, viewsets, exceptions, filters
+from posthoganalytics import capture_exception
+from rest_framework import exceptions, filters, request, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
@@ -32,33 +37,51 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action, get_token
 from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
+from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.exceptions import generate_exception_response
 from posthog.models import Action
-from posthog.models.activity_logging.activity_log import (
-    Change,
-    Detail,
-    changes_between,
-    load_activity,
-    log_activity,
-)
+from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.surveys.survey import Survey, MAX_ITERATION_COUNT
+from posthog.models.feature_flag import FeatureFlag
+from posthog.models.surveys.survey import MAX_ITERATION_COUNT, Survey, ensure_question_ids
+from posthog.models.surveys.util import (
+    SurveyEventName,
+    SurveyEventProperties,
+    get_unique_survey_event_uuids_sql_subquery,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.utils import UUIDT
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils_cors import cors_response
 
-SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+from ee.surveys.summaries.summarize_surveys import summarize_survey_responses
+
 ALLOWED_LINK_URL_SCHEMES = ["https", "mailto"]
 EMAIL_REGEX = r"^mailto:[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
+FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
+    "linked_flag_id",
+    "targeting_flag_filters",
+]
+
+# Does not include actions or events, as those are objects and thus are evaluated differently
+CONDITION_FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
+    "url",
+    "urlMatchType",
+    "selector",
+    "seenSurveyWaitPeriodInDays",
+    "linkedFlagVariant",
+    "deviceTypes",
+    "deviceTypesMatchType",
+]
 
 
-class SurveyEventName(str, Enum):
-    SHOWN = "survey shown"
-    DISMISSED = "survey dismissed"
-    SENT = "survey sent"
+if "replica" in settings.DATABASES:
+    READ_DB_FOR_SURVEYS = "replica"
+else:
+    READ_DB_FOR_SURVEYS = "default"
 
 
 class EventStats(TypedDict):
@@ -77,6 +100,7 @@ class SurveyRates(TypedDict):
     unique_users_dismissal_rate: float
 
 
+# Ideally we'd use SurveyEventName here, but enum values are not valid as keys in TypedDicts
 SurveyStats = TypedDict(
     "SurveyStats",
     {
@@ -87,7 +111,7 @@ SurveyStats = TypedDict(
 )
 
 
-class SurveySerializer(serializers.ModelSerializer):
+class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     linked_flag_id = serializers.IntegerField(required=False, allow_null=True, source="linked_flag.id")
     linked_flag = MinimalFeatureFlagSerializer(read_only=True)
     targeting_flag = MinimalFeatureFlagSerializer(read_only=True)
@@ -149,6 +173,7 @@ class SurveySerializer(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "user_access_level",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
@@ -177,6 +202,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     )
     schedule = serializers.CharField(required=False, allow_null=True)
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
+    _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
         model = Survey
@@ -213,6 +239,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             "response_sampling_limit",
             "response_sampling_daily_limits",
             "enable_partial_responses",
+            "_create_in_folder",
         ]
         read_only_fields = ["id", "linked_flag", "targeting_flag", "created_at"]
 
@@ -235,18 +262,21 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
             raise serializers.ValidationError("thankYouMessageDescriptionContentType must be one of ['text', 'html']")
 
-        use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
-            AvailableFeature.SURVEYS_TEXT_HTML
-        )
-
-        if thank_you_description_content_type == "html" and not use_survey_html_descriptions:
-            raise serializers.ValidationError(
-                "You need to upgrade to PostHog Enterprise to use HTML in survey thank you message"
-            )
-
         survey_popup_delay_seconds = value.get("surveyPopupDelaySeconds")
         if survey_popup_delay_seconds and survey_popup_delay_seconds < 0:
             raise serializers.ValidationError("Survey popup delay seconds must be a positive integer")
+
+        survey_white_label = value.get("whiteLabel")
+        if survey_white_label is not None and not isinstance(survey_white_label, bool):
+            raise serializers.ValidationError("whiteLabel must be a boolean")
+
+        # Check if the organization has the white labelling feature available
+        use_survey_white_labelling = self.context["request"].user.organization.is_feature_available(
+            AvailableFeature.WHITE_LABELLING
+        )
+
+        if survey_white_label and not use_survey_white_labelling:
+            raise serializers.ValidationError("You need to upgrade to PostHog Enterprise to use white labelling")
 
         return value
 
@@ -312,15 +342,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             if description_content_type and description_content_type not in ["text", "html"]:
                 raise serializers.ValidationError("Question descriptionContentType must be one of ['text', 'html']")
 
-            use_survey_html_descriptions = self.context["request"].user.organization.is_feature_available(
-                AvailableFeature.SURVEYS_TEXT_HTML
-            )
-
-            if description_content_type == "html" and not use_survey_html_descriptions:
-                raise serializers.ValidationError(
-                    "You need to upgrade to PostHog Enterprise to use HTML in survey questions"
-                )
-
             choices = raw_question.get("choices")
             if choices:
                 if not isinstance(choices, list):
@@ -360,11 +381,30 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
     def validate(self, data):
         linked_flag_id = data.get("linked_flag_id")
+        linked_flag = None
         if linked_flag_id:
             try:
-                FeatureFlag.objects.get(pk=linked_flag_id)
+                linked_flag = FeatureFlag.objects.get(pk=linked_flag_id)
             except FeatureFlag.DoesNotExist:
                 raise serializers.ValidationError("Feature Flag with this ID does not exist")
+
+        # Validate linkedFlagVariant if provided
+        conditions = data.get("conditions") or {}
+        linked_flag_variant = conditions.get("linkedFlagVariant")
+        if linked_flag_variant and linked_flag and linked_flag_variant != "any":
+            # Get available variants from the linked feature flag
+            available_variants = [variant["key"] for variant in linked_flag.variants]
+            if linked_flag_variant not in available_variants:
+                if available_variants:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' does not exist. Available variants: {', '.join(available_variants)}"
+                    )
+                else:
+                    raise serializers.ValidationError(
+                        f"Feature flag variant '{linked_flag_variant}' specified but the linked feature flag has no variants"
+                    )
+        elif linked_flag_variant and not linked_flag_id:
+            raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
 
         if (
             self.context["request"].method == "POST"
@@ -425,6 +465,45 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 }
             )
 
+        # Validate external survey constraints
+        if data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
+            errors = {}
+
+            # Check prohibited fields
+            for field in FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS:
+                if data.get(field) is not None:
+                    errors[field] = f"{field} is not allowed for external surveys"
+
+            # Check prohibited condition fields
+            if data.get("conditions"):
+                condition_errors = []
+                conditions = data["conditions"]
+
+                # Check individual condition fields
+                for field in CONDITION_FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS:
+                    if field in conditions and conditions[field] is not None:
+                        condition_errors.append(field)
+
+                # Check actions/events if they have values
+                for field in ["actions", "events"]:
+                    if field in conditions and isinstance(conditions[field], dict):
+                        values = conditions[field].get("values", [])
+                        if values:
+                            condition_errors.append(field)
+
+                if condition_errors:
+                    errors["conditions"] = (
+                        f"The following condition fields are not allowed for external surveys: {', '.join(condition_errors)}"
+                    )
+
+            # Check prohibited appearance fields
+            if "appearance" in data and data["appearance"] and "surveyPopupDelaySeconds" in data["appearance"]:
+                if data["appearance"]["surveyPopupDelaySeconds"] is not None:
+                    errors["appearance"] = "surveyPopupDelaySeconds is not allowed for external surveys"
+
+            if errors:
+                raise serializers.ValidationError(errors)
+
         return data
 
     def create(self, validated_data):
@@ -466,6 +545,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
         changes = []
+
         if validated_data.get("remove_targeting_flag"):
             if instance.targeting_flag:
                 # Manually delete the flag and log the change
@@ -654,13 +734,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     "rollout_percentage": 100,
                     "properties": [
                         {
-                            "key": f"$survey_dismissed/{survey_key}",
+                            "key": f"{SurveyEventProperties.SURVEY_DISMISSED}/{survey_key}",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
                         },
                         {
-                            "key": f"$survey_responded/{survey_key}",
+                            "key": f"{SurveyEventProperties.SURVEY_RESPONDED}/{survey_key}",
                             "value": "is_not_set",
                             "operator": "is_not_set",
                             "type": "person",
@@ -728,7 +808,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 raise serializers.ValidationError("Targeting flag for survey failed, invalid parameters.")
 
 
-class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related("linked_flag", "targeting_flag", "internal_targeting_flag").all()
     filter_backends = [filters.SearchFilter]
@@ -763,18 +843,45 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return super().destroy(request, *args, **kwargs)
 
+    def _get_partial_responses_filter(self, base_conditions_sql: list[str]) -> str:
+        unique_uuids_subquery = get_unique_survey_event_uuids_sql_subquery(
+            base_conditions_sql=base_conditions_sql,
+        )
+
+        return f"uuid IN {unique_uuids_subquery}"
+
     @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
     def responses_count(self, request: request.Request, **kwargs):
         earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
             Min("start_date")
         )["start_date__min"]
-        data = sync_execute(
-            f"""
-            SELECT JSONExtractString(properties, '$survey_id') as survey_id, count()
+
+        if not earliest_survey_start_date:
+            # If there are no surveys or none have a start date, there can be no responses.
+            return Response({})
+
+        partial_responses_filter = self._get_partial_responses_filter(
+            base_conditions_sql=[
+                "team_id = %(team_id)s",
+                "timestamp >= %(timestamp)s",
+            ],
+        )
+
+        query = f"""
+            SELECT
+                JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') as survey_id,
+                count()
             FROM events
-            WHERE event = 'survey sent' AND team_id = %(team_id)s AND timestamp >= %(timestamp)s
+            WHERE
+                team_id = %(team_id)s
+                AND event = '{SurveyEventName.SENT}'
+                AND timestamp >= %(timestamp)s
+                AND {partial_responses_filter}
             GROUP BY survey_id
-        """,
+        """
+
+        data = sync_execute(
+            query,
             {"team_id": self.team_id, "timestamp": earliest_survey_start_date},
         )
 
@@ -832,7 +939,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         # Initialize stats with zero values for all event types
         stats: SurveyStats = {
-            "survey shown": {
+            SurveyEventName.SHOWN.value: {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
@@ -840,7 +947,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "unique_persons_only_seen": 0,  # Calculated later in _get_survey_stats
                 "total_count_only_seen": 0,  # Calculated later in _get_survey_stats
             },
-            "survey dismissed": {
+            SurveyEventName.DISMISSED.value: {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
@@ -849,7 +956,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "unique_persons_only_seen": 0,
                 "total_count_only_seen": 0,
             },
-            "survey sent": {
+            SurveyEventName.SENT.value: {
                 "total_count": 0,
                 "unique_persons": 0,
                 "first_seen": None,
@@ -873,11 +980,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             }
 
             if event_name == SurveyEventName.SHOWN.value:
-                stats["survey shown"] = event_stats
+                stats[SurveyEventName.SHOWN.value] = event_stats
             elif event_name == SurveyEventName.DISMISSED.value:
-                stats["survey dismissed"] = event_stats
+                stats[SurveyEventName.DISMISSED.value] = event_stats
             elif event_name == SurveyEventName.SENT.value:
-                stats["survey sent"] = event_stats
+                stats[SurveyEventName.SENT.value] = event_stats
 
         # REMOVED calculation block for _only_seen fields from here.
         return stats
@@ -898,13 +1005,13 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "unique_users_dismissal_rate": 0.0,
         }
 
-        shown_count = stats["survey shown"]["total_count"]
+        shown_count = stats[SurveyEventName.SHOWN.value]["total_count"]
         if shown_count > 0:
-            sent_count = stats["survey sent"]["total_count"]
-            dismissed_count = stats["survey dismissed"]["total_count"]
-            unique_users_shown_count = stats["survey shown"]["unique_persons"]
-            unique_users_sent_count = stats["survey sent"]["unique_persons"]
-            unique_users_dismissed_count = stats["survey dismissed"]["unique_persons"]
+            sent_count = stats[SurveyEventName.SENT.value]["total_count"]
+            dismissed_count = stats[SurveyEventName.DISMISSED.value]["total_count"]
+            unique_users_shown_count = stats[SurveyEventName.SHOWN.value]["unique_persons"]
+            unique_users_sent_count = stats[SurveyEventName.SENT.value]["unique_persons"]
+            unique_users_dismissed_count = stats[SurveyEventName.DISMISSED.value]["unique_persons"]
             rates = {
                 "response_rate": round(sent_count / shown_count * 100, 2),
                 "dismissal_rate": round(dismissed_count / shown_count * 100, 2),
@@ -940,7 +1047,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Add survey filter if specific survey
         survey_filter = ""
         if survey_id:
-            survey_filter = "AND JSONExtractString(properties, '$survey_id') = %(survey_id)s"
+            survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') = %(survey_id)s"
             params["survey_id"] = str(survey_id)
         else:
             # For global stats, only include non-archived surveys
@@ -957,8 +1064,14 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "unique_users_dismissal_rate": 0.0,
                     },
                 }
-            survey_filter = "AND JSONExtractString(properties, '$survey_id') IN %(survey_ids)s"
+            survey_filter = f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
             params["survey_ids"] = [str(id) for id in active_survey_ids]
+
+        partial_responses_filter = self._get_partial_responses_filter(
+            base_conditions_sql=[
+                "team_id = %(team_id)s",
+            ],
+        )
 
         # Query 1: Base Stats (Similar to original query)
         base_stats_query = f"""
@@ -973,6 +1086,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             AND event IN (%(shown)s, %(dismissed)s, %(sent)s)
             {survey_filter}
             {date_filter}
+            AND (
+                event != %(dismissed)s
+                OR
+                COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+            )
+            AND (
+                event != %(sent)s
+                OR
+                {partial_responses_filter}
+            )
             GROUP BY event
         """
         query_params = {
@@ -993,6 +1116,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                   AND event IN (%(dismissed)s, %(sent)s)
                   {survey_filter}
                   {date_filter}
+                AND (
+                    event != %(dismissed)s
+                    OR
+                    COALESCE(JSONExtractBool(properties, '{SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'), False) = False
+                )
                 GROUP BY person_id
                 HAVING sum(if(event = %(dismissed)s, 1, 0)) > 0
                    AND sum(if(event = %(sent)s, 1, 0)) > 0
@@ -1005,31 +1133,39 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         stats = self._process_survey_results(results_base)
 
         # Adjust dismissed unique count
-        if "survey dismissed" in stats:
-            stats["survey dismissed"]["unique_persons"] -= dismissed_and_sent_count
+        if SurveyEventName.DISMISSED.value in stats:
+            stats[SurveyEventName.DISMISSED.value]["unique_persons"] -= dismissed_and_sent_count
             # Ensure it doesn't go below zero, although logically it shouldn't
-            stats["survey dismissed"]["unique_persons"] = max(0, stats["survey dismissed"]["unique_persons"])
+            stats[SurveyEventName.DISMISSED.value]["unique_persons"] = max(
+                0, stats[SurveyEventName.DISMISSED.value]["unique_persons"]
+            )
 
         # Recalculate derived 'only_seen' counts based on final counts
-        if "survey shown" in stats:
+        if SurveyEventName.SHOWN.value in stats:
             # Get final counts, defaulting to 0 if a category has no events
-            unique_shown = stats.get("survey shown", {}).get("unique_persons", 0)
-            unique_dismissed = stats.get("survey dismissed", {}).get("unique_persons", 0)  # Use adjusted count
-            unique_sent = stats.get("survey sent", {}).get("unique_persons", 0)
+            unique_shown = stats.get(SurveyEventName.SHOWN.value, {}).get("unique_persons", 0)
+            unique_dismissed = stats.get(SurveyEventName.DISMISSED.value, {}).get(
+                "unique_persons", 0
+            )  # Use adjusted count
+            unique_sent = stats.get(SurveyEventName.SENT.value, {}).get("unique_persons", 0)
 
-            total_shown = stats.get("survey shown", {}).get("total_count", 0)
-            total_dismissed = stats.get("survey dismissed", {}).get("total_count", 0)
-            total_sent = stats.get("survey sent", {}).get("total_count", 0)
+            total_shown = stats.get(SurveyEventName.SHOWN.value, {}).get("total_count", 0)
+            total_dismissed = stats.get(SurveyEventName.DISMISSED.value, {}).get("total_count", 0)
+            total_sent = stats.get(SurveyEventName.SENT.value, {}).get("total_count", 0)
 
             # Calculate unique persons who only saw the survey
-            stats["survey shown"]["unique_persons_only_seen"] = unique_shown - unique_dismissed - unique_sent
-            stats["survey shown"]["unique_persons_only_seen"] = max(
-                0, stats["survey shown"]["unique_persons_only_seen"]
+            stats[SurveyEventName.SHOWN.value]["unique_persons_only_seen"] = (
+                unique_shown - unique_dismissed - unique_sent
+            )
+            stats[SurveyEventName.SHOWN.value]["unique_persons_only_seen"] = max(
+                0, stats[SurveyEventName.SHOWN.value]["unique_persons_only_seen"]
             )
 
             # Calculate total count for those who only saw the survey
-            stats["survey shown"]["total_count_only_seen"] = total_shown - total_dismissed - total_sent
-            stats["survey shown"]["total_count_only_seen"] = max(0, stats["survey shown"]["total_count_only_seen"])
+            stats[SurveyEventName.SHOWN.value]["total_count_only_seen"] = total_shown - total_dismissed - total_sent
+            stats[SurveyEventName.SHOWN.value]["total_count_only_seen"] = max(
+                0, stats[SurveyEventName.SHOWN.value]["total_count_only_seen"]
+            )
 
         # Calculate rates using the adjusted stats
         rates = self._calculate_rates(stats)
@@ -1140,9 +1276,6 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
 
-        if not posthoganalytics.feature_enabled("ai-survey-response-summary", str(user.distinct_id)):
-            raise exceptions.ValidationError("survey response summary is not enabled for this user")
-
         end_date: datetime = (survey.end_date or datetime.now()).replace(
             hour=0, minute=0, second=0, microsecond=0
         ) + timedelta(days=1)
@@ -1153,15 +1286,37 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except (ValueError, TypeError):
             question_index = None
 
+        question_id = request.query_params.get("question_id", None)
+
+        if question_index is None and question_id is None:
+            raise exceptions.ValidationError("question_index or question_id is required")
+        # Extract the question text from the survey
+        question_text = None
+        if survey.questions and question_id:
+            # Find the question with the matching ID
+            for question in survey.questions:
+                if question.get("id", None) == question_id:
+                    question_text = question.get("question")
+                    break
+        elif survey.questions and question_index is not None:
+            # Fallback to question index if question_id is not provided
+            if 0 <= question_index < len(survey.questions):
+                question_text = survey.questions[question_index].get("question")
+
+        if question_text is None:
+            raise exceptions.ValidationError("the text of the question is required")
+
         summary = summarize_survey_responses(
             survey_id=survey_id,
+            question_text=question_text,
             question_index=question_index,
+            question_id=question_id,
             survey_start=(survey.start_date or survey.created_at).replace(hour=0, minute=0, second=0, microsecond=0),
             survey_end=end_date,
             team=self.team,
             user=user,
         )
-        timings = summary.pop("timings", None)
+        timings_header = summary.pop("timings_header", None)
         cache.set(cache_key, summary, timeout=30)
 
         posthoganalytics.capture(
@@ -1170,11 +1325,177 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # let the browser cache for half the time we cache on the server
         r = Response(summary, headers={"Cache-Control": "max-age=15"})
-        if timings:
-            r.headers["Server-Timing"] = ", ".join(
-                f"{key};dur={round(duration, ndigits=2)}" for key, duration in timings.items()
-            )
+        if timings_header:
+            r.headers["Server-Timing"] = timings_header
         return r
+
+    @action(methods=["POST"], detail=True, required_scopes=["survey:write"])
+    def duplicate_to_projects(self, request: request.Request, **kwargs):
+        """Duplicate a survey to multiple projects in a single transaction.
+
+        Accepts a list of target team IDs and creates a copy of the survey in each project.
+        Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
+        """
+        if not request.user.is_authenticated:
+            raise exceptions.NotAuthenticated()
+
+        user = cast(User, request.user)
+        survey_id = kwargs["pk"]
+
+        if not Survey.objects.filter(id=survey_id, team__project_id=self.project_id).exists():
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        source_survey = self.get_object()
+        target_team_ids = request.data.get("target_team_ids", [])
+
+        if not target_team_ids or not isinstance(target_team_ids, list):
+            raise exceptions.ValidationError("target_team_ids must be a non-empty list of team IDs")
+
+        user_organization = user.organization
+        if not user_organization:
+            raise exceptions.ValidationError("User must belong to an organization")
+
+        target_teams = Team.objects.filter(id__in=target_team_ids, organization_id=user_organization.id)
+
+        if len(target_teams) != len(target_team_ids):
+            raise exceptions.ValidationError("One or more target teams not found or you don't have access to them")
+
+        duplicate_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        created_surveys = []
+
+        try:
+            with transaction.atomic():
+                # Validate all survey data first
+                surveys_to_create = []
+                for team in target_teams:
+                    cleaned_conditions = None
+                    if source_survey.conditions:
+                        cleaned_conditions = dict(source_survey.conditions)
+                        # Remove project-specific fields: flags, actions, and events don't transfer across projects
+                        cleaned_conditions.pop("linkedFlagVariant", None)
+                        cleaned_conditions.pop("actions", None)
+                        cleaned_conditions.pop("events", None)
+
+                    survey_data = {
+                        "name": f"{source_survey.name} (duplicated at {duplicate_timestamp})",
+                        "description": source_survey.description,
+                        "type": source_survey.type,
+                        "questions": [
+                            {k: v for k, v in q.items() if k != "id"} for q in (source_survey.questions or [])
+                        ],
+                        "appearance": source_survey.appearance,
+                        "conditions": cleaned_conditions,
+                        "archived": False,
+                        "start_date": None,
+                        "end_date": None,
+                        "responses_limit": source_survey.responses_limit,
+                        "iteration_count": source_survey.iteration_count,
+                        "iteration_frequency_days": source_survey.iteration_frequency_days,
+                        "schedule": source_survey.schedule,
+                        "enable_partial_responses": source_survey.enable_partial_responses,
+                    }
+                    # NOTE: linked_flag_id, targeting_flag, and internal flags are intentionally omitted
+                    # as they are project-specific and don't exist in other projects
+
+                    serializer = SurveySerializerCreateUpdateOnly(
+                        data=survey_data,
+                        context={
+                            "request": request,
+                            "team_id": team.id,
+                            "project_id": team.project_id,
+                        },
+                    )
+
+                    serializer.is_valid(raise_exception=True)
+
+                    # Build Survey instance from validated data
+                    new_survey = Survey(
+                        team=team,
+                        created_by=user,
+                        **serializer.validated_data,
+                    )
+                    surveys_to_create.append(new_survey)
+
+                for survey in surveys_to_create:
+                    ensure_question_ids(survey)
+
+                # Bulk create all surveys
+                created_survey_objects = Survey.objects.bulk_create(surveys_to_create)
+
+                # Prepare response data and activity logs
+                for created_survey in created_survey_objects:
+                    created_surveys.append(
+                        {
+                            "team_id": created_survey.team_id,
+                            "survey_id": str(created_survey.id),
+                            "name": created_survey.name,
+                        }
+                    )
+
+                    log_activity(
+                        organization_id=user_organization.id,
+                        team_id=created_survey.team_id,
+                        user=user,
+                        was_impersonated=is_impersonated_session(request),
+                        item_id=created_survey.id,
+                        scope="Survey",
+                        activity="created",
+                        detail=Detail(
+                            name=created_survey.name,
+                            changes=[
+                                Change(
+                                    type="Survey",
+                                    action="created",
+                                    field="source_survey_id",
+                                    after=str(survey_id),
+                                )
+                            ],
+                        ),
+                    )
+
+        except exceptions.ValidationError as e:
+            structlog.get_logger(__name__).error(
+                "bulk_survey_duplication_validation_error",
+                error=str(e),
+                error_detail=e.detail if hasattr(e, "detail") else None,
+                survey_id=survey_id,
+                user_id=user.id,
+                target_team_ids=target_team_ids,
+            )
+            raise
+        except Exception as e:
+            structlog.get_logger(__name__).error(
+                "bulk_survey_duplication_error",
+                error=str(e),
+                error_type=type(e).__name__,
+                survey_id=survey_id,
+                user_id=user.id,
+                target_team_ids=target_team_ids,
+            )
+            capture_exception(e)
+            raise exceptions.ValidationError(
+                {
+                    "error": "Bulk duplication failed due to an unexpected error",
+                }
+            )
+
+        posthoganalytics.capture(
+            event="survey bulk duplicated",
+            distinct_id=str(user.distinct_id),
+            properties={
+                "source_survey_id": str(survey_id),
+                "target_count": len(created_surveys),
+                "target_team_ids": target_team_ids,
+            },
+        )
+
+        return Response(
+            {
+                "created_surveys": created_surveys,
+                "count": len(created_surveys),
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class SurveyConfigSerializer(serializers.ModelSerializer):
@@ -1254,12 +1575,18 @@ def get_surveys_opt_in(team: Team) -> bool:
 
 
 def get_surveys_count(team: Team) -> int:
-    return Survey.objects.filter(team__project_id=team.project_id).exclude(archived=True).count()
+    return (
+        Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(team__project_id=team.project_id)
+        .exclude(archived=True)
+        .count()
+    )
 
 
 def get_surveys_response(team: Team):
     surveys = SurveyAPISerializer(
-        Survey.objects.filter(team__project_id=team.project_id)
+        Survey.objects.db_manager(READ_DB_FOR_SURVEYS)
+        .filter(team__project_id=team.project_id)
         .exclude(archived=True)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
         .prefetch_related("actions"),
@@ -1308,6 +1635,113 @@ def surveys(request: Request):
         )
 
     return cors_response(request, JsonResponse(get_surveys_response(team)))
+
+
+# Constants for better maintainability
+logger = structlog.get_logger(__name__)
+CACHE_TIMEOUT_SECONDS = 300
+
+
+@csrf_exempt
+@axes_dispatch
+def public_survey_page(request, survey_id: str):
+    """
+    Server-side rendered public survey page with security and performance optimizations
+    """
+    if request.method == "OPTIONS":
+        return cors_response(request, HttpResponse(""))
+
+    # Input validation
+    if not UUIDT.is_valid_uuid(survey_id):
+        logger.warning("survey_page_invalid_id", survey_id=survey_id)
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Invalid request",
+                "error_message": "The requested survey is not available.",
+            },
+            status=400,
+        )
+
+    # Database query with minimal fields and timeout protection
+    try:
+        survey = Survey.objects.select_related("team").get(id=survey_id)
+    except Survey.DoesNotExist:
+        logger.info("survey_page_not_found", survey_id=survey_id)
+        # Use generic error message to prevent survey ID enumeration
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Survey not available",
+                "error_message": "The requested survey is not available.",
+            },
+            status=404,
+        )
+    except Exception as e:
+        logger.exception("survey_page_db_error", error=str(e), survey_id=survey_id)
+        capture_exception(e)
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Service unavailable",
+                "error_message": "The service is temporarily unavailable. Please try again later.",
+            },
+            status=503,
+        )
+
+    survey_is_running = (
+        survey.start_date is not None and survey.start_date <= datetime.now(UTC) and survey.end_date is None
+    )
+
+    # Check survey availability (combine checks for consistent error message)
+    if survey.archived or survey.type != Survey.SurveyType.EXTERNAL_SURVEY or not survey_is_running:
+        logger.info(
+            "survey_page_access_denied",
+            survey_id=survey_id,
+            archived=survey.archived,
+            survey_type=survey.type,
+        )
+        return render(
+            request,
+            "surveys/error.html",
+            {
+                "error_title": "Survey not receiving responses",
+                "error_message": "The requested survey is not receiving responses.",
+            },
+            status=404,  # Use 404 instead of 403 to prevent information leakage
+        )
+
+    # Build project config
+    project_config = {
+        "api_host": request.build_absolute_uri("/").rstrip("/"),
+        "token": survey.team.api_token,
+    }
+
+    if hasattr(survey.team, "ui_host") and survey.team.ui_host:
+        project_config["ui_host"] = survey.team.ui_host
+
+    serializer = SurveyAPISerializer(survey)
+    survey_data = serializer.data
+    context = {
+        "name": survey.name,
+        "survey_data": orjson.dumps(survey_data).decode("utf-8"),
+        "project_config_json": orjson.dumps(project_config).decode("utf-8"),
+        "debug": settings.DEBUG,
+    }
+
+    logger.info("survey_page_rendered", survey_id=survey_id, team_id=survey.team.id)
+
+    response = render(request, "surveys/public_survey.html", context)
+
+    response["X-Frame-Options"] = "DENY"  # Override global SAMEORIGIN to prevent iframe embedding
+    # Cache headers
+    response["Cache-Control"] = f"public, max-age={CACHE_TIMEOUT_SECONDS}"
+    response["Vary"] = "Accept-Encoding"  # Enable compression caching
+
+    return response
 
 
 @contextmanager

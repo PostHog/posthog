@@ -1,5 +1,6 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { billingLogic } from './billingLogic'
 

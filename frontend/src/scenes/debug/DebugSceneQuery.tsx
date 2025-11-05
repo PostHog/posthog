@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
+
 import { HogDebug } from 'scenes/debug/HogDebug'
 import { HogQLDebug } from 'scenes/debug/HogQLDebug'
 import { Modifiers } from 'scenes/debug/Modifiers'
 import { QueryTabs } from 'scenes/debug/QueryTabs'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { Node } from '~/queries/schema/schema-general'
 import { isDataTableNode, isHogQLQuery, isHogQuery, isInsightVizNode } from '~/queries/utils'
 
@@ -20,17 +21,18 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
     let parsed: Record<string, any> | null = null
     try {
         parsed = JSON.parse(query)
-    } catch (e) {
+    } catch {
         // do nothing
     }
     const dataNode = parsed && (isInsightVizNode(parsed) || isDataTableNode(parsed)) ? parsed.source : (parsed as Node)
 
     const dataNodeKey = insightVizDataNodeKey({ dashboardItemId: queryKey })
+    const modifiers = { debug: true, timings: true }
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: dataNode,
         key: dataNodeKey,
         dataNodeCollectionId: queryKey,
-        modifiers: { debug: true },
+        modifiers,
     }
     const { response } = useValues(dataNodeLogic(dataNodeLogicProps))
 
@@ -42,12 +44,14 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
                     query={parsed}
                     setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
                     debug
+                    modifiers={modifiers}
                 />
             ) : isHogQLQuery(parsed) ? (
                 <HogQLDebug
                     queryKey={queryKey}
                     query={parsed}
                     setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
+                    modifiers={modifiers}
                 />
             ) : (
                 <div className="deprecated-space-y-4">
@@ -72,6 +76,7 @@ export function DebugSceneQuery({ query, setQuery, queryKey }: DebugSceneQueryPr
                             queryKey={queryKey}
                             response={response}
                             setQuery={(query) => setQuery(JSON.stringify(query, null, 2))}
+                            onLoadQuery={setQuery}
                         />
                     ) : null}
                 </div>

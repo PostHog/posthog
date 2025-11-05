@@ -1,5 +1,5 @@
-import collections.abc
 import datetime as dt
+import collections.abc
 from datetime import timedelta
 from math import ceil
 
@@ -7,10 +7,11 @@ from django.db import models
 
 from posthog.clickhouse.client import sync_execute
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.utils import UUIDModel
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.utils import UUIDTModel
 
 
-class BatchExportDestination(UUIDModel):
+class BatchExportDestination(UUIDTModel):
     """A model for the destination that a PostHog BatchExport will target.
 
     This model answers the question: where are we exporting data? It contains
@@ -28,6 +29,7 @@ class BatchExportDestination(UUIDModel):
         POSTGRES = "Postgres"
         REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
+        DATABRICKS = "Databricks"
         HTTP = "HTTP"
         NOOP = "NoOp"
 
@@ -35,9 +37,11 @@ class BatchExportDestination(UUIDModel):
         "S3": {"aws_access_key_id", "aws_secret_access_key"},
         "Snowflake": {"user", "password", "private_key", "private_key_passphrase"},
         "Postgres": {"user", "password"},
-        "Redshift": {"user", "password"},
+        "Redshift": {"user", "password", "aws_access_key_id", "aws_secret_access_key"},
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
-        "HTTP": set("token"),
+        # Databricks does not have any secret fields, as we use integrations to store credentials
+        "Databricks": set(),
+        "HTTP": {"token"},
         "NoOp": set(),
     }
 
@@ -60,9 +64,16 @@ class BatchExportDestination(UUIDModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExportDestination was last updated.",
     )
+    integration = models.ForeignKey(
+        "Integration",
+        on_delete=models.SET_NULL,
+        help_text="The integration for this destination.",
+        null=True,
+        blank=True,
+    )
 
 
-class BatchExportRun(UUIDModel):
+class BatchExportRun(UUIDTModel):
     """A model of a single run of a PostHog BatchExport given a time interval.
 
     It is used to keep track of the status and progress of the export
@@ -78,6 +89,7 @@ class BatchExportRun(UUIDModel):
         CONTINUED_AS_NEW = "ContinuedAsNew"
         FAILED = "Failed"
         FAILED_RETRYABLE = "FailedRetryable"
+        FAILED_BILLING = "FailedBilling"
         TERMINATED = "Terminated"
         TIMEDOUT = "TimedOut"
         RUNNING = "Running"
@@ -117,6 +129,9 @@ class BatchExportRun(UUIDModel):
         blank=True,
         related_name="runs",
         related_query_name="run",
+    )
+    bytes_exported = models.BigIntegerField(
+        null=True, blank=True, help_text="The number of bytes that have been exported in this BatchExportRun."
     )
 
     @property
@@ -172,7 +187,7 @@ BATCH_EXPORT_INTERVALS = [
 ]
 
 
-class BatchExport(UUIDModel):
+class BatchExport(ModelActivityMixin, UUIDTModel):
     """
     Defines the configuration of PostHog to export data to a destination,
     either on a schedule (via the interval parameter), or manually by a
@@ -250,7 +265,7 @@ class BatchExport(UUIDModel):
 
     @property
     def interval_time_delta(self) -> timedelta:
-        """Return a datetime.timedelta that corresponds to this BatchExport's interval."""
+        """Return a datetime.timedelta that corresponds to this batch export's interval."""
         if self.interval == "hour":
             return timedelta(hours=1)
         elif self.interval == "day":
@@ -263,8 +278,34 @@ class BatchExport(UUIDModel):
             return timedelta(**kwargs)
         raise ValueError(f"Invalid interval: '{self.interval}'")
 
+    @property
+    def jitter(self) -> timedelta:
+        """Return jitter for this batch export based on interval.
 
-class BatchExportBackfill(UUIDModel):
+        We always want the start jitter to be less than the frequency, as
+        otherwise a batch export run could start after it's batch period has
+        elapsed. But there is margin to tweak this under that upper limit.
+
+        So, the values set here are quite arbitrary and are adjusted based on
+        how other systems react to batch exports load.
+        """
+        if self.interval == "hour":
+            return timedelta(minutes=15)
+        elif self.interval == "day":
+            return timedelta(hours=1)
+        elif self.interval == "week":
+            return timedelta(days=1)
+        elif self.interval.startswith("every"):
+            # This yields 1 minute for 5 minute batch exports, which is the only
+            # "every" interval in use currently.
+            # In the future, we can extend this to have different handling for
+            # different "every" intervals.
+            return self.interval_time_delta / 5
+
+        raise ValueError(f"Invalid interval: '{self.interval}'")
+
+
+class BatchExportBackfill(UUIDTModel):
     class Status(models.TextChoices):
         """Possible states of the BatchExportBackfill."""
 

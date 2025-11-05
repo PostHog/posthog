@@ -56,16 +56,16 @@ jobs:
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         steps:
-            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+            - uses: actions/checkout@v4
               with:
                   submodules: recursive
             - name: Install dist
               # we specify bash to get pipefail; it guards against the `curl` command
               # failing. otherwise `sh` won't catch that `curl` returned non-0
               shell: bash
-              run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.28.0/cargo-dist-installer.sh | sh"
+              run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.30.0/cargo-dist-installer.sh | sh"
             - name: Cache dist
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               with:
                   name: cargo-dist-cache
                   path: ~/.cargo/bin/dist
@@ -81,7 +81,7 @@ jobs:
                   cat plan-dist-manifest.json
                   echo "manifest=$(jq -c "." plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
             - name: 'Upload dist-manifest.json'
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               with:
                   name: artifacts-plan-dist-manifest
                   path: plan-dist-manifest.json
@@ -110,12 +110,13 @@ jobs:
         container: ${{ matrix.container && matrix.container.image || null }}
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
             BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
         steps:
             - name: enable windows longpaths
               run: |
                   git config --global core.longpaths true
-            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+            - uses: actions/checkout@v4
               with:
                   submodules: recursive
             - name: Install Rust non-interactively if not already installed
@@ -129,7 +130,7 @@ jobs:
               run: ${{ matrix.install_dist.run }}
             # Get the dist-manifest
             - name: Fetch local artifacts
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              uses: actions/download-artifact@v4
               with:
                   pattern: artifacts-*
                   path: target/distrib/
@@ -156,7 +157,7 @@ jobs:
 
                   cp dist-manifest.json "$BUILD_MANIFEST_NAME"
             - name: 'Upload artifacts'
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               with:
                   name: artifacts-build-local-${{ join(matrix.targets, '_') }}
                   path: |
@@ -172,19 +173,20 @@ jobs:
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
         steps:
-            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+            - uses: actions/checkout@v4
               with:
                   submodules: recursive
             - name: Install cached dist
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              uses: actions/download-artifact@v4
               with:
                   name: cargo-dist-cache
                   path: ~/.cargo/bin/
             - run: chmod +x ~/.cargo/bin/dist
             # Get all the local artifacts for the global tasks to use (for e.g. checksums)
             - name: Fetch local artifacts
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              uses: actions/download-artifact@v4
               with:
                   pattern: artifacts-*
                   path: target/distrib/
@@ -202,7 +204,7 @@ jobs:
 
                   cp dist-manifest.json "$BUILD_MANIFEST_NAME"
             - name: 'Upload artifacts'
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               with:
                   name: artifacts-build-global
                   path: |
@@ -222,18 +224,18 @@ jobs:
         outputs:
             val: ${{ steps.host.outputs.manifest }}
         steps:
-            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+            - uses: actions/checkout@v4
               with:
                   submodules: recursive
             - name: Install cached dist
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              uses: actions/download-artifact@v4
               with:
                   name: cargo-dist-cache
                   path: ~/.cargo/bin/
             - run: chmod +x ~/.cargo/bin/dist
             # Fetch artifacts from scratch-storage
             - name: Fetch artifacts
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              uses: actions/download-artifact@v4
               with:
                   pattern: artifacts-*
                   path: target/distrib/
@@ -246,14 +248,14 @@ jobs:
                   cat dist-manifest.json
                   echo "manifest=$(jq -c "." dist-manifest.json)" >> "$GITHUB_OUTPUT"
             - name: 'Upload dist-manifest.json'
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+              uses: actions/upload-artifact@v4
               with:
                   # Overwrite the previous copy
                   name: artifacts-dist-manifest
                   path: dist-manifest.json
             # Create a GitHub Release while uploading all files to it
             - name: 'Download GitHub Artifacts'
-              uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4
+              uses: actions/download-artifact@v4
               with:
                   pattern: artifacts-*
                   path: artifacts
@@ -274,18 +276,47 @@ jobs:
 
                   gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
+    publish-npm:
+        needs:
+            - plan
+            - host
+        runs-on: 'ubuntu-22.04'
+        env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            PLAN: ${{ needs.plan.outputs.val }}
+        if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
+        steps:
+            - name: Fetch npm packages
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: artifacts-*
+                  path: npm/
+                  merge-multiple: true
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: '20.x'
+                  registry-url: 'https://registry.npmjs.org'
+            - run: |
+                  for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
+                    pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
+                    npm publish --access public "./npm/${pkg}"
+                  done
+              env:
+                  NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
     announce:
         needs:
             - plan
             - host
+            - publish-npm
         # use "always() && ..." to allow us to wait for all publish jobs while
         # still allowing individual publish jobs to skip themselves (for prereleases).
         # "host" however must run to completion, no skipping allowed!
-        if: ${{ always() && needs.host.result == 'success' }}
+        if: ${{ always() && needs.host.result == 'success' && (needs.publish-npm.result == 'skipped' || needs.publish-npm.result == 'success') }}
         runs-on: 'ubuntu-22.04'
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         steps:
-            - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+            - uses: actions/checkout@v4
               with:
                   submodules: recursive

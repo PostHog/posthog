@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import { getVariablesFromQuery, haveVariablesOrFiltersChanged } from 'scenes/insights/utils/queryUtils'
 
 import { DataVisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
@@ -58,6 +59,9 @@ export const variablesLogic = kea<variablesLogicType>([
         setEditorQuery: (query: string) => ({ query }),
         updateSourceQuery: true,
         resetVariables: true,
+        updateInternalSelectedVariable: (variable: HogQLVariable) => ({ variable }),
+        setSearchTerm: (search: string) => ({ search }),
+        clickVariable: (variable: Variable & { selected: boolean }) => ({ variable }),
     })),
     propsChanged(({ props, actions, values }, oldProps) => {
         if (oldProps.queryInput !== props.queryInput) {
@@ -99,7 +103,7 @@ export const variablesLogic = kea<variablesLogicType>([
                     return [...state, { ...variable }]
                 },
                 addVariables: (_state, { variables }) => {
-                    return [...variables.map((n) => ({ ...n }))]
+                    return variables.map((n) => ({ ...n }))
                 },
                 updateVariableValue: (state, { variableId, value, isNull, allVariables }) => {
                     const variableIndex = state.findIndex((n) => n.variableId === variableId)
@@ -109,7 +113,6 @@ export const variablesLogic = kea<variablesLogicType>([
 
                     const variableType = allVariables.find((n) => n.id === variableId)?.type
                     const valueWithType = convertValueToCorrectType(value, variableType ?? 'String')
-
                     const variablesInState = [...state]
                     variablesInState[variableIndex] = {
                         ...variablesInState[variableIndex],
@@ -140,12 +143,30 @@ export const variablesLogic = kea<variablesLogicType>([
                 resetVariables: () => {
                     return []
                 },
+                updateInternalSelectedVariable: (state, { variable }) => {
+                    const variableIndex = state.findIndex((n) => n.variableId === variable.variableId)
+                    if (variableIndex < 0) {
+                        return state
+                    }
+                    const variablesInState = [...state]
+                    variablesInState[variableIndex] = {
+                        ...variable,
+                    }
+
+                    return variablesInState
+                },
             },
         ],
         editorQuery: [
             '' as string,
             {
                 setEditorQuery: (_, { query }) => query,
+            },
+        ],
+        searchTerm: [
+            '' as string,
+            {
+                setSearchTerm: (_, { search }) => search,
             },
         ],
     }),
@@ -175,8 +196,40 @@ export const variablesLogic = kea<variablesLogicType>([
                 return !dashboardId
             },
         ],
+        filteredVariables: [
+            (s) => [s.variables, s.searchTerm, s.internalSelectedVariables],
+            (variables, searchTerm, internalSelectedVariables): (Variable & { selected: boolean })[] => {
+                const selectedVariableIds = new Set(internalSelectedVariables.map((variable) => variable.variableId))
+
+                const trimmedSearch = searchTerm.trim().toLowerCase()
+
+                const visibleVariables = trimmedSearch
+                    ? variables.filter((variable) => {
+                          const nameMatch = variable.name.toLowerCase().includes(trimmedSearch)
+                          const codeNameMatch = variable.code_name?.toLowerCase().includes(trimmedSearch)
+                          const typeMatch = variable.type.toLowerCase().includes(trimmedSearch)
+
+                          return nameMatch || codeNameMatch || typeMatch
+                      })
+                    : variables
+
+                return visibleVariables.map((variable) => ({
+                    ...variable,
+                    selected: selectedVariableIds.has(variable.id),
+                }))
+            },
+        ],
     }),
     listeners(({ props, values, actions }) => ({
+        clickVariable: ({ variable }) => {
+            if (
+                variable.id === values.internalSelectedVariables.find((v) => v.variableId === variable.id)?.variableId
+            ) {
+                actions.removeVariable(variable.id)
+            } else {
+                actions.addVariable({ variableId: variable.id, code_name: variable.code_name })
+            }
+        },
         addVariable: () => {
             // dashboard items handle source query separately
             if (!props.readOnly) {
@@ -200,18 +253,21 @@ export const variablesLogic = kea<variablesLogicType>([
                 ...props.sourceQuery,
                 source: {
                     ...props.sourceQuery?.source,
-                    variables: variables.reduce((acc, cur) => {
-                        if (cur.variableId) {
-                            acc[cur.variableId] = {
-                                variableId: cur.variableId,
-                                value: cur.value,
-                                code_name: cur.code_name,
-                                isNull: cur.isNull,
+                    variables: variables.reduce(
+                        (acc, cur) => {
+                            if (cur.variableId) {
+                                acc[cur.variableId] = {
+                                    variableId: cur.variableId,
+                                    value: cur.value,
+                                    code_name: cur.code_name,
+                                    isNull: cur.isNull,
+                                }
                             }
-                        }
 
-                        return acc
-                    }, {} as Record<string, HogQLVariable>),
+                            return acc
+                        },
+                        {} as Record<string, HogQLVariable>
+                    ),
                 },
             }
             const queryVarsHaveChanged = haveVariablesOrFiltersChanged(query.source, props.sourceQuery?.source)

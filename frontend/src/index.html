@@ -1,11 +1,11 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
     <head>
         {% include "head.html" %}
     </head>
     <body>
         {% include "overlays.html" %}
-        <script>
+        <script nonce="{{ request.csp_nonce }}">
             const tags = [
                 '{% if debug %}DEBUG mode{% elif region %}Region: {{ region }}{% else %}Hobby deployment{% endif %}',
                 '{% if debug %}Branch: {{ git_branch|default:"unknown" }}{% else %}Commit: {{ git_rev|default:"unknown" }}{% endif %}',

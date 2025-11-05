@@ -1,19 +1,18 @@
+# ruff: noqa: T201 allow print statements
+
 import datetime
 from textwrap import indent
-from django.conf import settings
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
+
+from cachetools import cached
 from infi.clickhouse_orm import Database
 from infi.clickhouse_orm.migrations import MigrationHistory
 from infi.clickhouse_orm.utils import import_submodules
 
 from posthog.clickhouse.client.connection import default_client
-from posthog.settings import (
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_HTTP_URL,
-    CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_USER,
-)
+from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HTTP_URL, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER
 
 MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
@@ -65,6 +64,7 @@ class Command(BaseCommand):
             verify_ssl_cert=False,
             randomize_replica_paths=settings.TEST or settings.E2E_TESTING,
         )
+
         if options["plan"] or options["check"]:
             print("List of clickhouse migrations to be applied:")
             migrations = list(self.get_migrations(database, options["upto"]))
@@ -74,6 +74,10 @@ class Command(BaseCommand):
                     sql = getattr(op, "_sql", None)
                     if options["print_sql"] and sql is not None:
                         print(indent("\n\n".join(sql), "    "))
+            applied = self.get_applied_migrations(database)
+            if len(applied) > 0:
+                last = max(applied)
+                print(f"\nClickhouse most recent applied migration: {last}")
             if len(migrations) == 0:
                 print("Clickhouse migrations up to date!")
             elif options["check"]:
@@ -106,7 +110,8 @@ class Command(BaseCommand):
             if int(migration_name[:4]) >= upto:
                 break
 
-    def get_applied_migrations(self, database):
+    @cached(cache={})
+    def get_applied_migrations(self, database) -> set[str]:
         return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)
 
     def _create_database_if_not_exists(self, database: str, cluster: str):

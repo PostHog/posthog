@@ -1,8 +1,9 @@
 import { Meta } from '@storybook/blocks'
-import { LemonColorGlyph } from './LemonColorGlyph'
-import { LemonColorButton } from './LemonColorButton'
-import { LemonColorPicker } from './LemonColorPicker'
+
 import { LemonTable } from '../LemonTable'
+import { LemonColorButton } from './LemonColorButton'
+import { LemonColorGlyph } from './LemonColorGlyph'
+import { LemonColorPicker } from './LemonColorPicker'
 
 <Meta title="Lemon UI/Lemon Color/Overview" />
 
@@ -17,60 +18,60 @@ The purpose of these colors is to represent distinct data categories or series i
 ### Default Theme Colors
 
 <LemonTable
-    dataSource={[
-        'data-color-1',
-        'data-color-2',
-        'data-color-3',
-        'data-color-4',
-        'data-color-5',
-        'data-color-6',
-        'data-color-7',
-        'data-color-8',
-        'data-color-9',
-        'data-color-10',
-        'data-color-11',
-        'data-color-12',
-        'data-color-13',
-        'data-color-14',
-        'data-color-15',
-    ].map((color) => ({ token: color.replace('data-color-', 'preset-'), name: color, color }))}
-    columns={[
-        {
-            title: 'Data Color Token',
-            key: 'token',
-            dataIndex: 'token',
-            render: (token) => token,
-        },
-        {
-            title: 'Color Variable Name',
-            key: 'name',
-            dataIndex: 'name',
-            render: (name) => name,
-        },
-        {
-            title: 'Color',
-            key: 'color',
-            dataIndex: 'color',
-            render: function RenderColor(color) {
-                return (
-                    <div
-                        className="border rounded h-8 w-8"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ backgroundColor: `var(--${color})` }}
-                    />
-                )
-            },
-        },
-    ]}
+  dataSource={[
+    'data-color-1',
+    'data-color-2',
+    'data-color-3',
+    'data-color-4',
+    'data-color-5',
+    'data-color-6',
+    'data-color-7',
+    'data-color-8',
+    'data-color-9',
+    'data-color-10',
+    'data-color-11',
+    'data-color-12',
+    'data-color-13',
+    'data-color-14',
+    'data-color-15',
+  ].map((color) => ({ token: color.replace('data-color-', 'preset-'), name: color, color }))}
+  columns={[
+    {
+      title: 'Data Color Token',
+      key: 'token',
+      dataIndex: 'token',
+      render: (token) => token,
+    },
+    {
+      title: 'Color Variable Name',
+      key: 'name',
+      dataIndex: 'name',
+      render: (name) => name,
+    },
+    {
+      title: 'Color',
+      key: 'color',
+      dataIndex: 'color',
+      render: function RenderColor(color) {
+        return (
+          <div
+            className="border rounded h-8 w-8"
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ backgroundColor: `var(--${color})` }}
+          />
+        )
+      },
+    },
+  ]}
 />
 
 ## Components
 
 ### Usage Notes
 
--   For data visualization and theme-aware colors, use `colorToken` props
--   For custom colors, use the `color` prop with 6-digit hex values (e.g. '#FF0000')
--   The `themeId` prop is only needed when using tokens
+- For data visualization and theme-aware colors, use `colorToken` props
+- For custom colors, use the `color` prop with 6-digit hex values (e.g. '#FF0000')
+- The `themeId` prop is only needed when using tokens
 
 ### LemonColorGlyph
 

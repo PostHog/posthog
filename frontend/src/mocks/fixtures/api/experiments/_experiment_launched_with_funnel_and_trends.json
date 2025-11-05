@@ -184,7 +184,8 @@
                     "funnelWindowIntervalUnit": "day"
                 },
                 "filterTestAccounts": true
-            }
+            },
+            "uuid": "434cb6ba-7fa6-4ca1-b7a0-8970b2d9a47d"
         }
     ],
     "metrics_secondary": [
@@ -210,10 +211,9 @@
                     "display": "ActionsLineGraph"
                 },
                 "filterTestAccounts": true
-            }
+            },
+            "uuid": "cbdd02f8-4a27-4017-a8d8-5f989b304ada"
         }
     ],
-    "stats_config": {
-        "version": 2
-    }
+    "user_access_level": "editor"
 }

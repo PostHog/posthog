@@ -1,19 +1,23 @@
-import decimal
-from unittest.mock import MagicMock
 import uuid
+import decimal
+import datetime
 from ipaddress import IPv4Address, IPv6Address
+from typing import Any
+
+import pytest
 
 import pyarrow as pa
-import pytest
+import deltalake
+import structlog
 from dateutil import parser
+from structlog.types import FilteringBoundLogger
 
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
+    _evolve_pyarrow_schema,
     _get_max_decimal_type,
-    should_partition_table,
-    table_from_py_list,
+    append_partition_key_to_table,
     normalize_table_column_names,
+    table_from_py_list,
 )
 
 
@@ -293,94 +297,6 @@ def test_table_from_py_list_with_ipv6_address():
     )
 
 
-def test_should_partition_table_non_incremental_schema():
-    schema = MagicMock()
-    schema.is_incremental = False
-    schema.partitioning_enabled = False
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(None, schema, source)
-    assert res is False
-
-
-def test_should_partition_table_paritioning_settingd():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = True
-    schema.partitioning_size = 100
-    schema.partitioning_keys = ["id"]
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(None, schema, source)
-    assert res is True
-
-
-def test_should_partition_table_incremental_with_bucket_size():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = False
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(None, schema, source)
-    assert res is True
-
-
-def test_should_partition_table_no_table():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = False
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(None, schema, source)
-    assert res is True
-
-
-def test_should_partition_table_with_table_and_no_key():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = False
-
-    delta_table = MagicMock()
-
-    to_pyarrow_mock = MagicMock()
-    to_pyarrow_mock.names = ["column1", "column2"]
-
-    schema_mock = MagicMock()
-    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
-
-    delta_table.schema = MagicMock(return_value=schema_mock)
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(delta_table, schema, source)
-    assert res is False
-
-
-def test_should_partition_table_with_table_and_key():
-    schema = MagicMock()
-    schema.is_incremental = True
-    schema.partitioning_enabled = False
-
-    delta_table = MagicMock()
-
-    to_pyarrow_mock = MagicMock()
-    to_pyarrow_mock.names = ["column1", "column2", PARTITION_KEY]
-
-    schema_mock = MagicMock()
-    schema_mock.to_pyarrow = MagicMock(return_value=to_pyarrow_mock)
-
-    delta_table.schema = MagicMock(return_value=schema_mock)
-
-    source = SourceResponse(name="source", items=iter([]), primary_keys=None, partition_count=1000)
-
-    res = should_partition_table(delta_table, schema, source)
-    assert res is True
-
-
 def test_normalize_table_column_names_prevents_collisions():
     # Create a table with columns that would collide when normalized
     table = pa.table({"foo___bar": ["value1"], "foo_bar": ["value2"], "another___field": ["value3"]})
@@ -398,3 +314,113 @@ def test_normalize_table_column_names_prevents_collisions():
     assert normalized_table.column("foo_bar").to_pylist() == ["value2"]
     assert normalized_table.column("_foo_bar").to_pylist() == ["value1"]
     assert normalized_table.column("another_field").to_pylist() == ["value3"]
+
+
+def test_table_from_py_list_with_rescaling_decimal_data_loss_error():
+    # Very restrictive type, and the large_decimal value is too large for the schema
+    schema = pa.schema({"column": pa.decimal128(5, 1)})
+    large_decimal = decimal.Decimal("12345.6789")
+
+    table = table_from_py_list([{"column": large_decimal}], schema)
+
+    expected_schema = pa.schema([pa.field("column", pa.decimal128(38, 32))])
+    assert table.equals(
+        pa.table(
+            {
+                "column": pa.array(
+                    [decimal.Decimal("12345.67890000000000000000000000000000")], type=pa.decimal128(38, 32)
+                )
+            }
+        )
+    )
+    assert table.schema.equals(expected_schema)
+
+
+def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
+    """Test that _evolve_pyarrow_schema can handle struct columns with non-JSON-serializable types."""
+    metadata_struct_type = pa.struct(
+        [
+            ("role", pa.string()),
+            ("hire_date", pa.timestamp("us")),
+            ("salary", pa.decimal128(10, 2)),
+        ]
+    )
+
+    metadata_data = [
+        {
+            "role": "admin",
+            "hire_date": datetime.datetime(2020, 1, 15, 10, 30, 0),
+            "salary": decimal.Decimal("75000.50"),
+        },
+        {"role": "user", "hire_date": datetime.datetime(2021, 3, 20, 9, 0, 0), "salary": decimal.Decimal("65000.00")},
+    ]
+
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "metadata": pa.array(metadata_data, type=metadata_struct_type),
+        }
+    )
+
+    delta_fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("metadata", pa.string(), nullable=True),
+    ]
+    delta_schema = deltalake.Schema.from_pyarrow(pa.schema(delta_fields))
+    evolved_table = _evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    assert evolved_table.schema.field("metadata").type == pa.string()
+    metadata_values = evolved_table.column("metadata").to_pylist()
+    assert len(metadata_values) == 2
+    assert all(isinstance(val, str) for val in metadata_values)
+
+
+def test_evolve_pyarrow_schema_with_list_containing_datetime():
+    """Test that _evolve_pyarrow_schema can handle list columns with non-JSON-serializable types."""
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "tags": pa.array([["python", "data"], ["sales", "crm"]], type=pa.list_(pa.string())),
+        }
+    )
+
+    delta_fields: list[pa.Field] = [
+        pa.field("id", pa.int64(), nullable=False),
+        pa.field("tags", pa.string(), nullable=True),
+    ]
+    delta_schema = deltalake.Schema.from_pyarrow(pa.schema(delta_fields))
+
+    evolved_table = _evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    assert evolved_table.schema.field("tags").type == pa.string()
+    tags_values = evolved_table.column("tags").to_pylist()
+    assert len(tags_values) == 2
+    assert all(isinstance(val, str) for val in tags_values)
+
+
+@pytest.mark.parametrize(
+    "name, data",
+    [
+        ("incrementing_ints_dense", [1, 2, 3, 4, 5]),
+        ("incrementing_ints_sparse", [1, 100]),
+        ("all_nulls", [None, None, None]),
+    ],
+)
+def test_append_partition_key_to_table_does_not_type_error(name: str, data: list[Any]):
+    partition_key = "id"
+    table = pa.table({partition_key: data})
+
+    logger: FilteringBoundLogger = structlog.get_logger()
+
+    try:
+        append_partition_key_to_table(
+            table,
+            partition_keys=[partition_key],
+            partition_mode=None,
+            partition_count=None,
+            partition_size=None,
+            partition_format=None,
+            logger=logger,
+        )
+    except TypeError:
+        pytest.fail(f"raised TypeError for case {name} with data: {data}")

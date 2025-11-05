@@ -4,19 +4,50 @@
 # It relies on the container image built by 'container-images-ci.yml'.
 #
 name: E2E CI Playwright
-
 on:
     pull_request:
+    workflow_dispatch:
+
+env:
+    SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    REDIS_URL: redis://localhost
+    DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
+    KAFKA_HOSTS: kafka:9092
+    DISABLE_SECURE_SSL_REDIRECT: 1
+    SECURE_COOKIES: 0
+    OPT_OUT_CAPTURE: 0
+    E2E_TESTING: 1
+    SKIP_SERVICE_VERSION_REQUIREMENTS: 1
+    EMAIL_HOST: email.test.posthog.net
+    SITE_URL: http://localhost:8000
+    NO_RESTART_LOOP: 1
+    OBJECT_STORAGE_ENABLED: 1
+    OBJECT_STORAGE_ENDPOINT: http://localhost:19000
+    OBJECT_STORAGE_ACCESS_KEY_ID: object_storage_root_user
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: object_storage_root_password
+    GITHUB_ACTION_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    CELERY_METRICS_PORT: 8999
+    CLOUD_DEPLOYMENT: E2E
+    CLICKHOUSE_HOST: 'localhost'
+    CLICKHOUSE_SECURE: 'False'
+    CLICKHOUSE_VERIFY: 'False'
+    CLICKHOUSE_DATABASE: posthog_test
+    PGHOST: localhost
+    PGUSER: posthog
+    PGPASSWORD: posthog
+    PGPORT: 5432
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    # This is so that the workflow run isn't canceled when a screenshot update is pushed within it by posthog-bot
+    # We do however cancel from container-images-ci.yml if a commit is pushed by someone OTHER than posthog-bot
+    cancel-in-progress: false
 
 jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        if: github.event.pull_request.head.repo.full_name == github.repository
         name: Determine need to run E2E checks
         # Set job outputs to values from filter step
         outputs:
@@ -50,177 +81,414 @@ jobs:
                         - Dockerfile
                         - playwright/**
 
-    container:
-        name: Build and cache container image
-        # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
-        runs-on: depot-ubuntu-latest-4
-        timeout-minutes: 60
-        needs: [changes]
-        permissions:
-            contents: read
-            id-token: write # allow issuing OIDC tokens for this workflow run
-        outputs:
-            tag: ${{ steps.build.outputs.tag }}
-            build-id: ${{ steps.build.outputs.build-id }}
-        steps:
-            - name: Checkout
-              if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
-            - name: Build the Docker image with Depot
-              if: needs.changes.outputs.shouldRun == 'true'
-              # Build the container image in preparation for the E2E tests
-              uses: ./.github/actions/build-n-cache-image
-              id: build
-              with:
-                  save: true
-                  actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-                  no-cache: ${{ contains(github.event.pull_request.labels.*.name, 'no-depot-docker-cache') }}
-
     playwright:
         name: Playwright E2E tests
-        runs-on: depot-ubuntu-latest-arm-4
-        timeout-minutes: 60
-        needs: [changes, container]
-        permissions:
-            id-token: write # allow issuing OIDC tokens for this workflow run
-
+        needs: [changes]
+        if: needs.changes.outputs.shouldRun == 'true'
+        runs-on: depot-ubuntu-latest-16
+        timeout-minutes: 30
         steps:
-            - name: Checkout
-              if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+                  fetch-depth: 50 # Need enough history for flap detection to find last human commit
+
+            - name: Stop/Start stack with Docker Compose
+              shell: bash
+              run: |
+                  export CLICKHOUSE_SERVER_IMAGE=clickhouse/clickhouse-server:25.6.9.98
+                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
+                  cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
+
+                  (
+                    max_attempts=3
+                    attempt=1
+                    delay=5
+
+                    while [ $attempt -le $max_attempts ]; do
+                        echo "Attempt $attempt of $max_attempts to start stack..."
+
+                        if docker compose -f docker-compose.dev.yml down && \
+                          docker compose -f docker-compose.dev.yml up -d; then
+                            echo "Stack started successfully"
+                            exit 0
+                        fi
+
+                        echo "Failed to start stack on attempt $attempt"
+
+                        if [ $attempt -lt $max_attempts ]; then
+                            sleep_time=$((delay * 2 ** (attempt - 1)))
+                            echo "Waiting ${sleep_time} seconds before retry..."
+                            sleep $sleep_time
+                        fi
+
+                        attempt=$((attempt + 1))
+                    done
+
+                    echo "Failed to start stack after $max_attempts attempts"
+                    exit 1
+                  ) &
+
+            - name: Add Kafka and ClickHouse to /etc/hosts
+              shell: bash
+              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: 3.12.11
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
+              with:
+                  enable-cache: true
+                  version: 0.8.19
+
+            - name: Determine if hogql-parser has changed compared to master
+              shell: bash
+              id: hogql-parser-diff
+              run: |
+                  git fetch --no-tags --prune --depth=1 origin master
+                  changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
+                  echo "changed=$changed" >> $GITHUB_OUTPUT
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              shell: bash
+              run: |
+                  sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install pnpm
-              if: needs.changes.outputs.shouldRun == 'true'
               uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4
 
             - name: Set up Node.js
-              if: needs.changes.outputs.shouldRun == 'true'
-              uses: actions/setup-node@1d0ff469b7ec7b3cb9d8673fde0c81c44821de2a # v4
+              uses: actions/setup-node@v4
               with:
-                  node-version: 18.12.1
-                  cache: 'pnpm'
+                  node-version: 22.17.1
+                  cache: pnpm
+
+            # tests would intermittently fail in GH actions
+            # with exit code 134 _after passing_ all tests
+            # this appears to fix it
+            # absolute wild tbh https://stackoverflow.com/a/75503402
+            - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1
+
+            - name: Install plugin_transpiler
+              shell: bash
+              run: |
+                  pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/plugin-transpiler build
+
+            - name: Install Python dependencies
+              shell: bash
+              run: |
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install the working version of hogql-parser
+              if: needs.changes.outputs.shouldRun == 'true' && steps.hogql-parser-diff.outputs.changed == 'true'
+              shell: bash
+              # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
+              # changed (requirements.txt has the already-published version)
+              run: |
+                  sudo apt-get install libboost-all-dev unzip cmake curl uuid pkg-config
+                  curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
+                  # Check that the downloaded archive is the expected runtime - a security measure
+                  anltr_known_md5sum="c875c148991aacd043f733827644a76f"
+                  antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
+                  if [[ "$anltr_known_md5sum" != "$antlr_found_ms5sum" ]]; then
+                      echo "Unexpected MD5 sum of antlr4-source.zip!"
+                      echo "Known: $anltr_known_md5sum"
+                      echo "Found: $antlr_found_ms5sum"
+                      exit 64
+                  fi
+                  unzip antlr4-source.zip -d antlr4-source && cd antlr4-source
+                  cmake .
+                  DESTDIR=out make install
+                  sudo cp -r out/usr/local/include/antlr4-runtime /usr/include/
+                  sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
+                  sudo ldconfig
+                  cd ..
+                  pip install ./common/hogql_parser
+
+            - name: Set up needed files
+              shell: bash
+              run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html
+                  touch frontend/dist/layout.html
+                  touch frontend/dist/exporter.html
+                  ./bin/download-mmdb
 
             - name: Get pnpm cache directory path
-              if: needs.changes.outputs.shouldRun == 'true'
               id: pnpm-cache-dir
               run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
-            - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
-              if: needs.changes.outputs.shouldRun == 'true'
+            - uses: actions/cache@v4
               id: pnpm-cache
               with:
-                  path: |
-                      ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
-                  key: ${{ runner.os }}-pnpm-playwright-${{ hashFiles('**/pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-pnpm-playwright-
+                  path: ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                  key: ${{ runner.os }}-pnpm-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: ${{ runner.os }}-pnpm-playwright-
 
             - name: Install package.json dependencies with pnpm
-              if: needs.changes.outputs.shouldRun == 'true'
-              run: pnpm --filter=@posthog/playwright... install --frozen-lockfile
-
-            - name: Install playwright and dependencies
-              if: needs.changes.outputs.shouldRun == 'true'
-              run: pnpm --filter=@posthog/playwright exec playwright install --with-deps
-
-            - name: Stop/Start stack with Docker Compose
-              # these are required checks so, we can't skip entire sections
-              if: needs.changes.outputs.shouldRun == 'true'
               run: |
-                  docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  pnpm --filter=@posthog/playwright... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend prepare
 
-            - name: Wait for ClickHouse
-              # these are required checks so, we can't skip entire sections
-              if: needs.changes.outputs.shouldRun == 'true'
-              run: ./bin/check_kafka_clickhouse_up
+            - name: Wait for services to be available
+              run: |
+                  bin/check_kafka_clickhouse_up
+                  bin/check_postgres_up
 
-            - name: Install Depot CLI
-              if: needs.changes.outputs.shouldRun == 'true'
-              uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
+            - name: Build frontend
+              run: |
+                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  pnpm --filter=@posthog/frontend build:products
+                  pnpm --filter=@posthog/frontend build
 
-            - name: Get Docker image cached in Depot
-              if: needs.changes.outputs.shouldRun == 'true'
-              uses: depot/pull-action@8a922bdade29cf5facf3a13020cccd3b7a8127c2 # v1
+            - name: Collect static files
+              run: |
+                  # KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
+                  # KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails
+                  cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
+            - name: Create test database
+              run: |
+                  createdb posthog_e2e_test || echo "Database already exists"
+                  # Drop and recreate clickhouse test database
+                  echo 'DROP DATABASE if exists posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+                  echo 'create database posthog_test' | curl 'http://localhost:8123/' --data-binary @-
+
+            - name: Apply postgres and clickhouse migrations and setup dev
+              run: |
+                  python manage.py migrate_clickhouse &
+                  python manage.py migrate --noinput
+
+                  # Build and run Rust migrations using dedicated container
+                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
+                  docker run --rm --network host \
+                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
+                    posthog-migrations:latest all
+
+                  # Build and run Rust migrations using dedicated container
+                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
+                  docker run --rm --network host \
+                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_e2e_test" \
+                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
+                    posthog-migrations:latest all
+
+                  python manage.py setup_dev
+                  wait
+
+            - name: Source celery queues
+              run: |
+                  source ./bin/celery-queues.env
+                  echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
+
+            - name: Start PostHog web & Celery worker
+              run: |
+                  python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
+                  python manage.py runserver 8000 &> /tmp/server.log &
+
+            # Install Playwright browsers while we wait for PostHog to be ready
+            - name: Install Playwright browsers
+              run: pnpm --filter=@posthog/playwright exec playwright install chromium --with-deps
+
+            - name: Wait for PostHog to be ready
+              uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
               with:
-                  build-id: ${{ needs.container.outputs.build-id }}
-                  tags: ${{ needs.container.outputs.tag }}
-
-            - name: Write .env # This step intentionally has no if, so that GH always considers the action as having run
-              run: |
-                  cat <<EOT >> .env
-                  SECRET_KEY=6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da
-                  REDIS_URL=redis://localhost
-                  DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog
-                  KAFKA_HOSTS=kafka:9092
-                  DISABLE_SECURE_SSL_REDIRECT=1
-                  SECURE_COOKIES=0
-                  OPT_OUT_CAPTURE=0
-                  E2E_TESTING=1
-                  SKIP_SERVICE_VERSION_REQUIREMENTS=1
-                  EMAIL_HOST=email.test.posthog.net
-                  SITE_URL=http://localhost:8000
-                  NO_RESTART_LOOP=1
-                  CLICKHOUSE_SECURE=0
-                  OBJECT_STORAGE_ENABLED=1
-                  OBJECT_STORAGE_ENDPOINT=http://localhost:19000
-                  OBJECT_STORAGE_ACCESS_KEY_ID=object_storage_root_user
-                  OBJECT_STORAGE_SECRET_ACCESS_KEY=object_storage_root_password
-                  GITHUB_ACTION_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                  CELERY_METRICS_PORT=8999
-                  CLOUD_DEPLOYMENT=1
-                  EOT
-
-            - name: Start PostHog
-              # these are required checks so, we can't skip entire sections
-              if: needs.changes.outputs.shouldRun == 'true'
-              run: |
-                  mkdir -p /tmp/logs
-
-                  echo "Starting PostHog using the container image ${{ needs.container.outputs.tag }}"
-                  DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --add-host clickhouse:127.0.0.1 --env-file .env ${{ needs.container.outputs.tag }}"
-
-                  $DOCKER_RUN ./bin/migrate
-                  $DOCKER_RUN python manage.py setup_dev
-
-                  # only starts the plugin server so that the "wait for PostHog" step passes
-                  $DOCKER_RUN ./bin/docker-worker &> /tmp/logs/worker.txt &
-                  $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
-
-            - name: Wait for PostHog
-              # these are required checks so, we can't skip entire sections
-              if: needs.changes.outputs.shouldRun == 'true'
-              # this action might be abandoned - but v1 doesn't point to latest of v1 (which it should)
-              # so pointing to v1.1.0 to remove warnings about node version with v1
-              # todo check https://github.com/iFaxity/wait-on-action/releases for new releases
-              uses: iFaxity/wait-on-action@a7d13170ec542bdca4ef8ac4b15e9c6aa00a6866 # v1.2.1
-              timeout-minutes: 3
-              with:
-                  verbose: true
-                  log: true
                   resource: http://localhost:8000
+                  timeout: 180000
+                  interval: 2000
+                  verbose: true
 
-            - name: Playwright run
-              # these are required checks so, we can't skip entire sections
-              if: needs.changes.outputs.shouldRun == 'true'
-              run: pnpm --filter=@posthog/playwright exec playwright test
-              env:
-                  E2E_TESTING: 1
-                  OPT_OUT_CAPTURE: 0
-                  GITHUB_ACTION_RUN_URL: '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+            - name: Run Playwright tests
+              continue-on-error: true
+              id: playwright-tests
+              # we can run 10 workers because we have 16 CPU
+              # we don't want to run 16 since we need to leave some for everything else
+              run: pnpm --filter=@posthog/playwright exec playwright test --workers=10
 
-            - name: Archive report
-              uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4
+            - name: Configure global git diff log
+              run: git config --global --add safe.directory '*'
+
+            - name: Count and optimize updated screenshots
+              id: diff
+              # Skip on forks
+              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              run: |
+                  echo $(git diff --name-status playwright/__snapshots__) # Wrapped to ignore exit 1 on empty diff
+                  ADDED=$(git diff --name-status playwright/__snapshots__/ | grep '^A' | wc -l)
+                  MODIFIED=$(git diff --name-status playwright/__snapshots__/ | grep '^M' | wc -l)
+                  DELETED=$(git diff --name-status playwright/__snapshots__/ | grep '^D' | wc -l)
+                  TOTAL=$(git diff --name-status playwright/__snapshots__/ | wc -l)
+
+                  # If added or modified, run OptiPNG
+                  if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
+                    echo "Screenshots updated ($ADDED new, $MODIFIED changed), running OptiPNG"
+                    apt update && apt install -y optipng
+                    # TODO: RESTORE OptiPNG - it turns out it never worked before
+                    # optipng -clobber -o4 -strip all playwright/__snapshots__/**/*.png
+
+                    # we don't want to _always_ run OptiPNG
+                    # so, we run it after checking for a diff
+                    # but, the files we diffed might then be changed by OptiPNG
+                    # and as a result they might no longer be different...
+
+                    # we check again
+                    git diff --name-status playwright/__snapshots__/ # For debugging
+                    ADDED=$(git diff --name-status playwright/__snapshots__/ | grep '^A' | wc -l)
+                    MODIFIED=$(git diff --name-status playwright/__snapshots__/ | grep '^M' | wc -l)
+                    DELETED=$(git diff --name-status playwright/__snapshots__/ | grep '^D' | wc -l)
+                    TOTAL=$(git diff --name-status playwright/__snapshots__/ | wc -l)
+
+                    if [ $ADDED -gt 0 ] || [ $MODIFIED -gt 0 ]; then
+                        echo "Screenshots updated ($ADDED new, $MODIFIED changed), _even after_ running OptiPNG"
+                        git add playwright/__snapshots__/ playwright/
+                    fi
+                  fi
+
+                  echo "Screenshot changes:"
+                  echo "Added: $ADDED"
+                  echo "Modified: $MODIFIED"
+                  echo "Deleted: $DELETED"
+                  echo "Total: $TOTAL"
+
+            - name: Detect flapping screenshots
+              id: flap-detector
+              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              shell: bash
+              run: |
+                  set +e  # Don't exit on error, we'll handle errors explicitly
+                  PATHS_FLAPPING=()
+
+                  # Find last human commit (not github-actions bot)
+                  last_human_commit=$(git log --pretty=format:"%H %an" | grep -v "github-actions" | head -1 | cut -d' ' -f1 || true)
+                  echo "Last human commit identified: $last_human_commit"
+
+                  if [ -z "$last_human_commit" ]; then
+                      echo "No human commit found in history, cannot detect flapping"
+                      echo "This is expected for bot-only commits or shallow checkouts"
+                      echo "flapping=false" >> $GITHUB_OUTPUT
+                      echo "Paths flapping: none"
+                      exit 0
+                  fi
+
+                  for screenshot_path in $(git diff --name-only HEAD playwright/__snapshots__); do
+                      echo "Checking screenshot path: $screenshot_path"
+                      bot_changes=$(git log --oneline ${last_human_commit}..HEAD --author="github-actions" -- $screenshot_path | wc -l | xargs)
+                      echo "Number of bot changes to $screenshot_path since last human commit: $bot_changes"
+
+                      if [ "$bot_changes" -ge 2 ]; then
+                          PATHS_FLAPPING+=($screenshot_path)
+                      fi
+                  done
+
+                  if [ ${#PATHS_FLAPPING[@]} -gt 0 ]; then
+                      echo "flapping=true" >> $GITHUB_OUTPUT
+                      echo "paths=${PATHS_FLAPPING[*]}" >> $GITHUB_OUTPUT
+                  else
+                      echo "flapping=false" >> $GITHUB_OUTPUT
+                  fi
+
+                  echo "Paths flapping: ${PATHS_FLAPPING[*]:-none}"
+
+            - name: Comment on PR about flapping screenshots
+              if: steps.flap-detector.outputs.flapping == 'true'
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const flappingPaths = '${{ steps.flap-detector.outputs.paths }}'.split(' ');
+                      const pathList = flappingPaths.map(p => `- \`${p}\``).join('\n');
+                      const comment = `## ⚠️ Flapping Screenshots Detected
+
+                      The following screenshots have been updated multiple times by the bot, indicating test instability:
+
+                      ${pathList}
+
+                      **What this means:**
+                      - These screenshots are changing on each test run (timing issues, rendering differences, etc.)
+                      - This prevents reliable verification and blocks auto-merge
+                      - Human intervention is required
+
+                      **How to fix:**
+                      1. **Investigate flakiness**: Check test timing, wait for elements, stabilize animations
+                      2. **Fix the underlying issue**: Don't just update snapshots repeatedly
+                      3. **Verify locally**: Run tests multiple times to ensure stability
+                      4. **Push your fix**: This will reset the flap counter
+
+                      **If you need to proceed anyway:**
+                      - Fix the test flakiness first (recommended)
+                      - Or manually verify snapshots are acceptable and revert the bot commits, then push a fix
+
+                      The workflow has been failed to prevent merging unstable tests.`;
+
+                      github.rest.issues.createComment({
+                          issue_number: context.issue.number,
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          body: comment
+                      });
+
+            - name: Fail workflow if screenshots are flapping
+              if: steps.flap-detector.outputs.flapping == 'true'
+              run: |
+                  echo "::error::Screenshots are flapping - this indicates test instability"
+                  echo "Flapping paths: ${{ steps.flap-detector.outputs.paths }}"
+                  exit 1
+
+            - name: Commit updated screenshots
+              uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9
+              if: needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository && steps.flap-detector.outputs.flapping != 'true'
+              id: commit
+              with:
+                  add: 'playwright/'
+                  message: 'Update E2E screenshots for Playwright'
+                  pull: --rebase --autostash # Make sure we're up to date with other commits
+                  default_author: github_actions
+                  github_token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+
+            # ── Artifacts on failure / always ─────────────────────────────────────
+            - name: Show celery logs
+              run: cat /tmp/celery.log
+            - name: Show server logs
+              run: cat /tmp/server.log
+
+            - name: Show server logs
+              run: |
+                  docker ps
+                  docker logs posthog-proxy-1
+
+            - name: Archive Playwright report on failure
+              if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
+              uses: actions/upload-artifact@v4
               with:
                   name: playwright-report
                   path: playwright/playwright-report/
                   retention-days: 30
-              if: ${{ failure() }}
+
+            - name: Archive screenshots
+              uses: actions/upload-artifact@v4
+              with:
+                  name: playwright-screenshots
+                  path: playwright/test-results
+                  retention-days: 30
+
+            - name: Fail workflow if tests failed
+              if: needs.changes.outputs.shouldRun == 'true' && steps.playwright-tests.outcome == 'failure'
+              run: |
+                  echo "❌ Playwright tests failed, but screenshots were processed and committed."
+                  echo "Check the test logs above for details on which tests failed."
+                  exit 1
 
     capture-run-time:
         name: Capture run time
         runs-on: ubuntu-latest
-        needs: [playwright]
+        needs: [changes, playwright]
         if: needs.changes.outputs.shouldRun == 'true'
         steps:
             - name: Calculate run time and send to PostHog

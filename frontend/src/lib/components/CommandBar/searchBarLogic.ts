@@ -1,18 +1,22 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
+import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { groupsModel } from '~/models/groupsModel'
-import { Group, InsightShortId, PersonType, SearchableEntity, SearchResponse } from '~/types'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { Group, InsightShortId, PersonType, SearchResponse, SearchableEntity } from '~/types'
 
 import { commandBarLogic } from './commandBarLogic'
-import { clickhouseTabs, Tab, TabGroup } from './constants'
+import { Tab, TabGroup, clickhouseTabs } from './constants'
 import type { searchBarLogicType } from './searchBarLogicType'
-import { BarStatus, GroupResult, PersonResult, SearchResult } from './types'
+import { BarStatus, GroupResult, PersonResult, SearchResult, TreeItemResult } from './types'
 
 const DEBOUNCE_MS = 300
 
@@ -43,10 +47,38 @@ function rankGroups(groups: Group[], query: string): GroupResult[] {
     }))
 }
 
+function rankProductTreeItems(treeItems: FileSystemImport[], query: string): TreeItemResult[] {
+    const rank = calculateRank(query)
+    return treeItems
+        .filter((item) => item.path.toLowerCase().includes(query.toLowerCase()))
+        .map((item) => {
+            return {
+                type: 'tree_item' as const,
+                result_id: item.href || item.path,
+                extra_fields: {
+                    ...item,
+                    icon: item.iconType
+                        ? iconForType(item.iconType as FileSystemIconType)
+                        : iconForType(item.type as FileSystemIconType),
+                    description: `Category: ${item.category}`,
+                },
+                rank,
+            }
+        })
+}
+
 export const searchBarLogic = kea<searchBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'searchBarLogic']),
+
     connect(() => ({
-        values: [commandBarLogic, ['initialQuery', 'barStatus'], groupsModel, ['groupTypes', 'aggregationLabel']],
+        values: [
+            commandBarLogic,
+            ['initialQuery', 'barStatus'],
+            groupsModel,
+            ['groupTypes', 'aggregationLabel'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [
             commandBarLogic,
             ['hideCommandBar', 'setCommandBar', 'clearInitialQuery'],
@@ -80,6 +112,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
                         response = values.rawSearchResponse
                     } else if (values.activeTab === Tab.All) {
                         response = await api.search.list({ q: values.searchQuery })
+                    } else if (values.activeTab === Tab.Products) {
+                        return null // Products are handled separately in combinedSearchResults
                     } else {
                         response = await api.search.list({
                             q: values.searchQuery,
@@ -262,6 +296,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 s.rawGroup3Response,
                 s.rawGroup4Response,
                 s.searchQuery,
+                s.activeTab,
+                s.featureFlags,
             ],
             (
                 searchResponse,
@@ -271,32 +307,109 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group2Response,
                 group3Response,
                 group4Response,
-                query
+                query,
+                activeTab,
+                featureFlags
             ) => {
-                if (
-                    !searchResponse &&
-                    !personsResponse &&
-                    !group0Response &&
-                    !group1Response &&
-                    !group2Response &&
-                    !group3Response &&
-                    !group4Response
-                ) {
-                    return null
+                const results = []
+
+                // Add regular search results (not for Products tab)
+                if (activeTab !== Tab.Products && searchResponse) {
+                    results.push(...searchResponse.results)
                 }
 
-                return [
-                    ...(searchResponse ? searchResponse.results : []),
-                    ...(personsResponse ? rankPersons(personsResponse.results, query) : []),
-                    ...(group0Response ? rankGroups(group0Response.results, query) : []),
-                    ...(group1Response ? rankGroups(group1Response.results, query) : []),
-                    ...(group2Response ? rankGroups(group2Response.results, query) : []),
-                    ...(group3Response ? rankGroups(group3Response.results, query) : []),
-                    ...(group4Response ? rankGroups(group4Response.results, query) : []),
-                ].sort((a, b) => (a.rank && b.rank ? a.rank - b.rank : 1))
+                // Add persons results
+                if (personsResponse) {
+                    results.push(...rankPersons(personsResponse.results, query))
+                }
+
+                // Add group results
+                if (group0Response) {
+                    results.push(...rankGroups(group0Response.results, query))
+                }
+                if (group1Response) {
+                    results.push(...rankGroups(group1Response.results, query))
+                }
+                if (group2Response) {
+                    results.push(...rankGroups(group2Response.results, query))
+                }
+                if (group3Response) {
+                    results.push(...rankGroups(group3Response.results, query))
+                }
+                if (group4Response) {
+                    results.push(...rankGroups(group4Response.results, query))
+                }
+
+                if (activeTab === Tab.All || activeTab === Tab.Products) {
+                    const productTreeItems = getDefaultTreeProducts()
+
+                    // Filter out items that don't have the correct feature flag
+                    const filteredTreeItems = productTreeItems.filter((item) => {
+                        if (item.flag) {
+                            return !!featureFlags[item.flag as keyof typeof featureFlags]
+                        }
+                        return true
+                    })
+
+                    const treeResults = query
+                        ? rankProductTreeItems(filteredTreeItems, query)
+                        : rankProductTreeItems(filteredTreeItems, '')
+                    results.push(...treeResults)
+                }
+
+                return results.sort((a, b) => (a.rank && b.rank ? a.rank - b.rank : 1))
             },
         ],
         combinedSearchLoading: [
+            (s) => [
+                s.rawSearchResponseLoading,
+                s.rawPersonsResponseLoading,
+                s.rawGroup0ResponseLoading,
+                s.rawGroup1ResponseLoading,
+                s.rawGroup2ResponseLoading,
+                s.rawGroup3ResponseLoading,
+                s.rawGroup4ResponseLoading,
+                s.activeTab,
+            ],
+            (
+                searchLoading: boolean,
+                personsLoading: boolean,
+                group0Loading: boolean,
+                group1Loading: boolean,
+                group2Loading: boolean,
+                group3Loading: boolean,
+                group4Loading: boolean,
+                activeTab: Tab
+            ) => {
+                // For individual tabs, only check the relevant loading state
+                if (activeTab === Tab.Person) {
+                    return personsLoading
+                }
+                if (activeTab === Tab.Group0) {
+                    return group0Loading
+                }
+                if (activeTab === Tab.Group1) {
+                    return group1Loading
+                }
+                if (activeTab === Tab.Group2) {
+                    return group2Loading
+                }
+                if (activeTab === Tab.Group3) {
+                    return group3Loading
+                }
+                if (activeTab === Tab.Group4) {
+                    return group4Loading
+                }
+                if (activeTab !== Tab.All && activeTab !== Tab.Products) {
+                    return searchLoading
+                }
+
+                // For "All" tab, only show loading if the primary search is loading
+                // This allows other results to show while slow group searches are still running
+                return searchLoading
+            },
+        ],
+        anySearchLoading: [
             (s) => [
                 s.rawSearchResponseLoading,
                 s.rawPersonsResponseLoading,
@@ -335,6 +448,7 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 return {
                     all: [Tab.All],
                     event_data: [Tab.EventDefinition, Tab.Action, Tab.Person, Tab.Cohort, ...tabsForGroups],
+                    products: [Tab.Products],
                     posthog: [Tab.Insight, Tab.Dashboard, Tab.Notebook, Tab.Experiment, Tab.FeatureFlag, Tab.Survey],
                 }
             },
@@ -356,6 +470,8 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 s.rawGroup3Response,
                 s.rawGroup4Response,
                 s.searchQuery,
+                s.activeTab,
+                s.featureFlags,
             ],
             (
                 searchResponse,
@@ -365,15 +481,36 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 group2Response,
                 group3Response,
                 group4Response,
-                searchQuery
+                searchQuery,
+                activeTab,
+                featureFlags
             ): [Record<Tab, string | null>, string] => {
                 /** :TRICKY: We need to pull in the searchQuery to memoize the counts. */
 
-                const counts = {}
+                const counts: Record<string, string | null> = {}
 
                 Object.values(Tab).forEach((tab) => {
-                    counts[tab] = searchResponse?.counts[tab]?.toString() || null
+                    counts[tab] = searchResponse?.counts[tab as SearchableEntity]?.toString() || null
                 })
+
+                // Handle Products tab count
+                if (activeTab === Tab.Products || activeTab === Tab.All) {
+                    const treeItems = getDefaultTreeProducts()
+                    const flagFilteredItems = treeItems.filter((item) => {
+                        if (item.flag) {
+                            return !!featureFlags[item.flag as keyof typeof featureFlags]
+                        }
+                        return true
+                    })
+
+                    const filteredItems = searchQuery
+                        ? flagFilteredItems.filter((item) =>
+                              item.path.toLowerCase().includes(searchQuery.toLowerCase())
+                          )
+                        : flagFilteredItems
+
+                    counts[Tab.Products] = filteredItems.length.toString()
+                }
 
                 const clickhouseTabsResults: [string, unknown[] | undefined][] = [
                     [Tab.Person, personsResponse?.results],
@@ -454,7 +591,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
             actions.loadGroup4Response(_)
         },
         openResult: ({ index }) => {
-            const result = values.combinedSearchResults![index]
+            const results = values.combinedSearchResults
+            if (!results || !results[index]) {
+                return // Early exit if no valid result
+            }
+            const result = results[index]
             router.actions.push(urlForResult(result))
             actions.hideCommandBar()
             actions.reportCommandBarSearchResultOpened(result.type)
@@ -479,52 +620,51 @@ export const searchBarLogic = kea<searchBarLogicType>([
     })),
     afterMount(({ actions, values, cache }) => {
         // register keyboard shortcuts
-        cache.onKeyDown = (event: KeyboardEvent) => {
-            if (event.key === 'Enter') {
-                // open result
-                event.preventDefault()
-                actions.openResult(values.activeResultIndex)
-            } else if (event.key === 'ArrowDown') {
-                // navigate to next result
-                event.preventDefault()
-                actions.onArrowDown(values.activeResultIndex, values.maxIndex)
-            } else if (event.key === 'ArrowUp') {
-                // navigate to previous result
-                event.preventDefault()
-                actions.onArrowUp(values.activeResultIndex, values.maxIndex)
-            } else if (event.key === 'Escape' && event.repeat === false) {
-                // hide command bar
-                actions.hideCommandBar()
-            } else if (event.key === '>') {
-                const { value, selectionStart, selectionEnd } = event.target as HTMLInputElement
-                if (
-                    values.searchQuery.length === 0 ||
-                    (selectionStart !== null &&
-                        selectionEnd !== null &&
-                        (value.substring(0, selectionStart) + value.substring(selectionEnd)).length === 0)
-                ) {
-                    // transition to actions when entering '>' with empty input, or when replacing the whole input
+        cache.disposables.add(() => {
+            const onKeyDown = (event: KeyboardEvent): void => {
+                if (event.key === 'Enter') {
+                    // open result
                     event.preventDefault()
-                    actions.setCommandBar(BarStatus.SHOW_ACTIONS)
-                }
-            } else if (event.key === 'Tab') {
-                event.preventDefault()
+                    actions.openResult(values.activeResultIndex)
+                } else if (event.key === 'ArrowDown') {
+                    // navigate to next result
+                    event.preventDefault()
+                    actions.onArrowDown(values.activeResultIndex, values.maxIndex)
+                } else if (event.key === 'ArrowUp') {
+                    // navigate to previous result
+                    event.preventDefault()
+                    actions.onArrowUp(values.activeResultIndex, values.maxIndex)
+                } else if (event.key === 'Escape' && event.repeat === false) {
+                    // hide command bar
+                    actions.hideCommandBar()
+                } else if (event.key === '>') {
+                    const { value, selectionStart, selectionEnd } = event.target as HTMLInputElement
+                    if (
+                        values.searchQuery.length === 0 ||
+                        (selectionStart !== null &&
+                            selectionEnd !== null &&
+                            (value.substring(0, selectionStart) + value.substring(selectionEnd)).length === 0)
+                    ) {
+                        // transition to actions when entering '>' with empty input, or when replacing the whole input
+                        event.preventDefault()
+                        actions.setCommandBar(BarStatus.SHOW_ACTIONS)
+                    }
+                } else if (event.key === 'Tab') {
+                    event.preventDefault()
 
-                const currentIndex = values.tabs.findIndex((tab) => tab === values.activeTab)
-                if (event.shiftKey) {
-                    const prevIndex = currentIndex === 0 ? values.tabs.length - 1 : currentIndex - 1
-                    actions.setActiveTab(values.tabs[prevIndex])
-                } else {
-                    const nextIndex = currentIndex === values.tabs.length - 1 ? 0 : currentIndex + 1
-                    actions.setActiveTab(values.tabs[nextIndex])
+                    const currentIndex = values.tabs.findIndex((tab) => tab === values.activeTab)
+                    if (event.shiftKey) {
+                        const prevIndex = currentIndex === 0 ? values.tabs.length - 1 : currentIndex - 1
+                        actions.setActiveTab(values.tabs[prevIndex])
+                    } else {
+                        const nextIndex = currentIndex === values.tabs.length - 1 ? 0 : currentIndex + 1
+                        actions.setActiveTab(values.tabs[nextIndex])
+                    }
                 }
             }
-        }
-        window.addEventListener('keydown', cache.onKeyDown)
-    }),
-    beforeUnmount(({ cache }) => {
-        // unregister keyboard shortcuts
-        window.removeEventListener('keydown', cache.onKeyDown)
+            window.addEventListener('keydown', onKeyDown)
+            return () => window.removeEventListener('keydown', onKeyDown)
+        }, 'searchNavigationKeys')
     }),
 ])
 
@@ -552,6 +692,8 @@ export const urlForResult = (result: SearchResult): string => {
             return urls.personByDistinctId(result.result_id)
         case 'survey':
             return urls.survey(result.result_id)
+        case 'tree_item':
+            return result.extra_fields.href || result.result_id
         default:
             // @ts-expect-error
             throw new Error(`No action for type '${result?.type}' defined.`)

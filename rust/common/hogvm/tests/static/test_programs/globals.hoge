@@ -1,0 +1,9 @@
+["_H", 1, 32, "test", 1, 1, 32, "value", 2, "assert_eq", 2, 35, 32, "an_array", 1, 1, 33, 1, 33, 2, 33, 3, 43, 3, 2,
+"assert_eq", 2, 35, 32, "a_string", 1, 1, 32, "Hello, World!", 2, "assert_eq", 2, 35, 32, "a_boolean", 1, 1, 29, 2,
+"assert_eq", 2, 35, 32, "a_number", 1, 1, 33, 42, 2, "assert_eq", 2, 35, 32, "a_null", 1, 1, 31, 2, "assert_eq", 2, 35,
+32, "nested_key", 32, "a_nested_object", 1, 2, 32, "nested_value", 2, "assert_eq", 2, 35, 32, "test", 1, 1, 32, "value",
+2, "assert_eq", 2, 35, 32, "an_array", 1, 1, 33, 1, 33, 2, 33, 3, 43, 3, 2, "assert_eq", 2, 35, 32, "a_string", 1, 1,
+32, "Hello, World!", 2, "assert_eq", 2, 35, 32, "a_boolean", 1, 1, 29, 2, "assert_eq", 2, 35, 32, "a_number", 1, 1, 33,
+42, 2, "assert_eq", 2, 35, 32, "a_null", 1, 1, 31, 2, "assert_eq", 2, 35, 32, "nested_key", 32, "a_nested_object", 1, 2,
+32, "nested_value", 2, "assert_eq", 2, 35, 32, "an_unknown_global", 32, "a_nested_object", 1, 2, 31, 2, "assert_eq", 2,
+35, 29, 38]

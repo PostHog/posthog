@@ -1,19 +1,23 @@
-import { actions, BuiltLogic, connect, kea, listeners, path, reducers } from 'kea'
+import { BuiltLogic, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import api from 'lib/api'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
+
+import api from 'lib/api'
+import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
-import { defaultNotebookContent, EditorFocusPosition, JSONContent } from 'scenes/notebooks/Notebook/utils'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
+import { NotebookListItemType, NotebookNodeType, NotebookTarget } from 'scenes/notebooks/types'
+import { defaultNotebookContent } from 'scenes/notebooks/utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
+import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { InsightVizNode, Node } from '~/queries/schema/schema-general'
-import { DashboardType, NotebookListItemType, NotebookNodeType, NotebookTarget, QueryBasedInsightModel } from '~/types'
+import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 import type { notebooksModelType } from './notebooksModelType'
 
@@ -90,6 +94,7 @@ export const notebooksModel = kea<notebooksModelType>([
                     const notebook = await api.notebooks.create({
                         title,
                         content: defaultNotebookContent(title, content),
+                        _create_in_folder: getLastNewFolder(),
                     })
 
                     await openNotebook(notebook.short_id, location, 'end', (logic) => {
@@ -107,6 +112,13 @@ export const notebooksModel = kea<notebooksModelType>([
                     await deleteWithUndo({
                         endpoint: `projects/${values.currentProjectId}/notebooks`,
                         object: { name: title || shortId, id: shortId },
+                        callback: (undo) => {
+                            if (undo) {
+                                refreshTreeItem('notebook', shortId)
+                            } else {
+                                deleteFromTree('notebook', shortId)
+                            }
+                        },
                     })
 
                     const panelLogic = notebookPanelLogic.findMounted()
@@ -136,18 +148,19 @@ export const notebooksModel = kea<notebooksModelType>([
 
     listeners(({ asyncActions }) => ({
         createNotebookFromDashboard: async ({ dashboard }) => {
-            const queries = dashboard.tiles.reduce((acc, tile) => {
-                if (!tile.insight) {
-                    return acc
-                }
-                return [
-                    ...acc,
-                    {
+            const queries = dashboard.tiles.reduce(
+                (acc, tile) => {
+                    if (!tile.insight) {
+                        return acc
+                    }
+                    acc.push({
                         title: tile.insight.name,
                         query: tile.insight.query,
-                    },
-                ]
-            }, [] as { title: string; query: InsightVizNode | Node | null }[])
+                    })
+                    return acc
+                },
+                [] as { title: string; query: InsightVizNode | Node | null }[]
+            )
 
             const resources = queries.map((x) => ({
                 type: NotebookNodeType.Query,

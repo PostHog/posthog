@@ -1,12 +1,11 @@
-import { LemonDivider, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { SupportedWebVitalsMetrics } from 'posthog-js'
+
+import { LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
+
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
-
-import { ProductKey } from '~/types'
 
 function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMetrics }): JSX.Element {
     const { userLoading } = useValues(userLogic)
@@ -26,8 +25,8 @@ function WebVitalsAllowedMetricSwitch({ metric }: { metric: SupportedWebVitalsMe
                 userLoading
                     ? 'Loading user'
                     : currentTeam?.autocapture_web_vitals_opt_in
-                    ? null
-                    : 'Enable web vitals autocapture to set allowed metrics'
+                      ? null
+                      : 'Enable web vitals autocapture to set allowed metrics'
             }
             onChange={(checked) => {
                 if (!currentTeam) {
@@ -93,55 +92,6 @@ export function AutocaptureSettings(): JSX.Element {
                     bordered
                 />
             </div>
-        </>
-    )
-}
-
-export function ExceptionAutocaptureSettings(): JSX.Element {
-    const { userLoading } = useValues(userLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const { updateCurrentTeam, addProductIntent } = useActions(teamLogic)
-    const { reportAutocaptureExceptionsToggled } = useActions(eventUsageLogic)
-
-    return (
-        <>
-            <p>
-                Captures frontend exceptions thrown on a customers using `onError` and `onUnhandledRejection` listeners
-                in our web JavaScript SDK.
-            </p>
-            <p>
-                Autocapture is also available for our{' '}
-                <Link
-                    to="https://posthog.com/docs/error-tracking/installation?tab=Python#setting-up-python-exception-autocapture"
-                    target="_blank"
-                >
-                    Python SDK
-                </Link>
-                , where it can be configured directly in code.
-            </p>
-            <LemonSwitch
-                id="posthog-autocapture-exceptions-switch"
-                onChange={(checked) => {
-                    if (checked) {
-                        addProductIntent({
-                            product_type: ProductKey.ERROR_TRACKING,
-                            intent_context: ProductIntentContext.ERROR_TRACKING_EXCEPTION_AUTOCAPTURE_ENABLED,
-                        })
-                    }
-                    updateCurrentTeam({
-                        autocapture_exceptions_opt_in: checked,
-                    })
-                    reportAutocaptureExceptionsToggled(checked)
-                }}
-                checked={!!currentTeam?.autocapture_exceptions_opt_in}
-                disabled={userLoading}
-                label={
-                    <>
-                        Enable exception autocapture <LemonTag>ALPHA</LemonTag>
-                    </>
-                }
-                bordered
-            />
         </>
     )
 }

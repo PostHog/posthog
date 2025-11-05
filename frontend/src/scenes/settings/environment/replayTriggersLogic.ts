@@ -1,13 +1,21 @@
 import { actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
 import { forms } from 'kea-forms'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SessionReplayUrlTriggerConfig, TeamPublicType, TeamType } from '~/types'
 
 import type { replayTriggersLogicType } from './replayTriggersLogicType'
 
+export type ReplayPlatform = 'web' | 'mobile'
+
 const NEW_URL_TRIGGER = { url: '', matching: 'regex' }
+
+export function isStringWithLength(x: unknown): x is string {
+    return typeof x === 'string' && x.trim() !== ''
+}
 
 function ensureAnchored(url: string): string {
     url = url.startsWith('^') ? url.substring(1) : url
@@ -41,6 +49,10 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         cancelProposingUrlBlocklist: true,
         setEventTriggerConfig: (eventTriggerConfig: string[]) => ({ eventTriggerConfig }),
         updateEventTriggerConfig: (eventTriggerConfig: string[]) => ({ eventTriggerConfig }),
+        selectPlatform: (platform: ReplayPlatform) => ({ platform }),
+        setCheckUrlTrigger: (url: string) => ({ url }),
+        setCheckUrlBlocklist: (url: string) => ({ url }),
+        validateUrlInput: (url: string, type: 'trigger' | 'blocklist') => ({ url, type }),
     }),
     connect(() => ({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] })),
     reducers({
@@ -64,8 +76,8 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                     editUrlTriggerIndex && index < editUrlTriggerIndex
                         ? editUrlTriggerIndex - 1
                         : index === editUrlTriggerIndex
-                        ? null
-                        : editUrlTriggerIndex,
+                          ? null
+                          : editUrlTriggerIndex,
                 newUrlTrigger: () => -1,
                 updateUrlTrigger: () => null,
                 addUrlTrigger: () => null,
@@ -92,8 +104,8 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                     editUrlBlocklistIndex && index < editUrlBlocklistIndex
                         ? editUrlBlocklistIndex - 1
                         : index === editUrlBlocklistIndex
-                        ? null
-                        : editUrlBlocklistIndex,
+                          ? null
+                          : editUrlBlocklistIndex,
                 newUrlBlocklist: () => -1,
                 updateUrlBlocklist: () => null,
                 addUrlBlocklist: () => null,
@@ -102,8 +114,65 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         eventTriggerConfig: [
             null as string[] | null,
             {
-                setEventTriggerConfig: (_, { eventTriggerConfig }) => eventTriggerConfig,
-                updateEventTriggerConfig: (_, { eventTriggerConfig }) => eventTriggerConfig,
+                // we have seen some instances where a user manages to get a null into the array.
+                // we guard against this by filtering out nulls, and empty strings
+                // since we only want valid strings, empty arrays or null-ish, as the value here
+                setEventTriggerConfig: (_, { eventTriggerConfig }) =>
+                    eventTriggerConfig?.filter(isStringWithLength) ?? null,
+                updateEventTriggerConfig: (_, { eventTriggerConfig }) =>
+                    eventTriggerConfig?.filter(isStringWithLength) ?? null,
+            },
+        ],
+        selectedPlatform: [
+            'web' as ReplayPlatform,
+            {
+                selectPlatform: (_, { platform }) => platform,
+            },
+        ],
+        checkUrlTrigger: [
+            '' as string,
+            {
+                setCheckUrlTrigger: (_, { url }) => url,
+            },
+        ],
+        checkUrlBlocklist: [
+            '' as string,
+            {
+                setCheckUrlBlocklist: (_, { url }) => url,
+            },
+        ],
+        urlTriggerInputValidationWarning: [
+            null as string | null,
+            {
+                validateUrlInput: (_, { url, type }) => {
+                    if (type !== 'trigger') {
+                        return _
+                    }
+                    // Check if it ends with a TLD
+                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
+                        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
+                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
+                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
+                    }
+                    return null
+                },
+            },
+        ],
+        urlBlocklistInputValidationWarning: [
+            null as string | null,
+            {
+                validateUrlInput: (_, { url, type }) => {
+                    if (type !== 'blocklist') {
+                        return _
+                    }
+                    // Check if it ends with a TLD
+                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
+                        const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
+                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
+                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
+                    }
+                    return null
+                },
             },
         ],
     }),
@@ -151,19 +220,70 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                 return urlBlocklistConfig[editUrlBlocklistIndex]
             },
         ],
+
+        checkUrlTriggerResults: [
+            (s) => [s.checkUrlTrigger, s.urlTriggerConfig],
+            (checkUrl, urlTriggerConfig): { [key: number]: boolean } => {
+                if (!checkUrl.trim() || !urlTriggerConfig) {
+                    return {}
+                }
+
+                const results: { [key: number]: boolean } = {}
+                urlTriggerConfig.forEach((trigger, index) => {
+                    try {
+                        const regex = new RegExp(trigger.url)
+                        results[index] = regex.test(checkUrl)
+                    } catch {
+                        results[index] = false
+                    }
+                })
+                return results
+            },
+        ],
+
+        checkUrlBlocklistResults: [
+            (s) => [s.checkUrlBlocklist, s.urlBlocklistConfig],
+            (checkUrl, urlBlocklistConfig): { [key: number]: boolean } => {
+                if (!checkUrl.trim() || !urlBlocklistConfig) {
+                    return {}
+                }
+
+                const results: { [key: number]: boolean } = {}
+                urlBlocklistConfig.forEach((trigger, index) => {
+                    try {
+                        const regex = new RegExp(trigger.url)
+                        results[index] = regex.test(checkUrl)
+                    } catch {
+                        results[index] = false
+                    }
+                })
+                return results
+            },
+        ],
     }),
     subscriptions(({ actions }) => ({
         currentTeam: (currentTeam: TeamPublicType | TeamType | null) => {
             actions.setUrlTriggerConfig(currentTeam?.session_recording_url_trigger_config ?? [])
             actions.setUrlBlocklistConfig(currentTeam?.session_recording_url_blocklist_config ?? [])
-            actions.setEventTriggerConfig(currentTeam?.session_recording_event_trigger_config ?? [])
+            actions.setEventTriggerConfig(
+                (currentTeam?.session_recording_event_trigger_config ?? []).filter(isStringWithLength)
+            )
         },
     })),
     forms(({ values, actions }) => ({
         proposedUrlTrigger: {
             defaults: { url: '', matching: 'regex' } as SessionReplayUrlTriggerConfig,
             errors: ({ url }) => ({
-                url: !url ? 'Must have a URL' : undefined,
+                url: !url
+                    ? 'Must have a URL'
+                    : (() => {
+                          try {
+                              new RegExp(url)
+                              return undefined
+                          } catch {
+                              return 'Invalid regex pattern'
+                          }
+                      })(),
             }),
             submit: async ({ url, matching }) => {
                 if (values.editUrlTriggerIndex !== null && values.editUrlTriggerIndex >= 0) {
@@ -211,6 +331,12 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
             actions.setEditUrlTriggerIndex(null)
             actions.resetProposedUrlTrigger()
         },
+        setProposedUrlTriggerValue: ({ name, value }) => {
+            const fieldName = Array.isArray(name) ? name[0] : name
+            if (fieldName === 'url') {
+                actions.validateUrlInput(value || '', 'trigger')
+            }
+        },
 
         setEditUrlBlocklistIndex: () => {
             actions.setProposedUrlBlocklistValue('url', values.urlBlocklistToEdit.url)
@@ -223,11 +349,40 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
             actions.setEditUrlBlocklistIndex(null)
             actions.resetProposedUrlBlocklist()
         },
+        setProposedUrlBlocklistValue: ({ name, value }) => {
+            const fieldName = Array.isArray(name) ? name[0] : name
+            if (fieldName === 'url') {
+                actions.validateUrlInput(value || '', 'blocklist')
+            }
+        },
         updateEventTriggerConfig: async ({ eventTriggerConfig }) => {
             actions.setEventTriggerConfig(eventTriggerConfig)
-            await teamLogic.asyncActions.updateCurrentTeam({
-                session_recording_event_trigger_config: eventTriggerConfig,
-            })
+            // ok to stringify here... this will always be a small array
+            if (
+                JSON.stringify(eventTriggerConfig) !==
+                JSON.stringify(values.currentTeam?.session_recording_event_trigger_config)
+            ) {
+                await teamLogic.asyncActions.updateCurrentTeam({
+                    session_recording_event_trigger_config: eventTriggerConfig,
+                })
+            }
+        },
+    })),
+    actionToUrl(() => ({
+        selectPlatform: ({ platform }) => {
+            return [
+                router.values.location.pathname,
+                router.values.searchParams,
+                { ...router.values.hashParams, selectedPlatform: platform },
+            ]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        ['*/replay/settings']: (_, __, hashParams) => {
+            const platformFromHash = hashParams.selectedPlatform as ReplayPlatform | undefined
+            if (platformFromHash && platformFromHash !== values.selectedPlatform) {
+                actions.selectPlatform(platformFromHash)
+            }
         },
     })),
 ])

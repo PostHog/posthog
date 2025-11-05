@@ -1,6 +1,7 @@
-import { captureException } from '@sentry/react'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
+
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -41,13 +42,13 @@ export function useThemedHtml(overflowHidden = true): void {
             const style = getComputedStyle(root)
             const backgroundColor = sceneConfig?.projectBased
                 ? style.getPropertyValue('--surface-secondary')
-                : style.getPropertyValue('--bg-bridge')
+                : style.getPropertyValue('--color-bg-bridge')
 
             document.head.querySelector('meta[name="theme-color"]')?.remove()
             document.head.insertAdjacentHTML('beforeend', `<meta name="theme-color" content="${backgroundColor}">`)
         } catch (e) {
             console.warn('Failed to set theme-color meta tag. This could indicate the variables no longer exist', e)
-            captureException(new Error('Failed to set theme-color meta tag'), { extra: { error: e } })
+            posthog.captureException(new Error('Failed to set theme-color meta tag'), { extra: { error: e } })
         }
     }, [isDarkModeOn, sceneConfig?.projectBased])
 }

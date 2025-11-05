@@ -1,25 +1,26 @@
-import datetime as dt
 import json
 import typing as t
+import datetime as dt
 
 import pytest
-from asgiref.sync import async_to_sync
+from unittest import mock
+
 from django.conf import settings
 from django.test.client import Client as HttpClient
+
+from asgiref.sync import async_to_sync
 from rest_framework import status
 
-from posthog.api.test.batch_exports.conftest import describe_schedule, start_test_worker
-from posthog.api.test.batch_exports.fixtures import create_organization
+from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.batch_exports.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
     patch_batch_export,
     put_batch_export,
 )
-from posthog.api.test.test_team import create_team
-from posthog.api.test.test_user import create_user
 from posthog.batch_exports.service import sync_batch_export
 from posthog.models import BatchExport, BatchExportDestination
+from posthog.models.integration import Integration
 from posthog.temporal.common.codec import EncryptionCodec
 
 pytestmark = [
@@ -27,7 +28,7 @@ pytestmark = [
 ]
 
 
-def test_can_put_config(client: HttpClient, temporal):
+def test_can_put_config(client: HttpClient, temporal, organization, team, user):
     destination_data: dict[str, t.Any] = {
         "type": "S3",
         "config": {
@@ -47,58 +48,54 @@ def test_can_put_config(client: HttpClient, temporal):
         "end_at": "2023-07-20T00:00:00+00:00",
     }
 
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    with start_test_worker(temporal):
-        batch_export = create_batch_export_ok(
-            client,
-            team.pk,
-            batch_export_data,
-        )
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
 
-        # If we try to update without all fields, it should fail with a 400 error
-        new_batch_export_data: dict[str, t.Any] = {
-            "name": "my-production-s3-bucket-destination",
-            "interval": "hour",
-        }
-        response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+    # If we try to update without all fields, it should fail with a 400 error
+    new_batch_export_data: dict[str, t.Any] = {
+        "name": "my-production-s3-bucket-destination",
+        "interval": "hour",
+    }
+    response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-        old_schedule = describe_schedule(temporal, batch_export["id"])
+    old_schedule = describe_schedule(temporal, batch_export["id"])
 
-        # We should be able to update if we specify all fields
-        new_destination_data = {**destination_data}
-        new_destination_data["config"]["bucket_name"] = "my-new-production-s3-bucket"
-        new_destination_data["config"]["aws_secret_access_key"] = "new-secret"
-        new_batch_export_data_2: dict[str, t.Any] = {
-            "name": "my-production-s3-bucket-destination",
-            "destination": new_destination_data,
-            "interval": "day",
-            "start_at": "2022-07-19 00:00:00",
-        }
+    # We should be able to update if we specify all fields
+    new_destination_data = {**destination_data}
+    new_destination_data["config"]["bucket_name"] = "my-new-production-s3-bucket"
+    new_destination_data["config"]["aws_secret_access_key"] = "new-secret"
+    new_batch_export_data_2: dict[str, t.Any] = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": new_destination_data,
+        "interval": "day",
+        "start_at": "2022-07-19 00:00:00",
+    }
 
-        response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data_2)
-        assert response.status_code == status.HTTP_200_OK
+    response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data_2)
+    assert response.status_code == status.HTTP_200_OK
 
-        # get the batch export and validate e.g. that interval has been updated to day
-        batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-        assert batch_export["interval"] == "day"
+    # get the batch export and validate e.g. that interval has been updated to day
+    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export["interval"] == "day"
 
-        # validate the underlying temporal schedule has been updated
-        codec = EncryptionCodec(settings=settings)
-        new_schedule = describe_schedule(temporal, batch_export["id"])
-        assert old_schedule.schedule.spec.intervals[0].every != new_schedule.schedule.spec.intervals[0].every
-        assert new_schedule.schedule.spec.intervals[0].every == dt.timedelta(days=1)
-        assert new_schedule.schedule.spec.start_at == dt.datetime(2022, 7, 19, 0, 0, 0, tzinfo=dt.UTC)
-        assert new_schedule.schedule.spec.end_at == dt.datetime(2023, 7, 20, 0, 0, 0, tzinfo=dt.UTC)
+    # validate the underlying temporal schedule has been updated
+    codec = EncryptionCodec(settings=settings)
+    new_schedule = describe_schedule(temporal, batch_export["id"])
+    assert old_schedule.schedule.spec.intervals[0].every != new_schedule.schedule.spec.intervals[0].every
+    assert new_schedule.schedule.spec.intervals[0].every == dt.timedelta(days=1)
+    assert new_schedule.schedule.spec.start_at == dt.datetime(2022, 7, 19, 0, 0, 0, tzinfo=dt.UTC)
+    assert new_schedule.schedule.spec.end_at == dt.datetime(2023, 7, 20, 0, 0, 0, tzinfo=dt.UTC)
 
-        decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
-        args = json.loads(decoded_payload[0].data)
-        assert args["bucket_name"] == "my-new-production-s3-bucket"
-        assert args["aws_secret_access_key"] == "new-secret"
+    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["bucket_name"] == "my-new-production-s3-bucket"
+    assert args["aws_secret_access_key"] == "new-secret"
 
 
 @pytest.mark.parametrize("interval", ["hour", "day"])
@@ -106,7 +103,7 @@ def test_can_put_config(client: HttpClient, temporal):
     "timezone",
     ["US/Pacific", "UTC", "Europe/Berlin", "Asia/Tokyo", "Pacific/Marquesas", "Asia/Katmandu"],
 )
-def test_can_patch_config(client: HttpClient, interval, timezone, temporal):
+def test_can_patch_config(client: HttpClient, interval, timezone, temporal, organization, team, user):
     destination_data = {
         "type": "S3",
         "config": {
@@ -124,57 +121,57 @@ def test_can_patch_config(client: HttpClient, interval, timezone, temporal):
         "interval": interval,
     }
 
-    organization = create_organization("Test Org")
-    team = create_team(organization, timezone=timezone)
-    user = create_user("test@user.com", "Test User", organization)
+    # Update team timezone for this test
+    team.timezone = timezone
+    team.save()
+
     client.force_login(user)
 
-    with start_test_worker(temporal):
-        batch_export = create_batch_export_ok(
-            client,
-            team.pk,
-            batch_export_data,
-        )
-        old_schedule = describe_schedule(temporal, batch_export["id"])
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+    old_schedule = describe_schedule(temporal, batch_export["id"])
 
-        # We should be able to update the destination config, excluding the aws
-        # credentials. The existing values should be preserved.
-        new_destination_data = {
-            "type": "S3",
-            "config": {
-                "bucket_name": "my-new-production-s3-bucket",
-                "region": "us-east-1",
-                "prefix": "posthog-events/",
-            },
-        }
+    # We should be able to update the destination config, excluding the aws
+    # credentials. The existing values should be preserved.
+    new_destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-new-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+        },
+    }
 
-        new_batch_export_data = {
-            "name": "my-production-s3-bucket-destination",
-            "destination": new_destination_data,
-        }
+    new_batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": new_destination_data,
+    }
 
-        response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-        assert response.status_code == status.HTTP_200_OK, response.json()
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_200_OK, response.json()
 
-        # get the batch export and validate e.g. that bucket_name and interval
-        # has been preserved.
-        batch_export_data = get_batch_export_ok(client, team.pk, batch_export["id"])
-        assert batch_export_data["interval"] == interval
-        assert batch_export_data["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
+    # get the batch export and validate e.g. that bucket_name and interval
+    # has been preserved.
+    batch_export_data = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export_data["interval"] == interval
+    assert batch_export_data["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
 
-        # validate the underlying temporal schedule has been updated
-        codec = EncryptionCodec(settings=settings)
-        new_schedule = describe_schedule(temporal, batch_export["id"])
-        assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
-        decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
-        args = json.loads(decoded_payload[0].data)
-        assert args["bucket_name"] == "my-new-production-s3-bucket"
-        assert new_schedule.schedule.spec.time_zone_name == old_schedule.schedule.spec.time_zone_name == timezone
+    # validate the underlying temporal schedule has been updated
+    codec = EncryptionCodec(settings=settings)
+    new_schedule = describe_schedule(temporal, batch_export["id"])
+    assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
+    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["bucket_name"] == "my-new-production-s3-bucket"
+    assert new_schedule.schedule.spec.time_zone_name == old_schedule.schedule.spec.time_zone_name == timezone
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("interval", ["hour", "day"])
-def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval, temporal):
+def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval, temporal, organization, team, user):
     destination_data = {
         "type": "S3",
         "config": {
@@ -192,9 +189,6 @@ def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval, 
         "interval": interval,
     }
 
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
     # Create a BatchExport straight in the database/temporal to avoid going through the API
@@ -207,42 +201,41 @@ def test_can_patch_config_with_invalid_old_values(client: HttpClient, interval, 
     destination.save()
     batch_export.save()
 
-    with start_test_worker(temporal):
-        # We should be able to update the destination config, even if there is an invalid config
-        # in the existing keys.
-        new_destination_data = {
-            "type": "S3",
-            "config": {
-                "bucket_name": "my-new-production-s3-bucket",
-                "region": "us-east-1",
-                "prefix": "posthog-events/",
-            },
-        }
+    # We should be able to update the destination config, even if there is an invalid config
+    # in the existing keys.
+    new_destination_data = {
+        "type": "S3",
+        "config": {
+            "bucket_name": "my-new-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+        },
+    }
 
-        new_batch_export_data = {
-            "name": "my-production-s3-bucket-destination",
-            "destination": new_destination_data,
-        }
+    new_batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": new_destination_data,
+    }
 
-        response = patch_batch_export(client, team.pk, batch_export.id, new_batch_export_data)
-        assert response.status_code == status.HTTP_200_OK, response.json()
+    response = patch_batch_export(client, team.pk, batch_export.id, new_batch_export_data)
+    assert response.status_code == status.HTTP_200_OK, response.json()
 
-        # get the batch export and validate e.g. that bucket_name and interval
-        # has been preserved.
-        batch_export_data = get_batch_export_ok(client, team.pk, batch_export.id)
-        assert batch_export_data["interval"] == interval
-        assert batch_export_data["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
+    # get the batch export and validate e.g. that bucket_name and interval
+    # has been preserved.
+    batch_export_data = get_batch_export_ok(client, team.pk, batch_export.id)
+    assert batch_export_data["interval"] == interval
+    assert batch_export_data["destination"]["config"]["bucket_name"] == "my-new-production-s3-bucket"
 
-        # validate the underlying temporal schedule has been updated
-        codec = EncryptionCodec(settings=settings)
-        new_schedule = describe_schedule(temporal, batch_export_data["id"])
-        decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
-        args = json.loads(decoded_payload[0].data)
-        assert args["bucket_name"] == "my-new-production-s3-bucket"
-        assert args.get("invalid_key", None) is None
+    # validate the underlying temporal schedule has been updated
+    codec = EncryptionCodec(settings=settings)
+    new_schedule = describe_schedule(temporal, batch_export_data["id"])
+    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["bucket_name"] == "my-new-production-s3-bucket"
+    assert args.get("invalid_key", None) is None
 
 
-def test_can_patch_hogql_query(client: HttpClient, temporal):
+def test_can_patch_hogql_query(client: HttpClient, temporal, organization, team, user):
     """Test we can patch a schema with a HogQL query."""
     destination_data = {
         "type": "S3",
@@ -261,31 +254,57 @@ def test_can_patch_hogql_query(client: HttpClient, temporal):
         "interval": "hour",
     }
 
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    with start_test_worker(temporal):
-        batch_export = create_batch_export_ok(
-            client,
-            team.pk,
-            batch_export_data,
-        )
-        old_schedule = describe_schedule(temporal, batch_export["id"])
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+    old_schedule = describe_schedule(temporal, batch_export["id"])
 
-        new_batch_export_data = {
-            "name": "my-production-s3-bucket-destination",
-            "hogql_query": "select toString(uuid) as uuid, 'test' as test, toInt(1+1) as n from events",
-        }
+    new_batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "hogql_query": "select toString(uuid) as uuid, 'test' as test, toInt(1+1) as n from events",
+    }
 
-        response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-        assert response.status_code == status.HTTP_200_OK, response.json()
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_200_OK, response.json()
 
-        response_data: dict[str, t.Any] = get_batch_export_ok(client, team.pk, batch_export["id"])
-        assert response_data["interval"] == "hour"
-        assert response_data["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
-        assert response_data["schema"] == {
+    response_data: dict[str, t.Any] = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert response_data["interval"] == "hour"
+    assert response_data["destination"]["config"]["bucket_name"] == "my-production-s3-bucket"
+    assert response_data["schema"] == {
+        "fields": [
+            {
+                "alias": "uuid",
+                "expression": "toString(events.uuid)",
+            },
+            {
+                "alias": "test",
+                "expression": "%(hogql_val_0)s",
+            },
+            {
+                "alias": "n",
+                "expression": "accurateCastOrNull(plus(1, 1), %(hogql_val_1)s)",
+            },
+        ],
+        "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
+        "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
+    }
+
+    # validate the underlying temporal schedule has been updated
+    codec = EncryptionCodec(settings=settings)
+    new_schedule = describe_schedule(temporal, batch_export["id"])
+    assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
+    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["bucket_name"] == "my-production-s3-bucket"
+    assert args["interval"] == "hour"
+    assert args["batch_export_model"] == {
+        "name": "events",
+        "filters": None,
+        "schema": {
             "fields": [
                 {
                     "alias": "uuid",
@@ -302,41 +321,11 @@ def test_can_patch_hogql_query(client: HttpClient, temporal):
             ],
             "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
             "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
-        }
-
-        # validate the underlying temporal schedule has been updated
-        codec = EncryptionCodec(settings=settings)
-        new_schedule = describe_schedule(temporal, batch_export["id"])
-        assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
-        decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
-        args = json.loads(decoded_payload[0].data)
-        assert args["bucket_name"] == "my-production-s3-bucket"
-        assert args["interval"] == "hour"
-        assert args["batch_export_model"] == {
-            "name": "events",
-            "filters": None,
-            "schema": {
-                "fields": [
-                    {
-                        "alias": "uuid",
-                        "expression": "toString(events.uuid)",
-                    },
-                    {
-                        "alias": "test",
-                        "expression": "%(hogql_val_0)s",
-                    },
-                    {
-                        "alias": "n",
-                        "expression": "accurateCastOrNull(plus(1, 1), %(hogql_val_1)s)",
-                    },
-                ],
-                "values": {"hogql_val_0": "test", "hogql_val_1": "Int64"},
-                "hogql_query": "SELECT toString(uuid) AS uuid, 'test' AS test, toInt(plus(1, 1)) AS n FROM events",
-            },
-        }
+        },
+    }
 
 
-def test_patch_returns_error_on_unsupported_hogql_query(client: HttpClient, temporal):
+def test_patch_returns_error_on_unsupported_hogql_query(client: HttpClient, temporal, organization, team, user):
     destination_data = {
         "type": "S3",
         "config": {
@@ -356,28 +345,24 @@ def test_patch_returns_error_on_unsupported_hogql_query(client: HttpClient, temp
         "end_at": "2023-07-20 00:00:00",
     }
 
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    with start_test_worker(temporal):
-        batch_export = create_batch_export_ok(
-            client,
-            team.pk,
-            batch_export_data,
-        )
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
 
-        new_batch_export_data = {
-            "name": "my-production-s3-bucket-destination",
-            # toInt32 is not a supported HogQL function
-            "hogql_query": "select toInt32(1+1) as n from events",
-        }
-        response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+    new_batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        # toInt32 is not a supported HogQL function
+        "hogql_query": "select toInt32(1+1) as n from events",
+    }
+    response = put_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
-def test_can_patch_snowflake_batch_export_credentials(client: HttpClient, temporal):
+def test_can_patch_snowflake_batch_export_credentials(client: HttpClient, temporal, organization, team, user):
     """Test we can switch Snowflake authentication types while preserving credentials."""
     destination_data = {
         "type": "Snowflake",
@@ -399,65 +384,63 @@ def test_can_patch_snowflake_batch_export_credentials(client: HttpClient, tempor
         "interval": "hour",
     }
 
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    with start_test_worker(temporal):
-        batch_export = create_batch_export_ok(
-            client,
-            team.pk,
-            batch_export_data,
-        )
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
 
-        # Test switching to key pair auth type
-        new_destination_data = {
-            "type": "Snowflake",
-            "config": {
-                "authentication_type": "keypair",
-                "private_key": "SECRET_KEY",
-            },
-        }
+    # Test switching to key pair auth type
+    new_destination_data = {
+        "type": "Snowflake",
+        "config": {
+            "authentication_type": "keypair",
+            "private_key": "SECRET_KEY",
+        },
+    }
 
-        new_batch_export_data = {
-            "destination": new_destination_data,
-        }
+    new_batch_export_data = {
+        "destination": new_destination_data,
+    }
 
-        response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-        assert response.status_code == status.HTTP_200_OK, response.json()
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_200_OK, response.json()
 
-        # Verify the auth type switch worked and other fields were preserved
-        batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-        assert batch_export["destination"]["type"] == "Snowflake"
-        assert batch_export["destination"]["config"]["account"] == "my-account"
-        assert batch_export["destination"]["config"]["authentication_type"] == "keypair"
-        assert "private_key" not in batch_export["destination"]["config"]  # Private key should be hidden in response
+    # Verify the auth type switch worked and other fields were preserved
+    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export["destination"]["type"] == "Snowflake"
+    assert batch_export["destination"]["config"]["account"] == "my-account"
+    assert batch_export["destination"]["config"]["authentication_type"] == "keypair"
+    assert "private_key" not in batch_export["destination"]["config"]  # Private key should be hidden in response
 
-        # Test switching back to password auth type without providing password (should keep original)
-        new_destination_data = {
-            "type": "Snowflake",
-            "config": {
-                "authentication_type": "password",
-            },
-        }
+    # Test switching back to password auth type without providing password (should keep original)
+    new_destination_data = {
+        "type": "Snowflake",
+        "config": {
+            "authentication_type": "password",
+        },
+    }
 
-        new_batch_export_data = {
-            "destination": new_destination_data,
-        }
+    new_batch_export_data = {
+        "destination": new_destination_data,
+    }
 
-        response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-        assert response.status_code == status.HTTP_200_OK, response.json()
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_200_OK, response.json()
 
-        # Verify switched back to password auth and kept original password
-        batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-        assert batch_export["destination"]["type"] == "Snowflake"
-        assert batch_export["destination"]["config"]["account"] == "my-account"
-        assert batch_export["destination"]["config"]["authentication_type"] == "password"
-        assert "password" not in batch_export["destination"]["config"]  # Password should be hidden in response
+    # Verify switched back to password auth and kept original password
+    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export["destination"]["type"] == "Snowflake"
+    assert batch_export["destination"]["config"]["account"] == "my-account"
+    assert batch_export["destination"]["config"]["authentication_type"] == "password"
+    assert "password" not in batch_export["destination"]["config"]  # Password should be hidden in response
 
 
-def test_switching_snowflake_auth_type_to_keypair_requires_private_key(client: HttpClient, temporal):
+def test_switching_snowflake_auth_type_to_keypair_requires_private_key(
+    client: HttpClient, temporal, organization, team, user
+):
     """Test that switching to keypair authentication requires a private key to be provided."""
     destination_data = {
         "type": "Snowflake",
@@ -479,35 +462,253 @@ def test_switching_snowflake_auth_type_to_keypair_requires_private_key(client: H
         "interval": "hour",
     }
 
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
-    with start_test_worker(temporal):
-        batch_export = create_batch_export_ok(
-            client,
-            team.pk,
-            batch_export_data,
-        )
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
 
-        # Test switching to keypair auth type without providing a private key
-        new_destination_data = {
-            "type": "Snowflake",
+    # Test switching to keypair auth type without providing a private key
+    new_destination_data = {
+        "type": "Snowflake",
+        "config": {
+            "authentication_type": "keypair",
+        },
+    }
+
+    new_batch_export_data = {
+        "destination": new_destination_data,
+    }
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Private key is required if authentication type is key pair" in response.json()["detail"]
+
+    # Verify the auth type was not changed
+    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export["destination"]["type"] == "Snowflake"
+    assert batch_export["destination"]["config"]["authentication_type"] == "password"
+
+
+@pytest.fixture
+def databricks_integration(team, user):
+    """Create a Databricks integration."""
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.DATABRICKS,
+        integration_id="my-server-hostname",
+        config={"server_hostname": "my-server-hostname"},
+        sensitive_config={"client_id": "my-client-id", "client_secret": "my-client-secret"},
+        created_by=user,
+    )
+
+
+@pytest.fixture
+def databricks_integration_2(team, user):
+    """Create a second Databricks integration."""
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.DATABRICKS,
+        integration_id="my-server-hostname-2",
+        config={"server_hostname": "my-server-hostname-2"},
+        sensitive_config={"client_id": "my-client-id", "client_secret": "my-client-secret"},
+        created_by=user,
+    )
+
+
+@pytest.fixture
+def enable_databricks(team):
+    """Enable the Databricks batch exports feature flag to be able to run the test."""
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+        return_value=True,
+    ):
+        yield
+
+
+def test_can_update_batch_export_with_integration(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+    databricks_integration,
+    databricks_integration_2,
+    enable_databricks,
+):
+    """Test we can update a batch export with an integration (for example Databricks)."""
+
+    destination_data = {
+        "type": "Databricks",
+        "integration": databricks_integration.id,
+        "config": {
+            "http_path": "my-http-path",
+            "catalog": "my-catalog",
+            "schema": "my-schema",
+            "table_name": "my-table-name",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-databricks-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+    old_schedule = describe_schedule(temporal, batch_export["id"])
+
+    new_batch_export_data = {
+        "destination": {
+            "type": "Databricks",
+            "integration": databricks_integration_2.id,
             "config": {
-                "authentication_type": "keypair",
+                "http_path": "my-http-path",
+                "catalog": "my-catalog",
+                "schema": "my-schema",
+                "table_name": "my-table-name",
             },
-        }
+        },
+    }
 
-        new_batch_export_data = {
-            "destination": new_destination_data,
-        }
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_200_OK, response.json()
 
-        response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Private key is required if authentication type is key pair" in response.json()["detail"]
+    response_data: dict[str, t.Any] = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert response_data["interval"] == "hour"
+    assert response_data["destination"]["integration"] == databricks_integration_2.id
+    assert response_data["destination"]["config"] == {
+        "http_path": "my-http-path",
+        "catalog": "my-catalog",
+        "schema": "my-schema",
+        "table_name": "my-table-name",
+    }
 
-        # Verify the auth type was not changed
-        batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
-        assert batch_export["destination"]["type"] == "Snowflake"
-        assert batch_export["destination"]["config"]["authentication_type"] == "password"
+    # validate the underlying temporal schedule has been updated
+    codec = EncryptionCodec(settings=settings)
+    new_schedule = describe_schedule(temporal, batch_export["id"])
+    assert old_schedule.schedule.spec.intervals[0].every == new_schedule.schedule.spec.intervals[0].every
+    decoded_payload = async_to_sync(codec.decode)(new_schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["integration_id"] == databricks_integration_2.id
+
+
+def test_can_update_batch_export_with_integration_to_none(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+    databricks_integration,
+    enable_databricks,
+):
+    """Test we cannot update a batch export that requires an integration to None."""
+
+    destination_data = {
+        "type": "Databricks",
+        "integration": databricks_integration.id,
+        "config": {
+            "http_path": "my-http-path",
+            "catalog": "my-catalog",
+            "schema": "my-schema",
+            "table_name": "my-table-name",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-databricks-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    new_batch_export_data = {
+        "destination": {
+            "type": "Databricks",
+            "integration": None,
+            "config": {
+                "http_path": "my-http-path",
+                "catalog": "my-catalog",
+                "schema": "my-schema",
+                "table_name": "my-table-name",
+            },
+        },
+    }
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "Integration is required for Databricks batch exports" in response.json()["detail"]
+
+
+def test_can_patch_redshift_batch_export(client: HttpClient, temporal, organization, team, user):
+    """Test we can patch a Redshift batch export preserving credentials."""
+    destination_data = {
+        "type": "Redshift",
+        "config": {
+            "user": "user",
+            "password": "my-password",
+            "database": "my-db",
+            "host": "test",
+            "schema": "public",
+            "table_name": "my_events",
+            "mode": "COPY",
+            "copy_inputs": {
+                "s3_bucket": "my-production-s3-bucket",
+                "region_name": "us-east-1",
+                "s3_key_prefix": "posthog-events/",
+                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                "authorization": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+            },
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-production-redshiftn-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    batch_export = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    # Updates bucket name, leaves everything else untouched.
+    new_destination_data = {
+        "type": "Redshift",
+        "config": {
+            "copy_inputs": {
+                "s3_bucket": "my-new-production-s3-bucket",
+            },
+        },
+    }
+
+    new_batch_export_data = {
+        "destination": new_destination_data,
+    }
+
+    response = patch_batch_export(client, team.pk, batch_export["id"], new_batch_export_data)
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    # Verify the bucket name update worked
+    batch_export = get_batch_export_ok(client, team.pk, batch_export["id"])
+    assert batch_export["destination"]["type"] == "Redshift"
+    assert batch_export["destination"]["config"]["copy_inputs"]["s3_bucket"] == "my-new-production-s3-bucket"

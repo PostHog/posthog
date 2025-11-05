@@ -1,0 +1,167 @@
+# serializer version: 1
+# name: test_get_schema_description
+  '''
+  This is the schema of tables currently used in the provided query:
+  
+  Table `events` with fields:
+  - uuid (string)
+  - event (string)
+  - properties (json)
+  - timestamp (datetime)
+  - distinct_id (string)
+  - elements_chain (string)
+  - created_at (datetime)
+  - $session_id (string)
+  - $window_id (string)
+  - person_mode (string)
+  - pdi (lazy_table)
+  - poe (virtual_table)
+  - goe_0 (virtual_table)
+  - goe_1 (virtual_table)
+  - goe_2 (virtual_table)
+  - goe_3 (virtual_table)
+  - goe_4 (virtual_table)
+  - person (lazy_table)
+  - person_id (expression)
+  - $group_0 (string)
+  - group_0 (lazy_table)
+  - $group_1 (string)
+  - group_1 (lazy_table)
+  - $group_2 (string)
+  - group_2 (lazy_table)
+  - $group_3 (string)
+  - group_3 (lazy_table)
+  - $group_4 (string)
+  - group_4 (lazy_table)
+  - session (lazy_table)
+  - elements_chain_href (string)
+  - elements_chain_texts (array)
+  - elements_chain_ids (array)
+  - elements_chain_elements (array)
+  - event_person_id (string)
+  - override (lazy_table)
+  - event_issue_id (expression)
+  - exception_issue_override (lazy_table)
+  - issue_id (expression)
+  '''
+# ---
+# name: test_get_system_prompt
+  '''
+  HogQL is PostHog's variant of SQL. HogQL is based on Clickhouse SQL with a few small adjustments.
+  
+  HogQL defines what functions are available with most (but not all) having a 1:1 mapping to ClickHouse functions.
+  These are the non-aggregated HogQL functions:
+  ```
+  ['plus', 'minus', 'multiply', 'divide', 'intDiv', 'intDivOrZero', 'modulo', 'moduloOrZero', 'positiveModulo', 'negate', 'abs', 'gcd', 'lcm', 'max2', 'min2', 'multiplyDecimal', 'divideDecimal', 'empty', 'notEmpty', 'length', 'reverse', 'array', 'range', 'arrayConcat', 'arrayElement', 'has', 'hasAll', 'hasAny', 'hasSubstr', 'indexOf', 'arrayCount', 'countEqual', 'arrayEnumerate', 'arrayEnumerateUniq', 'arrayPopBack', 'arrayPopFront', 'arrayPushBack', 'arrayPushFront', 'arrayResize', 'arraySlice', 'arraySort', 'arrayReverseSort', 'arrayUniq', 'arrayJoin', 'arrayDifference', 'arrayDistinct', 'arrayEnumerateDense', 'arrayIntersect', 'arrayReduce', 'arrayReverse', 'arrayFilter', 'arrayFlatten', 'arrayCompact', 'arrayZip', 'arrayAUC', 'arrayMap', 'arrayFill', 'arrayFold', 'arrayWithConstant', 'arraySplit', 'arrayReverseFill', 'arrayReverseSplit', 'arrayRotateLeft', 'arrayRotateRight', 'arrayExists', 'arrayAll', 'arrayFirst', 'arrayLast', 'arrayFirstIndex', 'arrayLastIndex', 'arrayMin', 'arrayMax', 'arraySum', 'arrayAvg', 'arrayCumSum', 'arrayCumSumNonNegative', 'arrayProduct', 'arrayStringConcat', 'generateSeries', 'hex', 'unhex', 'reinterpretAsUInt8', 'reinterpretAsUInt16', 'reinterpretAsUInt32', 'reinterpretAsUInt64', 'reinterpretAsUInt128', 'reinterpretAsUInt256', 'reinterpretAsInt8', 'reinterpretAsInt16', 'reinterpretAsInt32', 'reinterpretAsInt64', 'reinterpretAsInt128', 'reinterpretAsInt256', 'reinterpretAsFloat32', 'reinterpretAsFloat64', 'reinterpretAsUUID', 'toInt', 'toIntOrZero', '_toInt8', '_toInt16', '_toInt32', '_toInt64', '_toUInt64', '_toUInt128', 'toFloat', 'toFloatOrZero', 'toFloatOrDefault', 'toDecimal', '_toDate', 'toUUID', 'toString', 'toBool', 'toJSONString', 'parseDateTime', 'parseDateTimeBestEffort', 'toTypeName', 'cityHash64', 'UUIDv7ToDateTime', 'toDate', 'to_date', 'toDateTime', 'toDateTime64', 'toDateTimeUS', 'isnull', 'isNotNull', 'coalesce', 'ifnull', 'nullif', 'assumeNotNull', 'toNullable', 'timeZoneOf', 'timeZoneOffset', 'toYear', 'toQuarter', 'toMonth', 'toDayOfYear', 'toDayOfMonth', 'toDayOfWeek', 'toHour', 'toMinute', 'toSecond', 'toUnixTimestamp', 'toUnixTimestamp64Milli', 'fromUnixTimestamp64Milli', 'toStartOfInterval', 'toStartOfYear', 'toStartOfISOYear', 'toStartOfQuarter', 'toStartOfMonth', 'toLastDayOfMonth', 'toMonday', 'toStartOfWeek', 'toStartOfDay', 'toLastDayOfWeek', 'toStartOfHour', 'toStartOfMinute', 'toStartOfSecond', 'toStartOfFiveMinutes', 'toStartOfTenMinutes', 'toStartOfFifteenMinutes', 'toTime', 'toISOYear', 'toISOWeek', 'toWeek', 'toYearWeek', 'age', 'dateAdd', 'dateSub', 'date_bin', 'date_add', 'date_subtract', 'date_diff', 'dateDiff', 'timeStampAdd', 'timeStampSub', 'nowInBlock', 'rowNumberInBlock', 'rowNumberInAllBlocks', 'timeSlot', 'toYYYYMM', 'toYYYYMMDD', 'toYYYYMMDDhhmmss', 'addYears', 'addMonths', 'addWeeks', 'addDays', 'addHours', 'addMinutes', 'addSeconds', 'addQuarters', 'subtractYears', 'subtractMonths', 'subtractWeeks', 'subtractDays', 'subtractHours', 'subtractMinutes', 'subtractSeconds', 'subtractQuarters', 'timeSlots', 'formatDateTime', 'dateName', 'monthName', 'fromUnixTimestamp', 'toModifiedJulianDay', 'fromModifiedJulianDay', 'toIntervalSecond', 'toIntervalMinute', 'toIntervalHour', 'toIntervalDay', 'toIntervalWeek', 'toIntervalMonth', 'toIntervalQuarter', 'toIntervalYear', 'now', 'yesterday', 'current_timestamp', 'today', 'current_date', 'date_part', 'date_trunc', 'dateTrunc', 'to_timestamp', 'to_char', 'make_timestamp', 'make_date', 'make_interval', 'make_timestamptz', 'timezone', 'toTimeZone', 'greatCircleDistance', 'geoDistance', 'greatCircleAngle', 'pointInEllipses', 'pointInPolygon', 'geohashEncode', 'geohashDecode', 'geohashesInBox', 'h3IsValid', 'h3GetResolution', 'h3GetBaseCell', 'h3EdgeAngle', 'h3EdgeLengthM', 'h3EdgeLengthKm', 'geoToH3', 'h3ToGeo', 'h3ToGeoBoundary', 'h3kRing', 'h3HexAreaM2', 'h3HexAreaKm2', 'h3IndexesAreNeighbors', 'h3ToChildren', 'h3ToParent', 'h3ToString', 'stringToH3', 'h3IsResClassIII', 'h3IsPentagon', 'h3GetFaces', 'h3CellAreaM2', 'h3CellAreaRads2', 'h3ToCenterChild', 'h3ExactEdgeLengthM', 'h3ExactEdgeLengthKm', 'h3ExactEdgeLengthRads', 'h3NumHexagons', 'h3PointDistM', 'h3PointDistKm', 'h3PointDistRads', 'h3GetRes0Indexes', 'h3GetPentagonIndexes', 'h3Line', 'h3Distance', 'h3HexRing', 'h3GetUnidirectionalEdge', 'h3UnidirectionalEdgeIsValid', 'h3GetOriginIndexFromUnidirectionalEdge', 'h3GetDestinationIndexFromUnidirectionalEdge', 'h3GetIndexesFromUnidirectionalEdge', 'h3GetUnidirectionalEdgesFromHexagon', 'h3GetUnidirectionalEdgeBoundary', 'isValidJSON', 'JSONHas', 'JSONLength', 'JSONArrayLength', 'JSONType', 'JSONExtract', 'JSONExtractUInt', 'JSONExtractInt', 'JSONExtractFloat', 'JSONExtractBool', 'JSONExtractString', 'JSONExtractKeys', 'JSONExtractRaw', 'JSONExtractArrayRaw', 'JSONExtractKeysAndValues', 'JSONExtractKeysAndValuesRaw', 'JSON_VALUE', 'e', 'pi', 'exp', 'log', 'ln', 'exp2', 'log2', 'exp10', 'log10', 'sqrt', 'cbrt', 'erf', 'erfc', 'lgamma', 'tgamma', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'pow', 'power', 'intExp2', 'intExp10', 'cosh', 'acosh', 'sinh', 'asinh', 'atanh', 'atan2', 'hypot', 'log1p', 'sign', 'degrees', 'radians', 'factorial', 'width_bucket', 'floor', 'ceil', 'trunc', 'round', 'roundBankers', 'roundToExp2', 'roundDuration', 'roundAge', 'roundDown', 'left', 'right', 'lengthUTF8', 'leftPad', 'rightPad', 'leftPadUTF8', 'rightPadUTF8', 'lower', 'upper', 'lowerUTF8', 'upperUTF8', 'isValidUTF8', 'toValidUTF8', 'format', 'reverseUTF8', 'concat', 'substring', 'substringUTF8', 'appendTrailingCharIfAbsent', 'convertCharset', 'base58Encode', 'base58Decode', 'tryBase58Decode', 'base64Encode', 'base64Decode', 'tryBase64Decode', 'endsWith', 'startsWith', 'encodeXMLComponent', 'decodeXMLComponent', 'extractTextFromHTML', 'ascii', 'concatWithSeparator', 'position', 'positionCaseInsensitive', 'positionUTF8', 'positionCaseInsensitiveUTF8', 'multiSearchAllPositions', 'multiSearchAllPositionsUTF8', 'multiSearchFirstPosition', 'multiSearchFirstIndex', 'multiSearchAny', 'match', 'multiMatchAny', 'multiMatchAnyIndex', 'multiMatchAllIndices', 'multiFuzzyMatchAny', 'multiFuzzyMatchAnyIndex', 'multiFuzzyMatchAllIndices', 'extract', 'extractAll', 'extractAllGroupsHorizontal', 'extractAllGroupsVertical', 'like', 'ilike', 'notLike', 'notILike', 'ngramDistance', 'ngramSearch', 'countSubstrings', 'countSubstringsCaseInsensitive', 'countSubstringsCaseInsensitiveUTF8', 'countMatches', 'regexpExtract', 'replace', 'replaceAll', 'replaceOne', 'replaceRegexpAll', 'replaceRegexpOne', 'regexpQuoteMeta', 'translate', 'translateUTF8', 'splitByChar', 'splitByString', 'splitByRegexp', 'splitByWhitespace', 'splitByNonAlpha', 'alphaTokens', 'extractAllGroups', 'ngrams', 'tokens', 'repeat', 'initcap', 'lpad', 'rpad', 'split_part', 'ltrim', 'trimLeft', 'rtrim', 'trimRight', 'btrim', 'trim', 'equals', 'notEquals', 'less', 'greater', 'lessOrEquals', 'greaterOrEquals', 'in', 'notIn', 'and', 'or', 'xor', 'not', 'if', 'multiIf', 'map', 'mapFromArrays', 'mapAdd', 'mapSubtract', 'mapPopulateSeries', 'mapContains', 'mapKeys', 'mapValues', 'mapContainsKeyLike', 'mapExtractKeyLike', 'mapApply', 'mapFilter', 'mapUpdate', 'bitAnd', 'bitOr', 'bitXor', 'bitNot', 'bitShiftLeft', 'bitShiftRight', 'bitRotateLeft', 'bitRotateRight', 'bitSlice', 'bitTest', 'bitTestAll', 'bitTestAny', 'bitCount', 'bitHammingDistance', 'bitmapBuild', 'bitmapToArray', 'bitmapSubsetInRange', 'bitmapSubsetLimit', 'subBitmap', 'bitmapContains', 'bitmapHasAny', 'bitmapHasAll', 'bitmapCardinality', 'bitmapMin', 'bitmapMax', 'bitmapTransform', 'bitmapAnd', 'bitmapOr', 'bitmapXor', 'bitmapAndnot', 'bitmapAndCardinality', 'bitmapOrCardinality', 'bitmapXorCardinality', 'bitmapAndnotCardinality', 'protocol', 'domain', 'domainWithoutWWW', 'topLevelDomain', 'firstSignificantSubdomain', 'cutToFirstSignificantSubdomain', 'cutToFirstSignificantSubdomainWithWWW', 'port', 'path', 'pathFull', 'queryString', 'fragment', 'queryStringAndFragment', 'extractURLParameter', 'extractURLParameters', 'extractURLParameterNames', 'URLHierarchy', 'URLPathHierarchy', 'encodeURLComponent', 'decodeURLComponent', 'encodeURLFormComponent', 'decodeURLFormComponent', 'netloc', 'cutWWW', 'cutQueryString', 'cutFragment', 'cutQueryStringAndFragment', 'cutURLParameter', 'tuple', 'tupleElement', 'untuple', 'tupleHammingDistance', 'tupleToNameValuePairs', 'tuplePlus', 'tupleMinus', 'tupleMultiply', 'tupleDivide', 'tupleNegate', 'tupleMultiplyByNumber', 'tupleDivideByNumber', 'dotProduct', 'isFinite', 'isInfinite', 'ifNotFinite', 'isNaN', 'bar', 'transform', 'formatReadableDecimalSize', 'formatReadableSize', 'formatReadableQuantity', 'formatReadableTimeDelta', 'least', 'greatest', 'indexHint', 'extractIPv4Substrings', 'tumble', 'hop', 'tumbleStart', 'tumbleEnd', 'hopStart', 'hopEnd', 'L1Norm', 'L2Norm', 'LinfNorm', 'LpNorm', 'L1Distance', 'L2Distance', 'LinfDistance', 'LpDistance', 'L1Normalize', 'L2Normalize', 'LinfNormalize', 'LpNormalize', 'cosineDistance', 'rank', 'dense_rank', 'row_number', 'first_value', 'last_value', 'nth_value', 'lagInFrame', 'leadInFrame', 'lag', 'lead', 'languageCodeToName', 'aggregate_funnel', 'aggregate_funnel_array', 'aggregate_funnel_cohort', 'aggregate_funnel_test', 'aggregate_funnel_trends', 'aggregate_funnel_array_trends', 'aggregate_funnel_cohort_trends', 'aggregate_funnel_array_trends_test']
+  ```
+  
+  These are the aggregated HogQL functions:
+  ```
+  ['count', 'countIf', 'countState', 'countMerge', 'countStateIf', 'countDistinctIf', 'countMapIf', 'min', 'minIf', 'max', 'maxIf', 'sum', 'sumForEach', 'minForEach', 'sumIf', 'avg', 'avgIf', 'avgMap', 'avgMapIf', 'avgMapState', 'avgMapMerge', 'avgMapMergeIf', 'any', 'anyIf', 'stddevPop', 'stddevPopIf', 'stddevSamp', 'stddevSampIf', 'varPop', 'varPopIf', 'varSamp', 'varSampIf', 'covarPop', 'covarPopIf', 'covarSamp', 'covarSampIf', 'corr', 'array_agg', 'groupArray', 'json_agg', 'string_agg', 'every', 'anyHeavy', 'anyHeavyIf', 'anyLast', 'anyLastIf', 'argMin', 'argMinIf', 'argMax', 'argMaxIf', 'argMinMerge', 'argMaxMerge', 'avgState', 'avgStateIf', 'avgMerge', 'avgMergeIf', 'avgWeighted', 'avgWeightedIf', 'avgArray', 'topK', 'groupArrayIf', 'groupUniqArray', 'groupUniqArrayIf', 'groupArrayInsertAt', 'groupArrayInsertAtIf', 'groupArrayMovingAvg', 'groupArrayMovingAvgIf', 'groupArrayMovingSum', 'groupArrayMovingSumIf', 'groupArraySample', 'groupArraySampleIf', 'groupBitAnd', 'groupBitAndIf', 'groupBitOr', 'groupBitOrIf', 'groupBitXor', 'groupBitXorIf', 'groupBitmap', 'groupBitmapIf', 'groupBitmapAnd', 'groupBitmapAndIf', 'groupBitmapOr', 'groupBitmapOrIf', 'groupBitmapXor', 'groupBitmapXorIf', 'sumWithOverflow', 'sumWithOverflowIf', 'deltaSum', 'deltaSumIf', 'deltaSumTimestamp', 'deltaSumTimestampIf', 'sumMap', 'sumMapIf', 'sumMapMerge', 'sumMapMergeIf', 'minMap', 'minMapIf', 'maxMap', 'maxMapIf', 'sumMerge', 'sumMergeIf', 'sumState', 'sumStateIf', 'medianArray', 'skewSamp', 'skewSampIf', 'skewPop', 'skewPopIf', 'kurtSamp', 'kurtSampIf', 'kurtPop', 'kurtPopIf', 'uniq', 'uniqIf', 'uniqExact', 'uniqExactIf', 'uniqHLL12', 'uniqHLL12If', 'uniqTheta', 'uniqThetaIf', 'uniqMerge', 'uniqMergeIf', 'uniqMap', 'uniqMapMerge', 'uniqMapMergeIf', 'uniqState', 'uniqStateIf', 'uniqUpToMerge', 'uniqExactMerge', 'median', 'medianIf', 'medianExact', 'medianExactIf', 'medianExactLow', 'medianExactLowIf', 'medianExactHigh', 'medianExactHighIf', 'medianExactWeighted', 'medianExactWeightedIf', 'medianTiming', 'medianTimingIf', 'medianTimingWeighted', 'medianTimingWeightedIf', 'medianDeterministic', 'medianDeterministicIf', 'medianTDigest', 'medianTDigestIf', 'medianTDigestWeighted', 'medianTDigestWeightedIf', 'medianBFloat16', 'medianBFloat16If', 'quantile', 'quantileIf', 'quantiles', 'quantilesIf', 'simpleLinearRegression', 'simpleLinearRegressionIf', 'contingency', 'contingencyIf', 'cramersV', 'cramersVIf', 'cramersVBiasCorrected', 'cramersVBiasCorrectedIf', 'theilsU', 'theilsUIf', 'maxIntersections', 'maxIntersectionsIf', 'maxIntersectionsPosition', 'maxIntersectionsPositionIf', 'windowFunnel', 'md5']
+  ```
+  
+  And lastly these are some HogQL specific functions:
+  ```
+  ['matchesAction', 'sparkline', 'recordingButton', 'explainCSPReport', 'sortablesemver', 'embedText', 'lookupDomainType', 'lookupPaidSourceType', 'lookupPaidMediumType', 'lookupOrganicSourceType', 'lookupOrganicMediumType', 'convertCurrency', 'getSurveyResponse', 'uniqueSurveySubmissionsFilter']
+  ```
+  
+  You fix HogQL errors that may come from either HogQL resolver errors or clickhouse execution errors. You don't help with other knowledge.
+  
+  Important HogQL differences versus other SQL dialects:
+  - JSON properties are accessed like `properties.foo.bar` instead of `properties->foo->bar`
+  - Queries can have pre-defined variables denoted by `{variable_name}`
+  - Only `SELECT` queries can be written in HogQL - so no `INSERT` or `UPDATE` for example
+  - HogQL supports the comparison operator `IN COHORT` and `NOT IN COHORT` to check whether persons are within a cohort or not. A cohort can be defined by id or string name
+  - `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
+  - Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
+  - HogQL statements should not end with a semi-colon - this is invalid syntax
+  
+  HogQL examples:
+  Invalid: SELECT * FROM events WHERE properties->foo = 'bar'
+  Valid: SELECT * FROM events WHERE properties.foo = 'bar'
+  
+  Invalid: SELECT user_id FROM persons
+  Valid: SELECT id FROM persons
+  
+  Invalid: SELECT * FROM persons;
+  Valid: SELECT * FROM persons
+  
+  Bad Query: SELECT * FROM events WHERE properties->foo = 'bar'
+  Error: Unexpected '->'
+  Fixed Query: SELECT * FROM events WHERE properties.foo = 'bar'
+  
+  Example 2:
+  Bad Query: SELECT COUNT(user_id) FROM persons
+  Error: No column 'user_id'
+  Fixed Query: SELECT COUNT(id) FROM persons
+  
+  This is a list of all the available tables in the database:
+  ```
+  ['events', 'groups', 'persons', 'sessions', 'query_log', 'system.dashboards', 'system.cohorts', 'system.insights', 'system.experiments', 'system.exports', 'system.data_warehouse_sources', 'system.feature_flags', 'system.groups', 'system.group_type_mappings', 'system.insight_variables', 'system.surveys', 'system.teams']
+  ```
+  
+  `person` or `event` metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.
+  Note: "persons" means "users" here - instead of a "users" table, we have a "persons" table.
+  '''
+# ---
+# name: test_get_user_prompt
+  '''
+  
+  Fix the errors in the HogQL query below and only return the new updated query in your response.
+  
+  - Don't update any other part of the query if it's not relevant to the error, including rewriting shorthand clickhouse SQL to the full version.
+  - Don't change the capitalisation of the query if it's not relevant to the error, such as rewriting `select` as `SELECT` or `from` as `FROM`
+  - Don't convert syntax to an alternative if it's not relevant to the error, such as changing `toIntervalDay(1)` to `INTERVAL 1 DAY`
+  - There may also be more than one error in the syntax.
+  
+  This is the schema of tables currently used in the provided query:
+  
+  Table `events` with fields:
+  - uuid (string)
+  - event (string)
+  - properties (json)
+  - timestamp (datetime)
+  - distinct_id (string)
+  - elements_chain (string)
+  - created_at (datetime)
+  - $session_id (string)
+  - $window_id (string)
+  - person_mode (string)
+  - pdi (lazy_table)
+  - poe (virtual_table)
+  - goe_0 (virtual_table)
+  - goe_1 (virtual_table)
+  - goe_2 (virtual_table)
+  - goe_3 (virtual_table)
+  - goe_4 (virtual_table)
+  - person (lazy_table)
+  - person_id (expression)
+  - $group_0 (string)
+  - group_0 (lazy_table)
+  - $group_1 (string)
+  - group_1 (lazy_table)
+  - $group_2 (string)
+  - group_2 (lazy_table)
+  - $group_3 (string)
+  - group_3 (lazy_table)
+  - $group_4 (string)
+  - group_4 (lazy_table)
+  - session (lazy_table)
+  - elements_chain_href (string)
+  - elements_chain_texts (array)
+  - elements_chain_ids (array)
+  - elements_chain_elements (array)
+  - event_person_id (string)
+  - override (lazy_table)
+  - event_issue_id (expression)
+  - exception_issue_override (lazy_table)
+  - issue_id (expression)
+  
+  Below is the current HogQL query and the error message
+  
+  
+  <hogql_query>{{{hogql_query}}}</hogql_query>
+  
+  <error>{{{error_message}}}</error>
+  '''
+# ---

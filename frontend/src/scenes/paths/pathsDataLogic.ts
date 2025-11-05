@@ -1,12 +1,13 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
-import { router } from 'kea-router'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { OpenPersonsModalProps, openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
-import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
@@ -14,8 +15,8 @@ import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } f
 import { isPathsQuery } from '~/queries/utils'
 import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { pathsDataLogicType } from './pathsDataLogicType'
 import { PathNodeData } from './pathUtils'
+import type { pathsDataLogicType } from './pathsDataLogicType'
 import { Paths, PathsNode } from './types'
 
 export const DEFAULT_STEP_LIMIT = 5
@@ -44,7 +45,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
+        actions: [insightVizDataLogic(props), ['updateInsightFilter', 'updateQuerySource'], sceneLogic, ['newTab']],
     })),
 
     actions({
@@ -57,7 +58,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
         results: [
             (s) => [s.insightQuery, s.insightData],
             (insightQuery, insightData): PathsLink[] => {
-                return isPathsQuery(insightQuery) ? insightData?.result ?? [] : []
+                return isPathsQuery(insightQuery) ? (insightData?.result ?? []) : []
             },
         ],
         paths: [
@@ -100,7 +101,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
         ],
     }),
 
-    listeners(({ values }) => ({
+    listeners(({ actions, values }) => ({
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
             const query: InsightActorsQuery = {
                 kind: NodeKind.InsightActorsQuery,
@@ -135,6 +136,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 const name = currentItemCard.name.includes('http')
                     ? '$pageview'
                     : currentItemCard.name.replace(/(^[0-9]+_)/, '')
+                const url = new URL(currentItemCard.name.replace(/(^[0-9]+_)/, ''))
                 events.push({
                     id: name,
                     name: name,
@@ -146,7 +148,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                                 key: '$current_url',
                                 operator: PropertyOperator.Exact,
                                 type: PropertyFilterType.Event,
-                                value: currentItemCard.name.replace(/(^[0-9]+_)/, ''),
+                                value: url.href,
                             },
                         ],
                     }),
@@ -167,7 +169,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             }
 
             if (events.length > 0) {
-                router.actions.push(urls.insightNew({ query }))
+                actions.newTab(urls.insightNew({ query }))
             }
         },
     })),

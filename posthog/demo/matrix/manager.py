@@ -1,11 +1,13 @@
-import datetime as dt
+# ruff: noqa: T201 allow print statements
+
 import json
+import datetime as dt
 from time import sleep
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 
 from django.conf import settings
 from django.core import exceptions
-from django.db import transaction, IntegrityError
+from django.db import IntegrityError, transaction
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
@@ -50,13 +52,27 @@ class MatrixManager:
         first_name: str,
         organization_name: str,
         *,
-        password: Optional[str] = None,
+        password: str | None = None,
         is_staff: bool = False,
-        disallow_collision: bool = False,
+        email_collision_handling: Literal["log_in", "disambiguate"] = "log_in",
     ) -> tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
-        existing_user: Optional[User] = User.objects.filter(email=email).first()
-        if existing_user is None:
+        existing_user: User | None = User.objects.filter(email=email).first()
+        if existing_user is None or email_collision_handling == "disambiguate":
+            if existing_user is not None:
+                print(f"User {email} already exists, trying to find a unique email...")
+                original_user, domain = email.split("@")
+                for i in range(1, 1000):
+                    email = f"{original_user}+{i}@{domain}"
+                    if User.objects.filter(email=email).exists():
+                        continue
+                    break
+                else:
+                    raise exceptions.ValidationError(
+                        f"Cannot find a unique email for {original_user}@{domain} - unbelievable!"
+                    )
+                print(f"Collision resolved, using {email} for our demo user!")
+
             if self.print_steps:
                 print(f"Creating demo organization, project, and user...")
             organization_kwargs: dict[str, Any] = {"name": organization_name}
@@ -71,16 +87,13 @@ class MatrixManager:
                     first_name,
                     OrganizationMembership.Level.ADMIN,
                     is_staff=is_staff,
+                    theme_mode="system",
                 )
                 team = self.create_team(organization)
             self.run_on_team(team, new_user)
             return (organization, team, new_user)
         elif existing_user.is_staff:
             raise exceptions.PermissionDenied("Cannot log in as staff user without password.")
-        elif disallow_collision:
-            raise exceptions.ValidationError(
-                f"Cannot save simulated data - email collision disallowed but there already is an account for {email}."
-            )
         else:
             assert existing_user.organization is not None
             assert existing_user.team is not None
@@ -153,7 +166,7 @@ class MatrixManager:
             group_type_index += self.matrix.group_type_index_offset  # Adjust
             bulk_group_type_mappings.append(
                 GroupTypeMapping(
-                    team=data_team,
+                    team_id=data_team.id,
                     project_id=data_team.project_id,
                     group_type_index=group_type_index,
                     group_type=group_type,
@@ -209,10 +222,7 @@ class MatrixManager:
     def _copy_analytics_data_from_master_team(self, target_team: Team):
         from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
-        from posthog.models.person.sql import (
-            COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS,
-            COPY_PERSONS_BETWEEN_TEAMS,
-        )
+        from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
         if self.print_steps:
             print(f"Copying simulated data from master team...")
@@ -238,10 +248,7 @@ class MatrixManager:
     @classmethod
     def _sync_postgres_with_clickhouse_data(cls, source_team_id: int, target_team_id: int):
         from posthog.models.group.sql import SELECT_GROUPS_OF_TEAM
-        from posthog.models.person.sql import (
-            SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
-            SELECT_PERSONS_OF_TEAM,
-        )
+        from posthog.models.person.sql import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
 
         list_params = {"source_team_id": source_team_id}
         # Persons
@@ -251,9 +258,11 @@ class MatrixManager:
             columns_to_rename={"id": "uuid"},
         )
         bulk_persons: dict[str, Person] = {}
+        person_fields = {f.name for f in Person._meta.get_fields()}
         for row in clickhouse_persons:
-            properties = json.loads(row.pop("properties", "{}"))
-            bulk_persons[row["uuid"]] = Person(team_id=target_team_id, properties=properties, **row)
+            filtered_row = {k: v for k, v in row.items() if k in person_fields}
+            properties = json.loads(filtered_row.pop("properties", "{}"))
+            bulk_persons[row["uuid"]] = Person(team_id=target_team_id, properties=properties, **filtered_row)
         # This sets the pk in the bulk_persons dict so we can use them later
         Person.objects.bulk_create(bulk_persons.values())
         # Person distinct IDs
@@ -265,14 +274,16 @@ class MatrixManager:
             {"person_id": "person_uuid"},
         )
         bulk_person_distinct_ids = []
+        person_distinct_id_fields = {f.name for f in PersonDistinctId._meta.get_fields()}
         for row in clickhouse_distinct_ids:
             person_uuid = row.pop("person_uuid")
             try:
+                filtered_row = {k: v for k, v in row.items() if k in person_distinct_id_fields}
                 bulk_person_distinct_ids.append(
                     PersonDistinctId(
                         team_id=target_team_id,
                         person_id=bulk_persons[person_uuid].pk,
-                        **row,
+                        **filtered_row,
                     )
                 )
             except KeyError:
@@ -281,16 +292,22 @@ class MatrixManager:
             print(f"{pre_existing_id_count} IDS UNACCOUNTED FOR")
         PersonDistinctId.objects.bulk_create(bulk_person_distinct_ids, ignore_conflicts=True)
         # Groups
-        clickhouse_groups = query_with_columns(SELECT_GROUPS_OF_TEAM, list_params, ["team_id", "_timestamp", "_offset"])
+        clickhouse_groups = query_with_columns(
+            SELECT_GROUPS_OF_TEAM,
+            list_params,
+            ["team_id", "_timestamp", "_offset", "is_deleted"],
+        )
         bulk_groups = []
+        group_fields = {f.name for f in Group._meta.get_fields()}
         for row in clickhouse_groups:
-            group_properties = json.loads(row.pop("group_properties", "{}"))
+            filtered_row = {k: v for k, v in row.items() if k in group_fields}
+            group_properties = json.loads(filtered_row.pop("group_properties", "{}"))
             bulk_groups.append(
                 Group(
                     team_id=target_team_id,
                     version=0,
                     group_properties=group_properties,
-                    **row,
+                    **filtered_row,
                 )
             )
         try:
@@ -301,10 +318,12 @@ class MatrixManager:
     def _save_sim_person(self, team: Team, subject: SimPerson):
         # We only want to save directly if there are past events
         if subject.past_events:
-            from posthog.models.person.util import (
-                create_person,
-                create_person_distinct_id,
-            )
+            from posthog.models.person.util import create_person, create_person_distinct_id
+
+            # Ensure snapshot is taken before accessing properties_at_now
+            # This handles cases where simulation didn't reach 'now' for this person
+            if not hasattr(subject, "properties_at_now"):
+                subject.take_snapshot_at_now()
 
             create_person(
                 uuid=str(subject.in_posthog_id),
@@ -314,16 +333,14 @@ class MatrixManager:
             )
             self._persons_created += 1
             self._person_distinct_ids_created += len(subject.distinct_ids_at_now)
-            for distinct_id in subject.distinct_ids_at_now:
+            # Sort distinct_ids for deterministic iteration order
+            for distinct_id in sorted(subject.distinct_ids_at_now):
                 create_person_distinct_id(
                     team_id=team.pk,
                     distinct_id=str(distinct_id),
                     person_id=str(subject.in_posthog_id),
                 )
             self._save_past_sim_events(team, subject.past_events)
-        # We only want to queue future events if there are any
-        if subject.future_events and self.matrix.end > self.matrix.now:
-            self._save_future_sim_events(team, subject.future_events)
 
     @staticmethod
     def _save_past_sim_events(team: Team, events: list[SimEvent]):
@@ -355,12 +372,6 @@ class MatrixManager:
             )
 
     @staticmethod
-    def _save_future_sim_events(team: Team, events: list[SimEvent]):
-        """Future events are not saved immediately, instead they're scheduled for ingestion via event buffer."""
-
-        # TODO: This used the plugin server's Graphile Worker-based event buffer, but the event buffer is no more
-
-    @staticmethod
     def _save_sim_group(
         team: Team,
         type_index: Literal[0, 1, 2, 3, 4],
@@ -375,7 +386,8 @@ class MatrixManager:
     def _sleep_until_person_data_in_clickhouse(self, team_id: int):
         from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
-        for _ in range(120):
+        MAX_WAIT_ITERATIONS = 240  # 240 * 0.5s = 120 seconds (increased from 60s for CI reliability)
+        for i in range(MAX_WAIT_ITERATIONS):
             person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
             person_distinct_id_count: int = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[
                 0
@@ -387,7 +399,7 @@ class MatrixManager:
             if persons_ready and person_distinct_ids_ready:
                 if self.print_steps:
                     print(
-                        "Source person data fully loaded into ClickHouse. "
+                        f"Source person data fully loaded into ClickHouse after {i * 0.5:.1f}s. "
                         f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}.\n"
                         "Setting up project..."
                     )
@@ -397,9 +409,18 @@ class MatrixManager:
                     "Waiting for person data to land in ClickHouse... "
                     f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
                 )
+            elif i % 20 == 0 and i > 0:
+                print(
+                    f"Still waiting for ClickHouse sync... {i * 0.5:.0f}s elapsed. "
+                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}."
+                )
             sleep(0.5)
         else:
-            raise TimeoutError("Person data did not land in ClickHouse in time.")
+            raise TimeoutError(
+                f"Person data did not land in ClickHouse after {MAX_WAIT_ITERATIONS * 0.5}s. "
+                f"Expected {self._persons_created} persons and {self._person_distinct_ids_created} distinct IDs, "
+                f"got {person_count} persons and {person_distinct_id_count} distinct IDs."
+            )
 
     @classmethod
     def _is_demo_data_pre_saved(cls) -> bool:

@@ -1,36 +1,41 @@
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { IconPerson } from '@posthog/icons'
+import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+
+import { NotFound } from 'lib/components/NotFound'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { colonDelimitedDuration } from 'lib/utils'
+import { parseTimestampToMs } from 'lib/utils/timestamps'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { asDisplay } from 'scenes/persons/person-utils'
 import {
     SessionRecordingPlayer,
     SessionRecordingPlayerProps,
 } from 'scenes/session-recordings/player/SessionRecordingPlayer'
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, SessionRecordingId } from '~/types'
-import { urls } from 'scenes/urls'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import {
     SessionRecordingPlayerMode,
-    getCurrentPlayerTime,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { useActions, useValues } from 'kea'
-import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { useEffect } from 'react'
 import {
     SessionRecordingPreview,
     SessionRecordingPreviewSkeleton,
 } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
+import { urls } from 'scenes/urls'
+
+import { SessionRecordingId } from '~/types'
+
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { LemonSwitch } from '@posthog/lemon-ui'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { asDisplay } from 'scenes/persons/person-utils'
-import { IconComment } from 'lib/lemon-ui/icons'
-import { NotFound } from 'lib/components/NotFound'
-import { IconPerson } from '@posthog/icons'
 import { UUID_REGEX_MATCH_GROUPS } from './utils'
 
 const HEIGHT = 500
 const MIN_HEIGHT = '20rem'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttributes>): JSX.Element => {
-    const { id, noInspector } = attributes
+    const { id, noInspector, timestampMs } = attributes
 
     const recordingLogicProps: SessionRecordingPlayerProps = {
         ...sessionRecordingPlayerProps(id),
@@ -41,38 +46,22 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
     }
 
     const { expanded } = useValues(notebookNodeLogic)
-    const {
-        setActions,
-        insertAfter,
-        insertReplayCommentByTimestamp,
-        setMessageListeners,
-        setExpanded,
-        scrollIntoView,
-    } = useActions(notebookNodeLogic)
+    const { setActions, insertAfter, setMessageListeners, setExpanded, scrollIntoView } = useActions(notebookNodeLogic)
 
-    const { sessionPlayerMetaData, sessionPlayerMetaDataLoading } = useValues(
-        sessionRecordingDataLogic(recordingLogicProps)
+    const { sessionPlayerMetaData, sessionPlayerMetaDataLoading, sessionPlayerData } = useValues(
+        sessionRecordingDataCoordinatorLogic(recordingLogicProps)
     )
-    const { loadRecordingMeta } = useActions(sessionRecordingDataLogic(recordingLogicProps))
-    const { seekToTime, setPlay } = useActions(sessionRecordingPlayerLogic(recordingLogicProps))
+    const { loadRecordingMeta, loadSnapshots } = useActions(sessionRecordingDataCoordinatorLogic(recordingLogicProps))
+    const { seekToTimestamp, seekToTime, setPlay, setPause } = useActions(
+        sessionRecordingPlayerLogic(recordingLogicProps)
+    )
 
-    useEffect(() => {
-        loadRecordingMeta()
-    }, [])
     // TODO Only load data when in view...
+    useOnMountEffect(loadRecordingMeta)
 
     useEffect(() => {
         const person = sessionPlayerMetaData?.person
         setActions([
-            {
-                text: 'Comment',
-                icon: <IconComment />,
-                onClick: () => {
-                    const time = getCurrentPlayerTime(recordingLogicProps) * 1000
-
-                    insertReplayCommentByTimestamp(time, id)
-                },
-            },
             person
                 ? {
                       text: `View ${asDisplay(person)}`,
@@ -88,21 +77,29 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeRecordingAttrib
                   }
                 : undefined,
         ])
-    }, [sessionPlayerMetaData?.person?.id])
+    }, [sessionPlayerMetaData?.person?.id]) // oxlint-disable-line exhaustive-deps
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setMessageListeners({
             'play-replay': ({ time }) => {
                 if (!expanded) {
                     setExpanded(true)
                 }
                 setPlay()
-
-                seekToTime(time)
+                seekToTimestamp(time)
                 scrollIntoView()
             },
         })
-    }, [])
+    })
+
+    // Seek to timestamp when widget is expanded and has a timestamp
+    useEffect(() => {
+        if (expanded && timestampMs && sessionPlayerData?.start) {
+            setPause()
+            loadSnapshots()
+            seekToTime(timestampMs) // seekToTime only works when sessionPlayerData.start is available
+        }
+    }, [expanded, timestampMs, sessionPlayerData?.start]) // oxlint-disable-line exhaustive-deps
 
     if (!sessionPlayerMetaData && !sessionPlayerMetaDataLoading) {
         return <NotFound object="replay" />
@@ -133,6 +130,16 @@ export const Settings = ({
                 checked={attributes.noInspector}
                 fullWidth={true}
             />
+            <div className="mt-3">
+                <label className="block text-muted mb-1">Start at timestamp</label>
+                <LemonInput
+                    type="text"
+                    fullWidth
+                    value={attributes.timestampMs ? colonDelimitedDuration(attributes.timestampMs / 1000) : ''}
+                    onBlur={(e) => updateAttributes({ timestampMs: parseTimestampToMs(e.currentTarget.value) })}
+                    placeholder="e.g. 00:13:37"
+                />
+            </div>
         </div>
     )
 }
@@ -140,6 +147,7 @@ export const Settings = ({
 type NotebookNodeRecordingAttributes = {
     id: string
     noInspector: boolean
+    timestampMs?: number
 }
 
 export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordingAttributes>({
@@ -148,7 +156,10 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
     Component,
     heightEstimate: HEIGHT,
     minHeight: MIN_HEIGHT,
-    href: (attrs) => urls.replaySingle(attrs.id),
+    href: (attrs) =>
+        attrs.timestampMs
+            ? `${urls.replaySingle(attrs.id)}?t=${Math.floor(attrs.timestampMs / 1000)}`
+            : urls.replaySingle(attrs.id),
     resizeable: true,
     attributes: {
         id: {
@@ -157,11 +168,18 @@ export const NotebookNodeRecording = createPostHogWidgetNode<NotebookNodeRecordi
         noInspector: {
             default: false,
         },
+        timestampMs: {
+            default: undefined,
+        },
     },
     pasteOptions: {
         find: urls.replaySingle(UUID_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
-            return { id: match[1], noInspector: false }
+            const id = match[1]
+            const remainder = match[2] || ''
+            const tMatch = /[?&#]t=(\d+)/.exec(remainder)
+            const timestampMs = tMatch ? Number(tMatch[1]) * 1000 : undefined
+            return { id, noInspector: false, timestampMs }
         },
     },
     Settings,
@@ -174,14 +192,5 @@ export function sessionRecordingPlayerProps(id: SessionRecordingId): SessionReco
     return {
         sessionRecordingId: id,
         playerKey: `notebook-${id}`,
-    }
-}
-
-export function buildRecordingContent(sessionRecordingId: string): JSONContent {
-    return {
-        type: 'ph-recording',
-        attrs: {
-            id: sessionRecordingId,
-        },
     }
 }

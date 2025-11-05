@@ -1,11 +1,12 @@
-from copy import deepcopy
 import dataclasses
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionTemplateMigrator
+from copy import deepcopy
+
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 
 # Based off of https://customer.io/docs/api/track/#operation/entity
 
-template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
+    status="stable",
     free=False,
     type="destination",
     id="template-customerio",
@@ -13,7 +14,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Identify or track events against customers in Customer.io",
     icon_url="/static/services/customerio.png",
     category=["Email Marketing"],
-    hog="""
+    code_language="hog",
+    code="""
 let action := inputs.action
 let name := event.event
 
@@ -50,6 +52,14 @@ let timestamp := toInt(toUnixTimestamp(toDateTime(event.timestamp)))
 
 for (let key, value in inputs.attributes) {
     attributes[key] := value
+}
+
+for (let key, value in attributes) {
+    if (value and typeof(value) == 'string') {
+        if (length(value) > 1000) {
+            attributes[key] := substring(value, 1, 1000)
+        }
+    }
 }
 
 let res := fetch(f'https://{inputs.host}/api/v2/entity', {
@@ -216,6 +226,8 @@ class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
     @classmethod
     def migrate(cls, obj):
         hf = deepcopy(dataclasses.asdict(template))
+        hf["hog"] = hf["code"]
+        del hf["code"]
 
         host = obj.config.get("host", "track.customer.io")
         events_to_send = obj.config.get("eventsToSend")

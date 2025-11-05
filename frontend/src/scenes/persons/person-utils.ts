@@ -6,9 +6,12 @@ import { midEllipsis } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-type PersonPropType =
-    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never }
-    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string }
+import { HogQLQueryString, hogql } from '~/queries/utils'
+
+export type PersonPropType =
+    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: never; id?: never }
+    | { properties?: Record<string, any>; distinct_ids?: never; distinct_id?: string; id?: never }
+    | { properties?: Record<string, any>; distinct_ids?: string[]; distinct_id?: string; id: string }
 
 export interface PersonDisplayProps {
     person?: PersonPropType | null
@@ -56,12 +59,40 @@ export function asDisplay(person: PersonPropType | null | undefined, maxLength?:
             : undefined)
     )?.trim()
 
-    return display ? midEllipsis(display, maxLength || 40) : 'Person without distinct_id'
+    return display ? midEllipsis(display, maxLength || 40) : 'Anonymous'
 }
 
 export const asLink = (person?: PersonPropType | null): string | undefined =>
     person?.distinct_id
         ? urls.personByDistinctId(person.distinct_id)
         : person?.distinct_ids?.length
-        ? urls.personByDistinctId(person.distinct_ids[0])
-        : undefined
+          ? urls.personByDistinctId(person.distinct_ids[0])
+          : person?.id
+            ? urls.personByUUID(person.id)
+            : undefined
+
+export const getHogqlQueryStringForPersonId = (): HogQLQueryString => {
+    return hogql`SELECT
+                    id,
+                    groupArray(101)(pdi2.distinct_id) as distinct_ids,
+                    properties,
+                    is_identified,
+                    created_at
+                FROM persons
+                LEFT JOIN (
+                    SELECT
+                        pdi2.distinct_id,
+                        argMax(pdi2.person_id, pdi2.version) AS person_id
+                    FROM raw_person_distinct_ids pdi2
+                    WHERE pdi2.distinct_id IN (
+                            SELECT distinct_id
+                            FROM raw_person_distinct_ids
+                            WHERE person_id = {id}
+                        )
+                    GROUP BY pdi2.distinct_id
+                    HAVING argMax(pdi2.is_deleted, pdi2.version) = 0
+                        AND argMax(pdi2.person_id, pdi2.version) = {id}
+                ) AS pdi2 ON pdi2.person_id = persons.id
+                WHERE persons.id = {id}
+                GROUP BY id, properties, is_identified, created_at`
+}

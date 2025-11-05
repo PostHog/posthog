@@ -1,18 +1,33 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonSwitch, LemonTable, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { dayjs } from 'lib/dayjs'
-import { syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
-import { teamLogic } from 'scenes/teamLogic'
+import { useEffect } from 'react'
+
+import { LemonButton, LemonCheckbox, LemonModal, LemonTable, LemonTag } from '@posthog/lemon-ui'
+
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { SyncTypeLabelMap } from 'scenes/data-warehouse/utils'
+
+import { ExternalDataSourceSyncSchema } from '~/types'
 
 import { sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export default function SchemaForm(): JSX.Element {
-    const { toggleSchemaShouldSync, openSyncMethodModal, updateSyncTimeOfDay, setIsProjectTime } =
-        useActions(sourceWizardLogic)
-    const { databaseSchema, isProjectTime } = useValues(sourceWizardLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const containerRef = useFloatingContainer()
+    const { toggleSchemaShouldSync, openSyncMethodModal, toggleAllTables } = useActions(sourceWizardLogic)
+    const { databaseSchema, tablesAllToggledOn } = useValues(sourceWizardLogic)
+
+    const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
+        if (schema.sync_type === null) {
+            openSyncMethodModal(schema)
+            return
+        }
+        toggleSchemaShouldSync(schema, checked)
+    }
+
+    // scroll to top of container
+    useEffect(() => {
+        containerRef?.scrollTo({ top: 0, left: 0, behavior: 'smooth' })
+    }, [containerRef])
 
     return (
         <>
@@ -23,19 +38,19 @@ export default function SchemaForm(): JSX.Element {
                         dataSource={databaseSchema}
                         columns={[
                             {
+                                title: (
+                                    <LemonCheckbox
+                                        checked={tablesAllToggledOn}
+                                        onChange={(checked) => toggleAllTables(checked)}
+                                    />
+                                ),
                                 width: 0,
                                 key: 'enabled',
-                                render: (_, schema) => {
+                                render: function RenderEnabled(_, schema) {
                                     return (
                                         <LemonCheckbox
                                             checked={schema.should_sync}
-                                            onChange={(checked) => {
-                                                if (schema.sync_type === null) {
-                                                    openSyncMethodModal(schema)
-                                                    return
-                                                }
-                                                toggleSchemaShouldSync(schema, checked)
-                                            }}
+                                            onChange={(checked) => onClickCheckbox(schema, checked)}
                                         />
                                     )
                                 },
@@ -44,70 +59,52 @@ export default function SchemaForm(): JSX.Element {
                                 title: 'Table',
                                 key: 'table',
                                 render: function RenderTable(_, schema) {
-                                    return <span className="font-mono">{schema.table}</span>
+                                    return (
+                                        <span
+                                            className="font-mono cursor-pointer"
+                                            onClick={() => onClickCheckbox(schema, !schema.should_sync)}
+                                        >
+                                            {schema.table}
+                                        </span>
+                                    )
                                 },
                             },
                             {
                                 title: 'Rows',
                                 key: 'rows',
                                 isHidden: !databaseSchema.some((schema) => schema.rows),
-                                render: (_, schema) => {
+                                render: function RenderRows(_, schema) {
                                     return schema.rows != null ? schema.rows : 'Unknown'
                                 },
                             },
                             {
-                                title: (
-                                    <div className="flex items-center gap-2">
-                                        <span>Anchor Time</span>
-                                        <div className="flex items-center gap-1">
-                                            <span>UTC</span>
-                                            {currentTeam?.timezone !== 'UTC' && currentTeam?.timezone !== 'GMT' && (
-                                                <>
-                                                    <LemonSwitch checked={isProjectTime} onChange={setIsProjectTime} />
-                                                    <span>{currentTeam?.timezone || 'UTC'}</span>
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
-                                ),
-                                key: 'sync_time_of_day',
+                                key: 'sync_field',
+                                title: 'Sync field',
+                                align: 'right',
                                 tooltip:
-                                    'Time of day in which the first sync will run. The sync interval will be offset from the anchor time. This will not apply to sync intervals one hour or less.',
-                                render: function RenderSyncTimeOfDayLocal(_, schema) {
-                                    const utcTime = schema.sync_time_of_day || '00:00:00'
-                                    const localTime = isProjectTime
-                                        ? dayjs
-                                              .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
-                                              .local()
-                                              .tz(currentTeam?.timezone || 'UTC')
-                                              .format('HH:mm:00')
-                                        : utcTime
-
-                                    return (
-                                        <LemonInput
-                                            type="time"
-                                            disabled={!schema.should_sync}
-                                            value={localTime.substring(0, 5)}
-                                            onChange={(value) => {
-                                                const newValue = `${value}:00`
-                                                const utcValue = isProjectTime
-                                                    ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
-                                                          .tz(currentTeam?.timezone || 'UTC')
-                                                          .utc()
-                                                          .format('HH:mm:00')
-                                                    : newValue
-                                                updateSyncTimeOfDay(schema, utcValue)
-                                            }}
-                                            suffix={
-                                                <Tooltip
-                                                    interactive={schema.should_sync}
-                                                    title={syncAnchorIntervalToHumanReadable(utcTime, '6hour')}
-                                                >
-                                                    <IconInfo className="text-muted-alt" />
-                                                </Tooltip>
-                                            }
-                                        />
-                                    )
+                                    'Incremental and append-only refresh methods key on a unique field to determine the most up-to-date data.',
+                                isHidden: !databaseSchema.some((schema) => schema.sync_type),
+                                render: function RenderSyncType(_, schema) {
+                                    if (
+                                        schema.sync_type !== 'full_refresh' &&
+                                        schema.sync_type !== null &&
+                                        schema.incremental_field
+                                    ) {
+                                        const field =
+                                            schema.incremental_fields.find(
+                                                (f) => f.field == schema.incremental_field
+                                            ) ?? null
+                                        if (field) {
+                                            return (
+                                                <>
+                                                    <span className="leading-5">{field.label}</span>
+                                                    <LemonTag className="ml-2" type="success">
+                                                        {field.type}
+                                                    </LemonTag>
+                                                </>
+                                            )
+                                        }
+                                    }
                                 },
                             },
                             {
@@ -116,7 +113,7 @@ export default function SchemaForm(): JSX.Element {
                                 align: 'right',
                                 tooltip:
                                     'Full refresh will refresh the full table on every sync, whereas incremental will only sync new and updated rows since the last sync',
-                                render: (_, schema) => {
+                                render: function RenderSyncType(_, schema) {
                                     if (!schema.sync_type) {
                                         return (
                                             <div className="justify-end flex">
@@ -140,7 +137,7 @@ export default function SchemaForm(): JSX.Element {
                                                 type="secondary"
                                                 onClick={() => openSyncMethodModal(schema)}
                                             >
-                                                {schema.sync_type === 'full_refresh' ? 'Full refresh' : 'Incremental'}
+                                                {SyncTypeLabelMap[schema.sync_type]}
                                             </LemonButton>
                                         </div>
                                     )
@@ -177,7 +174,7 @@ const SyncMethodModal = (): JSX.Element => {
                 schema={currentSyncMethodModalSchema}
                 onClose={cancelSyncMethodModal}
                 onSave={(syncType, incrementalField, incrementalFieldType) => {
-                    if (syncType === 'incremental') {
+                    if (syncType === 'incremental' || syncType === 'append') {
                         updateSchemaSyncType(
                             currentSyncMethodModalSchema,
                             syncType,

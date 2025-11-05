@@ -1,20 +1,53 @@
 import './PlayerFrameOverlay.scss'
 
-import { IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
+import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { getCurrentExporterData } from '~/exporter/exporterViewLogic'
 import { SessionPlayerState } from '~/types'
 
+import { CommentOnRecordingButton } from './commenting/CommentOnRecordingButton'
+import { ClipRecording } from './controller/ClipRecording'
+import { Screenshot } from './controller/PlayerController'
+import { playerSettingsLogic } from './playerSettingsLogic'
+import { SessionRecordingPlayerMode } from './sessionRecordingPlayerLogic'
+
+const PlayerFrameOverlayActions = (): JSX.Element | null => {
+    const { setQuickEmojiIsOpen } = useActions(sessionRecordingPlayerLogic)
+    const { quickEmojiIsOpen } = useValues(sessionRecordingPlayerLogic)
+
+    return (
+        <div className="flex gap-1 mt-4">
+            <CommentOnRecordingButton className="text-2xl text-white" data-attr="replay-overlay-comment" />
+            <LemonButton
+                size="xsmall"
+                icon={<IconEmoji className="text-2xl text-white" />}
+                onClick={(e) => {
+                    e.stopPropagation()
+                    setQuickEmojiIsOpen(!quickEmojiIsOpen)
+                }}
+            />
+            <Screenshot className="text-2xl text-white" data-attr="replay-overlay-screenshot" />
+            <ClipRecording className="text-2xl text-white" data-attr="replay-overlay-clip" />
+        </div>
+    )
+}
+
 const PlayerFrameOverlayContent = (): JSX.Element | null => {
-    const { currentPlayerState, endReached } = useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerState, endReached, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { isCinemaMode } = useValues(playerSettingsLogic)
+
     let content = null
     const pausedState =
         currentPlayerState === SessionPlayerState.PAUSE || currentPlayerState === SessionPlayerState.READY
     const isInExportContext = !!getCurrentExporterData()
+    const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+    const showActionsOnOverlay = !isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && pausedState
 
     if (currentPlayerState === SessionPlayerState.ERROR) {
         content = (
@@ -54,19 +87,33 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
     }
     if (pausedState) {
         content = endReached ? (
-            <IconRewindPlay className="text-6xl text-white" />
+            <LemonButton
+                icon={<IconRewindPlay className="text-6xl text-white" />}
+                aria-label="Rewind recording"
+                data-attr="replay-overlay-rewind"
+            />
         ) : (
-            <IconPlay className="text-6xl text-white" />
+            <div className="flex flex-col items-center justify-center">
+                <LemonButton
+                    icon={<IconPlay className="text-6xl text-white" />}
+                    aria-label="Resume recording"
+                    data-attr="replay-overlay-resume"
+                />
+                {showActionsOnOverlay && <PlayerFrameOverlayActions />}
+            </div>
         )
     }
     if (currentPlayerState === SessionPlayerState.SKIP) {
         content = <div className="text-3xl italic font-medium text-white">Skipping inactivity</div>
     }
+    if (currentPlayerState === SessionPlayerState.SKIP_TO_MATCHING_EVENT) {
+        content = <div className="text-3xl italic font-medium text-white">Skipping to filtered event</div>
+    }
     return content ? (
         <div
-            className={clsx(
-                'PlayerFrameOverlay__content absolute inset-0 z-1 flex items-center justify-center bg-black/15 opacity-80 transition-opacity duration-100 hover:opacity-100',
-                pausedState && !isInExportContext && 'PlayerFrameOverlay__content--only-hover'
+            className={cn(
+                'PlayerFrameOverlay__content absolute inset-0 z-1 flex items-center justify-center bg-black/15 transition-opacity duration-100',
+                pausedState && !isInExportContext ? 'opacity-0 hover:opacity-100' : 'opacity-80 hover:opacity-100'
             )}
             aria-busy={currentPlayerState === SessionPlayerState.BUFFER}
         >

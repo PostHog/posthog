@@ -1,13 +1,29 @@
 from datetime import datetime, timedelta
+
+from posthog.test.base import _create_event, _create_person
+
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.team.team import Team
-from posthog.test.base import (
-    _create_event,
-    _create_person,
-)
+
+
+def add_query_builder_flag(test_cases):
+    """
+    Helper to add use_new_query_builder flag variants to test cases.
+
+    For each test case, creates two variants:
+    - one with use_new_query_builder=False
+    - one with use_new_query_builder=True
+    """
+    result = []
+    for case in test_cases:
+        name = case[0]
+        args = case[1:]
+        result.append((f"{name}_disable_new_query_builder", *args, False))
+        result.append((f"{name}_enable_new_query_builder", *args, True))
+    return result
 
 
 def create_standard_group_test_events(team: Team, feature_flag: FeatureFlag):

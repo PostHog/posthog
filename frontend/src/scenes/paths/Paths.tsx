@@ -1,16 +1,19 @@
 import './Paths.scss'
 
-import { useValues } from 'kea'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
+
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelPathsFilter } from '~/queries/schema/schema-general'
+import { shouldQueryBeAsync } from '~/queries/utils'
 
 import { PathNodeCard } from './PathNodeCard'
-import { pathsDataLogic } from './pathsDataLogic'
 import type { PathNodeData } from './pathUtils'
+import { pathsDataLogic } from './pathsDataLogic'
 import { renderPaths } from './renderPaths'
 
 const DEFAULT_PATHS_ID = 'default_paths'
@@ -28,6 +31,7 @@ export function Paths(): JSX.Element {
     const { insight, insightProps } = useValues(insightLogic)
     const { insightQuery, paths, pathsFilter, funnelPathsFilter, insightDataLoading, insightDataError, theme } =
         useValues(pathsDataLogic(insightProps))
+    const { loadData } = useActions(insightDataLogic(insightProps))
 
     const id = `'${insight?.short_id || DEFAULT_PATHS_ID}'`
 
@@ -58,7 +62,15 @@ export function Paths(): JSX.Element {
     }, [paths, insightDataLoading, canvasWidth, canvasHeight, theme, pathsFilter, funnelPathsFilter])
 
     if (insightDataError) {
-        return <InsightErrorState query={insightQuery} excludeDetail />
+        return (
+            <InsightErrorState
+                query={insightQuery}
+                excludeDetail
+                onRetry={() => {
+                    loadData(shouldQueryBeAsync(insightQuery) ? 'force_async' : 'force_blocking')
+                }}
+            />
+        )
     }
 
     return (
@@ -81,7 +93,9 @@ export function Paths(): JSX.Element {
                 {!insightDataLoading && paths && paths.nodes.length === 0 && !insightDataError && <InsightEmptyState />}
                 {!insightDataError &&
                     nodeCards &&
-                    nodeCards.map((node, idx) => <PathNodeCard key={idx} node={node} insightProps={insightProps} />)}
+                    nodeCards.map((node, idx) => (
+                        <PathNodeCard key={idx} node={node} insightProps={insightProps} canvasHeight={canvasHeight} />
+                    ))}
             </div>
         </div>
     )

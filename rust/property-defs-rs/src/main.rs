@@ -1,21 +1,22 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{routing::get, Router};
 use common_kafka::kafka_consumer::SingleTopicConsumer;
 
 use futures::future::ready;
 use property_defs_rs::{
-    api::v1::query::Manager, api::v1::routing::apply_routes, app_context::AppContext,
-    config::Config, update_consumer_loop, update_producer_loop,
+    api::v1::{query::Manager, routing::apply_routes},
+    app_context::AppContext,
+    config::Config,
+    measuring_channel::measuring_channel,
+    metrics_consts::CHANNEL_CAPACITY,
+    update_cache::Cache,
+    update_consumer_loop, update_producer_loop,
 };
 
-use quick_cache::sync::Cache;
 use serve_metrics::{serve, setup_metrics_routes};
 use sqlx::postgres::PgPoolOptions;
-use tokio::{
-    sync::mpsc::{self},
-    task::JoinHandle,
-};
+use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
@@ -56,20 +57,18 @@ fn start_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
     })
 }
 
-// TODO(eli): idea for v2 batch writes: add an isolated tokio runtime to
-// the AppContext just for batch writes that are *always* IO bound, leaving
-// the update loop workers without interference. We could tune the v2 write
-// runtime's worker_count independently then
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_tracing();
-    info!("Starting up...");
+    info!("Starting up property definitions service...");
 
     let config = Config::init_with_defaults()?;
 
     let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
-    // owns Postgres client and biz logic that handles property defs API calls
+    // dedicated PG conn pool for serving propdefs API queries only (not currently live in prod)
+    // TODO: update this to conditionally point to new isolated propdefs & persons (grouptypemapping)
+    // DBs after those migrations are completed, prior to deployment
     let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
     let api_pool = options.connect(&config.database_url).await?;
     let query_manager = Manager::new(api_pool).await?;
@@ -83,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     start_server(&config, context.clone());
 
-    let (tx, rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
+    let (tx, rx) = measuring_channel(config.update_batch_size * config.channel_slots_per_worker);
 
     let cache = Cache::new(config.cache_capacity);
 
@@ -95,12 +94,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let handle = tokio::spawn(update_producer_loop(
             config.clone(),
             consumer.clone(),
-            tx.clone(),
             cache.clone(),
+            tx.clone(),
         ));
 
         handles.push(handle);
     }
+
+    // Publish the tx capacity metric every 10 seconds
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            metrics::gauge!(CHANNEL_CAPACITY).set(tx.capacity() as f64);
+        }
+    });
 
     handles.push(tokio::spawn(update_consumer_loop(
         config.clone(),

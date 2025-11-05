@@ -1,6 +1,8 @@
 import time
+
 from django.core.management.base import BaseCommand
-from posthog.models import PluginConfig, Plugin
+
+from posthog.models import Plugin, PluginConfig
 
 
 class Command(BaseCommand):

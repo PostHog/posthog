@@ -1,10 +1,16 @@
-from dataclasses import dataclass
 import re
+from dataclasses import dataclass
 from typing import Optional
 
 from clickhouse_driver.errors import ServerException
 
-from posthog.exceptions import EstimatedQueryExecutionTimeTooLong, QuerySizeExceeded
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQueryTimeOut,
+    EstimatedQueryExecutionTimeTooLong,
+    QuerySizeExceeded,
+)
 
 
 class InternalCHQueryError(ServerException):
@@ -38,34 +44,50 @@ class ErrorCodeMeta:
     If a string is set, it will be used as the error message instead of the ClickHouse one.
     """
 
+    @property
+    def label(self) -> str:
+        return self.name.replace("_", " ").title().replace(" ", "")
+
+
+def ch_error_type(e: Exception) -> str:
+    "Provide a ClickHouse error type for observability"
+    if not isinstance(e, ServerException):
+        return type(e).__name__
+    return f"CHQueryError{look_up_error_code_meta(e).label}"
+
 
 def wrap_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if not isinstance(err, ServerException):
         return err
 
-    # Return a 512 error for queries which would time out
-    match = re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message)
-    if match:
-        return EstimatedQueryExecutionTimeTooLong(
-            detail=f"{match.group(0)} Try reducing its scope by changing the time range."
-        )
-    # Handle syntax error when "max query size exceeded" in the message
-    if "query size exceeded" in err.message:
+    # 202 is too many simultanous queries, 439 is cannot schedule tasks - too many threads, both
+    if err.code in (202, 439):
+        return ClickHouseAtCapacity()
+    elif err.code == 159:
+        return ClickHouseQueryTimeOut()
+    elif err.code == 241:
+        return ClickHouseQueryMemoryLimitExceeded()
+    elif (
+        err.code == 62 and "query size exceeded" in err.message
+    ):  # Handle syntax error when "max query size exceeded" in the message
         return QuerySizeExceeded()
+    elif err.code == 160:
+        # Return a 512 error for queries which would time out
+        detail = "Estimated query execution time is too long"
+        if match := re.search(r"Estimated query execution time \(.* seconds\) is too long.", err.message):
+            detail = match.group(0)
+        return EstimatedQueryExecutionTimeTooLong(detail=f"{detail} Try reducing its scope by changing the time range.")
 
-    # :TRICKY: Return a custom class for every code by looking up the short name and creating a class dynamically.
-    if hasattr(err, "code"):
-        meta = look_up_error_code_meta(err)
+    meta = look_up_error_code_meta(err)
 
-        if meta.name in CLICKHOUSE_SPECIFIC_ERROR_LOOKUP:
-            return CLICKHOUSE_SPECIFIC_ERROR_LOOKUP[meta.name]
+    if meta.name in CLICKHOUSE_SPECIFIC_ERROR_LOOKUP:
+        return CLICKHOUSE_SPECIFIC_ERROR_LOOKUP[meta.name]
 
-        name = f"CHQueryError{meta.name.replace('_', ' ').title().replace(' ', '')}"
-        processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
-        message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
-        return type(name, (processed_error_class,), {})(message, code=err.code, code_name=meta.name.lower())
-    return err
+    name = f"CHQueryError{meta.label}"
+    processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
+    message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
+    return type(name, (processed_error_class,), {})(message, code=err.code, code_name=meta.name.lower())
 
 
 def look_up_error_code_meta(error: ServerException) -> ErrorCodeMeta:
@@ -81,12 +103,16 @@ class CHQueryErrorTooManySimultaneousQueries(InternalCHQueryError):
     pass
 
 
+class CHQueryErrorCannotScheduleTask(InternalCHQueryError):
+    pass
+
+
 CLICKHOUSE_SPECIFIC_ERROR_LOOKUP = {
     "TOO_MANY_SIMULTANEOUS_QUERIES": CHQueryErrorTooManySimultaneousQueries(
         "Too many simultaneous queries. Try again later.", code=202
     ),
+    "CANNOT_SCHEDULE_TASK": CHQueryErrorCannotScheduleTask("Cannot schedule task. Try again later.", code=439),
 }
-
 
 #
 # From https://github.com/ClickHouse/ClickHouse/blob/23.12/src/Common/ErrorCodes.cpp#L16-L622
@@ -99,7 +125,7 @@ CLICKHOUSE_SPECIFIC_ERROR_LOOKUP = {
 # import re
 # import requests
 # output = {}
-# resp = requests.get('https://raw.githubusercontent.com/ClickHouse/ClickHouse/23.12/src/Common/ErrorCodes.cpp')
+# resp = requests.get('https://raw.githubusercontent.com/ClickHouse/ClickHouse/refs/heads/25.4/src/Common/ErrorCodes.cpp')
 # for line in resp.text.split("\n"):
 #     result = re.search(r"^M\(([0-9]+), (\S+)\).*$", line.strip())
 #     if result is not None:
@@ -231,7 +257,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     153: ErrorCodeMeta("ILLEGAL_DIVISION", user_safe=True),
     156: ErrorCodeMeta("DICTIONARIES_WAS_NOT_LOADED"),
     158: ErrorCodeMeta("TOO_MANY_ROWS"),
-    159: ErrorCodeMeta("TIMEOUT_EXCEEDED"),
+    159: ErrorCodeMeta("TIMEOUT_EXCEEDED", user_safe=True),
     160: ErrorCodeMeta("TOO_SLOW"),
     161: ErrorCodeMeta("TOO_MANY_COLUMNS"),
     162: ErrorCodeMeta("TOO_DEEP_SUBQUERIES"),
@@ -263,7 +289,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     198: ErrorCodeMeta("DNS_ERROR"),
     199: ErrorCodeMeta("UNKNOWN_QUOTA"),
     201: ErrorCodeMeta("QUOTA_EXCEEDED"),
-    202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES"),
+    202: ErrorCodeMeta("TOO_MANY_SIMULTANEOUS_QUERIES", user_safe=True),
     203: ErrorCodeMeta("NO_FREE_CONNECTION"),
     204: ErrorCodeMeta("CANNOT_FSYNC"),
     206: ErrorCodeMeta("ALIAS_REQUIRED"),
@@ -687,8 +713,48 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     707: ErrorCodeMeta("GCP_ERROR"),
     708: ErrorCodeMeta("ILLEGAL_STATISTIC"),
     709: ErrorCodeMeta("CANNOT_GET_REPLICATED_DATABASE_SNAPSHOT"),
+    710: ErrorCodeMeta("FAULT_INJECTED"),
+    711: ErrorCodeMeta("FILECACHE_ACCESS_DENIED"),
+    712: ErrorCodeMeta("TOO_MANY_MATERIALIZED_VIEWS"),
+    713: ErrorCodeMeta("BROKEN_PROJECTION"),
+    714: ErrorCodeMeta("UNEXPECTED_CLUSTER"),
+    715: ErrorCodeMeta("CANNOT_DETECT_FORMAT"),
+    716: ErrorCodeMeta("CANNOT_FORGET_PARTITION"),
+    717: ErrorCodeMeta("EXPERIMENTAL_FEATURE_ERROR"),
+    718: ErrorCodeMeta("TOO_SLOW_PARSING"),
+    719: ErrorCodeMeta("QUERY_CACHE_USED_WITH_SYSTEM_TABLE"),
+    720: ErrorCodeMeta("USER_EXPIRED"),
+    721: ErrorCodeMeta("DEPRECATED_FUNCTION"),
+    722: ErrorCodeMeta("ASYNC_LOAD_WAIT_FAILED"),
+    723: ErrorCodeMeta("PARQUET_EXCEPTION"),
+    724: ErrorCodeMeta("TOO_MANY_TABLES"),
+    725: ErrorCodeMeta("TOO_MANY_DATABASES"),
+    726: ErrorCodeMeta("UNEXPECTED_HTTP_HEADERS"),
+    727: ErrorCodeMeta("UNEXPECTED_TABLE_ENGINE"),
+    728: ErrorCodeMeta("UNEXPECTED_DATA_TYPE"),
+    729: ErrorCodeMeta("ILLEGAL_TIME_SERIES_TAGS"),
+    730: ErrorCodeMeta("REFRESH_FAILED"),
+    731: ErrorCodeMeta("QUERY_CACHE_USED_WITH_NON_THROW_OVERFLOW_MODE"),
+    733: ErrorCodeMeta("TABLE_IS_BEING_RESTARTED"),
+    734: ErrorCodeMeta("CANNOT_WRITE_AFTER_BUFFER_CANCELED"),
+    735: ErrorCodeMeta("QUERY_WAS_CANCELLED_BY_CLIENT"),
+    736: ErrorCodeMeta("DATALAKE_DATABASE_ERROR"),
+    737: ErrorCodeMeta("GOOGLE_CLOUD_ERROR"),
+    738: ErrorCodeMeta("PART_IS_LOCKED"),
+    739: ErrorCodeMeta("BUZZHOUSE"),
+    740: ErrorCodeMeta("POTENTIALLY_BROKEN_DATA_PART"),
+    741: ErrorCodeMeta("TABLE_UUID_MISMATCH"),
+    742: ErrorCodeMeta("DELTA_KERNEL_ERROR"),
+    743: ErrorCodeMeta("ICEBERG_SPECIFICATION_VIOLATION"),
+    744: ErrorCodeMeta("SESSION_ID_EMPTY"),
+    745: ErrorCodeMeta("SERVER_OVERLOADED"),
+    900: ErrorCodeMeta("DISTRIBUTED_CACHE_ERROR"),
+    901: ErrorCodeMeta("CANNOT_USE_DISTRIBUTED_CACHE"),
+    902: ErrorCodeMeta("PROTOCOL_VERSION_MISMATCH"),
+    903: ErrorCodeMeta("LICENSE_EXPIRED"),
     999: ErrorCodeMeta("KEEPER_EXCEPTION"),
     1000: ErrorCodeMeta("POCO_EXCEPTION"),
     1001: ErrorCodeMeta("STD_EXCEPTION"),
     1002: CLICKHOUSE_UNKNOWN_EXCEPTION,
+    1003: ErrorCodeMeta("SSH_EXCEPTION"),
 }

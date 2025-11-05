@@ -1,5 +1,7 @@
-import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
+
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
@@ -10,7 +12,7 @@ import { FunnelsQuery } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isInsightQueryNode, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
-export function getHogQLValue(groupIndex?: number | null, aggregationQuery?: string): string {
+export function getHogQLValue(groupIndex?: number | null, aggregationQuery?: string | null): string {
     if (groupIndex != undefined) {
         return `$group_${groupIndex}`
     } else if (aggregationQuery) {

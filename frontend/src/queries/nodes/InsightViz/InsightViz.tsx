@@ -1,21 +1,22 @@
 import './InsightViz.scss'
 
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { BindLogic, BuiltLogic, LogicWrapper } from 'kea'
 import { useState } from 'react'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
+import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isFunnelsQuery, isRetentionQuery } from '~/queries/utils'
-import { InsightLogicProps, ItemMode } from '~/types'
+import { InsightLogicProps } from '~/types'
 
-import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
 import { getCachedResults } from './utils'
@@ -33,12 +34,16 @@ type InsightVizProps = {
     uniqueKey?: string | number
     query: InsightVizNode
     setQuery: (node: InsightVizNode) => void
-    context?: QueryContext
+    context?: QueryContext<InsightVizNode>
     readOnly?: boolean
+    editMode?: boolean
     embedded?: boolean
     inSharedMode?: boolean
     filtersOverride?: DashboardFilter | null
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** Attach ourselves to another logic, such as the scene logic */
+    attachTo?: BuiltLogic | LogicWrapper
+    cachedResults?: AnyResponseType
 }
 
 let uniqueNode = 0
@@ -53,6 +58,9 @@ export function InsightViz({
     inSharedMode,
     filtersOverride,
     variablesOverride,
+    attachTo,
+    editMode,
+    cachedResults,
 }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueKey || uniqueNode++}`)
     const insightProps =
@@ -74,7 +82,7 @@ export function InsightViz({
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: query.source,
         key: vizKey,
-        cachedResults: getCachedResults(insightProps.cachedInsight, query.source),
+        cachedResults: cachedResults || getCachedResults(insightProps.cachedInsight, query.source),
         doNotLoad: insightProps.doNotLoad,
         onData: insightProps.onData,
         loadPriority: insightProps.loadPriority,
@@ -82,8 +90,6 @@ export function InsightViz({
         filtersOverride,
         variablesOverride,
     }
-
-    const { insightMode } = useValues(insightSceneLogic)
 
     const isFunnels = isFunnelsQuery(query.source)
     const isHorizontalAlways = useFeatureFlag('INSIGHT_HORIZONTAL_CONTROLS')
@@ -95,13 +101,13 @@ export function InsightViz({
     const disableCorrelationTable = embedded || !(query.showCorrelationTable ?? showIfFull)
     const disableLastComputation = embedded || !(query.showLastComputation ?? showIfFull)
     const disableLastComputationRefresh = embedded || !(query.showLastComputationRefresh ?? showIfFull)
-    const showingFilters = query.showFilters ?? insightMode === ItemMode.Edit
+    const showingFilters = query.showFilters ?? editMode ?? false
     const showingResults = query.showResults ?? true
     const isEmbedded = embedded || (query.embedded ?? false)
 
     const display = (
         <InsightVizDisplay
-            insightMode={insightMode}
+            editMode={editMode}
             context={context}
             disableHeader={disableHeader}
             disableTable={disableTable}
@@ -111,11 +117,16 @@ export function InsightViz({
             showingResults={showingResults}
             embedded={isEmbedded}
             inSharedMode={inSharedMode}
+            insightProps={insightProps as InsightLogicProps}
         />
     )
 
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
+    useAttachedLogic(insightLogic(insightProps as InsightLogicProps) as BuiltLogic, attachTo)
+    useAttachedLogic(insightVizDataLogic(insightProps as InsightLogicProps), attachTo)
+
     return (
-        <ErrorBoundary tags={{ feature: 'InsightViz' }}>
+        <ErrorBoundary exceptionProps={{ feature: 'InsightViz' }}>
             <BindLogic logic={insightLogic} props={insightProps}>
                 <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                     <BindLogic logic={insightVizDataLogic} props={insightProps}>

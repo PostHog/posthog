@@ -3,6 +3,11 @@ import { RGBColor } from 'd3'
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 import { FunnelPathType } from '~/types'
 
+import { HIDE_PATH_CARD_HEIGHT } from './Paths'
+import { PATH_NODE_CARD_TOP_OFFSET } from './constants'
+
+const PATH_NODE_CARD_TOP_ADJUSTMENTS = 33
+
 export interface PathTargetLink {
     average_conversion_time: number
     index: number
@@ -110,8 +115,8 @@ export function pageUrl(d: PathNodeData, display?: boolean): string {
     return name.length > 15
         ? name.substring(0, 6) + '...' + name.slice(-8)
         : name.length < 4 && d.name.length < 25
-        ? d.name.replace(/(^[0-9]+_)/, '')
-        : name
+          ? d.name.replace(/(^[0-9]+_)/, '')
+          : name
 }
 
 export const isSelectedPathStartOrEnd = (
@@ -132,4 +137,14 @@ export const isSelectedPathStartOrEnd = (
             ((cardName === funnelSource?.series[funnelStep! - 1].name && isPathEnd) ||
                 (cardName === funnelSource?.series[funnelStep! - 2].name && isPathStart)))
     )
+}
+
+export const calculatePathNodeCardTop = (node: PathNodeData, canvasHeight: number): number => {
+    const isNodeCutoff = node.y1 - node.y0 < HIDE_PATH_CARD_HEIGHT && node.y1 > canvasHeight - HIDE_PATH_CARD_HEIGHT
+    const isPathEnd = node.sourceLinks.length === 0
+    const result = !isPathEnd ? node.y0 + PATH_NODE_CARD_TOP_OFFSET : node.y0 + (node.y1 - node.y0) / 2
+    if (isNodeCutoff) {
+        return result - PATH_NODE_CARD_TOP_ADJUSTMENTS
+    }
+    return result
 }

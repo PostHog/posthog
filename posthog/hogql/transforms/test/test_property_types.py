@@ -1,18 +1,21 @@
-import pytest
-from typing import Any
 import re
+from typing import Any
+
+import pytest
+from posthog.test.base import BaseTest
 
 from django.test import override_settings
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import print_ast
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.models import PropertyDefinition, GroupTypeMapping
-from posthog.models.group.util import create_group
-from posthog.test.base import BaseTest
 
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseJoin, DataWarehouseCredential
+from posthog.models import PropertyDefinition
+from posthog.models.group.util import create_group
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseJoin, DataWarehouseTable
 
 
 class TestPropertyTypes(BaseTest):
@@ -21,7 +24,7 @@ class TestPropertyTypes(BaseTest):
 
     def setUp(self):
         super().setUp()
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
         create_group(
@@ -158,7 +161,7 @@ class TestPropertyTypes(BaseTest):
                         organization.properties.group_boolean is null
                     from events)"""
         )
-        query = print_ast(
+        query, _ = prepare_and_print_ast(
             expr,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",
@@ -205,7 +208,7 @@ class TestPropertyTypes(BaseTest):
 
     def _print_select(self, select: str):
         expr = parse_select(select)
-        query = print_ast(
+        query, _ = prepare_and_print_ast(
             expr,
             HogQLContext(team_id=self.team.pk, enable_select_queries=True),
             "clickhouse",

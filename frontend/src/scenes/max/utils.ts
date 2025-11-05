@@ -1,30 +1,43 @@
+import { dayjs } from 'lib/dayjs'
+import { humanFriendlyDuration } from 'lib/utils'
+
 import {
+    AnyAssistantGeneratedQuery,
+    AnyAssistantSupportedQuery,
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
-    ReasoningMessage,
+    MultiVisualizationMessage,
+    NotebookUpdateMessage,
     RootAssistantMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import {
-    AssistantFunnelsQuery,
-    AssistantHogQLQuery,
-    AssistantRetentionQuery,
-    AssistantTrendsQuery,
-} from '~/queries/schema/schema-assistant-queries'
-import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
+    DashboardFilter,
+    FunnelsQuery,
+    HogQLQuery,
+    HogQLVariable,
+    RetentionQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
-export function isReasoningMessage(message: RootAssistantMessage | undefined | null): message is ReasoningMessage {
-    return message?.type === AssistantMessageType.Reasoning
-}
+import { SuggestionGroup } from './maxLogic'
+import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
 export function isVisualizationMessage(
     message: RootAssistantMessage | undefined | null
 ): message is VisualizationMessage {
     return message?.type === AssistantMessageType.Visualization
+}
+
+export function isMultiVisualizationMessage(
+    message: RootAssistantMessage | undefined | null
+): message is MultiVisualizationMessage {
+    return message?.type === AssistantMessageType.MultiVisualization
 }
 
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {
@@ -45,31 +58,137 @@ export function isFailureMessage(message: RootAssistantMessage | undefined | nul
     return message?.type === AssistantMessageType.Failure
 }
 
-// The cast function below look like no-ops, but they're here to ensure AssistantFooQuery types stay compatible
-// with their respective FooQuery types. If an incompatibility arises, TypeScript will shout here
-function castAssistantTrendsQuery(query: AssistantTrendsQuery): TrendsQuery {
-    return query
+export function isNotebookUpdateMessage(
+    message: RootAssistantMessage | undefined | null
+): message is NotebookUpdateMessage {
+    return message?.type === AssistantMessageType.Notebook
 }
-function castAssistantFunnelsQuery(query: AssistantFunnelsQuery): FunnelsQuery {
-    return query
-}
-function castAssistantRetentionQuery(query: AssistantRetentionQuery): RetentionQuery {
-    return query
-}
-function castAssistantHogQLQuery(query: AssistantHogQLQuery): HogQLQuery {
-    return query
-}
+
 export function castAssistantQuery(
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
     if (isTrendsQuery(query)) {
-        return castAssistantTrendsQuery(query)
+        return query
     } else if (isFunnelsQuery(query)) {
-        return castAssistantFunnelsQuery(query)
+        return query
     } else if (isRetentionQuery(query)) {
-        return castAssistantRetentionQuery(query)
+        return query
     } else if (isHogQLQuery(query)) {
-        return castAssistantHogQLQuery(query)
+        return query
     }
-    throw new Error(`Unsupported query type: ${query.kind}`)
+    throw new Error(`Unsupported query type: ${query?.kind}`)
+}
+
+export function formatConversationDate(updatedAt: string | null): string {
+    if (!updatedAt) {
+        return 'Some time ago'
+    }
+
+    const diff = dayjs().diff(dayjs(updatedAt), 'seconds')
+    if (diff < 60) {
+        return 'Just now'
+    }
+    return humanFriendlyDuration(diff, { maxUnits: 1 })
+}
+
+/**
+ * Checks if a suggestion requires user input.
+ * @param suggestion - The suggestion to check.
+ * @returns True if the suggestion requires input, false otherwise.
+ */
+export function checkSuggestionRequiresUserInput(suggestion: string): boolean {
+    const matches = suggestion.match(/<|>|…/g)
+    return !!matches && matches.length > 0
+}
+
+/**
+ * Strips the user input placeholder (`<`, `>`, `…`) from a suggestion.
+ * @param suggestion - The suggestion to strip.
+ * @returns The stripped suggestion.
+ */
+export function stripSuggestionPlaceholders(suggestion: string): string {
+    return `${suggestion
+        .replace(/<[^>]*>/g, '')
+        .replace(/…$/, '')
+        .trim()} `
+}
+
+/**
+ * Formats a suggestion by stripping the placeholder characters (`<`, `>`) from a suggestion.
+ * @param suggestion - The suggestion to format.
+ * @returns The formatted suggestion.
+ */
+export function formatSuggestion(suggestion: string): string {
+    return `${suggestion.replace(/[<>]/g, '').replace(/…$/, '').trim()}${suggestion.endsWith('…') ? '…' : ''}`
+}
+
+export function isDeepResearchReportNotebook(
+    notebook: { category?: string | null; notebook_type?: string | null } | null | undefined
+): boolean {
+    return !!(notebook && notebook.category === 'deep_research' && notebook.notebook_type === 'report')
+}
+
+export function isDeepResearchReportCompletion(message: NotebookUpdateMessage): boolean {
+    return (
+        message.notebook_type === 'deep_research' &&
+        Array.isArray(message.conversation_notebooks) &&
+        message.conversation_notebooks.some((nb) => isDeepResearchReportNotebook(nb))
+    )
+}
+
+// Utility functions for transforming data to max context
+export const insightToMaxContext = (
+    insight: Partial<QueryBasedInsightModel>,
+    filtersOverride?: DashboardFilter,
+    variablesOverride?: Record<string, HogQLVariable>
+): MaxInsightContext => {
+    // Some insights (especially revenue analytics insights) don't have an inner source so we fallback to the outer query
+    const source = (insight.query as any)?.source ?? insight.query
+
+    return {
+        type: MaxContextType.INSIGHT,
+        id: insight.short_id!,
+        name: insight.name || insight.derived_name,
+        description: insight.description,
+        query: source,
+        filtersOverride,
+        variablesOverride,
+    }
+}
+
+export const dashboardToMaxContext = (dashboard: DashboardType<QueryBasedInsightModel>): MaxDashboardContext => {
+    return {
+        type: MaxContextType.DASHBOARD,
+        id: dashboard.id,
+        name: dashboard.name,
+        description: dashboard.description,
+        insights: dashboard.tiles.filter((tile) => tile.insight).map((tile) => insightToMaxContext(tile.insight!)),
+        filters: dashboard.filters,
+    }
+}
+
+export const eventToMaxContextPayload = (event: EventDefinition): MaxEventContext => {
+    return {
+        type: MaxContextType.EVENT,
+        id: event.id,
+        name: event.name,
+        description: event.description,
+    }
+}
+
+export const actionToMaxContextPayload = (action: ActionType): MaxActionContext => {
+    return {
+        type: MaxContextType.ACTION,
+        id: action.id,
+        name: action.name || `Action ${action.id}`,
+        description: action.description || '',
+    }
+}
+
+export const createSuggestionGroup = (label: string, icon: JSX.Element, suggestions: string[]): SuggestionGroup => {
+    return {
+        label,
+        icon,
+        suggestions: suggestions.map((content) => ({ content })),
+    }
 }

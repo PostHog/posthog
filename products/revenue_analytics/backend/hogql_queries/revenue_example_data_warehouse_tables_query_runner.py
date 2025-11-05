@@ -1,26 +1,26 @@
-from typing import cast, Union
+from typing import cast
+
+from posthog.schema import (
+    CachedRevenueExampleDataWarehouseTablesQueryResponse,
+    RevenueExampleDataWarehouseTablesQuery,
+    RevenueExampleDataWarehouseTablesQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.database.models import UnknownDatabaseField
+
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql.database.database import create_hogql_database, Database
-from posthog.hogql.hogql import HogQLContext
-from posthog.schema import (
-    RevenueExampleDataWarehouseTablesQuery,
-    RevenueExampleDataWarehouseTablesQueryResponse,
-    CachedRevenueExampleDataWarehouseTablesQueryResponse,
-)
-from ..models import RevenueAnalyticsRevenueView
+from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
+
+from ..views import RevenueAnalyticsRevenueItemView
 
 
-class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
+class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunnerWithHogQLContext):
     query: RevenueExampleDataWarehouseTablesQuery
     response: RevenueExampleDataWarehouseTablesQueryResponse
     cached_response: CachedRevenueExampleDataWarehouseTablesQueryResponse
     paginator: HogQLHasMorePaginator
-    database: Database
-    hogql_context: HogQLContext
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -28,30 +28,23 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
             limit_context=LimitContext.QUERY, limit=self.query.limit if self.query.limit else None
         )
 
-        # We create a new context here because we need to access the database
-        # below in the to_query method and creating a database is pretty heavy
-        # so we'll reuse this database for the query once it eventually runs
-        self.database = create_hogql_database(team=self.team)
-        self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
-
-    def to_query(self) -> Union[ast.SelectQuery, ast.SelectSetQuery]:
-        queries = []
-
-        # UNION ALL for all of the `RevenueAnalyticsRevenueView`s
-        for view_name in self.database.get_views():
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        queries: list[ast.SelectQuery] = []
+        for view_name in self.database.get_view_names():
             view = self.database.get_table(view_name)
-            if isinstance(view, RevenueAnalyticsRevenueView):
-                view = cast(RevenueAnalyticsRevenueView, view)
+            if isinstance(view, RevenueAnalyticsRevenueItemView) and not view.is_event_view() and not view.union_all:
+                view = cast(RevenueAnalyticsRevenueItemView, view)
 
                 queries.append(
                     ast.SelectQuery(
                         select=[
                             ast.Alias(alias="view_name", expr=ast.Constant(value=view_name)),
                             ast.Alias(alias="distinct_id", expr=ast.Field(chain=["id"])),
-                            ast.Alias(alias="original_revenue", expr=ast.Field(chain=["adjusted_original_amount"])),
+                            ast.Alias(alias="original_amount", expr=ast.Field(chain=["currency_aware_amount"])),
                             ast.Alias(alias="original_currency", expr=ast.Field(chain=["original_currency"])),
-                            ast.Alias(alias="revenue", expr=ast.Field(chain=["amount"])),
+                            ast.Alias(alias="amount", expr=ast.Field(chain=["amount"])),
                             ast.Alias(alias="currency", expr=ast.Field(chain=["currency"])),
+                            ast.Alias(alias="timestamp", expr=ast.Field(chain=["timestamp"])),
                         ],
                         select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
                         order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
@@ -60,16 +53,29 @@ class RevenueExampleDataWarehouseTablesQueryRunner(QueryRunner):
 
         # If no queries, return a select with no results
         if len(queries) == 0:
-            return ast.SelectQuery.empty()
-
-        if len(queries) == 1:
+            columns = [
+                "view_name",
+                "distinct_id",
+                "original_amount",
+                "original_currency",
+                "amount",
+                "currency",
+                "timestamp",
+            ]
+            return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
+        elif len(queries) == 1:
             return queries[0]
+        else:
+            # Reorder by timestamp to ensure the most recent events are at the top across all event views
+            return ast.SelectQuery(
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(table=ast.SelectSetQuery.create_from_queries(queries, "UNION ALL")),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+            )
 
-        return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
-
-    def calculate(self):
+    def _calculate(self):
         response = self.paginator.execute_hogql_query(
-            query_type="revenue_example_external_tables_query",
+            query_type="revenue_example_data_warehouse_tables_query",
             query=self.to_query(),
             team=self.team,
             timings=self.timings,

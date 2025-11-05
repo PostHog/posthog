@@ -1,22 +1,22 @@
-from posthog.hogql.ast import FloatType, IntegerType, DateType
+from datetime import UTC, date, datetime
+from typing import Optional
+
+from freezegun import freeze_time
+from posthog.test.base import BaseTest
+
+from posthog.hogql.ast import DateType, FloatType, IntegerType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.printer import print_ast
-from posthog.test.base import BaseTest
-from typing import Optional
+from posthog.hogql.functions.core import HogQLFunctionMeta, compare_types
 from posthog.hogql.functions.mapping import (
-    compare_types,
-    find_hogql_function,
-    find_hogql_aggregation,
-    find_hogql_posthog_function,
-    HogQLFunctionMeta,
     HOGQL_CLICKHOUSE_FUNCTIONS,
+    find_hogql_aggregation,
+    find_hogql_function,
+    find_hogql_posthog_function,
 )
-from datetime import datetime, UTC
-from freezegun import freeze_time
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
-from datetime import date
 
 
 class TestMappings(BaseTest):
@@ -86,12 +86,12 @@ class TestMappings(BaseTest):
                 ((UnknownType(),), DateType()),
             ],
         )
-        ast = print_ast(
+        sql, _ = prepare_and_print_ast(
             parse_expr("overloadedFunction(dateEmittingFunction('123123'))"),
             HogQLContext(self.team.pk, enable_select_queries=True),
             "clickhouse",
         )
-        assert "overloadSuccess" in ast
+        assert "overloadSuccess" in sql
 
     @freeze_time("2023-01-01T12:00:00Z")
     def test_postgres_functions(self):
@@ -110,6 +110,9 @@ class TestMappings(BaseTest):
                     make_timestamp(2023, 1, 1, 12, 34, 56) as timestamp_result,
                     make_timestamptz(2023, 1, 1, 12, 34, 56, 'UTC') as timestamptz_result,
                     timezone('UTC', toDateTime('2023-01-01 13:45:32')) as timezone_result,
+                    toStartOfInterval(toDateTime('2023-01-01 13:45:32'), toIntervalHour(1)) as to_start_of_interval_result,
+                    toStartOfInterval(toDateTime('2023-01-01 13:45:32'), toIntervalHour(1), toDateTime('2023-01-01 13:15:00')) as to_start_of_interval_origin_result,
+                    date_bin(toIntervalHour(1), toDateTime('2023-01-01 13:45:32'), toDateTime('2023-01-01 13:15:00')) as date_bin_result,
                     toYear(toDateTime('2023-01-01 13:45:32')) as date_part_year,
                     toMonth(toDateTime('2023-01-01 13:45:32')) as date_part_month,
                     toDayOfMonth(toDateTime('2023-01-01 13:45:32')) as date_part_day,
@@ -199,6 +202,9 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["timestamp_result"], datetime(2023, 1, 1, 12, 34, 56, tzinfo=UTC))
         self.assertEqual(result_dict["timestamptz_result"], datetime(2023, 1, 1, 12, 34, 56, tzinfo=UTC))
         self.assertEqual(result_dict["timezone_result"], datetime(2023, 1, 1, 13, 45, 32, tzinfo=UTC))
+        self.assertEqual(result_dict["to_start_of_interval_result"], datetime(2023, 1, 1, 13, 0, tzinfo=UTC))
+        self.assertEqual(result_dict["to_start_of_interval_origin_result"], datetime(2023, 1, 1, 13, 15, tzinfo=UTC))
+        self.assertEqual(result_dict["date_bin_result"], datetime(2023, 1, 1, 13, 15, tzinfo=UTC))
         self.assertEqual(result_dict["date_part_year"], 2023)
         self.assertEqual(result_dict["date_part_month"], 1)
         self.assertEqual(result_dict["date_part_day"], 1)
@@ -243,3 +249,143 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["json_agg_null_result"], None)
         self.assertEqual(result_dict["string_agg_null_result"], None)
         self.assertFalse(result_dict["every_null_result"])  # No values > 0
+
+    def test_function_mapping(self):
+        response = execute_hogql_query(
+            """
+            SELECT
+                toFloat(3.14),
+                toFloat(NULL),
+                toFloatOrDefault(3, 7.),
+                toFloatOrDefault(3.14, 7.),
+                toFloatOrZero('3.14'),
+                toFloatOrDefault('3.14', 7.),
+                toFloatOrZero(''),
+                toFloatOrDefault('', 7.),
+                toFloatOrZero('bla'),
+                toFloatOrDefault('bla', 7.),
+                toFloatOrZero(NULL),
+                toFloatOrDefault(NULL, 7.)
+        """,
+            self.team,
+        )
+        assert response.columns is not None
+        assert response.results[0] == (3.14, None, 3.0, 3.14, 3.14, 3.14, 0.0, 7.0, 0.0, 7.0, None, 7.0)
+
+    def test_map_function_with_multiple_key_value_pairs(self):
+        """Test that the map function accepts multiple key-value pairs."""
+        response = execute_hogql_query(
+            """
+            SELECT
+                map() as empty_map,
+                map('key1', 'value1') as single_pair_map,
+                map('key1', 'value1', 'key2', 'value2') as two_pair_map,
+                map(
+                    'a', toString('2023-01-01'),
+                    'b', toString(100),
+                    'c', toString(50),
+                    'd', toString(50)
+                ) as multi_pair_map
+            """,
+            self.team,
+        )
+
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        self.assertEqual(result_dict["empty_map"], {})
+        self.assertEqual(result_dict["single_pair_map"], {"key1": "value1"})
+        self.assertEqual(result_dict["two_pair_map"], {"key1": "value1", "key2": "value2"})
+        self.assertEqual(
+            result_dict["multi_pair_map"],
+            {
+                "a": "2023-01-01",
+                "b": "100",
+                "c": "50",
+                "d": "50",
+            },
+        )
+
+    def test_language_code_to_name_function(self):
+        """Test the languageCodeToName function that maps language codes to full language names."""
+        response = execute_hogql_query(
+            """
+            SELECT
+                languageCodeToName('en') as english_name,
+                languageCodeToName('es') as spanish_name,
+                languageCodeToName('invalid') as invalid_code,
+                languageCodeToName(NULL) as null_code
+            """,
+            self.team,
+        )
+
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        self.assertEqual(result_dict["english_name"], "English")
+        self.assertEqual(result_dict["spanish_name"], "Spanish")
+        self.assertEqual(result_dict["invalid_code"], "Unknown")
+        self.assertEqual(result_dict["null_code"], "Unknown")
+
+    def test_isValidJSON_function(self):
+        """Test that isValidJSON translates correctly from HogQL to ClickHouse."""
+        response = execute_hogql_query(
+            """
+            SELECT
+                isValidJSON('{"valid": true}') as valid_json,
+                isValidJSON('invalid json') as invalid_json
+            """,
+            self.team,
+        )
+
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        # Verify HogQL to ClickHouse translation works correctly
+        self.assertEqual(result_dict["valid_json"], 1)
+        self.assertEqual(result_dict["invalid_json"], 0)
+
+    def test_JSONHas_function(self):
+        """Test that JSONHas translates correctly from HogQL to ClickHouse."""
+        response = execute_hogql_query(
+            """
+            SELECT
+                JSONHas('{"a": "hello", "b": [-100, 200.0, 300]}', 'b') as has_key,
+                JSONHas('{"a": "hello", "b": [-100, 200.0, 300]}', 'nonexistent') as missing_key
+            """,
+            self.team,
+        )
+
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        # Verify HogQL to ClickHouse translation works correctly
+        self.assertEqual(result_dict["has_key"], 1)
+        self.assertEqual(result_dict["missing_key"], 0)
+
+    def test_json_functions_basic(self):
+        """Test basic JSON functions translate correctly from HogQL to ClickHouse."""
+        response = execute_hogql_query(
+            """
+            SELECT
+                JSONLength('{"a": [1, 2, 3], "b": {"c": "hello"}}') as obj_length,
+                JSONArrayLength('[1, 2, 3, 4, 5]') as array_length,
+                JSONType('{"key": "value"}', 'key') as string_type,
+                JSONExtract('{"num": 42}', 'num', 'Int32') as extracted_int
+            """,
+            self.team,
+        )
+
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        # Verify basic functionality
+        self.assertEqual(result_dict["obj_length"], 2)  # 2 keys in object
+        self.assertEqual(result_dict["array_length"], 5)  # 5 elements in array
+        self.assertEqual(result_dict["string_type"], "String")  # type of "value"
+        self.assertEqual(result_dict["extracted_int"], 42)  # extracted integer

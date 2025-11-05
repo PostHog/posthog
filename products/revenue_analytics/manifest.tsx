@@ -1,6 +1,6 @@
-import { IconPiggyBank } from '@posthog/icons'
 import { urls } from 'scenes/urls'
 
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -11,7 +11,8 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/RevenueAnalyticsScene'),
             projectBased: true,
             defaultDocsPath: '/docs/revenue-analytics',
-            activityScope: 'RevenueAnalytics',
+            iconType: 'revenue_analytics',
+            description: 'Track and analyze your revenue metrics to understand your business performance and growth.',
         },
     },
     routes: {
@@ -20,11 +21,32 @@ export const manifest: ProductManifest = {
     urls: {
         revenueAnalytics: (): string => '/revenue_analytics',
     },
-    treeItemsExplore: [
+    treeItemsProducts: [
         {
-            path: 'Explore/Revenue analytics',
-            icon: <IconPiggyBank />,
+            path: 'Revenue analytics',
+            category: 'Analytics',
+            href: urls.revenueAnalytics(),
+            type: 'revenue',
+            tags: ['beta'],
+            sceneKey: 'RevenueAnalytics',
+        },
+    ],
+    fileSystemTypes: {
+        revenue: {
+            name: 'Revenue',
+            iconType: 'revenue_analytics' as FileSystemIconType,
             href: () => urls.revenueAnalytics(),
+            iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
+            filterKey: 'revenue',
+        },
+    },
+    treeItemsMetadata: [
+        {
+            path: 'Revenue definitions',
+            category: 'Schema',
+            iconType: 'revenue_analytics_metadata' as FileSystemIconType,
+            href: urls.revenueSettings(),
+            sceneKey: 'RevenueAnalytics',
         },
     ],
 }

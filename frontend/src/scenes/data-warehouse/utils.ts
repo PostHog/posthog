@@ -1,5 +1,7 @@
-import { DatabaseSchemaField, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import { DataWarehouseSyncInterval } from '~/types'
+import { LemonTagType } from '@posthog/lemon-ui'
+
+import { DataVisualizationNode, DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
+import { DataWarehouseSyncInterval, ExternalDataJobStatus, ExternalDataSourceSyncSchema } from '~/types'
 
 export const DATAWAREHOUSE_EDITOR_ITEM_ID = 'new-SQL'
 
@@ -19,7 +21,7 @@ export const defaultQuery = (table: string, columns: DatabaseSchemaField[]): Dat
 /**
  * This is meant to provide a human-readable sentence that computes the times of day in which a sync
  * will occur.
- * "The sync runs at 11:00 AM, 5:00 PM, and 11:00 PM UTC"
+ * "The sync runs at 5:00 AM, 11:00 AM, 5:00 PM, and 11:00 PM UTC"
  * @param anchorTime - The time at which the sync was anchored (UTC)
  * @param syncFrequency - Interval at which the sync will reoccur
  */
@@ -45,10 +47,20 @@ export const syncAnchorIntervalToHumanReadable = (
         return `The sync runs monthly at ${humanTimeFormatter(hours, minutes)} UTC`
     }
 
+    // by this point the syncFrequency should be in the format "6hour" or "12hour"
+    const intervalMatch = syncFrequency.match(/\d+/)?.[0]
+    if (!intervalMatch) {
+        return ''
+    }
+    const interval = Number(intervalMatch)
     const syncTimes: string[] = []
-    const interval = syncFrequency === '6hour' ? 6 : 12
 
-    for (let i = hours; i < 24; i += interval) {
+    // get the first sync time
+    let start = hours
+    while (start >= interval) {
+        start -= interval
+    }
+    for (let i = start; i < 24; i += interval) {
         syncTimes.push(humanTimeFormatter(i, minutes))
     }
 
@@ -72,8 +84,8 @@ const typeSizes = {
         !item
             ? 0
             : Array.isArray(item)
-            ? item.reduce((total, element) => sizeOfInBytes(element) + total, 0)
-            : Object.keys(item).reduce((total, key) => sizeOfInBytes(key) + sizeOfInBytes(item[key]) + total, 0),
+              ? item.reduce((total, element) => sizeOfInBytes(element) + total, 0)
+              : Object.keys(item).reduce((total, key) => sizeOfInBytes(key) + sizeOfInBytes(item[key]) + total, 0),
     function: () => 0,
     symbol: () => 0,
     bigint: () => 0,
@@ -81,4 +93,18 @@ const typeSizes = {
 
 export const sizeOfInBytes = (value: any): number => {
     return (typeSizes[typeof value] || (() => 0))(value)
+}
+
+export const SyncTypeLabelMap: Record<NonNullable<ExternalDataSourceSyncSchema['sync_type']>, string> = {
+    full_refresh: 'Full refresh',
+    incremental: 'Incremental',
+    append: 'Append only',
+}
+
+export const StatusTagSetting: Record<ExternalDataJobStatus, LemonTagType> = {
+    [ExternalDataJobStatus.Running]: 'primary',
+    [ExternalDataJobStatus.Completed]: 'success',
+    [ExternalDataJobStatus.Failed]: 'danger',
+    [ExternalDataJobStatus.BillingLimits]: 'danger',
+    [ExternalDataJobStatus.BillingLimitTooLow]: 'danger',
 }

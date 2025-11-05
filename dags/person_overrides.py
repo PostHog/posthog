@@ -1,6 +1,5 @@
-import datetime
-import time
 import uuid
+import datetime
 from dataclasses import dataclass
 from functools import partial
 
@@ -8,29 +7,22 @@ import dagster
 import pydantic
 from clickhouse_driver import Client
 
-from dags.common import JobOwners
 from posthog import settings
-from posthog.clickhouse.cluster import (
-    ClickhouseCluster,
-    MutationWaiter,
-    AlterTableMutationRunner,
-    LightweightDeleteMutationRunner,
-)
+from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
+from dags.common import JobOwners
+from dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
+
 
 @dataclass
-class PersonOverridesSnapshotTable:
+class PersonOverridesSnapshotTable(OverridesSnapshotTable):
     id: uuid.UUID
 
     @property
     def name(self) -> str:
         return f"person_distinct_id_overrides_snapshot_{self.id.hex}"
-
-    @property
-    def qualified_name(self):
-        return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
 
     def create(self, client: Client) -> None:
         client.execute(
@@ -40,17 +32,6 @@ class PersonOverridesSnapshotTable:
             ORDER BY (team_id, distinct_id)
             """
         )
-
-    def exists(self, client: Client) -> None:
-        results = client.execute(
-            f"SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
-        )
-        [[count]] = results
-        return count > 0
-
-    def drop(self, client: Client) -> None:
-        client.execute(f"DROP TABLE IF EXISTS {self.qualified_name} SYNC")
 
     def populate(self, client: Client, timestamp: str, limit: int | None = None) -> None:
         # NOTE: this is theoretically subject to replication lag and accuracy of this result is not a guarantee
@@ -76,29 +57,10 @@ class PersonOverridesSnapshotTable:
             },
         )
 
-    def sync(self, client: Client) -> None:
-        client.execute(f"SYSTEM SYNC REPLICA {self.qualified_name} STRICT")
-
-        # this is probably excessive (and doesn't guarantee that anybody else won't mess with the table later) but it
-        # probably doesn't hurt to be careful
-        [[queue_size]] = client.execute(
-            "SELECT queue_size FROM system.replicas WHERE database = %(database)s AND table = %(table)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "table": self.name},
-        )
-        assert queue_size == 0
-
 
 @dataclass
-class PersonOverridesSnapshotDictionary:
+class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
     source: PersonOverridesSnapshotTable
-
-    @property
-    def name(self) -> str:
-        return f"{self.source.name}_dictionary"
-
-    @property
-    def qualified_name(self):
-        return f"{settings.CLICKHOUSE_DATABASE}.{self.name}"
 
     def create(self, client: Client, shards: int, max_execution_time: int, max_memory_usage: int) -> None:
         client.execute(
@@ -110,7 +72,7 @@ class PersonOverridesSnapshotDictionary:
                 version Int64
             )
             PRIMARY KEY team_id, distinct_id
-            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s PASSWORD %(password)s))
+            SOURCE(CLICKHOUSE(DB %(database)s TABLE %(table)s USER %(user)s PASSWORD %(password)s))
             LAYOUT(COMPLEX_KEY_HASHED(SHARDS {shards}))
             LIFETIME(0)
             SETTINGS(max_execution_time={max_execution_time}, max_memory_usage={max_memory_usage})
@@ -118,74 +80,38 @@ class PersonOverridesSnapshotDictionary:
             {
                 "database": settings.CLICKHOUSE_DATABASE,
                 "table": self.source.name,
+                "user": settings.CLICKHOUSE_USER,
                 "password": settings.CLICKHOUSE_PASSWORD,
             },
         )
 
-    def exists(self, client: Client) -> bool:
-        results = client.execute(
-            "SELECT count() FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
-        )
-        [[count]] = results
-        return count > 0
-
-    def drop(self, client: Client) -> None:
-        client.execute(f"DROP DICTIONARY IF EXISTS {self.qualified_name} SYNC")
-
-    def __is_loaded(self, client: Client) -> bool:
-        results = client.execute(
-            "SELECT status, last_exception FROM system.dictionaries WHERE database = %(database)s AND name = %(name)s",
-            {"database": settings.CLICKHOUSE_DATABASE, "name": self.name},
-        )
-        if not results:
-            raise Exception("dictionary does not exist")
-        else:
-            [[status, last_exception]] = results
-            if status == "LOADED":
-                return True
-            elif status in {"LOADING", "FAILED_AND_RELOADING", "LOADED_AND_RELOADING"}:
-                return False
-            elif status == "FAILED":
-                raise Exception(f"failed to load: {last_exception}")
-            else:
-                raise Exception(f"unexpected status: {status}")
-
-    def load(self, client: Client):
-        # TODO: this should probably not reload if the dictionary is already loaded
-        client.execute(f"SYSTEM RELOAD DICTIONARY {self.qualified_name}")
-
-        # reload is async, so we need to wait for the dictionary to actually be loaded
-        # TODO: this should probably throw on unexpected reloads
-        while not self.__is_loaded(client):
-            time.sleep(5.0)
-
+    def get_checksum(self, client: Client):
         results = client.execute(
             f"""
-            SELECT groupBitXor(row_checksum) AS table_checksum
-            FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, distinct_id)
-            """
+             SELECT groupBitXor(row_checksum) AS table_checksum
+             FROM (SELECT cityHash64(*) AS row_checksum FROM {self.qualified_name} ORDER BY team_id, distinct_id)
+             """
         )
         [[checksum]] = results
         return checksum
 
     @property
-    def person_id_update_mutation_runner(self) -> AlterTableMutationRunner:
-        return AlterTableMutationRunner(
-            EVENTS_DATA_TABLE(),
-            {
-                "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
-            },
-            parameters={"name": self.qualified_name},
-        )
+    def update_table(self):
+        return EVENTS_DATA_TABLE()
 
     @property
-    def overrides_delete_mutation_runner(self) -> LightweightDeleteMutationRunner:
-        return LightweightDeleteMutationRunner(
-            PERSON_DISTINCT_ID_OVERRIDES_TABLE,
-            "isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version) AND snapshot_version >= version",
-            parameters={"name": self.qualified_name},
-        )
+    def update_commands(self):
+        return {
+            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
+        }
+
+    @property
+    def overrides_table(self):
+        return PERSON_DISTINCT_ID_OVERRIDES_TABLE
+
+    @property
+    def overrides_deletes_predicate(self):
+        return "isNotNull(dictGetOrNull(%(name)s, 'version', (team_id, distinct_id)) as snapshot_version) AND snapshot_version >= version"
 
 
 # Snapshot Table Management
@@ -320,7 +246,7 @@ def run_person_id_update_mutations(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     dictionary: PersonOverridesSnapshotDictionary,
 ) -> PersonOverridesSnapshotDictionary:
-    dictionary.person_id_update_mutation_runner.run_on_shards(cluster)
+    dictionary.update_mutation_runner.run_on_shards(cluster)
     return dictionary
 
 

@@ -1,5 +1,6 @@
 import { connect, events, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'

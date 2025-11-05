@@ -1,35 +1,40 @@
 procs:
     backend:
-        shell: 'bin/check_kafka_clickhouse_up && python manage.py migrate && ./bin/start-backend'
+        shell: 'uv sync --active && bin/check_postgres_up && bin/check_kafka_clickhouse_up && ./bin/start-backend'
 
     celery-worker:
-        shell: 'bin/check_kafka_clickhouse_up && ./bin/start-celery worker'
+        shell: 'uv sync --active && bin/check_postgres_up && bin/check_kafka_clickhouse_up && ./bin/start-celery worker'
 
     celery-beat:
-        shell: 'bin/check_kafka_clickhouse_up && ./bin/start-celery beat'
+        shell: 'uv sync --active && bin/check_postgres_up && bin/check_kafka_clickhouse_up && ./bin/start-celery beat'
 
     plugin-server:
-        shell: 'bin/check_kafka_clickhouse_up && ./bin/plugin-server'
+        shell: 'bin/check_postgres_up && bin/check_kafka_clickhouse_up && ./bin/plugin-server'
 
     frontend:
-        shell: 'bin/check_kafka_clickhouse_up && ./bin/start-frontend'
+        shell: './bin/start-frontend'
+        autorestart: true
 
-    temporal-worker-general-purpose:
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue general-purpose-task-queue'
+    temporal-worker:
+        shell: |-
+            bin/check_kafka_clickhouse_up && \
+            bin/check_temporal_up && \
+            bin/check_video_deps && \
+            if [ -n "$TEMPORAL_WATCH" ]; then \
+                nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue"; \
+            else \
+                python manage.py start_temporal_worker --task-queue development-task-queue; \
+            fi
 
-    temporal-worker-batch-exports:
-        # added a sleep to give the docker stuff time to start
-        shell: 'bin/check_kafka_clickhouse_up && bin/check_temporal_up && python manage.py start_temporal_worker --task-queue batch-exports-task-queue --metrics-port 8002'
+    dagster:
+        shell: |-
+            bin/check_postgres_up && \
+            bin/check_kafka_clickhouse_up && \
+            dagster dev --workspace $DAGSTER_HOME/workspace.yaml -p $DAGSTER_UI_PORT
 
     docker-compose:
         # docker-compose makes sure the stack is up, and then follows its logs - but doesn't tear down on exit for speed
         shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f'
-
-    cyclotron-fetch:
-        shell: |-
-            bin/check_postgres_up cyclotron && \
-            bin/check_kafka_clickhouse_up && \
-            bin/start-rust-service cyclotron-fetch
 
     cyclotron-janitor:
         shell: |-
@@ -39,18 +44,73 @@ procs:
 
     cymbal:
         shell: |-
-            bin/check_postgres_up cyclotron && \
+            bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service cymbal
 
+    embedding-worker:
+        shell: |-
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service embedding-worker
+
+    feature-flags:
+        shell: |-
+            bin/check_postgres_up posthog && \
+            bin/start-rust-service feature-flags
+
     property-defs-rs:
         shell: |-
-            bin/check_postgres_up cyclotron && \
+            bin/check_postgres_up && \
             bin/check_kafka_clickhouse_up && \
             bin/start-rust-service property-defs-rs
 
+    capture:
+        shell: |-
+            bin/check_postgres_up && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service capture
+
+    capture-replay:
+        shell: |-
+            bin/check_postgres_up && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service capture-replay
+
+    batch-import-worker:
+        shell: |-
+            bin/check_postgres_up && \
+            bin/check_kafka_clickhouse_up && \
+            bin/start-rust-service batch-import-worker
+
+    # This takes ~10 s
+    migrate-postgres:
+        shell: 'bin/check_postgres_up && python manage.py migrate'
+
+    # This takes ~10 s too
+    migrate-clickhouse:
+        shell: 'bin/check_kafka_clickhouse_up && python manage.py migrate_clickhouse'
+
+    migrate-persons-db:
+        shell: 'bin/check_postgres_up posthog_persons && cd rust && DATABASE_URL=postgres://posthog:posthog@localhost:5432/posthog_persons sqlx migrate run --source persons_migrations'
+
+    migrate-behavioral-cohorts:
+        shell: 'bin/check_postgres_up behavioral_cohorts && rust/bin/migrate-behavioral-cohorts'
+
+    # This will automatically skip if we've already seeded the DB with demo data
+    generate-demo-data:
+        shell: |-
+            bin/check_postgres_up && \
+            bin/check_kafka_clickhouse_up && \
+            bin/check_dagster_graphql_up && \
+            ./manage.py generate_demo_data
+        autostart: false
+
     storybook:
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
+        autostart: false
+
+    hedgebox-dummy:
+        shell: 'bin/check_postgres_up && cd hedgebox-dummy && pnpm install && pnpm run dev'
         autostart: false
 
 mouse_scroll_speed: 1

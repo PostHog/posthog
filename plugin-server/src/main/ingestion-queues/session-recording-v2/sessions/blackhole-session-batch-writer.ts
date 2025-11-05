@@ -1,12 +1,18 @@
 import { logger } from '../../../../utils/logger'
-import { SessionBatchFileStorage, SessionBatchFileWriter, WriteSessionResult } from './session-batch-file-storage'
+import {
+    SessionBatchFileStorage,
+    SessionBatchFileWriter,
+    WriteSessionData,
+    WriteSessionResult,
+} from './session-batch-file-storage'
 
 class BlackholeBatchFileWriter implements SessionBatchFileWriter {
-    public writeSession(buffer: Buffer): Promise<WriteSessionResult> {
-        logger.debug('🔁', 'blackhole_writer_writing_session', { bytes: buffer.length })
+    public writeSession(sessionData: WriteSessionData): Promise<WriteSessionResult> {
+        logger.debug('🔁', 'blackhole_writer_writing_session', { bytes: sessionData.buffer.length })
         return Promise.resolve({
-            bytesWritten: buffer.length,
+            bytesWritten: sessionData.buffer.length,
             url: null,
+            retentionPeriodDays: null,
         })
     }
 

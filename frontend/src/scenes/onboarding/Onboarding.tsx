@@ -1,36 +1,48 @@
-import { Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { FEATURE_FLAGS, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { useEffect, useState } from 'react'
+
+import { Spinner } from '@posthog/lemon-ui'
+
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { FEATURE_FLAGS, OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { productsLogic } from 'scenes/products/productsLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ProductKey, type SessionRecordingMaskingLevel } from '~/types'
+import {
+    AvailableFeature,
+    OnboardingStepKey,
+    ProductKey,
+    type SessionRecordingMaskingLevel,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
+import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
+import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
+import { OnboardingReverseProxy } from './OnboardingReverseProxy'
+import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
 import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingDataWarehouseSourcesStep'
 import { OnboardingErrorTrackingAlertsStep } from './error-tracking/OnboardingErrorTrackingAlertsStep'
 import { OnboardingErrorTrackingSourceMapsStep } from './error-tracking/OnboardingErrorTrackingSourceMapsStep'
-import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
-import { onboardingLogic, OnboardingLogicProps, OnboardingStepKey } from './onboardingLogic'
-import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
+import { OnboardingLogicProps, onboardingLogic } from './onboardingLogic'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
-import { OnboardingReverseProxy } from './OnboardingReverseProxy'
-import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { OnboardingDashboardTemplateConfigureStep } from './productAnalyticsSteps/DashboardTemplateConfigureStep'
 import { OnboardingDashboardTemplateSelectStep } from './productAnalyticsSteps/DashboardTemplateSelectStep'
+import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import { ErrorTrackingSDKInstructions } from './sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
-import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
+import { LLMAnalyticsSDKInstructions } from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
 import { sdksLogic } from './sdks/sdksLogic'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
@@ -61,7 +73,13 @@ const OnboardingWrapper = ({
     } = useValues(logic)
     const { setAllOnboardingSteps } = useActions(logic)
     const { billing, billingLoading } = useValues(billingLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const [allSteps, setAllSteps] = useState<JSX.Element[]>([])
+
+    const minAdminRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
 
     useEffect(() => {
         let steps = []
@@ -88,11 +106,16 @@ const OnboardingWrapper = ({
             steps = [...steps, BillingStep]
         }
 
-        const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
-        steps = [...steps, inviteTeammatesStep].filter(Boolean)
+        const userCannotInvite = minAdminRestrictionReason && !currentOrganization?.members_can_invite
+        if (!userCannotInvite) {
+            const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
+            steps = [...steps, inviteTeammatesStep]
+        }
+
+        steps = steps.filter(Boolean)
 
         setAllSteps(steps)
-    }, [children, billingLoading])
+    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!allSteps.length || (billingLoading && waitForBilling)) {
@@ -100,7 +123,7 @@ const OnboardingWrapper = ({
         }
 
         setAllOnboardingSteps(allSteps)
-    }, [allSteps])
+    }, [allSteps]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (!product || !children) {
         return <></>
@@ -117,6 +140,26 @@ const OnboardingWrapper = ({
     return currentOnboardingStep
 }
 
+const sessionReplayOnboardingToggle = (
+    currentTeam: TeamType | TeamPublicType | null,
+    selectedProducts: ProductKey[]
+): ProductConfigOption => {
+    const userDecision =
+        currentTeam?.session_recording_opt_in ||
+        selectedProducts.includes(ProductKey.SESSION_REPLAY) ||
+        currentTeam?.product_intents?.some((intent) => intent.product_type === ProductKey.SESSION_REPLAY)
+
+    return {
+        title: 'Enable session recordings',
+        description: `Turn on session recordings and watch how users experience your app. We will also turn on console log and network performance recording. You can change these settings any time in the settings panel.`,
+        teamProperty: 'session_recording_opt_in',
+        // TRICKY: if someone has shown secondary (or tertiary or...) product intent for replay we want to include it as enabled
+        // particularly while we're not taking people through every product onboarding they showed interest in
+        value: userDecision ?? false,
+        type: 'toggle',
+        visible: true,
+    }
+}
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -138,8 +181,8 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
     const options: ProductConfigOption[] = [
         {
             title: 'Autocapture frontend interactions',
-            description: `If you use our JavaScript, React Native or iOS libraries, we'll automagically 
-            capture frontend interactions like clicks, submits, and more. Fine-tune what you 
+            description: `If you use our JavaScript, React Native or iOS libraries, we'll automagically
+            capture frontend interactions like clicks, submits, and more. Fine-tune what you
             capture directly in your code snippet.`,
             teamProperty: 'autocapture_opt_out',
             value: !currentTeam?.autocapture_opt_out,
@@ -150,7 +193,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         {
             title: 'Enable heatmaps',
             description: `If you use our JavaScript libraries, we can capture general clicks, mouse movements,
-                   and scrolling to create heatmaps. 
+                   and scrolling to create heatmaps.
                    No additional events are created, and you can disable this at any time.`,
             teamProperty: 'heatmaps_opt_in',
             value: currentTeam?.heatmaps_opt_in ?? true,
@@ -165,17 +208,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
             type: 'toggle',
             visible: true,
         },
-        {
-            title: 'Enable session recordings',
-            description: `Turn on session recordings and watch how users experience your app. We will also turn on console log and network performance recording. You can change these settings any time in the settings panel.`,
-            teamProperty: 'session_recording_opt_in',
-            // TRICKY: if someone has shown secondary product intent for replay we want to include it as enabled
-            // particularly while we're not taking people through every product onboarding they showed interest in
-            value:
-                (currentTeam?.session_recording_opt_in || selectedProducts.includes(ProductKey.SESSION_REPLAY)) ?? true,
-            type: 'toggle',
-            visible: true,
-        },
+        sessionReplayOnboardingToggle(currentTeam, selectedProducts),
         {
             title: 'Capture console logs',
             description: `Automatically enable console log capture`,
@@ -202,6 +235,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={ProductAnalyticsSDKInstructions}
+                productKey={ProductKey.PRODUCT_ANALYTICS}
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration
@@ -226,12 +260,13 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
 
 const WebAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
+    const { selectedProducts } = useValues(productsLogic)
 
     const options: ProductConfigOption[] = [
         {
             title: 'Autocapture frontend interactions',
-            description: `If you use our JavaScript, React Native or iOS libraries, we'll automagically 
-            capture frontend interactions like clicks, submits, and more. Fine-tune what you 
+            description: `If you use our JavaScript, React Native or iOS libraries, we'll automagically
+            capture frontend interactions like clicks, submits, and more. Fine-tune what you
             capture directly in your code snippet.`,
             teamProperty: 'autocapture_opt_out',
             value: !currentTeam?.autocapture_opt_out,
@@ -242,7 +277,7 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
         {
             title: 'Enable heatmaps',
             description: `If you use our JavaScript libraries, we can capture general clicks, mouse movements,
-                   and scrolling to create heatmaps. 
+                   and scrolling to create heatmaps.
                    No additional events are created, and you can disable this at any time.`,
             teamProperty: 'heatmaps_opt_in',
             value: currentTeam?.heatmaps_opt_in ?? true,
@@ -257,14 +292,7 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
             type: 'toggle',
             visible: true,
         },
-        {
-            title: 'Enable session recordings',
-            description: `Turn on session recordings and watch how users experience your app. We will also turn on console log and network performance recording. You can change these settings any time in the settings panel.`,
-            teamProperty: 'session_recording_opt_in',
-            value: currentTeam?.session_recording_opt_in ?? true,
-            type: 'toggle',
-            visible: true,
-        },
+        sessionReplayOnboardingToggle(currentTeam, selectedProducts),
         {
             title: 'Capture network performance',
             description: `Automatically enable network performance capture`,
@@ -279,6 +307,7 @@ const WebAnalyticsOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={WebAnalyticsSDKInstructions}
+                productKey={ProductKey.WEB_ANALYTICS}
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingWebAnalyticsAuthorizedDomainsStep stepKey={OnboardingStepKey.AUTHORIZED_DOMAINS} />
@@ -295,7 +324,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
         {
             type: 'toggle',
             title: 'Capture console logs',
-            description: `Capture console logs as a part of user session recordings. 
+            description: `Capture console logs as a part of user session recordings.
                             Use the console logs alongside recordings to debug any issues with your app.`,
             teamProperty: 'capture_console_log_opt_in',
             value: currentTeam?.capture_console_log_opt_in ?? true,
@@ -342,7 +371,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
         configOptions.push({
             type: 'select',
             title: 'Minimum session duration (seconds)',
-            description: `Only record sessions that are longer than the specified duration. 
+            description: `Only record sessions that are longer than the specified duration.
                             Start with it low and increase it later if you're getting too many short sessions.`,
             teamProperty: 'session_recording_minimum_duration_milliseconds',
             value: currentTeam?.session_recording_minimum_duration_milliseconds || null,
@@ -355,6 +384,7 @@ const SessionReplayOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={SessionReplaySDKInstructions}
+                productKey={ProductKey.SESSION_REPLAY}
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingProductConfiguration
@@ -371,6 +401,7 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
         <OnboardingWrapper>
             <OnboardingInstallStep
                 sdkInstructionMap={FeatureFlagsSDKInstructions}
+                productKey={ProductKey.FEATURE_FLAGS}
                 stepKey={OnboardingStepKey.INSTALL}
             />
         </OnboardingWrapper>
@@ -380,7 +411,11 @@ const FeatureFlagsOnboarding = (): JSX.Element => {
 const ExperimentsOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={ExperimentsSDKInstructions} stepKey={OnboardingStepKey.INSTALL} />
+            <OnboardingInstallStep
+                sdkInstructionMap={ExperimentsSDKInstructions}
+                productKey={ProductKey.EXPERIMENTS}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
         </OnboardingWrapper>
     )
 }
@@ -388,7 +423,11 @@ const ExperimentsOnboarding = (): JSX.Element => {
 const SurveysOnboarding = (): JSX.Element => {
     return (
         <OnboardingWrapper>
-            <OnboardingInstallStep sdkInstructionMap={SurveysSDKInstructions} stepKey={OnboardingStepKey.INSTALL} />
+            <OnboardingInstallStep
+                sdkInstructionMap={SurveysSDKInstructions}
+                productKey={ProductKey.SURVEYS}
+                stepKey={OnboardingStepKey.INSTALL}
+            />
         </OnboardingWrapper>
     )
 }
@@ -414,10 +453,24 @@ const ErrorTrackingOnboarding = (): JSX.Element => {
         >
             <OnboardingInstallStep
                 sdkInstructionMap={ErrorTrackingSDKInstructions}
+                productKey={ProductKey.ERROR_TRACKING}
                 stepKey={OnboardingStepKey.INSTALL}
             />
             <OnboardingErrorTrackingSourceMapsStep stepKey={OnboardingStepKey.SOURCE_MAPS} />
             <OnboardingErrorTrackingAlertsStep stepKey={OnboardingStepKey.ALERTS} />
+        </OnboardingWrapper>
+    )
+}
+
+const LLMAnalyticsOnboarding = (): JSX.Element => {
+    return (
+        <OnboardingWrapper>
+            <OnboardingInstallStep
+                sdkInstructionMap={LLMAnalyticsSDKInstructions}
+                productKey={ProductKey.LLM_ANALYTICS}
+                stepKey={OnboardingStepKey.INSTALL}
+                listeningForName="LLM generation"
+            />
         </OnboardingWrapper>
     )
 }
@@ -431,6 +484,7 @@ export const onboardingViews = {
     [ProductKey.SURVEYS]: SurveysOnboarding,
     [ProductKey.DATA_WAREHOUSE]: DataWarehouseOnboarding,
     [ProductKey.ERROR_TRACKING]: ErrorTrackingOnboarding,
+    [ProductKey.LLM_ANALYTICS]: LLMAnalyticsOnboarding,
 }
 
 export function Onboarding(): JSX.Element | null {
@@ -441,5 +495,9 @@ export function Onboarding(): JSX.Element | null {
     }
     const OnboardingView = onboardingViews[productKey as keyof typeof onboardingViews]
 
-    return <OnboardingView />
+    return (
+        <div className="pt-4 pb-10">
+            <OnboardingView />
+        </div>
+    )
 }

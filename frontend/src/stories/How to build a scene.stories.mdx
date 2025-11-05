@@ -1,4 +1,4 @@
-import { Meta } from '@storybook/addon-docs';
+import { Meta } from '@storybook/addon-docs'
 
 <Meta title=" How to build a scene?" />
 
@@ -8,9 +8,9 @@ If you want to add a new scene in the PostHog App frontend, here are 7 easy step
 
 But first, you must answer one question: Does your scene depend on an `id` in the URL, like `/dashboard/:id`?
 
-## Option A: I'm buliding a global scene that does not depend on an `id` in the URL.
+## Option A: I'm buliding a global scene that does not depend on an `id` in the URL
 
-### 1. Create the component, logic and styles.
+### 1. Create the component, logic and styles
 
 Create a component like: `frontend/src/scenes/dashboard/Dashboards.tsx`
 
@@ -41,13 +41,13 @@ export const scene: SceneExport = {
 Create the logic: `frontend/src/scenes/dashboard/dashboardsLogic.tsx`
 
 ```ts
-import { kea, reducers, path } from 'kea'
+import { kea, path, reducers } from 'kea'
 
 export const dashboardsLogic = kea([
-    path(['scenes', 'dashboard', 'dashboardsLogic']),
-    reducers({
-        counter: [1, {}],
-    }),
+  path(['scenes', 'dashboard', 'dashboardsLogic']),
+  reducers({
+    counter: [1, {}],
+  }),
 ])
 ```
 
@@ -71,7 +71,7 @@ in `frontend/src/scenes/urls.ts`
 
 ```ts
 export const urls = {
-    dashboards: () => `/dashboard`,
+  dashboards: () => `/dashboard`,
 }
 ```
 
@@ -81,7 +81,7 @@ in `frontend/src/scenes/sceneTypes.ts`
 
 ```ts
 export enum Scene {
-    Dashboards = 'Dashboards',
+  Dashboards = 'Dashboards',
 }
 ```
 
@@ -91,14 +91,14 @@ in `frontend/src/scenes/scenes.ts`
 
 ```ts
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
-    [Scene.Dashboards]: {
-        projectBased: true,
-        name: 'Dashboards',
-    },
+  [Scene.Dashboards]: {
+    projectBased: true,
+    name: 'Dashboards',
+  },
 }
 
 export const routes: Record<string, Scene> = {
-    [urls.dashboards()]: Scene.Dashboards,
+  [urls.dashboards()]: Scene.Dashboards,
 }
 ```
 
@@ -108,13 +108,13 @@ in `frontend/src/scenes/appScenes.ts`
 
 ```ts
 export const appScenes: Record<Scene, () => any> = {
-    [Scene.Dashboards]: () => import('./dashboard/Dashboards'),
+  [Scene.Dashboards]: () => import('./dashboard/Dashboards'),
 }
 ```
 
-## Option B: My scene depends on an `id` in the URL (`/dashboard/:id`).
+## Option B: My scene depends on an `id` in the URL (`/dashboard/:id`)
 
-### 1. Create the component, logic and styles.
+### 1. Create the component, logic and styles
 
 Create a component like: `frontend/src/scenes/dashboard/Dashboard.tsx`
 
@@ -150,19 +150,19 @@ export function Dashboard ({ id }: { id?: string } = {}): JSX.Element {
 Create the logic: `frontend/src/scenes/dashboard/dashboardLogic.tsx`
 
 ```ts
-import { kea, reducers, path, props, key } from 'kea'
+import { kea, key, path, props, reducers } from 'kea'
 
 export interface DashboardLogicProps {
-    id: number | 'new'
+  id: number | 'new'
 }
 
 export const dashboardLogic = kea([
-    props({} as DashboardLogicProps),
-    key(({ id }) => id),
-    path((id) => ['scenes', 'dashboard', 'dashboardLogic', id]),
-    reducers({
-        counter: [1, {}],
-    }),
+  props({} as DashboardLogicProps),
+  key(({ id }) => id),
+  path((id) => ['scenes', 'dashboard', 'dashboardLogic', id]),
+  reducers({
+    counter: [1, {}],
+  }),
 ])
 ```
 
@@ -196,7 +196,7 @@ in `frontend/src/scenes/sceneTypes.ts`
 
 ```ts
 export enum Scene {
-    Dashboard = 'Dashboard',
+  Dashboard = 'Dashboard',
 }
 ```
 
@@ -206,15 +206,15 @@ in `frontend/src/scenes/scenes.ts`
 
 ```ts
 export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
-    [Scene.Dashboard]: {
-        projectBased: true,
-        name: 'Dashboard',
-    },
+  [Scene.Dashboard]: {
+    projectBased: true,
+    name: 'Dashboard',
+  },
 }
 
 export const routes: Record<string, Scene> = {
-    // this `:id` gets used in "params" in "paramsToProps" and passed to the <Dashboard /> component
-    [urls.dashboard(':id')]: Scene.Dashboard,
+  // this `:id` gets used in "params" in "paramsToProps" and passed to the <Dashboard /> component
+  [urls.dashboard(':id')]: Scene.Dashboard,
 }
 ```
 
@@ -224,7 +224,7 @@ in `frontend/src/scenes/appScenes.ts`
 
 ```ts
 export const appScenes: Record<Scene, () => any> = {
-    [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
+  [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
 }
 ```
 
@@ -234,47 +234,53 @@ In the same folder as your component, create a file like `frontend/src/scenes/da
 If you need a lot of `.json` files for mocked data, create a `__mocks__` subdirectory for those files, just like you would with `jest`.
 
 ```tsx
-import { useEffect } from 'react'
 import { Meta, StoryObj } from '@storybook/react'
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { App } from 'scenes/App'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
+
 export default {
-    title: 'Scenes-App/Dashboard',
-    decorators: [
-        // mocks used by all stories in this file
-        mswDecorator({
-            get: {
-                '/api/projects/1/dashboards/': require('./__mocks__/dashboards.json'),
-                '/api/projects/1/dashboards/1/': require('./__mocks__/dashboard1.json'),
-                '/api/projects/1/dashboards/1/collaborators/': [],
-            },
-        }),
-    ],
-    // NB! These `parameters` only apply for Scene stories.
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' }, // scene mode
+  title: 'Scenes-App/Dashboard',
+  decorators: [
+    // mocks used by all stories in this file
+    mswDecorator({
+      get: {
+        '/api/projects/1/dashboards/': require('./__mocks__/dashboards.json'),
+        '/api/projects/1/dashboards/1/': require('./__mocks__/dashboard1.json'),
+        '/api/projects/1/dashboards/1/collaborators/': [],
+      },
+    }),
+  ],
+  // NB! These `parameters` only apply for Scene stories.
+  parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' }, // scene mode
 } as Meta
 
-export function NewDashboard (): JSX.Element {
-    // mocks used only in this story
-    useStorybookMocks({
-        get: { '/api/projects/dashboard/2/': require('./__mocks__/dashboard2.json') },
-    })
-    useEffect(() => {
-        // change the URL
-        router.actions.push(urls.dashboard(2))
-        // call various other actions to set the initial state
-        newDashboardLogic.actions.showNewDashboardModal()
-    }, [])
-    return <App />
+export function NewDashboard(): JSX.Element {
+  // mocks used only in this story
+  useStorybookMocks({
+    get: { '/api/projects/dashboard/2/': require('./__mocks__/dashboard2.json') },
+  })
+
+  useOnMountEffect(() => {
+    // change the URL
+    router.actions.push(urls.dashboard(2))
+    // call various other actions to set the initial state
+    newDashboardLogic.actions.showNewDashboardModal()
+  })
+
+  return <App />
 }
 ```
 
 ## 7. Add some components
 
 Read next:
+
 - [How to use components](/docs/how-to-use-components--page)
 - [How to build a form](/docs/how-to-build-a-form--page)
 - [How to add tabs to a scene](/docs/how-to-add-tabs-to-a-scene--page)

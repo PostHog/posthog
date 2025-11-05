@@ -1,4 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import {
     DateFilterLogicProps,
     DateFilterView,
@@ -6,7 +7,15 @@ import {
     SELECT_FIXED_VALUE_PLACEHOLDER,
 } from 'lib/components/DateFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { dateFilterToText, dateStringToDayJs, formatDate, formatDateRange, formatDateTime, isDate } from 'lib/utils'
+import {
+    dateFilterToText,
+    dateStringToDayJs,
+    formatDate,
+    formatDateRange,
+    formatDateTime,
+    formatDateTimeRange,
+    isDate,
+} from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
 
@@ -129,6 +138,15 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 return false
             },
         ],
+        dateToHasTimePrecision: [
+            (s) => [s.dateTo],
+            (dateTo) => {
+                if (dateTo) {
+                    return dayjs(dateTo).format('HH:mm:ss') !== '00:00:00'
+                }
+                return false
+            },
+        ],
         label: [
             (s) => [
                 s.dateFrom,
@@ -140,6 +158,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 (_, p) => p.isFixedDateMode,
                 (_, p) => p.placeholder,
                 s.dateFromHasTimePrecision,
+                s.dateToHasTimePrecision,
             ],
             (
                 dateFrom,
@@ -150,25 +169,28 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 dateOptions,
                 isFixedDateMode,
                 placeholder,
-                dateFromHasTimePrecision
+                dateFromHasTimePrecision,
+                dateToHasTimePrecision
             ) =>
                 isFixedRange
-                    ? formatDateRange(dayjs(dateFrom), dayjs(dateTo))
+                    ? dateFromHasTimePrecision || dateToHasTimePrecision
+                        ? formatDateTimeRange(dayjs(dateFrom), dayjs(dateTo))
+                        : formatDateRange(dayjs(dateFrom), dayjs(dateTo))
                     : isDateToNow
-                    ? `${
-                          dateFromHasTimePrecision ? formatDateTime(dayjs(dateFrom)) : formatDate(dayjs(dateFrom))
-                      } to now`
-                    : isFixedDate
-                    ? formatDate(dateStringToDayJs(dateFrom) ?? dayjs(dateFrom))
-                    : dateFilterToText(
-                          dateFrom,
-                          dateTo,
-                          isFixedDateMode
-                              ? placeholder ?? SELECT_FIXED_VALUE_PLACEHOLDER
-                              : NO_OVERRIDE_RANGE_PLACEHOLDER,
-                          dateOptions,
-                          false
-                      ),
+                      ? `${
+                            dateFromHasTimePrecision ? formatDateTime(dayjs(dateFrom)) : formatDate(dayjs(dateFrom))
+                        } to now`
+                      : isFixedDate
+                        ? formatDate(dateStringToDayJs(dateFrom) ?? dayjs(dateFrom))
+                        : dateFilterToText(
+                              dateFrom,
+                              dateTo,
+                              isFixedDateMode
+                                  ? (placeholder ?? SELECT_FIXED_VALUE_PLACEHOLDER)
+                                  : NO_OVERRIDE_RANGE_PLACEHOLDER,
+                              dateOptions,
+                              false
+                          ),
         ],
     }),
     listeners(({ actions, values, props }) => ({

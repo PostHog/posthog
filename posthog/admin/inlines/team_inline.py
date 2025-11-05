@@ -1,13 +1,17 @@
-from django.contrib import admin
 from django.utils.html import format_html
+
+from django_admin_inline_paginator.admin import TabularInlinePaginated
 
 from posthog.admin.admins.team_admin import TeamAdmin
 from posthog.models import Team
 
 
-class TeamInline(admin.TabularInline):
+class TeamInline(TabularInlinePaginated):
     extra = 0
     model = Team
+    per_page = 20
+    pagination_key = "page-team"
+    show_change_link = True
 
     fields = (
         "id",
@@ -23,7 +27,6 @@ class TeamInline(admin.TabularInline):
         "autocapture_opt_out",
         "signup_token",
         "is_demo",
-        "access_control",
         "test_account_filters",
         "path_cleaning_filters",
         "timezone",
@@ -33,7 +36,7 @@ class TeamInline(admin.TabularInline):
         "plugins_opt_in",
         "opt_out_capture",
     )
-    readonly_fields = [*TeamAdmin.readonly_fields, "displayed_name"]
+    readonly_fields = [*TeamAdmin.readonly_fields[:-1], "displayed_name"]
 
     def displayed_name(self, team: Team):
         return format_html(

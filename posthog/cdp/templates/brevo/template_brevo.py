@@ -1,7 +1,7 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-template: HogFunctionTemplate = HogFunctionTemplate(
-    status="beta",
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
+    status="stable",
     free=False,
     type="destination",
     id="template-brevo",
@@ -9,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Update contacts in Brevo",
     icon_url="/static/services/brevo.png",
     category=["Email Marketing"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
     return

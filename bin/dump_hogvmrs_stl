@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Get the directory where the script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+
+# Change to the hogvm directory
+if ! cd "$SCRIPT_DIR/../rust/common/hogvm"; then
+    echo "Failed to change directory to ./rust/common/hogvm"
+    exit 1
+fi
+
+# Run cargo command with script location as parameter
+cargo run stl_dump -- "$SCRIPT_DIR/../posthog/models/error_tracking/hogvm_stl.py"

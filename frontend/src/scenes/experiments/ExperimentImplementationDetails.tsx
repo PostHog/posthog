@@ -1,16 +1,10 @@
-import { LemonSelect, Link } from '@posthog/lemon-ui'
-import {
-    IconAndroidOS,
-    IconAppleIOS,
-    IconFlutter,
-    IconGolang,
-    IconJavascript,
-    IconNodeJS,
-    IconPHP,
-    IconPython,
-    IconRuby,
-} from 'lib/lemon-ui/icons'
 import { useState } from 'react'
+
+import { IconServer } from '@posthog/icons'
+import { IconFlutter, IconGo, IconJavascript, IconPHP, IconPython, IconRuby } from '@posthog/icons'
+import { LemonSelect, Link } from '@posthog/lemon-ui'
+
+import { IconAndroidOS, IconAppleIOS, IconNodeJS } from 'lib/lemon-ui/icons'
 
 import { Experiment, MultivariateFlagVariant, SDKKey } from '~/types'
 
@@ -20,11 +14,12 @@ import {
     GolangSnippet,
     IOSSnippet,
     JSSnippet,
+    JavaSnippet,
     NodeJSSnippet,
     PHPSnippet,
     PythonSnippet,
-    ReactSnippet,
     RNSnippet,
+    ReactSnippet,
     RubySnippet,
 } from './ExperimentCodeSnippets'
 
@@ -62,7 +57,7 @@ export const OPTIONS = [
         value: 'Go',
         key: SDKKey.GO,
         documentationLink: `${DOC_BASE_URL}libraries/go${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconGolang,
+        Icon: IconGo,
         Snippet: GolangSnippet,
         type: LibraryType.Server,
     },
@@ -130,6 +125,14 @@ export const OPTIONS = [
         Snippet: RubySnippet,
         type: LibraryType.Server,
     },
+    {
+        value: 'Java',
+        key: SDKKey.JAVA,
+        documentationLink: `${DOC_BASE_URL}libraries/java${UTM_TAGS}${FF_ANCHOR}`,
+        Icon: IconServer,
+        Snippet: JavaSnippet,
+        type: LibraryType.Server,
+    },
 ]
 
 export function CodeLanguageSelect({
@@ -193,7 +196,6 @@ export function ExperimentImplementationDetails({ experiment }: ExperimentImplem
 
     return (
         <div className="mb-4">
-            <h2 className="font-semibold text-lg mb-2">Implementation</h2>
             <div className="border rounded bg-surface-primary">
                 <div className="p-6 deprecated-space-y-4">
                     <div className="flex justify-between">

@@ -7,19 +7,99 @@ then
     exit
 fi
 
+# Function to get changed test files
+get_changed_test_files() {
+    (
+        git diff --name-only master...HEAD; 
+        git status --porcelain | cut -c4-
+    ) | \
+    grep -E '/test_[^/]*\.py$' | \
+    grep -v '__pycache__' | \
+    sort -u
+}
 
-if [ $# -eq 0 ]; then
-    echo "Are you sure you want to run all backend tests? You can run specific tests by doing:"
-    echo " "
-    echo "bin/tests posthog/api/test/test_user.py::TestUserAPI::test_retrieve_current_user"
-    echo " "
-    read -r -p "Run all tests? [y/N] " response
-    if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
-    then
-        echo "OK!"
+# Check if --changed option is used
+CHANGED_ONLY=false
+FILTERED_ARGS=()
+for arg in "$@"; do
+    if [[ "$arg" == "--changed" ]]; then
+        CHANGED_ONLY=true
     else
-        exit
+        FILTERED_ARGS+=("$arg")
     fi
+done
+
+# Handle --changed option
+if [ "$CHANGED_ONLY" = true ]; then
+    CURRENT_BRANCH=$(git branch --show-current)
+    if [ "$CURRENT_BRANCH" = "master" ]; then
+        echo "Cannot use --changed option on master branch"
+        exit 1
+    fi
+    
+    # Get changed test files
+    CHANGED_TEST_FILES=$(get_changed_test_files)
+    
+    if [ -z "$CHANGED_TEST_FILES" ]; then
+        echo "No changed test files found in branch $CURRENT_BRANCH"
+        exit 0
+    fi
+    
+    echo "Running tests for changed files in branch $CURRENT_BRANCH:"
+    echo "$CHANGED_TEST_FILES"
+    echo ""
+    
+    # Set the test files to run
+    set -- "${FILTERED_ARGS[@]}" $CHANGED_TEST_FILES
+elif [ $# -eq 0 ]; then
+    echo "What tests would you like to run?"
+    echo " "
+    echo "1. All tests (will take a long time)"
+    echo "2. Changed tests only (files changed in current branch)"
+    echo "3. Specify tests manually"
+    echo " "
+    echo "Examples of specifying tests manually:"
+    echo "  bin/tests posthog/api/test/test_user.py"
+    echo "  bin/tests posthog/api/test/test_user.py::TestUserAPI::test_retrieve_current_user"
+    echo " "
+    read -r -p "Choose option [1/2/3]: " choice
+    
+    case $choice in
+        1)
+            echo "Running all tests..."
+            ;;
+        2)
+            CURRENT_BRANCH=$(git branch --show-current)
+            if [ "$CURRENT_BRANCH" = "master" ]; then
+                echo "Cannot run changed tests on master branch"
+                exit 1
+            fi
+            
+            # Get changed test files
+            CHANGED_TEST_FILES=$(get_changed_test_files)
+            
+            if [ -z "$CHANGED_TEST_FILES" ]; then
+                echo "No changed test files found in branch $CURRENT_BRANCH"
+                exit 0
+            fi
+            
+            echo "Running tests for changed files in branch $CURRENT_BRANCH:"
+            echo "$CHANGED_TEST_FILES"
+            echo ""
+            
+            # Set the test files to run
+            set -- "${FILTERED_ARGS[@]}" $CHANGED_TEST_FILES
+            ;;
+        3)
+            echo "Please specify the tests you want to run:"
+            echo "  bin/tests <test_path>"
+            exit 0
+            ;;
+        *)
+            echo "Invalid choice. Exiting."
+            exit 1
+            ;;
+    esac
 fi
 
 export REDIS_URL='redis:///'
@@ -37,4 +117,4 @@ else
     TEST_CONCURRENCY="-n $XDIST_WORKERS"
 fi
 
-nodemon -w ./posthog -w ./common/hogvm/python -w ./ee --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db --durations-min=2.0 ${MIGRATIONS} ${TEST_CONCURRENCY} -s $* --snapshot-update; mypy -p posthog | mypy-baseline filter"
+nodemon -w ./posthog -w ./common/hogvm/python -w ./ee -w ./dags --ext py --exec "OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES pytest --reuse-db --durations-min=2.0 ${MIGRATIONS} ${TEST_CONCURRENCY} -s $* --snapshot-update; mypy . | mypy-baseline filter"

@@ -1,6 +1,10 @@
 import { ExecOptions } from '../types'
 
-export function sha256Hex(data: string | null, options?: ExecOptions): string | null {
+export function sha256(
+    data: string | null,
+    encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex',
+    options?: ExecOptions
+): string | null {
     if (data === null) {
         return null
     }
@@ -8,10 +12,14 @@ export function sha256Hex(data: string | null, options?: ExecOptions): string | 
     if (!crypto) {
         throw new Error('The crypto module is required for "sha256Hex" to work.')
     }
-    return crypto.createHash('sha256').update(data).digest('hex')
+    return crypto.createHash('sha256').update(data).digest(encoding)
 }
 
-export function md5Hex(data: string | null, options?: ExecOptions): string | null {
+export function md5(
+    data: string | null,
+    encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex',
+    options?: ExecOptions
+): string | null {
     if (data === null) {
         return null
     }
@@ -19,10 +27,14 @@ export function md5Hex(data: string | null, options?: ExecOptions): string | nul
     if (!crypto) {
         throw new Error('The crypto module is required for "md5Hex" to work.')
     }
-    return crypto.createHash('md5').update(data).digest('hex')
+    return crypto.createHash('md5').update(data).digest(encoding)
 }
 
-export function sha256HmacChainHex(data: string[], options?: ExecOptions): string {
+export function sha256HmacChain(
+    data: string[],
+    encoding: 'hex' | 'base64' | 'base64url' | 'binary' = 'hex',
+    options?: ExecOptions
+): string {
     const crypto = options?.external?.crypto
     if (!crypto) {
         throw new Error('The crypto module is required for "sha256HmacChainHex" to work.')
@@ -36,5 +48,5 @@ export function sha256HmacChainHex(data: string[], options?: ExecOptions): strin
         hmac = crypto.createHmac('sha256', hmac.digest())
         hmac.update(data[i])
     }
-    return hmac.digest('hex')
+    return hmac.digest(encoding)
 }

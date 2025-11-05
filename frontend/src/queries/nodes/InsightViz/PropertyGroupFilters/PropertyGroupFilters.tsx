@@ -1,13 +1,14 @@
 import './PropertyGroupFilters.scss'
 
+import { BindLogic, useActions, useValues } from 'kea'
+import React from 'react'
+
 import { IconCopy, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import React from 'react'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
@@ -24,7 +25,7 @@ type PropertyGroupFiltersProps = {
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
-    isDataWarehouseSeries?: boolean
+    hasDataWarehouseSeries?: boolean
 }
 
 export function PropertyGroupFilters({
@@ -34,7 +35,7 @@ export function PropertyGroupFilters({
     pageKey,
     eventNames = [],
     taxonomicGroupTypes,
-    isDataWarehouseSeries,
+    hasDataWarehouseSeries,
 }: PropertyGroupFiltersProps): JSX.Element {
     const logicProps = { query, setQuery, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
@@ -48,22 +49,14 @@ export function PropertyGroupFilters({
     } = useActions(propertyGroupFilterLogic(logicProps))
 
     const showHeader = propertyGroupFilter.type && propertyGroupFilter.values.length > 1
-    const disabledReason = isDataWarehouseSeries
+    const disabledReason = hasDataWarehouseSeries
         ? 'Cannot add filter groups to data warehouse series. Use individual series filters'
         : undefined
     return (
         <div className="deprecated-space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
-                    <div className="flex flex-1 gap-2 flex-row space-between">
-                        <div className="flex-1">
-                            <InsightTestAccountFilter
-                                disabledReason={disabledReason}
-                                query={query}
-                                setQuery={setQuery as (node: InsightQueryNode) => void}
-                            />
-                        </div>
-
+                    <div className="flex flex-1 gap-2 flex-row space-between flex-wrap">
                         <LemonButton
                             data-attr={`${pageKey}-add-filter-group-inline`}
                             type="secondary"
@@ -75,6 +68,14 @@ export function PropertyGroupFilters({
                         >
                             Add filter group
                         </LemonButton>
+
+                        <div className="flex-1">
+                            <InsightTestAccountFilter
+                                disabledReason={disabledReason}
+                                query={query}
+                                setQuery={setQuery as (node: InsightQueryNode) => void}
+                            />
+                        </div>
                     </div>
 
                     {showHeader ? (
@@ -158,12 +159,7 @@ export function PropertyGroupFilters({
                         icon={<IconPlusSmall />}
                         sideIcon={null}
                         disabledReason={disabledReason}
-                        // This class hides this button in some situations to improve layout
-                        // We don't want to hide it in Cypress tests because it'll complain the button isn't clickable
-                        // so let's simply avoid adding the class in that case
-                        className={clsx({
-                            'PropertyGroupFilters__add-filter-group-after': !window.Cypress,
-                        })}
+                        className="PropertyGroupFilters__add-filter-group-after"
                     >
                         Add filter group
                     </LemonButton>

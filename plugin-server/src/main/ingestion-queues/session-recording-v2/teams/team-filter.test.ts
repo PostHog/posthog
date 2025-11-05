@@ -3,11 +3,11 @@ import { DateTime } from 'luxon'
 import { ParsedMessageData } from '../kafka/types'
 import { TeamFilter } from './team-filter'
 import { TeamService } from './team-service'
-import { Team } from './types'
+import { TeamForReplay } from './types'
 
 jest.mock('./team-service')
 
-const validTeam: Team = {
+const validTeam: TeamForReplay = {
     teamId: 1,
     consoleLogIngestionEnabled: true,
 }
@@ -41,6 +41,7 @@ describe('TeamFilter', () => {
         jest.clearAllMocks()
         mockTeamService = {
             getTeamByToken: jest.fn(),
+            getRetentionPeriodByTeamId: jest.fn(),
         } as unknown as jest.Mocked<TeamService>
         teamFilter = new TeamFilter(mockTeamService)
     })
@@ -49,12 +50,14 @@ describe('TeamFilter', () => {
         it('processes messages with valid team token', async () => {
             const message = createMessage('valid-token')
             mockTeamService.getTeamByToken.mockResolvedValueOnce(validTeam)
+            mockTeamService.getRetentionPeriodByTeamId.mockResolvedValueOnce('90d')
 
             const result = await teamFilter.filterBatch([message])
 
-            expect(result).toEqual([{ team: validTeam, message }])
+            expect(result).toEqual([{ team: validTeam, message: message }])
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('valid-token')
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledTimes(1)
+            expect(mockTeamService.getRetentionPeriodByTeamId).toHaveBeenCalledTimes(1)
         })
 
         it('drops messages with no token in header', async () => {
@@ -75,6 +78,19 @@ describe('TeamFilter', () => {
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('invalid-token')
             expect(mockTeamService.getTeamByToken).toHaveBeenCalledTimes(1)
         })
+
+        it('drops messages with team missing retention period', async () => {
+            const message = createMessage('valid-token')
+            mockTeamService.getTeamByToken.mockResolvedValueOnce(validTeam)
+            mockTeamService.getRetentionPeriodByTeamId.mockResolvedValueOnce(null)
+
+            const result = await teamFilter.filterBatch([message])
+
+            expect(result).toEqual([])
+            expect(mockTeamService.getTeamByToken).toHaveBeenCalledWith('valid-token')
+            expect(mockTeamService.getTeamByToken).toHaveBeenCalledTimes(1)
+            expect(mockTeamService.getRetentionPeriodByTeamId).toHaveBeenCalledTimes(1)
+        })
     })
 
     describe('batch processing', () => {
@@ -86,6 +102,7 @@ describe('TeamFilter', () => {
             ]
 
             mockTeamService.getTeamByToken.mockResolvedValue(validTeam)
+            mockTeamService.getRetentionPeriodByTeamId.mockResolvedValue('90d')
 
             const result = await teamFilter.filterBatch(messages)
 
@@ -107,6 +124,7 @@ describe('TeamFilter', () => {
 
             const team2 = { ...validTeam, teamId: 2 }
             mockTeamService.getTeamByToken.mockResolvedValueOnce(validTeam).mockResolvedValueOnce(team2)
+            mockTeamService.getRetentionPeriodByTeamId.mockResolvedValue('90d')
 
             const result = await teamFilter.filterBatch(messages)
 
@@ -127,6 +145,7 @@ describe('TeamFilter', () => {
             ]
 
             mockTeamService.getTeamByToken.mockResolvedValue(validTeam)
+            mockTeamService.getRetentionPeriodByTeamId.mockResolvedValue('90d')
 
             const result = await teamFilter.filterBatch(messages)
 

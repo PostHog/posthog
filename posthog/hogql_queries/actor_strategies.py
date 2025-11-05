@@ -1,16 +1,18 @@
-from typing import cast, Literal, Optional
+from typing import Literal, Optional, cast
 
-from django.db import connection
-
-from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.parser import parse_expr
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
-from posthog.models import Team, Group
-from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
+from django.db import connection, connections
 
 import orjson as json
+
+from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import property_to_expr
+
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
+from posthog.models import Group, Team
 
 
 class ActorStrategy:
@@ -54,7 +56,10 @@ class PersonStrategy(ActorStrategy):
             AND posthog_person.team_id = %(team_id)s"""
         if order_by:
             persons_query += f" ORDER BY {order_by}"
-        with connection.cursor() as cursor:
+
+        conn = connections["persons_db_reader"] if "persons_db_reader" in connections else connection
+
+        with conn.cursor() as cursor:
             cursor.execute(
                 persons_query,
                 {"uuids": list(actor_ids), "team_id": self.team.pk},
@@ -108,12 +113,12 @@ class PersonStrategy(ActorStrategy):
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "email"]),
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "email"])]),
                             right=ast.Constant(value=f"%{self.query.search}%"),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
-                            left=ast.Field(chain=["properties", "name"]),
+                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
                             right=ast.Constant(value=f"%{self.query.search}%"),
                         ),
                         ast.CompareOperation(

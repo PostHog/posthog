@@ -1,6 +1,6 @@
-// Signup.stories.tsx
 import { Meta } from '@storybook/react'
-import { useEffect } from 'react'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -51,9 +51,11 @@ export const SelfHosted = (): JSX.Element => {
             },
         },
     })
-    useEffect(() => {
+
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return <InviteSignup />
 }
 
@@ -69,9 +71,11 @@ export const Cloud = (): JSX.Element => {
             },
         },
     })
-    useEffect(() => {
+
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return <InviteSignup />
 }
 export const CloudEU = (): JSX.Element => {
@@ -87,9 +91,11 @@ export const CloudEU = (): JSX.Element => {
             },
         },
     })
-    useEffect(() => {
+
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return <InviteSignup />
 }
 
@@ -105,9 +111,11 @@ export const InvalidLink = (): JSX.Element => {
             },
         },
     })
-    useEffect(() => {
+
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('not-found')
-    }, [])
+    })
+
     return <InviteSignup />
 }
 
@@ -133,9 +141,11 @@ export const LoggedIn = (): JSX.Element => {
             ],
         },
     })
-    useEffect(() => {
+
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return <InviteSignup />
 }
 
@@ -167,9 +177,11 @@ export const LoggedInWrongUser = (): JSX.Element => {
             ],
         },
     })
-    useEffect(() => {
+
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return (
         <div>
             <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
@@ -184,9 +196,11 @@ export const SSOEnforcedSaml = (): JSX.Element => {
             '/api/login/precheck': { sso_enforcement: 'saml', saml_available: true },
         },
     })
-    useEffect(() => {
+
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return (
         <div>
             <div className="border-b border-t p-4 font-bold">HEADER AREA</div>
@@ -199,9 +213,11 @@ export const SSOEnforcedGoogle = (): JSX.Element => {
     useStorybookMocks({
         post: { '/api/login/precheck': { sso_enforcement: 'google-oauth2', saml_available: false } },
     })
-    useEffect(() => {
+
+    useDelayedOnMountEffect(() => {
         inviteSignupLogic.actions.prevalidateInvite('1234')
-    }, [])
+    })
+
     return (
         <div>
             <div className="border-b border-t p-4 font-bold">HEADER AREA</div>

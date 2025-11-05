@@ -1,6 +1,7 @@
 import './RollingDateRangeFilter.scss'
 
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { Dayjs } from 'lib/dayjs'
 import { dateFilterToText } from 'lib/utils'
 
@@ -13,6 +14,8 @@ const dateOptionsMap = {
     w: 'weeks',
     d: 'days',
     h: 'hours',
+    M: 'minutes',
+    s: 'seconds',
 } as const
 
 export type DateOption = (typeof dateOptionsMap)[keyof typeof dateOptionsMap]
@@ -68,8 +71,14 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
                     }
                     return 0
                 },
-                setCounter: (prevCounter, { counter }) =>
-                    counter ? (!props.max || counter <= props.max ? counter : prevCounter) : null,
+                setCounter: (prevCounter, { counter }) => {
+                    if (counter) {
+                        /** Relative dates must be expressed as integers
+                         * @see {isStringDateRegex} */
+                        counter = Math.round(counter)
+                    }
+                    return counter ? (!props.max || counter <= props.max ? counter : prevCounter) : null
+                },
             },
         ],
         dateOption: [
@@ -105,6 +114,10 @@ export const rollingDateRangeFilterLogic = kea<rollingDateRangeFilterLogicType>(
                         return `-${counter}d`
                     case 'hours':
                         return `-${counter}h`
+                    case 'minutes':
+                        return `-${counter}M`
+                    case 'seconds':
+                        return `-${counter}s`
                     default:
                         return `-${counter}d`
                 }

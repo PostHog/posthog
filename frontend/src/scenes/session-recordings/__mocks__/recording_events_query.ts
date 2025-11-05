@@ -11,16 +11,14 @@ export default {
         'properties.$event_name',
     ],
     hasMore: false,
-    results: [
-        ...jsonData.map((x) => [
-            x.id,
-            x.event,
-            x.timestamp,
-            x.elements_hash,
-            x.properties.$window_id,
-            x.properties.$current_url,
-            x.properties.$event_name,
-        ]),
-    ],
+    results: jsonData.map((x) => [
+        x.id,
+        x.event,
+        x.timestamp,
+        x.elements_hash,
+        x.properties.$window_id,
+        x.properties.$current_url,
+        x.properties.$event_name,
+    ]),
     types: ['UUID', 'String', "DateTime64(6, 'UTC')", 'String', 'String', 'String', 'String'],
 }

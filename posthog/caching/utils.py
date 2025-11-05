@@ -129,20 +129,20 @@ class ThresholdMode(Enum):
 
 staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
     ThresholdMode.DEFAULT: {
-        None: timedelta(minutes=1),
-        "minute": timedelta(seconds=15),
-        "hour": timedelta(minutes=15),
-        "day": timedelta(hours=2),
-        "week": timedelta(hours=12),
-        "month": timedelta(days=1),
-    },
-    ThresholdMode.LAZY: {
-        None: timedelta(hours=1),
-        "minute": timedelta(hours=1),
+        None: timedelta(hours=6),
+        "minute": timedelta(minutes=5),
         "hour": timedelta(hours=1),
         "day": timedelta(hours=6),
         "week": timedelta(days=1),
-        "month": timedelta(days=2),
+        "month": timedelta(days=1),
+    },
+    ThresholdMode.LAZY: {
+        None: timedelta(hours=12),
+        "minute": timedelta(minutes=15),
+        "hour": timedelta(hours=2),
+        "day": timedelta(hours=12),
+        "week": timedelta(days=1),
+        "month": timedelta(days=1),
     },
     ThresholdMode.AI: {
         None: timedelta(hours=1),
@@ -164,6 +164,7 @@ def is_stale(
     interval: Optional[str],
     last_refresh: Optional[datetime],
     mode: ThresholdMode = ThresholdMode.DEFAULT,
+    target_age: Optional[datetime] = None,
 ) -> bool:
     """
     Indicates whether a cache item is obviously outdated based on the last_refresh date, the last
@@ -175,6 +176,9 @@ def is_stale(
 
     if last_refresh is None:
         raise ValueError("Cached results require a last_refresh")
+
+    if target_age is not None:
+        return datetime.now(UTC) > target_age
 
     # If the date_to is in the past of the last refresh, the data cannot be stale
     # Use a buffer in case last_refresh from cache.set happened slightly after the actual query

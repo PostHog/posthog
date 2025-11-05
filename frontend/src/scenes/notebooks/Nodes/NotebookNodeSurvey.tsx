@@ -1,21 +1,26 @@
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FeatureFlagBasicType, NotebookNodeType, Survey } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
-import { IconSurveys } from 'lib/lemon-ui/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps } from '../Notebook/utils'
-import { buildFlagContent } from './NotebookNodeFlag'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { StatusTag } from 'scenes/surveys/Surveys'
-import { SurveyResult } from 'scenes/surveys/SurveyView'
-import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { useEffect } from 'react'
+
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { IconSurveys } from 'lib/lemon-ui/icons'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
-import { UUID_REGEX_MATCH_GROUPS } from './utils'
+import { SurveyResult } from 'scenes/surveys/SurveyView'
+import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { urls } from 'scenes/urls'
+
+import { FeatureFlagBasicType } from '~/types'
+
+import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { buildFlagContent } from './NotebookNodeFlag'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { OPTIONAL_PROJECT_NON_CAPTURE_GROUP, UUID_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = attributes
@@ -36,10 +41,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                   }
                 : undefined,
         ])
+        // oxlint-disable-next-line exhaustive-deps
     }, [survey])
 
     useEffect(() => {
         setTitlePlaceholder(survey.name ? `Survey: ${survey.name}` : 'Survey')
+        // oxlint-disable-next-line exhaustive-deps
     }, [survey.name])
 
     if (surveyMissing) {
@@ -57,7 +64,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttribute
                         <>
                             <span className="flex-1 font-semibold truncate">{survey.name}</span>
                             {/* survey has to exist in notebooks */}
-                            <StatusTag survey={survey as Survey} />
+                            <SurveyStatusTag survey={survey} />
                         </>
                     )}
                 </div>
@@ -116,7 +123,7 @@ export const NotebookNodeSurvey = createPostHogWidgetNode<NotebookNodeSurveyAttr
         id: {},
     },
     pasteOptions: {
-        find: urls.survey(UUID_REGEX_MATCH_GROUPS),
+        find: OPTIONAL_PROJECT_NON_CAPTURE_GROUP + urls.survey(UUID_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
             return { id: match[1] }
         },

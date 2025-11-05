@@ -10,7 +10,18 @@ import {
     isInsightVizNode,
 } from '~/queries/utils'
 
-export function TopHeading({ query }: { query: Node | null }): JSX.Element {
+import { InsightFreshness } from './InsightFreshness'
+import { TileOverridesWarning } from './TileOverridesWarning'
+
+export function TopHeading({
+    query,
+    lastRefresh,
+    hasTileOverrides,
+}: {
+    query: Node | null
+    lastRefresh?: string | null
+    hasTileOverrides?: boolean | null
+}): JSX.Element {
     let insightType: InsightTypeMetadata
 
     if (query?.kind) {
@@ -40,7 +51,7 @@ export function TopHeading({ query }: { query: Node | null }): JSX.Element {
         dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     }
     return (
-        <>
+        <div className="flex items-center gap-1">
             <span title={insightType?.description}>{insightType?.name}</span>
             {dateText ? (
                 <>
@@ -48,6 +59,8 @@ export function TopHeading({ query }: { query: Node | null }): JSX.Element {
                     • <span className="whitespace-nowrap">{dateText}</span>
                 </>
             ) : null}
-        </>
+            {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
+            {hasTileOverrides ? <TileOverridesWarning /> : null}
+        </div>
     )
 }

@@ -1,11 +1,14 @@
-import { ApiError } from 'lib/api'
 import posthog from 'posthog-js'
+
+import { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { performQuery, queryExportContext } from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
+
+import { setLatestVersionsOnQuery } from './utils'
 
 describe('query', () => {
     beforeEach(() => {
@@ -77,21 +80,21 @@ describe('query', () => {
 
     it('emits an event when a query is run', async () => {
         jest.spyOn(posthog, 'capture')
-        const q: EventsQuery = {
+        const q: EventsQuery = setLatestVersionsOnQuery({
             kind: NodeKind.EventsQuery,
             select: ['timestamp'],
             limit: 100,
-        }
+        })
         await performQuery(q)
         expect(posthog.capture).toHaveBeenCalledWith('query completed', { query: q, duration: expect.any(Number) })
     })
 
     it('emits a specific event on a HogQLQuery', async () => {
         jest.spyOn(posthog, 'capture')
-        const q: HogQLQuery = {
+        const q: HogQLQuery = setLatestVersionsOnQuery({
             kind: NodeKind.HogQLQuery,
             query: 'select * from events',
-        }
+        })
         await performQuery(q)
         expect(posthog.capture).toHaveBeenCalledWith('query completed', {
             query: q,
@@ -103,11 +106,11 @@ describe('query', () => {
 
     it('emits an event when a query errors', async () => {
         jest.spyOn(posthog, 'capture')
-        const q: EventsQuery = {
+        const q: EventsQuery = setLatestVersionsOnQuery({
             kind: NodeKind.EventsQuery,
             select: ['error'],
             limit: 100,
-        }
+        })
         await expect(async () => {
             await performQuery(q)
         }).rejects.toThrow(ApiError)

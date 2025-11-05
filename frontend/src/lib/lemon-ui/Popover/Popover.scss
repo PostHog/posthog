@@ -2,6 +2,8 @@
     z-index: var(--z-popover);
     display: flex;
     flex-direction: row;
+    isolation: isolate;
+    transform: translateZ(0);
     perspective: 80rem;
     perspective-origin: top;
 
@@ -29,12 +31,14 @@
     flex-grow: 1;
     max-width: 100%;
     overflow: visible; // Explicitly `visible`. We can't set `hidden`, because that would hide the popover arrow
-    background: var(--bg-surface-popover);
+    background: var(--color-bg-surface-popover);
     border: 1px solid var(--secondary-3000-button-border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-elevation-3000);
     opacity: 0;
-    transition: opacity 50ms ease, transform 50ms ease;
+    transition:
+        opacity 50ms ease,
+        transform 50ms ease;
     transform-origin: top;
 
     // We set the offset below instead of using floating-ui's offset(), because we need there to be no gap between
@@ -95,37 +99,37 @@
     position: absolute;
     width: 0.5rem;
     height: 0.5rem;
-    background: var(--bg-surface-primary);
+    background: var(--color-bg-surface-primary);
     transform: rotate(45deg);
 
     [data-placement^='bottom'] & {
         top: -0.3125rem;
-        border-top: 1px solid var(--border-primary);
-        border-left: 1px solid var(--border-primary);
+        border-top: 1px solid var(--color-border-primary);
+        border-left: 1px solid var(--color-border-primary);
     }
 
     [data-placement^='top'] & {
         bottom: -0.3125rem;
-        border-right: 1px solid var(--border-primary);
-        border-bottom: 1px solid var(--border-primary);
+        border-right: 1px solid var(--color-border-primary);
+        border-bottom: 1px solid var(--color-border-primary);
     }
 
     [data-placement^='left'] & {
         right: -0.3125rem;
-        border-top: 1px solid var(--border-primary);
-        border-right: 1px solid var(--border-primary);
+        border-top: 1px solid var(--color-border-primary);
+        border-right: 1px solid var(--color-border-primary);
     }
 
     [data-placement^='right'] & {
         left: -0.3125rem;
-        border-bottom: 1px solid var(--border-primary);
-        border-left: 1px solid var(--border-primary);
+        border-bottom: 1px solid var(--color-border-primary);
+        border-left: 1px solid var(--color-border-primary);
     }
 }
 
 .Popover__content {
     max-height: 100%;
-    border-radius: calc(var(--radius) - 1px);
+    border-radius: calc(var(--radius-lg) - 1px);
 }
 
 .Popover--padded .Popover__content > .ScrollableShadows__inner {

@@ -1,6 +1,8 @@
-import { LemonInput, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
+
+import { LemonInput, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 interface NewPropertyInterface {
     creating: boolean

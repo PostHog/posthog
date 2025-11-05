@@ -1,16 +1,15 @@
 import json
+from collections.abc import Callable
 from enum import StrEnum
 from typing import Any, Optional
-from collections.abc import Callable
 
 from django.conf import settings
-from kafka import KafkaConsumer as KC
-from kafka import KafkaProducer as KP
-from kafka.producer.future import (
-    FutureProduceResult,
-    FutureRecordMetadata,
-    RecordMetadata,
+
+from kafka import (
+    KafkaConsumer as KC,
+    KafkaProducer as KP,
 )
+from kafka.producer.future import FutureProduceResult, FutureRecordMetadata, RecordMetadata
 from kafka.structs import TopicPartition
 from statshog.defaults.django import statsd
 from structlog import get_logger
@@ -148,7 +147,9 @@ class _KafkaProducer:
         return b
 
     def on_send_success(self, record_metadata: RecordMetadata):
-        statsd.incr("posthog_cloud_kafka_send_success", tags={"topic": record_metadata.topic})
+        statsd.incr(
+            "posthog_cloud_kafka_send_success", tags={"topic": record_metadata.topic if record_metadata else None}
+        )
 
     def on_send_failure(self, topic: str, exc: Exception):
         statsd.incr(
@@ -196,6 +197,9 @@ def can_connect():
     insignificant, even if it is occuring from, say, 30 separate pods, say,
     every 10 seconds.
     """
+    if settings.DEBUG and not settings.TEST:
+        return True  # Skip check in development - assume Kafka is "good enough"
+
     try:
         _KafkaProducer(test=settings.TEST)
     except Exception:
@@ -223,7 +227,7 @@ def build_kafka_consumer(
     auto_offset_reset="latest",
     test=False,
     group_id=None,
-    consumer_timeout_ms=float("inf"),
+    consumer_timeout_ms=5000 if (settings.DEBUG and not settings.TEST) else 305000,
 ):
     if settings.TEST:
         test = True  # Set at runtime so that overriden settings.TEST is supported

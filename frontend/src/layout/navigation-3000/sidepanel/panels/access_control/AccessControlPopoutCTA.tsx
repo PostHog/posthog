@@ -1,9 +1,11 @@
+import { useActions } from 'kea'
+import posthog from 'posthog-js'
+
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
-import { resourceTypeToString } from 'lib/components/AccessControlAction'
+
 import { toSentenceCase } from 'lib/utils'
-import posthog from 'posthog-js'
+import { resourceTypeToString } from 'lib/utils/accessControlUtils'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AccessControlResourceType, SidePanelTab } from '~/types'

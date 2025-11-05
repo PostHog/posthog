@@ -5,7 +5,7 @@
     justify-content: flex-start;
     height: 100%;
     overflow: hidden;
-    border: 1px solid var(--border-primary);
+    border: 1px solid var(--color-border-primary);
     border-radius: var(--radius);
 
     .Playlist__list {
@@ -35,7 +35,7 @@
 }
 
 .NotebookNode__box .Playlist__list {
-    border-right: 1px solid var(--border-primary);
+    border-right: 1px solid var(--color-border-primary);
 }
 
 .SessionRecordingPlaylistHeightWrapper {
@@ -48,10 +48,10 @@
     border-left: 3px solid transparent;
 
     &--active {
-        border-left-color: var(--accent);
+        border-left-color: var(--color-accent);
     }
 
     &:hover {
-        background-color: var(--accent-highlight-secondary);
+        background-color: var(--color-accent-highlight-secondary);
     }
 }

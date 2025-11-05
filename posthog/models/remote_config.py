@@ -1,27 +1,33 @@
-import json
 import os
+import json
 from typing import Any, Optional
+
 from django.conf import settings
-from django.db import models
+from django.core.cache import cache
+from django.db import models, transaction
+from django.db.models.signals import post_delete, post_save, pre_save
+from django.dispatch.dispatcher import receiver
 from django.http import HttpRequest
 from django.utils import timezone
-from prometheus_client import Counter
+
 import requests
-from posthog.exceptions_capture import capture_exception
 import structlog
+from prometheus_client import Counter
 
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
+from posthog.exceptions_capture import capture_exception
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction
+from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.plugin import PluginConfig
+from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
-from posthog.models.utils import UUIDModel, execute_with_timeout
+from posthog.models.user import User
+from posthog.models.utils import UUIDTModel, execute_with_timeout
+from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
-from django.core.cache import cache
-from django.db.models.signals import post_save
-from django.dispatch.dispatcher import receiver
-
+from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 
 CACHE_TIMEOUT = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 
@@ -90,7 +96,7 @@ def sanitize_config_for_public_cdn(config: dict, request: Optional[HttpRequest] 
     return config
 
 
-class RemoteConfig(UUIDModel):
+class RemoteConfig(UUIDTModel):
     """
     RemoteConfig is a helper model. There is one per team and stores a highly cacheable JSON object
     as well as JS code for the frontend. It's main function is to react to changes that would affect it,
@@ -103,11 +109,28 @@ class RemoteConfig(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     synced_at = models.DateTimeField(null=True)
 
+    @classmethod
+    def get_hypercache(cls):
+        def load_config(token):
+            try:
+                return RemoteConfig.objects.select_related("team").get(team__api_token=token).build_config()
+            except RemoteConfig.DoesNotExist:
+                return HyperCacheStoreMissing()
+
+        return HyperCache(
+            namespace="array",
+            value="config.json",
+            token_based=True,  # We store and load via the team token
+            load_fn=load_config,
+        )
+
     def build_config(self):
+        from posthog.api.survey import get_surveys_opt_in, get_surveys_response
         from posthog.models.feature_flag import FeatureFlag
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
-        from posthog.api.survey import get_surveys_response, get_surveys_opt_in
+
+        from products.error_tracking.backend.api.suppression_rules import get_suppression_rules
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -131,13 +154,7 @@ class RemoteConfig(UUIDModel):
                 else False
             ),
             "autocapture_opt_out": bool(team.autocapture_opt_out),
-            "autocaptureExceptions": (
-                {
-                    "endpoint": "/e/",
-                }
-                if team.autocapture_exceptions_opt_in
-                else False
-            ),
+            "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
         }
 
         if str(team.id) not in (settings.NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS or []):
@@ -146,7 +163,13 @@ class RemoteConfig(UUIDModel):
         if str(team.id) not in (settings.ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS or []):
             config["elementsChainAsString"] = True
 
-        # MARK: Session Recording
+        # MARK: Error tracking
+        config["errorTracking"] = {
+            "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
+            "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
+        }
+
+        # MARK: Session recording
         session_recording_config_response: bool | dict = False
 
         # TODO: Support the domain based check for recordings (maybe do it client side)?
@@ -214,11 +237,7 @@ class RemoteConfig(UUIDModel):
 
         # MARK: Quota limiting
         if settings.EE_AVAILABLE:
-            from ee.billing.quota_limiting import (
-                QuotaLimitingCaches,
-                QuotaResource,
-                list_limited_team_attributes,
-            )
+            from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
             limited_tokens_recordings = list_limited_team_attributes(
                 QuotaResource.RECORDINGS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
@@ -266,9 +285,9 @@ class RemoteConfig(UUIDModel):
     def _build_site_apps_js(self):
         # NOTE: This is the web focused config for the frontend that includes site apps
 
-        from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
         from posthog.cdp.site_functions import get_transpiled_function
         from posthog.models import HogFunction
+        from posthog.plugins.site import get_site_apps_for_team, get_site_config_from_schema
 
         # Add in the site apps as an array of objects
         site_apps_js = []
@@ -321,9 +340,16 @@ class RemoteConfig(UUIDModel):
         try:
             remote_config = cls.objects.select_related("team").get(team__api_token=token)
         except cls.DoesNotExist:
-            cache.set(key, "404", timeout=CACHE_TIMEOUT)
-            REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
-            raise
+            # Try to find the team and create RemoteConfig if it exists
+            try:
+                from posthog.models.team import Team
+
+                team = Team.objects.get(api_token=token)
+                remote_config = cls(team=team)  # type: ignore[assignment]
+            except Team.DoesNotExist:
+                cache.set(key, "404", timeout=CACHE_TIMEOUT)
+                REMOTE_CONFIG_CACHE_COUNTER.labels(result="miss_but_missing").inc()
+                raise cls.DoesNotExist()
 
         data = remote_config.build_config()
         cache.set(key, data, timeout=CACHE_TIMEOUT)
@@ -383,6 +409,12 @@ class RemoteConfig(UUIDModel):
             self.synced_at = timezone.now()
             self.save()
 
+            try:
+                RemoteConfig.get_hypercache().update_cache(self.team.api_token)
+            except Exception as e:
+                logger.exception(f"Failed to update hypercache for team {self.team_id}")
+                capture_exception(e)
+
             # Update the redis cache key for the config
             cache.set(cache_key_for_team_token(self.team.api_token), config, timeout=CACHE_TIMEOUT)
             # Invalidate Cloudflare CDN cache
@@ -440,28 +472,138 @@ def _update_team_remote_config(team_id: int):
     update_team_remote_config.delay(team_id)
 
 
+@receiver(pre_save, sender=Team)
+def team_pre_save(sender, instance: "Team", **kwargs):
+    """Capture old api_token value before save for cache cleanup."""
+    from posthog.storage.team_access_cache_signal_handlers import capture_old_api_token
+
+    capture_old_api_token(instance, **kwargs)
+
+
 @receiver(post_save, sender=Team)
 def team_saved(sender, instance: "Team", created, **kwargs):
-    _update_team_remote_config(instance.id)
+    transaction.on_commit(lambda: _update_team_remote_config(instance.id))
+
+    from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache
+
+    transaction.on_commit(lambda: update_team_authentication_cache(instance, created, **kwargs))
+
+
+@receiver(post_delete, sender=Team)
+def team_deleted(sender, instance: "Team", **kwargs):
+    """Handle team deletion for access cache."""
+    from posthog.storage.team_access_cache_signal_handlers import update_team_authentication_cache_on_delete
+
+    transaction.on_commit(lambda: update_team_authentication_cache_on_delete(instance, **kwargs))
 
 
 @receiver(post_save, sender=FeatureFlag)
 def feature_flag_saved(sender, instance: "FeatureFlag", created, **kwargs):
-    _update_team_remote_config(instance.team_id)
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=PluginConfig)
 def site_app_saved(sender, instance: "PluginConfig", created, **kwargs):
-    if instance.team_id:
-        _update_team_remote_config(instance.team_id)
+    # PluginConfig allows null for team, hence this check.
+    # Use intermediate variable so it's properly captured by the lambda.
+    instance_team_id = instance.team_id
+    if instance_team_id is not None:
+        transaction.on_commit(lambda: _update_team_remote_config(instance_team_id))
 
 
 @receiver(post_save, sender=HogFunction)
 def site_function_saved(sender, instance: "HogFunction", created, **kwargs):
     if instance.enabled and instance.type in ("site_destination", "site_app"):
-        _update_team_remote_config(instance.team_id)
+        transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
 @receiver(post_save, sender=Survey)
 def survey_saved(sender, instance: "Survey", created, **kwargs):
-    _update_team_remote_config(instance.team_id)
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender=ErrorTrackingSuppressionRule)
+def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
+    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
+
+
+@receiver(post_save, sender=PersonalAPIKey)
+def personal_api_key_saved(sender, instance: "PersonalAPIKey", created, **kwargs):
+    """
+    Handle PersonalAPIKey save for team access cache invalidation.
+
+    Skip cache updates for last_used_at field updates to avoid unnecessary cache warming
+    during authentication requests.
+    """
+    from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_authentication_cache
+
+    # Skip cache updates if only last_used_at is being updated
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and set(update_fields) == {"last_used_at"}:
+        return
+
+    transaction.on_commit(lambda: update_personal_api_key_authentication_cache(instance))
+
+
+@receiver(post_delete, sender=PersonalAPIKey)
+def personal_api_key_deleted(sender, instance: "PersonalAPIKey", **kwargs):
+    """
+    Handle PersonalAPIKey delete for team access cache invalidation.
+    """
+    from posthog.storage.team_access_cache_signal_handlers import update_personal_api_key_deleted_cache
+
+    transaction.on_commit(lambda: update_personal_api_key_deleted_cache(instance))
+
+
+@receiver(post_save, sender=User)
+def user_saved(sender, instance: "User", created, **kwargs):
+    """
+    Handle User save for team access cache updates when is_active changes.
+
+    When a user's is_active status changes, their Personal API Keys need to be
+    added or removed from team authentication caches.
+    """
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "is_active" not in update_fields:
+        logger.debug(f"User {instance.id} updated but is_active unchanged, skipping cache update")
+        return
+
+    # If update_fields is None, we need to update cache since all fields (including is_active) might have changed
+
+    from posthog.storage.team_access_cache_signal_handlers import update_user_authentication_cache
+
+    transaction.on_commit(lambda: update_user_authentication_cache(instance, **kwargs))
+
+
+@receiver(post_save, sender=OrganizationMembership)
+def organization_membership_saved(sender, instance: "OrganizationMembership", created, **kwargs):
+    """
+    Handle OrganizationMembership creation for team access cache updates.
+
+    When a user is added to an organization, their unscoped personal API keys
+    should gain access to teams within that organization. This ensures
+    that the authentication cache is updated to reflect the new access rights.
+
+    Note: We intentionally only handle creation (created=True), not updates.
+    Changes to membership level (e.g., MEMBER → ADMIN) don't affect API key
+    access - Personal API keys grant access based on organization membership
+    existence, not role level.
+    """
+    if created:
+        from posthog.storage.team_access_cache_signal_handlers import update_organization_membership_created_cache
+
+        transaction.on_commit(lambda: update_organization_membership_created_cache(instance))
+
+
+@receiver(post_delete, sender=OrganizationMembership)
+def organization_membership_deleted(sender, instance: "OrganizationMembership", **kwargs):
+    """
+    Handle OrganizationMembership deletion for team access cache invalidation.
+
+    When a user is removed from an organization, their unscoped personal API keys
+    should no longer have access to teams within that organization. This ensures
+    that the authentication cache is updated to reflect the change in access rights.
+    """
+    from posthog.storage.team_access_cache_signal_handlers import update_organization_membership_deleted_cache
+
+    transaction.on_commit(lambda: update_organization_membership_deleted_cache(instance))

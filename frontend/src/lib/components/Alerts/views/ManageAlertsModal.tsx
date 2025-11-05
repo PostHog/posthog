@@ -1,6 +1,8 @@
-import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -11,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { AlertState, InsightThresholdType } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
-import { insightAlertsLogic, InsightAlertsLogicProps } from '../insightAlertsLogic'
+import { InsightAlertsLogicProps, insightAlertsLogic } from '../insightAlertsLogic'
 import { AlertType } from '../types'
 
 export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Element {
@@ -65,6 +67,7 @@ export function AlertListItem({ alert, onClick }: AlertListItemProps): JSX.Eleme
 interface ManageAlertsModalProps extends InsightAlertsLogicProps {
     isOpen: boolean
     insightShortId: InsightShortId
+    canCreateAlertForInsight: boolean
     onClose?: () => void
 }
 
@@ -113,7 +116,15 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
             </LemonModal.Content>
 
             <LemonModal.Footer>
-                <LemonButton type="primary" onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}>
+                <LemonButton
+                    type="primary"
+                    onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}
+                    disabledReason={
+                        !props.canCreateAlertForInsight
+                            ? 'Alerts are only available for trends. Change the insight representation to add alerts.'
+                            : undefined
+                    }
+                >
                     New alert
                 </LemonButton>
                 <LemonButton type="secondary" onClick={props.onClose}>

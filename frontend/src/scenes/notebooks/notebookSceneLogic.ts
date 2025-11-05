@@ -1,4 +1,5 @@
 import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -26,7 +27,7 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         actions: [notebookLogic(props), ['loadNotebook'], notebooksModel, ['createNotebook']],
     })),
     selectors(() => ({
-        notebookId: [() => [(_, props) => props], (props): string => props.shortId],
+        notebookId: [(_, p) => [p.shortId], (shortId) => shortId],
 
         loading: [
             (s) => [s.notebookLoading, s.notebooksLoading],
@@ -40,10 +41,12 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
                     key: Scene.Notebooks,
                     name: 'Notebooks',
                     path: urls.notebooks(),
+                    iconType: 'notebook',
                 },
                 {
                     key: [Scene.Notebook, notebook?.short_id || 'new'],
                     name: notebook ? notebook?.title || 'Unnamed' : loading ? null : 'Notebook not found',
+                    iconType: 'notebook',
                 },
             ],
         ],

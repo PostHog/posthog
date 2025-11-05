@@ -1,29 +1,51 @@
+import json
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
-import posthoganalytics
-import requests
-import structlog
 from django.conf import settings
+from django.contrib.auth.models import AbstractUser
 from django.http import HttpResponse
 from django.shortcuts import redirect
-from rest_framework import serializers, status, viewsets
-from posthog.api.utils import action
+
+import requests
+import structlog
+import posthoganalytics
+from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from django.contrib.auth.models import AbstractUser
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
+from posthog.cloud_utils import get_cached_instance_license
+from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Organization, Team
+from posthog.models.organization import OrganizationMembership
+from posthog.utils import relative_date_parse
 
 from ee.billing.billing_manager import BillingManager, build_billing_token
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.cloud_utils import get_cached_instance_license
-from posthog.event_usage import groups
-from posthog.models import Organization
 
 logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
+
+
+class IsOrganizationAdmin(permissions.BasePermission):
+    """
+    Permission to allow only organization admins (level >= ADMIN) to access billing endpoints.
+    """
+
+    def has_permission(self, request, view):
+        try:
+            org = view._get_org_required()
+        except Exception:
+            return False
+        return OrganizationMembership.objects.filter(
+            user=request.user, organization=org, level__gte=OrganizationMembership.Level.ADMIN
+        ).exists()
 
 
 class BillingSerializer(serializers.Serializer):
@@ -33,6 +55,41 @@ class BillingSerializer(serializers.Serializer):
 
 class LicenseKeySerializer(serializers.Serializer):
     license = serializers.CharField()
+
+
+class BillingUsageRequestSerializer(serializers.Serializer):
+    """
+    Serializer for the usage and spend requests to the billing service.
+    Only responsible for parsing dates, passes through other params.
+    """
+
+    start_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    end_date = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    usage_types = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    team_ids = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    breakdowns = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    interval = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    def _parse_date(self, date_str: Optional[str], field_name: str) -> Optional[str]:
+        """Shared date parsing logic into YYYY-MM-DD format. Handles relative dates too."""
+        if not date_str:
+            return None
+
+        try:
+            parsed_date = relative_date_parse(date_str, ZoneInfo("UTC"))
+            return parsed_date.strftime("%Y-%m-%d")
+        except Exception:
+            raise serializers.ValidationError({field_name: f"Could not parse date '{date_str}'."})
+
+    def validate_start_date(self, value: Optional[str]) -> Optional[str]:
+        """Validate and normalize the start_date, handling 'all'."""
+        if value == "all":
+            return "2020-01-01"
+        return self._parse_date(value, "start_date")
+
+    def validate_end_date(self, value: Optional[str]) -> Optional[str]:
+        """Validate and normalize the end_date."""
+        return self._parse_date(value, "end_date")
 
 
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -78,14 +135,22 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         org = self._get_org_required()
         if license and org:  # for mypy
             custom_limits_usd = request.data.get("custom_limits_usd")
-            if custom_limits_usd:
-                billing_manager = self.get_billing_manager()
-                billing_manager.update_billing(org, {"custom_limits_usd": custom_limits_usd})
+            reset_limit_next_period = request.data.get("reset_limit_next_period")
 
-                if distinct_id:
+            if custom_limits_usd or reset_limit_next_period:
+                body = {}
+                if custom_limits_usd:
+                    body["custom_limits_usd"] = custom_limits_usd
+                if reset_limit_next_period:
+                    body["reset_limit_next_period"] = reset_limit_next_period
+
+                billing_manager = self.get_billing_manager()
+                billing_manager.update_billing(org, body)
+
+                if custom_limits_usd and distinct_id:
                     posthoganalytics.capture(
-                        distinct_id,
                         "billing limits updated",
+                        distinct_id=distinct_id,
                         properties={**custom_limits_usd},
                         groups=(
                             groups(org, self.request.user.team) if hasattr(self.request.user, "team") else groups(org)
@@ -95,6 +160,18 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         "organization",
                         str(org.id),
                         properties={f"billing_limits_{key}": value for key, value in custom_limits_usd.items()},
+                    )
+
+                if reset_limit_next_period and distinct_id:
+                    posthoganalytics.capture(
+                        "billing limits reset",
+                        distinct_id=distinct_id,
+                        properties={"reset_limit_next_period": reset_limit_next_period},
+                    )
+                    posthoganalytics.group_identify(
+                        "organization",
+                        str(org.id),
+                        properties={"reset_limit_next_period": reset_limit_next_period},
                     )
 
         return self.list(request, *args, **kwargs)
@@ -191,6 +268,13 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 raise
 
         return self.list(request, *args, **kwargs)
+
+    @action(methods=["POST"], detail=False, url_path="subscription/switch-plan")
+    def subscription_switch_plan(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+        res = billing_manager.switch_plan(organization, request.data)
+        return Response(res, status=status.HTTP_200_OK)
 
     @action(methods=["GET"], detail=False)
     def portal(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
@@ -349,6 +433,140 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = res.json()
         BillingManager(license).update_license_details(data)
         return Response({"success": True})
+
+    @action(methods=["POST"], detail=False, url_path="startups/apply")
+    def apply_startup_program(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        user = self.request.user
+        if not isinstance(user, AbstractUser):
+            raise PermissionDenied("You must be logged in to apply for the startup program")
+
+        organization_id = request.data.get("organization_id")
+        if not organization_id:
+            raise ValidationError({"organization_id": "This field is required."})
+
+        organization = Organization.objects.get(id=organization_id)
+        if not organization:
+            raise ValidationError({"organization_id": "Organization not found."})
+
+        membership = OrganizationMembership.objects.get(user=user, organization=organization)
+        if membership.level < OrganizationMembership.Level.ADMIN:
+            raise PermissionDenied("You need to be an organization admin or owner to apply for the startup program")
+
+        billing_manager = self.get_billing_manager()
+
+        # Add user info to the request
+        data = {
+            **request.data,
+            "email": user.email,
+        }
+
+        # "-" as fallback as they're required by some of the Zaps, e.g. Brilliant (merch)
+        data["first_name"] = user.first_name if user.first_name else "-"
+        data["last_name"] = user.last_name if user.last_name else "-"
+
+        try:
+            res = billing_manager.apply_startup_program(organization, data)
+            return Response(res, status=status.HTTP_200_OK)
+        except Exception as e:
+            if len(e.args) > 2:
+                detail_object = e.args[2]
+                if not isinstance(detail_object, dict):
+                    raise
+                return Response(
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message", detail_object),
+                        "code": detail_object.get("code"),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                raise
+
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="usage",
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
+    def usage(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+
+        serializer = BillingUsageRequestSerializer(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+
+        teams_map = self._get_teams_map(organization)
+
+        try:
+            params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
+            params_to_pass["organization_id"] = organization.id
+            params_to_pass["teams_map"] = json.dumps(teams_map)
+            res = billing_manager.get_usage_data(organization, params_to_pass)
+            return Response(res, status=status.HTTP_200_OK)
+        except Exception as e:
+            if len(e.args) > 2:
+                detail_object = e.args[2]
+                if not isinstance(detail_object, dict):
+                    raise
+                return Response(
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message", detail_object),
+                        "code": detail_object.get("code"),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                raise
+
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="spend",
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationAdmin],
+    )
+    def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        """Endpoint to fetch spend data (proxy to billing service)."""
+        organization = self._get_org_required()
+        billing_manager = self.get_billing_manager()
+
+        serializer = BillingUsageRequestSerializer(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+
+        teams_map = self._get_teams_map(organization)
+
+        try:
+            params_to_pass = {k: v for k, v in serializer.validated_data.items() if v is not None}
+            params_to_pass["organization_id"] = organization.id
+            params_to_pass["teams_map"] = json.dumps(teams_map)
+            res = billing_manager.get_spend_data(organization, params_to_pass)
+            return Response(res, status=status.HTTP_200_OK)
+        except Exception as e:
+            if len(e.args) > 2:
+                detail_object = e.args[2]
+                if not isinstance(detail_object, dict):
+                    raise
+                return Response(
+                    {
+                        "statusText": e.args[0],
+                        "detail": detail_object.get("error_message", detail_object),
+                        "code": detail_object.get("code"),
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            else:
+                raise
+
+    def _get_teams_map(self, organization: Organization) -> dict[int, str]:
+        """
+        Safely build a mapping of team.id to team.name for the org. Return empty dict on failure.
+        """
+        try:
+            return {team.id: team.name for team in Team.objects.filter(organization=organization)}
+        except Exception as e:
+            capture_exception(e, {"organization_id": organization.id})
+            return {}
 
     def _get_org(self) -> Optional[Organization]:
         org = None if self.request.user.is_anonymous else self.request.user.organization

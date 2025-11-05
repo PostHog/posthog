@@ -1,9 +1,10 @@
 import './LemonBadge.scss'
 
 import clsx from 'clsx'
-import { compactNumber, humanFriendlyNumber } from 'lib/utils'
 import { forwardRef } from 'react'
 import { CSSTransition } from 'react-transition-group'
+
+import { compactNumber, humanFriendlyNumber } from 'lib/utils'
 
 interface LemonBadgePropsBase {
     size?: 'small' | 'medium' | 'large'
@@ -88,12 +89,12 @@ const LemonBadgeNumber: React.FunctionComponent<LemonBadgeNumberProps & React.Re
             typeof count === 'object'
                 ? count
                 : typeof count === 'number' && count !== 0
-                ? count < Math.pow(10, maxDigits)
-                    ? compactNumber(count)
-                    : `${'9'.repeat(maxDigits)}+`
-                : showZero
-                ? '0'
-                : '1'
+                  ? count < Math.pow(10, maxDigits)
+                      ? compactNumber(count)
+                      : `${'9'.repeat(maxDigits)}+`
+                  : showZero
+                    ? '0'
+                    : '1'
 
         if (forcePlus && !text.includes('+')) {
             text += '+'

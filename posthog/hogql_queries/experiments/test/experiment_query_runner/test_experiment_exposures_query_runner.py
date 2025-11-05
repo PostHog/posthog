@@ -1,17 +1,7 @@
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from django.test import override_settings
 from freezegun import freeze_time
-from django.utils import timezone
-from parameterized import parameterized
-
-from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
-from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
-from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import create_standard_group_test_events
-from posthog.models.experiment import Experiment
-from posthog.models.feature_flag import FeatureFlag
-from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureQuery
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -20,6 +10,20 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from django.forms.models import model_to_dict
+from django.test import override_settings
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureQuery
+
+from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
+from posthog.hogql_queries.experiments.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+from posthog.hogql_queries.experiments.test.experiment_query_runner.utils import create_standard_group_test_events
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag import FeatureFlag
 from posthog.test.test_journeys import journeys_for
 
 
@@ -204,6 +208,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
 
         query_runner = ExperimentExposuresQueryRunner(
@@ -318,6 +328,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
 
         query_runner = ExperimentExposuresQueryRunner(
@@ -496,6 +512,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -515,6 +537,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -634,6 +662,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -762,6 +796,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -844,6 +884,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -875,6 +921,12 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
         )
         query_runner = ExperimentExposuresQueryRunner(
             team=self.team,
@@ -884,3 +936,224 @@ class TestExperimentExposuresQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.total_exposures["control"], 2)
         self.assertEqual(response.total_exposures["test"], 3)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_exposure_query_multiple_variant_handling_first_seen(self):
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        # Set the experiment to use first_seen handling for multiple variants
+        self.experiment.exposure_criteria = {"multiple_variant_handling": "first_seen"}
+        self.experiment.save()
+
+        journeys_for(
+            {
+                "user_control_only": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                "user_test_only": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                # User who sees control first, then test (should be counted as control)
+                "user_multiple_control_first": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-03",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+                # User who sees test first, then control (should be counted as test)
+                "user_multiple_test_first": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-02",
+                        "properties": {
+                            "$feature_flag_response": "test",
+                            ff_property: "test",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": "2024-01-04",
+                        "properties": {
+                            "$feature_flag_response": "control",
+                            ff_property: "control",
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            holdout=model_to_dict(self.experiment.holdout) if self.experiment.holdout else None,
+            start_date=self.experiment.start_date.isoformat() if self.experiment.start_date else None,
+            end_date=self.experiment.end_date.isoformat() if self.experiment.end_date else None,
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+        query_runner = ExperimentExposuresQueryRunner(
+            team=self.team,
+            query=query,
+        )
+        response = query_runner.calculate()
+
+        # With first_seen handling:
+        # - user_control_only: counted in control
+        # - user_test_only: counted in test
+        # - user_multiple_control_first: counted in control (first seen variant)
+        # - user_multiple_test_first: counted in test (first seen variant)
+        self.assertEqual(response.total_exposures["control"], 2)  # user_control_only + user_multiple_control_first
+        self.assertEqual(response.total_exposures["test"], 2)  # user_test_only + user_multiple_test_first
+
+        # Verify no MULTIPLE_VARIANT_KEY appears in total_exposures for first_seen handling
+        self.assertNotIn(MULTIPLE_VARIANT_KEY, response.total_exposures)
+
+    @freeze_time("2024-01-07T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_exposure_query_with_action_as_exposure_criteria(self):
+        from posthog.schema import ActionsNode
+
+        from posthog.models.action.action import Action
+
+        # Create an action for purchase events with specific properties
+        action = Action.objects.create(
+            name="Qualified Purchase",
+            team=self.team,
+            steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],
+        )
+
+        ff_property = f"$feature/{self.feature_flag.key}"
+
+        # Create test data - only premium purchases should count as exposures
+        journeys_for(
+            {
+                "user_control_1": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02",
+                        "properties": {ff_property: "control", "plan": "premium"},
+                    },
+                ],
+                "user_control_2": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02",
+                        "properties": {ff_property: "control", "plan": "premium"},
+                    },
+                ],
+                "user_control_3": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03",
+                        "properties": {ff_property: "control", "plan": "basic"},  # Should NOT count
+                    },
+                ],
+                "user_test_1": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02",
+                        "properties": {ff_property: "test", "plan": "premium"},
+                    },
+                ],
+                "user_test_2": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02",
+                        "properties": {ff_property: "test", "plan": "premium"},
+                    },
+                ],
+                "user_test_3": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-02",
+                        "properties": {ff_property: "test", "plan": "premium"},
+                    },
+                ],
+                "user_test_4": [
+                    {
+                        "event": "purchase",
+                        "timestamp": "2024-01-03",
+                        "properties": {ff_property: "test", "plan": "basic"},  # Should NOT count
+                    },
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        # Set exposure criteria to use the action
+        self.experiment.exposure_criteria = {"exposure_config": ActionsNode(id=action.id).model_dump(mode="json")}
+        self.experiment.save()
+
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=self.experiment.end_date.isoformat(),
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+
+        query_runner = ExperimentExposuresQueryRunner(
+            team=self.team,
+            query=query,
+        )
+
+        response = query_runner.calculate()
+
+        # Only premium purchases should be counted as exposures
+        # Control: user_control_1 and user_control_2 (user_control_3 has basic plan)
+        # Test: user_test_1, user_test_2, user_test_3 (user_test_4 has basic plan)
+        self.assertEqual(response.total_exposures["control"], 2)
+        self.assertEqual(response.total_exposures["test"], 3)
+
+        # Verify timeseries data
+        control_series = next((s for s in response.timeseries if s.variant == "control"), None)
+        test_series = next((s for s in response.timeseries if s.variant == "test"), None)
+
+        assert control_series is not None
+        assert test_series is not None
+
+        # All control exposures on 2024-01-02
+        self.assertEqual(control_series.exposure_counts[-1], 2)
+        # All test exposures on 2024-01-02
+        self.assertEqual(test_series.exposure_counts[-1], 3)

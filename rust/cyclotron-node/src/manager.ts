@@ -2,28 +2,43 @@
 const cyclotron = require('../index.node')
 
 import { convertToInternalPoolConfig, serializeObject } from './helpers'
-import { CyclotronJobInit, CyclotronPoolConfig } from './types'
+import { CyclotronJobInit, CyclotronPoolConfig, CyclotronInternalPoolConfig } from './types'
+
+type CyclotronManagerInternalConfig = {
+    shards: CyclotronInternalPoolConfig[]
+    shardDepthLimit?: number
+    shardDepthCheckIntervalSeconds?: number
+    shouldCompressVmState?: boolean
+    shouldUseBulkJobCopy?: boolean
+}
+
+export type CyclotronManagerConfig = Omit<CyclotronManagerInternalConfig, 'shards'> & {
+    shards: CyclotronPoolConfig[]
+}
 
 export class CyclotronManager {
-    constructor(private config: { shards: CyclotronPoolConfig[]; shardDepthLimit: number }) {
+    constructor(private config: CyclotronManagerConfig) {
         this.config = config
     }
 
     async connect(): Promise<void> {
-        return await cyclotron.maybeInitManager(
-            JSON.stringify({
-                shards: this.config.shards.map((shard) => convertToInternalPoolConfig(shard)),
-                shard_depth_limit: this.config.shardDepthLimit,
-            })
-        )
+        const config: CyclotronManagerInternalConfig = {
+            shards: this.config.shards.map((shard) => convertToInternalPoolConfig(shard)),
+            shardDepthLimit: this.config.shardDepthLimit,
+            shardDepthCheckIntervalSeconds: this.config.shardDepthCheckIntervalSeconds,
+            shouldCompressVmState: this.config.shouldCompressVmState,
+            shouldUseBulkJobCopy: this.config.shouldUseBulkJobCopy,
+        }
+        return await cyclotron.maybeInitManager(JSON.stringify(config))
     }
 
     async createJob(job: CyclotronJobInit): Promise<string> {
         job.priority ??= 1
-        job.scheduled ??= new Date()
+        job.scheduled ??= new Date().toISOString()
 
         // TODO: Why is this type of job snake case whereas the dequeue return type is camel case?
         const jobInitInternal = {
+            id: job.id,
             team_id: job.teamId,
             function_id: job.functionId,
             queue_name: job.queueName,
@@ -41,9 +56,10 @@ export class CyclotronManager {
     async bulkCreateJobs(jobs: CyclotronJobInit[]): Promise<string[]> {
         const jobInitsInternal = jobs.map((job) => {
             job.priority ??= 1
-            job.scheduled ??= new Date()
+            job.scheduled ??= new Date().toISOString()
 
             return {
+                id: job.id,
                 team_id: job.teamId,
                 function_id: job.functionId,
                 queue_name: job.queueName,

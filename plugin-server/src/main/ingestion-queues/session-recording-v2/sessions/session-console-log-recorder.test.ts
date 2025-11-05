@@ -15,7 +15,13 @@ describe('SessionConsoleLogRecorder', () => {
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionConsoleLogStore>
 
-        recorder = new SessionConsoleLogRecorder('test_session_id', 1, 'test_batch_id', mockConsoleLogStore)
+        recorder = new SessionConsoleLogRecorder(
+            'test_session_id',
+            1,
+            'test_batch_id',
+            mockConsoleLogStore,
+            new Date('2024-03-15T10:00:00.000Z')
+        )
     })
 
     const createConsoleLogEvent = ({
@@ -75,7 +81,7 @@ describe('SessionConsoleLogRecorder', () => {
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Test log message'],
-                    timestamp: 1000,
+                    timestamp: new Date('2024-03-15T10:00:00Z').getTime(),
                 }),
             ]
             const message = createMessage('window1', events)
@@ -93,7 +99,7 @@ describe('SessionConsoleLogRecorder', () => {
                 createConsoleLogEvent({
                     level: 'warn',
                     payload: ['Test warning message'],
-                    timestamp: 1000,
+                    timestamp: new Date('2024-03-15T10:00:00Z').getTime(),
                 }),
             ]
             const message = createMessage('window1', events)
@@ -111,7 +117,7 @@ describe('SessionConsoleLogRecorder', () => {
                 createConsoleLogEvent({
                     level: 'error',
                     payload: ['Test error message'],
-                    timestamp: 1000,
+                    timestamp: new Date('2024-03-15T10:00:00Z').getTime(),
                 }),
             ]
             const message = createMessage('window1', events)
@@ -129,22 +135,22 @@ describe('SessionConsoleLogRecorder', () => {
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Test log message 1'],
-                    timestamp: 1000,
+                    timestamp: new Date('2024-03-15T10:00:00Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'warn',
                     payload: ['Test warning message'],
-                    timestamp: 1500,
+                    timestamp: new Date('2024-03-15T10:00:01Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'error',
                     payload: ['Test error message'],
-                    timestamp: 2000,
+                    timestamp: new Date('2024-03-15T10:00:02Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Test log message 2'],
-                    timestamp: 2500,
+                    timestamp: new Date('2024-03-15T10:00:03Z').getTime(),
                 }),
             ]
             const message = createMessage('window1', events)
@@ -161,12 +167,12 @@ describe('SessionConsoleLogRecorder', () => {
             const events = [
                 {
                     type: RRWebEventType.Meta,
-                    timestamp: 1000,
+                    timestamp: new Date('2024-03-15T10:00:00Z').getTime(),
                     data: {},
                 },
                 {
                     type: RRWebEventType.Plugin,
-                    timestamp: 1500,
+                    timestamp: new Date('2024-03-15T10:00:01Z').getTime(),
                     data: {
                         plugin: 'some-other-plugin',
                         payload: {
@@ -191,7 +197,7 @@ describe('SessionConsoleLogRecorder', () => {
                 createConsoleLogEvent({
                     level: 'log',
                     payload: ['Test log message'],
-                    timestamp: 1000,
+                    timestamp: new Date('2024-03-15T10:00:00Z').getTime(),
                 }),
             ]
             const message = createMessage('window1', events)
@@ -205,8 +211,8 @@ describe('SessionConsoleLogRecorder', () => {
         })
 
         it('should publish all fields correctly when storing console logs', async () => {
-            const timestamp1 = 1687801200000 // 2023-06-26 12:00:00
-            const timestamp2 = 1687801205000 // 2023-06-26 12:00:05
+            const timestamp1 = new Date('2024-03-15T10:00:00Z').getTime()
+            const timestamp2 = new Date('2024-03-15T10:00:01Z').getTime()
             const events1 = [
                 createConsoleLogEvent({
                     level: 'info',
@@ -237,11 +243,11 @@ describe('SessionConsoleLogRecorder', () => {
                 {
                     team_id: 1,
                     message: 'First message',
-                    level: ConsoleLogLevel.Log,
+                    level: ConsoleLogLevel.Info,
                     log_source: 'session_replay',
                     log_source_id: 'test_session_id',
                     instance_id: null,
-                    timestamp: '2023-06-26 17:40:00.000',
+                    timestamp: '2024-03-15 10:00:00.000',
                     batch_id: 'test_batch_id',
                 },
             ])
@@ -254,14 +260,14 @@ describe('SessionConsoleLogRecorder', () => {
                     log_source: 'session_replay',
                     log_source_id: 'test_session_id',
                     instance_id: null,
-                    timestamp: '2023-06-26 17:40:05.000',
+                    timestamp: '2024-03-15 10:00:01.000',
                     batch_id: 'test_batch_id',
                 },
             ])
         })
 
         it('should handle non-string payload elements', async () => {
-            const timestamp = 1687801200000 // 2023-06-26 12:00:00
+            const timestamp = new Date('2024-03-15T10:00:00Z').getTime()
             const events = [
                 createConsoleLogEvent({
                     level: 'info',
@@ -287,14 +293,90 @@ describe('SessionConsoleLogRecorder', () => {
                 {
                     team_id: 1,
                     message: 'Message with multiple strings',
-                    level: ConsoleLogLevel.Log,
+                    level: ConsoleLogLevel.Info,
                     log_source: 'session_replay',
                     log_source_id: 'test_session_id',
                     instance_id: null,
-                    timestamp: '2023-06-26 17:40:00.000',
+                    timestamp: '2024-03-15 10:00:00.000',
                     batch_id: 'test_batch_id',
                 },
             ])
+        })
+
+        it('should ignore logs before switchover date', async () => {
+            const switchoverDate = new Date('2024-03-15T10:00:00.000Z')
+            const recorder = new SessionConsoleLogRecorder(
+                'test_session_id',
+                1,
+                'test_batch_id',
+                mockConsoleLogStore,
+                switchoverDate
+            )
+
+            const events = [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Before switchover'],
+                    timestamp: new Date('2024-03-15T09:59:59Z').getTime(),
+                }),
+                createConsoleLogEvent({
+                    level: 'warn',
+                    payload: ['After switchover'],
+                    timestamp: new Date('2024-03-15T10:00:01Z').getTime(),
+                }),
+            ]
+            const message = createMessage('window1', events)
+
+            await recorder.recordMessage(message)
+            const result = recorder.end()
+
+            expect(result.consoleLogCount).toBe(0)
+            expect(result.consoleWarnCount).toBe(1)
+            expect(result.consoleErrorCount).toBe(0)
+
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
+                expect.objectContaining({
+                    level: ConsoleLogLevel.Warn,
+                    message: 'After switchover',
+                }),
+            ])
+        })
+
+        it('should skip all logs when metadataSwitchoverDate is null', async () => {
+            const recorder = new SessionConsoleLogRecorder(
+                'test_session_id',
+                1,
+                'test_batch_id',
+                mockConsoleLogStore,
+                null
+            )
+
+            const events = [
+                createConsoleLogEvent({
+                    level: 'info',
+                    payload: ['Test info message'],
+                    timestamp: 1000,
+                }),
+                createConsoleLogEvent({
+                    level: 'warn',
+                    payload: ['Test warning message'],
+                    timestamp: 2000,
+                }),
+                createConsoleLogEvent({
+                    level: 'error',
+                    payload: ['Test error message'],
+                    timestamp: 3000,
+                }),
+            ]
+            const message = createMessage('window1', events)
+
+            await recorder.recordMessage(message)
+            const result = recorder.end()
+
+            expect(result.consoleLogCount).toBe(0)
+            expect(result.consoleWarnCount).toBe(0)
+            expect(result.consoleErrorCount).toBe(0)
+            expect(mockConsoleLogStore.storeSessionConsoleLogs).not.toHaveBeenCalled()
         })
     })
 
@@ -338,7 +420,7 @@ describe('SessionConsoleLogRecorder', () => {
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Window 1 log'],
-                    timestamp: 1000,
+                    timestamp: new Date('2025-04-07T20:00:00.000Z').getTime(),
                 }),
             ])
 
@@ -346,7 +428,7 @@ describe('SessionConsoleLogRecorder', () => {
                 createConsoleLogEvent({
                     level: 'error',
                     payload: ['Window 2 error'],
-                    timestamp: 2000,
+                    timestamp: new Date('2025-04-07T20:00:01.000Z').getTime(),
                 }),
             ])
 
@@ -363,17 +445,17 @@ describe('SessionConsoleLogRecorder', () => {
     describe('Log level mapping', () => {
         const testCases = [
             // Info level mappings
-            { input: 'info', expected: ConsoleLogLevel.Log },
-            { input: 'log', expected: ConsoleLogLevel.Log },
-            { input: 'debug', expected: ConsoleLogLevel.Log },
-            { input: 'trace', expected: ConsoleLogLevel.Log },
-            { input: 'dir', expected: ConsoleLogLevel.Log },
-            { input: 'dirxml', expected: ConsoleLogLevel.Log },
-            { input: 'group', expected: ConsoleLogLevel.Log },
-            { input: 'groupCollapsed', expected: ConsoleLogLevel.Log },
-            { input: 'count', expected: ConsoleLogLevel.Log },
-            { input: 'timeEnd', expected: ConsoleLogLevel.Log },
-            { input: 'timeLog', expected: ConsoleLogLevel.Log },
+            { input: 'info', expected: ConsoleLogLevel.Info },
+            { input: 'log', expected: ConsoleLogLevel.Info },
+            { input: 'debug', expected: ConsoleLogLevel.Info },
+            { input: 'trace', expected: ConsoleLogLevel.Info },
+            { input: 'dir', expected: ConsoleLogLevel.Info },
+            { input: 'dirxml', expected: ConsoleLogLevel.Info },
+            { input: 'group', expected: ConsoleLogLevel.Info },
+            { input: 'groupCollapsed', expected: ConsoleLogLevel.Info },
+            { input: 'count', expected: ConsoleLogLevel.Info },
+            { input: 'timeEnd', expected: ConsoleLogLevel.Info },
+            { input: 'timeLog', expected: ConsoleLogLevel.Info },
             // Warn level mappings
             { input: 'warn', expected: ConsoleLogLevel.Warn },
             { input: 'countReset', expected: ConsoleLogLevel.Warn },
@@ -386,7 +468,7 @@ describe('SessionConsoleLogRecorder', () => {
             const event = createConsoleLogEvent({
                 level: input as unknown,
                 payload: ['test message'],
-                timestamp: 1000,
+                timestamp: new Date('2025-01-01T10:00:00.000Z').getTime(),
             })
 
             await recorder.recordMessage(
@@ -406,18 +488,18 @@ describe('SessionConsoleLogRecorder', () => {
 
         it('handles edge cases', async () => {
             const edgeCases = [
-                { level: 'unknown', expected: ConsoleLogLevel.Log },
-                { level: '', expected: ConsoleLogLevel.Log },
-                { level: undefined, expected: ConsoleLogLevel.Log },
-                { level: null, expected: ConsoleLogLevel.Log },
-                { level: 123, expected: ConsoleLogLevel.Log },
+                { level: 'unknown', expected: ConsoleLogLevel.Info },
+                { level: '', expected: ConsoleLogLevel.Info },
+                { level: undefined, expected: ConsoleLogLevel.Info },
+                { level: null, expected: ConsoleLogLevel.Info },
+                { level: 123, expected: ConsoleLogLevel.Info },
             ]
 
             for (const { level, expected } of edgeCases) {
                 const event = createConsoleLogEvent({
                     level,
                     payload: ['test message'],
-                    timestamp: 1000,
+                    timestamp: new Date('2025-01-01T10:00:00.000Z').getTime(),
                 })
 
                 await recorder.recordMessage(
@@ -443,12 +525,12 @@ describe('SessionConsoleLogRecorder', () => {
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Duplicate message'],
-                    timestamp: 1000,
+                    timestamp: new Date('2024-03-15T10:00:00Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Duplicate message'],
-                    timestamp: 2000,
+                    timestamp: new Date('2024-03-15T10:00:01Z').getTime(),
                 }),
             ]
 
@@ -459,7 +541,7 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: ConsoleLogLevel.Log,
+                    level: ConsoleLogLevel.Info,
                     message: 'Duplicate message',
                 }),
             ])
@@ -470,17 +552,17 @@ describe('SessionConsoleLogRecorder', () => {
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Same message'],
-                    timestamp: 1000,
+                    timestamp: new Date('2024-03-15T10:00:00Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'warn',
                     payload: ['Same message'],
-                    timestamp: 2000,
+                    timestamp: new Date('2024-03-15T10:00:01Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'error',
                     payload: ['Same message'],
-                    timestamp: 3000,
+                    timestamp: new Date('2024-03-15T10:00:02Z').getTime(),
                 }),
             ]
 
@@ -491,7 +573,7 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: ConsoleLogLevel.Log,
+                    level: ConsoleLogLevel.Info,
                     message: 'Same message',
                 }),
                 expect.objectContaining({
@@ -512,7 +594,7 @@ describe('SessionConsoleLogRecorder', () => {
                     createConsoleLogEvent({
                         level: 'info',
                         payload: ['Duplicate message'],
-                        timestamp: 1000,
+                        timestamp: new Date('2024-03-15T10:00:00Z').getTime(),
                     }),
                 ],
                 { sessionId: 'session_dedup_3', distinctId: 'user_12' }
@@ -523,7 +605,7 @@ describe('SessionConsoleLogRecorder', () => {
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Duplicate message'],
-                    timestamp: 2000,
+                    timestamp: new Date('2024-03-15T10:00:01Z').getTime(),
                 }),
             ]
 
@@ -532,7 +614,7 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: ConsoleLogLevel.Log,
+                    level: ConsoleLogLevel.Info,
                     message: 'Duplicate message',
                 }),
             ])
@@ -543,32 +625,32 @@ describe('SessionConsoleLogRecorder', () => {
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Duplicate info'],
-                    timestamp: 1000,
+                    timestamp: new Date('2024-03-15T10:00:00Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Duplicate info'],
-                    timestamp: 2000,
+                    timestamp: new Date('2024-03-15T10:00:01Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'warn',
                     payload: ['Duplicate warn'],
-                    timestamp: 3000,
+                    timestamp: new Date('2024-03-15T10:00:02Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'warn',
                     payload: ['Duplicate warn'],
-                    timestamp: 4000,
+                    timestamp: new Date('2024-03-15T10:00:03Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'error',
                     payload: ['Duplicate error'],
-                    timestamp: 5000,
+                    timestamp: new Date('2024-03-15T10:00:04Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'error',
                     payload: ['Duplicate error'],
-                    timestamp: 6000,
+                    timestamp: new Date('2024-03-15T10:00:05Z').getTime(),
                 }),
             ]
 
@@ -584,7 +666,7 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: ConsoleLogLevel.Log,
+                    level: ConsoleLogLevel.Info,
                     message: 'Duplicate info',
                 }),
                 expect.objectContaining({
@@ -603,17 +685,17 @@ describe('SessionConsoleLogRecorder', () => {
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['First unique message'],
-                    timestamp: 1000,
+                    timestamp: new Date('2024-03-15T10:00:00Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Second unique message'],
-                    timestamp: 2000,
+                    timestamp: new Date('2024-03-15T10:00:01Z').getTime(),
                 }),
                 createConsoleLogEvent({
                     level: 'info',
                     payload: ['Third unique message'],
-                    timestamp: 3000,
+                    timestamp: new Date('2024-03-15T10:00:02Z').getTime(),
                 }),
             ]
 
@@ -624,22 +706,22 @@ describe('SessionConsoleLogRecorder', () => {
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledTimes(1)
             expect(mockConsoleLogStore.storeSessionConsoleLogs).toHaveBeenCalledWith([
                 expect.objectContaining({
-                    level: ConsoleLogLevel.Log,
+                    level: ConsoleLogLevel.Info,
                     message: 'First unique message',
                 }),
                 expect.objectContaining({
-                    level: ConsoleLogLevel.Log,
+                    level: ConsoleLogLevel.Info,
                     message: 'Second unique message',
                 }),
                 expect.objectContaining({
-                    level: ConsoleLogLevel.Log,
+                    level: ConsoleLogLevel.Info,
                     message: 'Third unique message',
                 }),
             ])
         })
 
         it('should not record logs when consoleLogIngestionEnabled is false', async () => {
-            const now = DateTime.now()
+            const now = DateTime.fromISO('2024-03-15T10:00:00Z')
             const message = createMessage(
                 'window1',
                 [

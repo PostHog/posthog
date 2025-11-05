@@ -1,22 +1,16 @@
 from typing import Any, Optional
-from django.core.management.base import BaseCommand
+
 from django.conf import settings
+from django.core.management.base import BaseCommand
 
 import dlt
 import dlt.common
-import dlt.common.pipeline
 import dlt.common.configuration.resolve
-
-from dlt.common.configuration.specs.base_configuration import (
-    is_secret_hint,
-)
+from dlt.common.configuration.exceptions import LookupTrace, ValueNotSecretException
 from dlt.common.configuration.providers.provider import ConfigProvider
-from dlt.common.configuration.exceptions import (
-    LookupTrace,
-    ValueNotSecretException,
-)
+from dlt.common.configuration.specs.base_configuration import is_secret_hint
 
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
 
 # Redefine a broken DLT func
@@ -132,10 +126,10 @@ class Command(BaseCommand):
                 continue
 
             try:
-                schema.update_incremental_field_last_value(last_incremental_value)
+                schema.update_incremental_field_value(last_incremental_value)
             except Exception as e:
                 print(  # noqa: T201
-                    f"Cant update_incremental_field_last_value for schema: {schema.pk}. With last_incremental_value={last_incremental_value}. ERROR: {e}"
+                    f"Cant update_incremental_field_value for schema: {schema.pk}. With last_incremental_value={last_incremental_value}. ERROR: {e}"
                 )
                 pipeline.drop()
                 continue

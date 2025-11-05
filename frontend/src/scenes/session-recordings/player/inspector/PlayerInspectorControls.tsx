@@ -1,6 +1,12 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import {
     BaseIcon,
     IconCheck,
+    IconChevronDown,
+    IconChevronRight,
+    IconComment,
     IconDashboard,
     IconGear,
     IconInfo,
@@ -9,24 +15,23 @@ import {
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconChevronRight, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect, useState } from 'react'
 import { SettingsBar, SettingsButton, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
-import { miniFiltersLogic, SharedListMiniFilter } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
+import { SharedListMiniFilter, miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
+    FilterableInspectorListItemTypes,
     InspectorListItem,
     playerInspectorLogic,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
-import { FilterableInspectorListItemTypes } from '~/types'
 
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerMode } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 
 function sideActionForType({
@@ -91,44 +96,44 @@ function FilterSettingsButton({
     type,
     icon,
     disabledReason,
-    hasFilterableItems,
     upsellSideAction,
+    label,
 }: {
     type: FilterableInspectorListItemTypes
     icon: JSX.Element
     disabledReason?: string | undefined
-    hasFilterableItems?: boolean
     upsellSideAction?: SideAction
+    label?: string
 }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
-    const { allItemsByMiniFilterKey } = useValues(playerInspectorLogic(logicProps))
+    const { allItemsByMiniFilterKey, allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
     const { miniFiltersForType } = useValues(miniFiltersLogic)
     const { setMiniFilter, setMiniFilters } = useActions(miniFiltersLogic)
 
-    const networkFilters = miniFiltersForType(type)?.filter((x) => x.name !== 'All')
-    const filterKeys = networkFilters.map((x) => x.key)
-    const isEnabled = networkFilters.some((x) => !!x.enabled)
+    const filteredMiniFiltersForType = miniFiltersForType(type)?.filter((x) => x.name !== 'All')
+    const filterKeys = filteredMiniFiltersForType.map((x) => x.key)
+    const isEnabled = filteredMiniFiltersForType.some((x) => !!x.enabled)
 
     return (
         <SettingsButton
             sideAction={
                 upsellSideAction
                     ? upsellSideAction
-                    : hasFilterableItems
-                    ? sideActionForType({
-                          setMiniFilter,
-                          allItemsByMiniFilterKey,
-                          miniFilters: networkFilters,
-                      })
-                    : undefined
+                    : allItemsByItemType[type]?.length > 1
+                      ? sideActionForType({
+                            setMiniFilter,
+                            allItemsByMiniFilterKey,
+                            miniFilters: filteredMiniFiltersForType,
+                        })
+                      : undefined
             }
-            label={capitalizeFirstLetter(type)}
+            label={label || capitalizeFirstLetter(type)}
             icon={icon}
             onClick={() => {
                 setMiniFilters(filterKeys, !isEnabled)
             }}
             disabledReason={disabledReason}
-            active={!hasFilterableItems ? false : isEnabled}
+            active={isEnabled}
         />
     )
 }
@@ -139,21 +144,20 @@ function NetworkFilterSettingsButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    const hasNetworkItems = allItemsByItemType[FilterableInspectorListItemTypes.NETWORK]?.length > 0
+    const hasNetworkItems = allItemsByItemType['network']?.length > 0
 
     return (
         <FilterSettingsButton
             data-attr="player-inspector-network-toggle-all"
-            type={FilterableInspectorListItemTypes.NETWORK}
+            type="network"
             icon={<IconDashboard />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasNetworkItems ? 'There are no network requests in this recording' : undefined}
-            hasFilterableItems={hasNetworkItems}
             // if there are no results and the feature is disabled, then we'd upsell
             upsellSideAction={
                 !hasNetworkItems && !currentTeam?.capture_performance_opt_in
                     ? {
-                          icon: <IconChevronRight className="rotate-90" />,
+                          icon: <IconChevronDown />,
 
                           dropdown: {
                               closeOnClickInside: false,
@@ -187,16 +191,15 @@ function ConsoleFilterSettingsButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { openSettingsPanel } = useActions(sidePanelSettingsLogic)
 
-    const hasConsoleItems = allItemsByItemType[FilterableInspectorListItemTypes.CONSOLE]?.length > 0
+    const hasConsoleItems = allItemsByItemType['console']?.length > 0
 
     return (
         <FilterSettingsButton
             data-attr="player-inspector-console-toggle-all"
-            type={FilterableInspectorListItemTypes.CONSOLE}
+            type="console"
             icon={<IconTerminal />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasConsoleItems ? 'There are no console logs in this recording' : undefined}
-            hasFilterableItems={hasConsoleItems}
             // if there are no results and the feature is disabled, then we'd upsell
             upsellSideAction={
                 !hasConsoleItems && !currentTeam?.capture_console_log_opt_in
@@ -233,18 +236,36 @@ function EventsFilterSettingsButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
 
-    const hasEventItems = allItemsByItemType[FilterableInspectorListItemTypes.EVENTS]?.length > 0
+    const hasEventItems = allItemsByItemType['events']?.length > 0
 
     return (
         <FilterSettingsButton
             data-attr="player-inspector-events-toggle-all"
-            type={FilterableInspectorListItemTypes.EVENTS}
+            type="events"
             icon={<IconUnverifiedEvent />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasEventItems ? 'There are no events in this recording' : undefined}
-            hasFilterableItems={hasEventItems}
             // there is no event upsell currently
             upsellSideAction={undefined}
+        />
+    )
+}
+
+function CommentsFilterSettingsButton(): JSX.Element {
+    const { logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
+
+    const hasCommentItems = allItemsByItemType['comment']?.length > 0
+
+    return (
+        <FilterSettingsButton
+            data-attr="player-inspector-comments-toggle"
+            type="comment"
+            icon={<IconComment />}
+            disabledReason={!hasCommentItems ? 'There are no comments in this recording' : undefined}
+            // there is no event upsell currently
+            upsellSideAction={undefined}
+            label="Comments"
         />
     )
 }
@@ -273,6 +294,7 @@ export function PlayerInspectorControls(): JSX.Element {
                 {mode !== SessionRecordingPlayerMode.Sharing && <EventsFilterSettingsButton />}
                 <ConsoleFilterSettingsButton />
                 <NetworkFilterSettingsButton />
+                {mode !== SessionRecordingPlayerMode.Sharing && <CommentsFilterSettingsButton />}
                 {(window.IMPERSONATED_SESSION || featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) &&
                     mode !== SessionRecordingPlayerMode.Sharing && (
                         <SettingsToggle
@@ -306,6 +328,7 @@ export function PlayerInspectorControls(): JSX.Element {
                     <LemonInput
                         data-attr="player-inspector-search-input"
                         size="xsmall"
+                        autoFocus={true}
                         onChange={(e) => setSearchQuery(e)}
                         placeholder="Search..."
                         type="search"

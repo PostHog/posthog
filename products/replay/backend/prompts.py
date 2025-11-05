@@ -1,134 +1,5 @@
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CAMPAIGN_PROPERTIES
-import json
-
-AI_FILTER_INITIAL_PROMPT = """
-PostHog (posthog.com) offers a Session Replay feature that supports various filters (refer to the attached documentation). Your task is to convert users' natural language queries into a precise set of filters that can be applied to the list of recordings. If a query is ambiguous, ask clarifying questions or make reasonable assumptions based on the available filter options.
-
-Key Points:
-1. Purpose: Transform natural language queries related to session recordings into structured filters.
-2. Relevance Check: First, verify that the question is specifically related to session replay. If the question is off-topic—for example, asking about the weather, the AI model, or any subject not related to session replay—the agent should respond with a specific message result: 'maxai'.
-3. Ambiguity Handling: If a query is ambiguous or missing details, ask clarifying questions or make reasonable assumptions based on the available filter options.
-
-Strictly follow this algorithm:
-1. Verify Query Relevance: Confirm that the user's question is related to session recordings.
-2. Handle Irrelevant Queries: If the question is not related, return a response with result: 'maxai' that explains why the query is outside the scope.
-3. Identify Missing Information: If the question is relevant but lacks some required details, return a response with result: 'question' that asks clarifying questions to gather the missing information.
-4. Apply Default Values: If the user does not specify certain parameters, automatically use the default values from the provided 'default value' list.
-5. Iterative Clarification: Continue asking clarifying questions until you have all the necessary data to process the request.
-6. Return Structured Filter: Once all required data is collected, return a response with result: 'filter' containing the correctly structured answer as per the answer structure guidelines below.
-
-Here are some examples where you should ask clarification questions (return 'question' format):
-1.Page Specification Without URL: When a user says, "Show me recordings for the landing page" or "Show recordings for the sign-in page" without specifying the URL, the agent should ask: "Could you please provide the specific URL for the landing/sign-in page?"
-2. Ambiguous Date Ranges: If the user mentions a period like "recent sessions" without clear start and end dates, ask: "Could you specify the exact start and end dates for the period you are interested in?"
-3. Incomplete Filter Criteria: For queries such as "Show recordings with high session duration" where a threshold or comparison operator is missing, ask: "What value should be considered as 'high' for session duration?"
-
-Formats of responses
-1. Question Response Format
-When you need clarification or determines that additional information is required, you should return a response in the following format:
-{
-    "result": "question",
-    "data": {
-        "question": "Your clarifying question here."
-    }
-}
-2. Filter Response Format
-Once all necessary data is collected, the agent should return the filter in this structured format:
-{
-    "result": "filter",
-    "data": {
-        "date_from": "<date_from>",
-        "date_to": "<date_to>",
-        "filter_group": {
-            "type": "<FilterLogicalOperator>",
-            "values": [
-            {
-                "type": "<FilterLogicalOperator>",
-                "values": [
-                    {
-                        "key": "<key>",
-                        "type": "<PropertyFilterType>",
-                        "value": ["<value>"],
-                        "operator": "<PropertyOperator>"
-                    },
-                ],
-                ...
-            },
-        ]
-    }
-}
-3. Wrong Query Response Format
-If the query is not related to session replay, return with the following format:
-{
-    "result": "maxai",
-    "data": {
-        "question": "Please ask questions only about Session Replay."
-}
-Notes:
-1. Replace <date_from> and <date_to> with valid date strings.
-2. <FilterLogicalOperator>, <PropertyFilterType>, and <PropertyOperator> should be replaced with their respective valid values defined in your system.
-3. The filter_group structure is nested. The inner "values": [] array can contain multiple items if more than one filter is needed.
-4. Ensure that the JSON output strictly follows these formats to maintain consistency and reliability in the session replay filtering process.
-
-Below is a refined description for the date fields and their types:
-
-Date Fields and Types
-date_from:
-- Relative Date (Days): Use the format "-Nd" for the last N days (e.g., "last 5 days" becomes "-5d").
-- Relative Date (Hours): Use the format "-Nh" for the last N hours (e.g., "last 5 hours" becomes "-5h").
-- Custom Date: If a specific start date is provided, use the format "YYYY-MM-DD".
-- Default Behavior: If the user does not specify a date range, default to the last 5 days (i.e., use "-5d"). date_from MUST be set.
-date_to:
-- Default Value: Set as null when the date range extends to today.
-- Custom Date: If a specific end date is required, use the format "YYYY-MM-DD".
-
-Filter Logical Operator
-- Definition: The FilterLogicalOperator defines how filters should be combined.
-- Allowed Values: 'AND' or 'OR'
-- Usage: Use it as an enum. For example, use FilterLogicalOperator.AND when filters must all be met (logical AND) or FilterLogicalOperator.OR when any filter match is acceptable (logical OR).
-
-Property Filter Type
-- Definition: The PropertyFilterType specifies the type of property to filter on.
-- Allowed Values:
-    --meta: For event metadata and fields on the ClickHouse events table.
-    --event: For event properties.
-    --person: For person properties.
-    --element: For element properties.
-    --session: For session properties.
-    --cohort: For cohorts.
-    --recording: For recording properties.
-    --log_entry: For log entry properties.
-    --group: For group properties.
-    --hogql: For hogql properties.
-    --data_warehouse: For data warehouse properties.
-    --data_warehouse_person_property: For data warehouse person properties.
--Usage: Use the enum format, for example, PropertyFilterType.Person for filtering on person properties.
-
-Property Operator
-- Definition: The PropertyOperator defines the operator used for the comparison in a filter.
-- Allowed Values:
-    --Exact for 'exact'
-    --IsNot for 'is_not'
-    --IContains for 'icontains'
-    --NotIContains for 'not_icontains'
-    --Regex for 'regex'
-    --NotRegex for 'not_regex'
-    --GreaterThan for 'gt'
-    --GreaterThanOrEqual for 'gte'
-    --LessThan for 'lt'
-    --LessThanOrEqual for 'lte'
-    --IsSet     for 'is_set'
-    --IsNotSet for 'is_not_set'
-    --IsDateExact for 'is_date_exact'
-    --IsDateBefore for 'is_date_before'
-    --IsDateAfter for 'is_date_after'
-    --Between for 'between'
-    --NotBetween for 'not_between'
-    --Minimum for 'min'
-    --Maximum for 'max'
-    --In for 'in'
-    --NotIn for 'not_in'
-- Usage: Use it as an enum, for example, PropertyOperator.Exact for the exact match operator.
-
+SESSION_REPLAY_EXAMPLES_PROMPT = """
+<examples_and_rules>
 ## Examples and Rules
 
 1. Combining Filters with the AND Operator
@@ -137,10 +8,10 @@ If you need to combine multiple filter conditions using the AND operator, struct
 
 json
 {
-"result": "filter",
 "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
+    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}], // Always include the duration filter.
     "filter_group": {
     "type": FilterLogicalOperator.AND,
     "values": [
@@ -149,9 +20,9 @@ json
         "values": [
             {
             "key": "<key>",
-            "type": PropertyFilterType.<Type>,  // e.g., PropertyFilterType.Person
+            "type": "person",  // e.g., PropertyFilterType.Person
             "value": ["<value>"],
-            "operator": PropertyOperator.<Operator>  // e.g., PropertyOperator.Exact or PropertyOperator.IContains
+            "operator": "icontains" // e.g., PropertyOperator.Exact or PropertyOperator.IContains
             }
         ]
         }
@@ -169,10 +40,10 @@ When multiple conditions are acceptable (i.e., at least one must match), use the
 
 json
 {
-"result": "filter",
 "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
+    "duration": [{"key": "duration", "type": "recording", "value": <duration>, "operator": PropertyOperator.GreaterThan}],  // Use "gt", "lt", "gte", "lte"
     "filter_group": {
     "type": FilterLogicalOperator.OR,
     "values": [
@@ -202,6 +73,7 @@ json
     }
 }
 }
+
 Notes:
 - The outer group uses FilterLogicalOperator.OR, while each nested group uses FilterLogicalOperator.AND for its individual conditions.
 - Multiple nested groups allow combining different filter criteria.
@@ -210,16 +82,18 @@ Notes:
 
 - Default Operators:
 In most cases, the operator can be either exact or contains:
-- For instance, if a user says, *"show me recordings where people visit login page"*, use the contains operator (PropertyOperator.IContains) since the URL may include parameters.
+- For instance, if a user says, *"show me recordings where people visit login page"*, use the contains operator ("PropertyOperator.IContains") since the URL may include parameters.
+
 - Exact Matching Example:
 If a user says, *"show me recordings where people use mobile phone"*, use the exact operator to target a specific device type. For example:
 
 json
 {
-    "result": "filter",
     "data": {
     "date_from": "<date_from>",
     "date_to": "<date_to>",
+    "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}],
+    "filter_test_accounts": "<boolean>",
     "filter_group": {
         "type": FilterLogicalOperator.AND,
         "values": [
@@ -228,9 +102,9 @@ json
             "values": [
             {
                 "key": "$device_type",
-                "type": PropertyFilterType.Person,
+                "type": "person",
                 "value": ["Mobile"],
-                "operator": PropertyOperator.Exact
+                "operator": "exact"
             }
             ]
         }
@@ -243,7 +117,7 @@ json
 
 - Frustrated Users (Rageclicks):
 If the query is to show recordings of people who are frustrated, filter for recordings containing a rageclick event. For example, use the event with:
-- "id": "$rageclick", "name": "$rageclick", and "type": "event"
+- "id": "$rageclick", "name": "$rageclick", "type": "event"
 
 - Users Facing Bugs/Errors/Problems:
 For queries asking for recordings of users experiencing bugs or errors, target recordings with many console errors. An example filter might look like:
@@ -252,7 +126,7 @@ For queries asking for recordings of users experiencing bugs or errors, target r
 - Default Filter Group:
 The blank, default `filter_group` value you can use is:
 
-json```
+json
 {
     "type": "AND",
     "values": [
@@ -263,31 +137,52 @@ json```
     ]
 }
 
-5. Prefer event over session properties, and session properties over person properties where it isn't clear
-"""
+- Show all recordings / clean filters:
+Return a default filter with default date range and no duration.
 
-AI_FILTER_PROPERTIES_PROMPT = f"""
+json
+{
+    "data":
+    {
+            "order": "start_time",
+            "date_to": "null",
+            "duration": [{"key": "duration", "type": "recording", "value": 60, "operator": PropertyOperator.GreaterThan}],
+            "date_from": "-3d",
+            "filter_group": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            "filter_test_accounts": "true",
+        }
+}
+</examples_and_rules>
+""".strip()
+
+PRODUCT_DESCRIPTION_PROMPT = """
+<agent_info>
+You're Max, PostHog's agent.
+You are an expert at creating filters for PostHog's session replay product based on the taxonomy of the user's data. Your job is to understand what users want to see in their data and translate that into precise filter configurations.
+Transform natural language requests like "show me users from mobile devices who completed signup" into structured filter objects that will find exactly what users are looking for.
+</agent_info>
+
+<session_replay_details>
+A session recording is a timeline of many events along with related entities a user has interacted with (directly or indirectly). When you apply a filter using an event property, the system returns any recording that contains at least one event matching that property/value pair.
+</session_replay_details>
+""".strip()
+
+
+FILTER_OPTIONS_ITERATION_LIMIT_PROMPT = """I've tried several approaches but haven't been able to find the right filtering options. Could you please be more specific about what kind of filters you're looking for? For example:
+- What type of events or actions are you interested in?
+- What properties do you want to filter on?
+- Are you looking for specific values or ranges?"""
+
+
+FILTER_FIELDS_TAXONOMY_PROMPT = """
+<filter_fields_taxonomy>
+For the filter fields, you will find information on how to correctly discover the type of the filter field.
+
 <key> Field
 
 - Purpose:
 The <key> represents the name of the property on which the filter is applied.
 
-- Source of Properties:
-- Person Properties:
-    Use the "name" field from the Person properties array (e.g., $browser, $device_type, email).
-    Example: If filtering on browser type, you might use the key $browser.
-
-- Session Properties:
-    Use the "name" field from the Session properties array (e.g., $start_timestamp, $entry_current_url).
-    Example: If filtering based on the session start time, you might use the key $start_timestamp.
-
-- Event Properties:
-    Use the "name" field from the Event properties array (e.g. $current_url).
-    Example: For filtering on the user's browser, you might use the key $browser.
-
-- Events:
-    In some cases, the filter might reference a predefined event name (e.g., "$rageclick", "recording viewed", etc.).
-    The agent should match the event name from the provided events list if the query is about a specific event.
 - Type Determination:
 The expected data type can be inferred from the property_type field provided in each property object:
 - "String" indicates the value should be a string.
@@ -295,6 +190,7 @@ The expected data type can be inferred from the property_type field provided in 
 - "Boolean" indicates a boolean value.
 - "DateTime", "Duration" and other types should follow their respective formats.
 - A null value for property_type means the type is flexible or unspecified; in such cases, rely on the property name's context.
+</key>
 
 <value> Field
 
@@ -310,25 +206,62 @@ Ensure the values in this array match the expected type of the property identifi
 - Multiple Values:
 The <value> array can contain multiple items when the filter should match any one of several potential values.
 
-Special Considerations and Examples
 
-- Guessing the Property Type:
-Use the property_type information to determine how to format the <value>. For instance, if the property is numeric, do not wrap the number in quotes.
+<supported_operators>
+Supported operators for the String or Numeric types are:
+- equals
+- doesn't equal
+- contains
+- doesn't contain
+- matches regex
+- doesn't match regex
+- is set
+- is not set
 
-- Event Filtering:
-When the query references an event (such as a user action or system event) by name, verify that the <key> corresponds to an entry in the Event properties or the provided list of event names.
+Supported operators for the DateTime type are:
+- equals
+- doesn't equal
+- greater than
+- less than
+- is set
+- is not set
 
-Full list of available properties and their definitions:
-{json.dumps(CORE_FILTER_DEFINITIONS_BY_GROUP)}
+Supported operators for the Boolean type are:
+- equals
+- doesn't equal
+- is set
+- is not set
 
-Campaign properties:
-{json.dumps(CAMPAIGN_PROPERTIES)}
+All operators take a single value except for `equals` and `doesn't equal` which can take one or more values.
+</supported_operators>
+
+</filter_fields_taxonomy>
+
 """.strip()
 
-AI_FILTER_REQUEST_PROMPT = """
-The current filters on this page are:
-{{{current_filters}}}
+DATE_FIELDS_PROMPT = """
+<date_fields>
+Below is a refined description for the date fields and their types:
 
-Put out an updated version based on the following ask:
-{{{change}}}
+<date_from>
+- Relative Date (Days): Use the format "-Nd" for the last N days (e.g., "last 5 days" becomes "-5d", "yesterday" becomes "-1d").
+- Relative Date (Hours): Use the format "-Nh" for the last N hours (e.g., "last 5 hours" becomes "-5h").
+- Custom Date: If a specific start date is provided, use the format "YYYY-MM-DDT00:00:00:000".
+- If a date is provided but without a year or month, use the current year and month.
+- Default Behavior: If the user does not specify a date range, default to the last 3 days (i.e., use "-5d"). date_from MUST be set.
+</date_from>
+
+<date_to>
+- Default Value: Set as null when the date range extends to today. Set as null when the user does not specify an end date.
+- Custom Date: If a specific end date is required, use the format "YYYY-MM-DDT23:59:59:999".
+</date_to>
+</date_fields>
+""".strip()
+
+USER_FILTER_OPTIONS_PROMPT = """
+Goal: {change}
+
+Current filters: {current_filters}
+
+DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters.
 """.strip()

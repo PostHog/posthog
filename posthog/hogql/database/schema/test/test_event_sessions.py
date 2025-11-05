@@ -1,20 +1,19 @@
 from typing import cast
+
+from posthog.test.base import BaseTest
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.schema.event_sessions import (
-    CleanTableNameFromChain,
-    WhereClauseExtractor,
-)
+from posthog.hogql.database.database import Database
+from posthog.hogql.database.schema.event_sessions import CleanTableNameFromChain, WhereClauseExtractor
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import clone_expr
-from posthog.test.base import BaseTest
 
 
 class TestWhereClauseExtractor(BaseTest):
     def setUp(self):
-        self.database = create_hogql_database(team=self.team)
+        self.database = Database.create_for(team=self.team)
         self.context = HogQLContext(database=self.database, team_id=self.team.pk)
 
     def _select(self, query: str) -> ast.SelectQuery:
@@ -138,7 +137,7 @@ class TestWhereClauseExtractor(BaseTest):
 
 class TestCleanTableNameFromChain(BaseTest):
     def setUp(self):
-        self.database = create_hogql_database(team=self.team)
+        self.database = Database.create_for(team=self.team)
         self.context = HogQLContext(database=self.database, team_id=self.team.pk)
 
     def _select(self, query: str) -> ast.SelectQuery:

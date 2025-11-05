@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
 
 import { useMocks } from '~/mocks/jest'

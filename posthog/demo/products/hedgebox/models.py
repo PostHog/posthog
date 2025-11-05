@@ -1,50 +1,46 @@
-import datetime as dt
 import math
+import datetime as dt
 from dataclasses import dataclass, field
-from enum import auto, StrEnum
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Optional,
-    cast,
-)
+from enum import StrEnum, auto
+from typing import TYPE_CHECKING, Any, Optional, cast
 from urllib.parse import urlencode, urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 import pytz
 
-from posthog.demo.matrix.models import Effect, SimPerson, SimSessionIntent, EVENT_AUTOCAPTURE
+from posthog.demo.matrix.models import EVENT_AUTOCAPTURE, Effect, SimPerson, SimSessionIntent
+
 from .taxonomy import (
-    EVENT_SIGNED_UP,
-    EVENT_LOGGED_IN,
-    EVENT_UPLOADED_FILE,
-    EVENT_DOWNLOADED_FILE,
     EVENT_DELETED_FILE,
-    EVENT_SHARED_FILE_LINK,
-    EVENT_UPGRADED_PLAN,
-    EVENT_PAID_BILL,
     EVENT_DOWNGRADED_PLAN,
+    EVENT_DOWNLOADED_FILE,
     EVENT_INVITED_TEAM_MEMBER,
-    EVENT_REMOVED_TEAM_MEMBER,
+    EVENT_LOGGED_IN,
     EVENT_LOGGED_OUT,
+    EVENT_PAID_BILL,
+    EVENT_REMOVED_TEAM_MEMBER,
+    EVENT_SHARED_FILE_LINK,
+    EVENT_SIGNED_UP,
+    EVENT_UPGRADED_PLAN,
+    EVENT_UPLOADED_FILE,
+    GROUP_TYPE_ACCOUNT,
+    NEW_SIGNUP_PAGE_FLAG_KEY,
+    NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+    SIGNUP_SUCCESS_RATE_CONTROL,
+    SIGNUP_SUCCESS_RATE_TEST,
+    URL_ACCOUNT_BILLING,
+    URL_ACCOUNT_SETTINGS,
+    URL_ACCOUNT_TEAM,
+    URL_FILES,
     URL_HOME,
-    URL_SIGNUP,
     URL_LOGIN,
     URL_MARIUS_TECH_TIPS,
     URL_PRICING,
-    URL_FILES,
-    URL_ACCOUNT_SETTINGS,
-    URL_ACCOUNT_BILLING,
-    URL_ACCOUNT_TEAM,
-    NEW_SIGNUP_PAGE_FLAG_KEY,
-    NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
-    SIGNUP_SUCCESS_RATE_TEST,
-    SIGNUP_SUCCESS_RATE_CONTROL,
-    GROUP_TYPE_ACCOUNT,
-    dyn_url_file,
-    dyn_url_invite,
     URL_PRODUCT_AD_LINK_1,
     URL_PRODUCT_AD_LINK_2,
+    URL_SIGNUP,
+    dyn_url_file,
+    dyn_url_invite,
 )
 
 if TYPE_CHECKING:
@@ -201,6 +197,19 @@ class HedgeboxPerson(SimPerson):
             self.country_code = (
                 "US" if self.cluster.random.random() < 0.7132 else self.cluster.address_provider.country_code()
             )
+            # mimesis doesn't support choosing cities in a specific country, so these will be pretty odd until they fix this
+            self.region = (
+                "California"
+                if self.country_code == "US" and self.cluster.random.random() < 0.5
+                else self.cluster.address_provider.region()
+            )
+            self.city = (
+                "San Francisco"
+                if self.region == "California" and self.cluster.random.random() < 0.3
+                else self.cluster.address_provider.city()
+            )
+            self.language = "en-GB" if self.country_code == "GB" else "en-US"
+
             try:  # Some tiny regions aren't in pytz - we want to omit those
                 self.timezone = self.cluster.random.choice(pytz.country_timezones[self.country_code])
             except KeyError:
@@ -524,10 +533,12 @@ class HedgeboxPerson(SimPerson):
                 2 + self.cluster.random.betavariate(1.5, 1.2) * math.log10(0.1 + len(self.account.files))
             )
             if self.active_session_intent == HedgeboxSessionIntent.DELETE_FILE_S:
-                file = self.cluster.random.choice(list(self.account.files))
+                # Sort files for deterministic selection
+                file = self.cluster.random.choice(sorted(self.account.files, key=lambda f: f.id))
                 self.delete_file(file)
             elif self.active_session_intent == HedgeboxSessionIntent.DOWNLOAD_OWN_FILE_S:
-                file = self.cluster.random.choice(list(self.account.files))
+                # Sort files for deterministic selection
+                file = self.cluster.random.choice(sorted(self.account.files, key=lambda f: f.id))
                 if self.cluster.random.random() < 0.3:  # Sometimes download using the menu
                     self.download_file(file)
                 else:  # Other times go to the file page first
@@ -571,7 +582,11 @@ class HedgeboxPerson(SimPerson):
         if self.cluster.random.random() < 0.7:
             self.active_client.capture(
                 EVENT_DOWNLOADED_FILE,
-                {"file_type": file.type, "file_size_b": file.size_b},
+                {
+                    "file_type": file.type,
+                    "file_size_b": file.size_b,
+                    "file_name": self.cluster.random.randbytes(8).hex(),
+                },
             )
         self.advance_timer(0.5 + self.cluster.random.betavariate(1.2, 2) * 80)
         self.need += (self.cluster.random.betavariate(1.2, 1) - 0.5) * 0.08
@@ -673,14 +688,14 @@ class HedgeboxPerson(SimPerson):
         assert self.account is not None
         self.advance_timer(self.cluster.random.betavariate(2.5, 1.1) * 95)
         self.account.files.add(file)
-        self.active_client.capture(
-            EVENT_UPLOADED_FILE,
-            properties={
-                "file_type": file.type,
-                "file_size_b": file.size_b,
-                "used_mb": self.account.current_used_mb,
-            },
-        )
+        properties = {
+            "file_type": file.type,
+            "file_size_b": file.size_b,
+            "used_mb": self.account.current_used_mb,
+        }
+        if self.cluster.random.random() < 0.5:
+            properties["file_name"] = self.cluster.random.randbytes(8).hex()
+        self.active_client.capture(EVENT_UPLOADED_FILE, properties=properties)
         self.active_client.group(
             GROUP_TYPE_ACCOUNT,
             self.account.id,
@@ -698,7 +713,14 @@ class HedgeboxPerson(SimPerson):
             )
 
     def download_file(self, file: HedgeboxFile):
-        self.active_client.capture(EVENT_DOWNLOADED_FILE, {"file_type": file.type, "file_size_b": file.size_b})
+        self.active_client.capture(
+            EVENT_DOWNLOADED_FILE,
+            {
+                "file_type": file.type,
+                "file_size_b": file.size_b,
+                "file_name": self.cluster.random.randbytes(8).hex(),
+            },
+        )
 
     def delete_file(self, file: HedgeboxFile):
         assert self.account is not None
@@ -779,9 +801,9 @@ class HedgeboxPerson(SimPerson):
     def remove_team_member(self):
         self.advance_timer(self.cluster.random.betavariate(1.2, 1.2) * 2)
         assert self.account is not None
-        random_member = self.cluster.random.choice(
-            list(self.account.team_members.difference({self, self.cluster.kernel}))
-        )
+        # Sort team members for deterministic selection
+        eligible_members = self.account.team_members.difference({self, self.cluster.kernel})
+        random_member = self.cluster.random.choice(sorted(eligible_members, key=lambda p: p.in_product_id))
         self.account.team_members.remove(random_member)
         self.active_client.capture(EVENT_REMOVED_TEAM_MEMBER)
 

@@ -1,4 +1,5 @@
 import { IconInfo } from '@posthog/icons'
+
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 

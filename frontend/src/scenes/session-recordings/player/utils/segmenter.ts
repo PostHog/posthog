@@ -1,4 +1,5 @@
-import { EventType, eventWithTime, IncrementalSource } from '@posthog/rrweb-types'
+import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
+
 import { Dayjs } from 'lib/dayjs'
 
 import { RecordingSegment, RecordingSnapshot } from '~/types'
@@ -48,13 +49,12 @@ export const createSegments = (
     snapshots: RecordingSnapshot[],
     start: Dayjs | null,
     end: Dayjs | null,
-    trackedWindow?: string | null
+    trackedWindow: string | null | undefined,
+    snapshotsByWindowId: Record<string, eventWithTime[]>
 ): RecordingSegment[] => {
     let segments: RecordingSegment[] = []
     let activeSegment!: Partial<RecordingSegment>
     let lastActiveEventTimestamp = 0
-
-    const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
 
     snapshots.forEach((snapshot, index) => {
         const eventIsActive = isActiveEvent(snapshot)

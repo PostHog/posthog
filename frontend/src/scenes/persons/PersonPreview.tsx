@@ -1,31 +1,45 @@
-import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useEffect } from 'react'
+
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
 
-import { ActivityTab, NotebookNodeType, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActivityTab, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { asDisplay } from './person-utils'
-import { personLogic } from './personLogic'
+import { personsLogic } from './personsLogic'
 
 export type PersonPreviewProps = {
-    distinctId: string | undefined
+    distinctId?: string
+    personId?: string
     onClose?: () => void
 }
 
 export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
-    if (!props.distinctId) {
+    const { loadPerson, loadPersonUUID } = useActions(personsLogic({ syncWithUrl: false }))
+    const { person, personLoading } = useValues(personsLogic({ syncWithUrl: false }))
+
+    useEffect(() => {
+        if (props.distinctId) {
+            loadPerson(props.distinctId)
+        } else if (props.personId) {
+            loadPersonUUID(props.personId)
+        }
+    }, [loadPerson, loadPersonUUID, props.distinctId, props.personId])
+
+    if (!props.distinctId && !props.personId) {
         return null
     }
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const { person, personLoading } = useValues(personLogic({ id: props.distinctId }))
 
     if (personLoading) {
         return <Spinner />

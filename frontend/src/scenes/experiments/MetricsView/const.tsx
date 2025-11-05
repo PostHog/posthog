@@ -1,2 +1,0 @@
-export const MAX_PRIMARY_METRICS = 10
-export const MAX_SECONDARY_METRICS = 10

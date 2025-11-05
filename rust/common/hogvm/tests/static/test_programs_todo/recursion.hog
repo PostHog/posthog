@@ -1,0 +1,19 @@
+let fibonacci := (number) -> {
+    if (number < 2) {
+        return number;
+    } else {
+        return fibonacci(number - 1) + fibonacci(number - 2);
+    }
+}
+
+print(fibonacci(6))
+
+fun hogonacci(number) {
+    if (number < 2) {
+        return number;
+    } else {
+        return hogonacci(number - 1) + hogonacci(number - 2);
+    }
+}
+
+print(hogonacci(6))

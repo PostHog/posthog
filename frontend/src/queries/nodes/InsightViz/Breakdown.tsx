@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
+
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { EditorFilterProps } from '~/types'
 
 export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
-    const { breakdownFilter, display, isTrends, isSingleSeries, isDataWarehouseSeries } = useValues(
+    const { breakdownFilter, display, isTrends, isSingleSeries, hasDataWarehouseSeries } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { updateBreakdownFilter, updateDisplay } = useActions(insightVizDataLogic(insightProps))
@@ -20,7 +21,7 @@ export function Breakdown({ insightProps }: EditorFilterProps): JSX.Element {
                 updateBreakdownFilter={updateBreakdownFilter}
                 updateDisplay={updateDisplay}
                 disabledReason={
-                    !isSingleSeries && isDataWarehouseSeries
+                    !isSingleSeries && hasDataWarehouseSeries
                         ? 'Breakdowns are not allowed for multiple series types'
                         : undefined
                 }

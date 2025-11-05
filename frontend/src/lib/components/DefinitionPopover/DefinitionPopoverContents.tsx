@@ -1,11 +1,14 @@
 import { hide } from '@floating-ui/react'
+import { useActions, useValues } from 'kea'
+import { Fragment, useEffect, useMemo } from 'react'
+
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
 import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
-import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
+import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
@@ -15,12 +18,11 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
-import { Fragment, useEffect, useMemo } from 'react'
 import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 
 import { isCoreFilter } from '~/taxonomy/helpers'
@@ -34,8 +36,8 @@ import {
 } from '~/types'
 
 import { HogQLDropdown } from '../HogQLDropdown/HogQLDropdown'
-import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TZLabel } from '../TZLabel'
+import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 
 export function PropertyStatusControl({
     verified,
@@ -124,6 +126,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         isDataWarehousePersonProperty,
         isProperty,
         hasSentAs,
+        isVirtual,
     } = useValues(definitionPopoverLogic)
 
     const { setLocalDefinition } = useActions(definitionPopoverLogic)
@@ -135,7 +138,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         if (selectedItemMeta && definition.name == selectedItemMeta.id) {
             setLocalDefinition(selectedItemMeta)
         }
-    }, [definition])
+    }, [definition]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const hasSentAsLabel = useMemo(() => {
         const _definition = definition as PropertyDefinition
@@ -226,13 +229,6 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 <ActionPopoverInfo entity={_definition} />
-                {(_definition?.steps?.length || 0) > 0 && <LemonDivider className="DefinitionPopover my-4" />}
-                <DefinitionPopover.Grid cols={2}>
-                    <DefinitionPopover.Card
-                        title="First seen"
-                        value={_definition.created_at && <TZLabel time={_definition.created_at} />}
-                    />
-                </DefinitionPopover.Grid>
             </>
         )
     }
@@ -267,10 +263,26 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                         title={
                                             isDataWarehousePersonProperty
                                                 ? _definition.id
-                                                : _definition.name ?? undefined
+                                                : (_definition.name ?? undefined)
                                         }
                                     >
                                         {hasSentAsLabel}
+                                    </span>
+                                }
+                            />
+                        </DefinitionPopover.Grid>
+                    </>
+                ) : null}
+                {isVirtual ? (
+                    <>
+                        <DefinitionPopover.HorizontalLine />
+                        <DefinitionPopover.Grid cols={2}>
+                            <DefinitionPopover.Card
+                                title="Virtual"
+                                value={
+                                    <span className="text-xs">
+                                        Virtual properties are computed from other properties, and are not sent
+                                        directly.
                                     </span>
                                 }
                             />
@@ -361,6 +373,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
         const columnOptions = Object.values(_definition.fields).map((column) => ({
             label: column.name + ' (' + column.type + ')',
             value: column.name,
+            type: column.type,
         }))
         const hogqlOption = { label: 'SQL Expression', value: '' }
         const itemValue = localDefinition ? group?.getValue?.(localDefinition) : null
@@ -386,6 +399,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 hogQLOnly,
                                 tableName,
                                 optional,
+                                type,
                             }: DataWarehousePopoverField) => {
                                 const fieldValue = key in localDefinition ? localDefinition[key] : undefined
                                 const isHogQL = isUsingHogQLExpression(fieldValue)
@@ -413,7 +427,10 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                                 fullWidth
                                                 allowClear={!!optional}
                                                 value={isHogQL ? '' : fieldValue}
-                                                options={allowHogQL ? [...columnOptions, hogqlOption] : columnOptions}
+                                                options={[
+                                                    ...columnOptions.filter((col) => !type || col.type === type),
+                                                    ...(allowHogQL ? [hogqlOption] : []),
+                                                ]}
                                                 onChange={(value: string | null) =>
                                                     setLocalDefinition({ [key]: value })
                                                 }
@@ -598,7 +615,7 @@ export function ControlledDefinitionPopover({
     // independently by `infiniteListLogic`
     useEffect(() => {
         setDefinition(item)
-    }, [item])
+    }, [item, setDefinition])
 
     // Supports all types specified in selectedItemHasPopover
     const value = group.getValue?.(item)

@@ -1,6 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=False,
     type="destination",
@@ -9,13 +9,18 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Updates a contact in Mailchimp and subscribes new ones.",
     icon_url="/static/services/mailchimp.png",
     category=["Email Marketing"],
-    hog="""
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     print('No email set. Skipping...')
     return
 }
 
+let email := lower(inputs.email)
+let subscriberHash := md5Hex(email)
+
 let properties := {}
+
 
 for (let key, value in inputs.properties) {
     if (not empty(value)) {
@@ -31,7 +36,7 @@ if (inputs.include_all_properties) {
     }
 }
 
-let userStatus := fetch(f'https://{inputs.dataCenterId}.api.mailchimp.com/3.0/lists/{inputs.audienceId}/members/{md5Hex(inputs.email)}', {
+let userStatus := fetch(f'https://{inputs.dataCenterId}.api.mailchimp.com/3.0/lists/{inputs.audienceId}/members/{subscriberHash}', {
     'method': 'GET',
     'headers': {
         'Authorization': f'Bearer {inputs.apiKey}',
@@ -40,7 +45,7 @@ let userStatus := fetch(f'https://{inputs.dataCenterId}.api.mailchimp.com/3.0/li
 })
 
 if (userStatus.status == 404 or userStatus.status == 200) {
-    let res := fetch(f'https://{inputs.dataCenterId}.api.mailchimp.com/3.0/lists/{inputs.audienceId}/members/{md5Hex(inputs.email)}', {
+    let res := fetch(f'https://{inputs.dataCenterId}.api.mailchimp.com/3.0/lists/{inputs.audienceId}/members/{subscriberHash}', {
         'method': 'PUT',
         'headers': {
             'Authorization': f'Bearer {inputs.apiKey}',

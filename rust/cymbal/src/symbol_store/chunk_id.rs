@@ -39,12 +39,17 @@ pub enum OrChunkId<R> {
     Both { inner: R, id: String },
 }
 
-// The chunk id handling layer is a little odd. In cases where users have uploaded the symbol set
-// with a chunk it, it'll never be hit, because the "saving" layer will fetch the data first, and in
-// cases where the user has injected the chunk ID but not uploaded the symbol set, it'll never resolve
-// the chunk, instead just fetching the data from the inner layer. This means, in normal practice, all
-// it does is strip off the chunk id and pass the inner request to the inner layer. We only make it able
-// to hit PG/S3 at all for testing cases.
+// This is more-or-less a read-only version of the saving layer - it never writes symbol sets, although
+// it will modify records to indicate an error if the underlying parser fails. For symbol sets we dynamically
+// fetch (like js sourcemaps), it's main function is to strip the `OrChunkId` from the ref and pass the
+// underlying identifier to the inner fetcher. In those cases, it should be wrapped in a saving layer, so
+// that the data the inner fetcher returns will be saved to s3 and re-used - and due to this, it's own loading
+// of saved symbol sets will never run, because the saving layer takes care of thet.
+//
+// For symbol sets we never fetch dynamically (hermes, node, java etc), it's used stand-alone, and the underlying
+// fetcher unconditionally returns an error indicating the chunk ID was not found. Often, these inner fetchers
+// use a 0 variant enum to indicate their data is only available in the presence of a chunk ID, and the underlying
+// fetcher simply asserts `unreachable!()`.
 //
 // Most of the "cleverness" of this layer is actually that the `Display` implementation of `OrChunkId`
 // which returns the chunk ID if it's set, rather than the inner T's display implementation, which means
@@ -86,23 +91,27 @@ where
         // If we failed to parse this chunk's data in the past, we should not try again.
         // Note that in situations where we're running beneath a `Saving` layer, we'll
         // never reach this point, but we still handle the case for correctness sake
-        if let Some(failure_reason) = record.failure_reason {
+        if let Some(failure_reason) = &record.failure_reason {
             counter!(CHUNK_ID_FAILURE_FETCHED).increment(1);
             let error: FrameError =
-                serde_json::from_str(&failure_reason).map_err(UnhandledError::from)?;
+                serde_json::from_str(failure_reason).map_err(UnhandledError::from)?;
             return Err(error.into());
         }
 
-        let Some(storage_ptr) = record.storage_ptr else {
+        let Some(storage_ptr) = &record.storage_ptr else {
             // It's never valid to have no failure reason and no storage pointer - if we hit this case, just panic
             error!("No storage pointer found for chunk id {}", id);
-            panic!("No storage pointer found for chunk id {}", id);
+            panic!("No storage pointer found for chunk id {id}");
         };
 
-        self.client
-            .get(&self.bucket, &storage_ptr)
-            .await
-            .map_err(|e| e.into())
+        let Ok(data) = self.client.get(&self.bucket, storage_ptr).await else {
+            let mut record = record;
+            record.delete(&self.pool).await?;
+            // This is kind-of false - the actual problem is missing data in s3, with a record that exists, rather than no record being found for
+            // a given chunk id - but it's close enough that it's fine for a temporary fix.
+            return Err(FrameError::MissingChunkIdData(record.set_ref).into());
+        };
+        Ok(data)
     }
 }
 
@@ -129,9 +138,9 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            OrChunkId::Inner(inner) => write!(f, "Inner({:?})", inner),
-            OrChunkId::ChunkId(id) => write!(f, "ChunkId({})", id),
-            OrChunkId::Both { inner, id } => write!(f, "Both {{ inner: {:?}, id: {} }}", inner, id),
+            OrChunkId::Inner(inner) => write!(f, "Inner({inner:?})"),
+            OrChunkId::ChunkId(id) => write!(f, "ChunkId({id})"),
+            OrChunkId::Both { inner, id } => write!(f, "Both {{ inner: {inner:?}, id: {id} }}"),
         }
     }
 }
@@ -162,8 +171,8 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OrChunkId::Inner(inner) => inner.fmt(f),
-            OrChunkId::ChunkId(id) => write!(f, "{}", id),
-            OrChunkId::Both { inner: _, id } => write!(f, "{}", id),
+            OrChunkId::ChunkId(id) => write!(f, "{id}"),
+            OrChunkId::Both { inner: _, id } => write!(f, "{id}"),
         }
     }
 }
@@ -200,11 +209,13 @@ mod test {
 
     use crate::{
         config::Config,
-        error::Error,
+        error::ResolveError,
         frames::RawFrame,
         langs::js::RawJSFrame,
         symbol_store::{
             chunk_id::{ChunkIdFetcher, OrChunkId},
+            hermesmap::HermesMapProvider,
+            proguard::ProguardProvider,
             saving::SymbolSetRecord,
             sourcemap::{OwnedSourceMapCache, SourcemapProvider},
             Catalog, Provider, S3Client,
@@ -222,7 +233,7 @@ mod test {
     impl Provider for UnimplementedProvider {
         type Ref = Url;
         type Set = OwnedSourceMapCache;
-        type Err = Error;
+        type Err = ResolveError;
 
         async fn lookup(&self, _team_id: i32, _r: Self::Ref) -> Result<Arc<Self::Set>, Self::Err> {
             unimplemented!()
@@ -267,7 +278,8 @@ mod test {
             storage_ptr: Some(chunk_id.clone()),
             failure_reason: None,
             created_at: Utc::now(),
-            content_hash: None,
+            content_hash: Some("fake-hash".to_string()),
+            last_used: Some(Utc::now()),
         };
 
         record.save(&db).await.unwrap();
@@ -308,6 +320,7 @@ mod test {
             failure_reason: None,
             created_at: Utc::now(),
             content_hash: None,
+            last_used: Some(Utc::now()),
         };
 
         record.save(&db).await.unwrap();
@@ -325,10 +338,28 @@ mod test {
         let client = Arc::new(client);
 
         let smp = SourcemapProvider::new(&config);
-        let chunk_id_fetcher =
-            ChunkIdFetcher::new(smp, client, db.clone(), config.object_storage_bucket);
+        let chunk_id_fetcher = ChunkIdFetcher::new(
+            smp,
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
 
-        let catalog = Catalog::new(chunk_id_fetcher);
+        let hermes_map_fetcher = ChunkIdFetcher::new(
+            HermesMapProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let pgp = ChunkIdFetcher::new(
+            ProguardProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let catalog = Catalog::new(chunk_id_fetcher, hermes_map_fetcher, pgp);
 
         let mut frame = get_example_frame();
         frame.chunk_id = Some(chunk_id.clone());

@@ -3,15 +3,4 @@
 
 {% block submit_buttons_bottom %}
     {{ block.super }}
-    {% if show_rbac_migration_buttons %}
-        <div class="submit-row" style="margin-top: 20px;">
-            <input type="button" value="Run RBAC Team Migration" 
-                onclick="if(confirm('Are you sure you want to run the RBAC team migration?')) { window.location.href='{% url 'admin:run-rbac-team-migration' object_id %}'; }"
-                style="background: #79aec8; padding: 10px 15px; border: none; border-radius: 4px; color: #fff; cursor: pointer;">
-            
-            <input type="button" value="Run RBAC Feature Flag Migration"
-                onclick="if(confirm('Are you sure you want to run the RBAC feature flag migration?')) { window.location.href='{% url 'admin:run-rbac-feature-flag-migration' object_id %}'; }"
-                style="background: #79aec8; padding: 10px 15px; border: none; border-radius: 4px; color: #fff; cursor: pointer;">
-        </div>
-    {% endif %}
 {% endblock %} 

@@ -1,6 +1,7 @@
 import { connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
+
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
@@ -50,7 +51,7 @@ export const sidePanelContextLogic = kea<sidePanelContextLogicType>([
             ],
             (sceneConfig, context): SidePanelSceneContext => {
                 return {
-                    ...(context ?? {}),
+                    ...context,
                     ...(!context?.activity_scope ? activityFiltersForScene(sceneConfig) : {}),
                 }
             },

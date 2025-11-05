@@ -1,12 +1,14 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { windowValues } from 'kea-window-values'
+
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -20,6 +22,7 @@ export type ProjectNoticeVariant =
     | 'unverified_email'
     | 'is_impersonated'
     | 'internet_connection_issue'
+    | 'event_ingestion_restriction'
 
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
@@ -28,11 +31,6 @@ export const navigationLogic = kea<navigationLogicType>([
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({
-        openAccountPopover: true,
-        closeAccountPopover: true,
-        toggleAccountPopover: true,
-        toggleProjectSwitcher: true,
-        hideProjectSwitcher: true,
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
     }),
     loaders({
@@ -53,21 +51,6 @@ export const navigationLogic = kea<navigationLogicType>([
         mobileLayout: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
     reducers({
-        isAccountPopoverOpen: [
-            false,
-            {
-                openAccountPopover: () => true,
-                closeAccountPopover: () => false,
-                toggleAccountPopover: (state) => !state,
-            },
-        ],
-        isProjectSwitcherShown: [
-            false,
-            {
-                toggleProjectSwitcher: (state) => !state,
-                hideProjectSwitcher: () => false,
-            },
-        ],
         projectNoticesAcknowledged: [
             {} as Record<ProjectNoticeVariant, boolean>,
             { persist: true },
@@ -102,6 +85,7 @@ export const navigationLogic = kea<navigationLogicType>([
                 s.memberCount,
                 apiStatusLogic.selectors.internetConnectionIssue,
                 s.projectNoticesAcknowledged,
+                eventIngestionRestrictionLogic.selectors.hasProjectNoticeRestriction,
             ],
             (
                 organization,
@@ -110,12 +94,12 @@ export const navigationLogic = kea<navigationLogicType>([
                 user,
                 memberCount,
                 internetConnectionIssue,
-                projectNoticesAcknowledged
+                projectNoticesAcknowledged,
+                hasEventIngestionRestriction
             ): ProjectNoticeVariant | null => {
                 if (!organization) {
                     return null
                 }
-
                 if (internetConnectionIssue) {
                     return 'internet_connection_issue'
                 } else if (user?.is_impersonated) {
@@ -133,6 +117,8 @@ export const navigationLogic = kea<navigationLogicType>([
                     !currentTeam.ingested_event
                 ) {
                     return 'real_project_with_no_events'
+                } else if (hasEventIngestionRestriction) {
+                    return 'event_ingestion_restriction'
                 } else if (!projectNoticesAcknowledged['invite_teammates'] && memberCount === 1) {
                     return 'invite_teammates'
                 }

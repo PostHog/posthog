@@ -1,0 +1,27 @@
+{
+    "tailwindCSS.experimental.configFile": "common/tailwind/tailwind.css",
+    "tailwindCSS.classFunctions": ["cva", "cn", "clsx"],
+    "tailwindCSS.includeLanguages": {
+        "typescript": "typescript",
+        "typescriptreact": "typescriptreact",
+        "javascript": "javascript",
+        "javascriptreact": "javascriptreact"
+    },
+    "editor.quickSuggestions": {
+        "strings": true
+    },
+    "tailwindCSS.files.exclude": ["**/.git/**", "**/node_modules/**"],
+    "tailwindCSS.emmetCompletions": true,
+    "tailwindCSS.rootFontSize": 16,
+    "files.associations": {
+        "*.css": "tailwindcss"
+    },
+    "mypy-type-checker.importStrategy": "fromEnvironment",
+    "mypy-type-checker.preferDaemon": true,
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.codeActionsOnSave": {
+            "source.organizeImports.ruff": "explicit"
+        }
+    }
+}

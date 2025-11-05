@@ -20,7 +20,7 @@ export function SurveyAPIEditor({ survey }: { survey: Survey | NewSurvey }): JSX
     }
 
     return (
-        <CodeSnippet wrap language={Language.JSON}>
+        <CodeSnippet wrap language={Language.JSON} compact>
             {JSON.stringify(apiSurvey, null, 2)}
         </CodeSnippet>
     )

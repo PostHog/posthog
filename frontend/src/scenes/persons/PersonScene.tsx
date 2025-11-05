@@ -1,10 +1,11 @@
+import { useActions, useValues } from 'kea'
+
 import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -15,38 +16,37 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { openInAdminPanel } from 'lib/utils/person-actions'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { sceneConfigurations } from 'scenes/scenes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema/schema-general'
-import {
-    ActivityScope,
-    NotebookNodeType,
-    PersonsTabType,
-    PersonType,
-    ProductKey,
-    PropertyDefinitionType,
-} from '~/types'
+import { ActivityScope, PersonType, PersonsTabType, ProductKey, PropertyDefinitionType } from '~/types'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import PersonFeedCanvas from './PersonFeedCanvas'
-import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { asDisplay } from './person-utils'
+import { PersonsLogicProps, personsLogic } from './personsLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<PersonsLogicProps> = {
     component: PersonScene,
     logic: personsLogic,
-    paramsToProps: ({ params: { _: rawUrlId } }): (typeof personsLogic)['props'] => ({
+    paramsToProps: ({ params: { _: rawUrlId } }) => ({
         syncWithUrl: true,
         urlId: decodeURIComponent(rawUrlId),
     }),
@@ -115,6 +115,8 @@ export function PersonScene(): JSX.Element | null {
         urlId,
         distinctId,
         primaryDistinctId,
+        eventsQuery,
+        exceptionsQuery,
     } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
@@ -124,37 +126,40 @@ export function PersonScene(): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const { user } = useValues(userLogic)
 
     if (personError) {
         throw new Error(personError)
     }
     if (!person) {
-        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" meta={{ urlId }} />
+        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
     }
 
-    const url = urls.personByDistinctId(urlId || person.distinct_ids[0] || String(person.id))
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
-        <>
-            <PageHeader
-                caption={<PersonCaption person={person} />}
-                notebookProps={
-                    url
-                        ? {
-                              href: url,
-                          }
-                        : undefined
-                }
-                buttons={
-                    <div className="flex gap-2">
+        <SceneContent>
+            <SceneTitleSection
+                name={asDisplay(person)}
+                resourceType={{
+                    type: sceneConfigurations[Scene.Person].iconType || 'default_icon_type',
+                }}
+                forceBackTo={{
+                    name: sceneConfigurations[Scene.Persons].name,
+                    path: urls.persons(),
+                    key: 'people',
+                }}
+                actions={
+                    <>
                         <NotebookSelectButton
                             resource={{
                                 type: NotebookNodeType.Person,
-                                attrs: { id: person?.distinct_ids[0] },
+                                attrs: { distinctId: person?.distinct_ids[0] },
                             }}
                             type="secondary"
+                            size="small"
                         />
+                        {user?.is_staff && <OpenInAdminPanelButton />}
                         <LemonButton
                             onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
@@ -162,6 +167,7 @@ export function PersonScene(): JSX.Element | null {
                             type="secondary"
                             status="danger"
                             data-attr="delete-person"
+                            size="small"
                         >
                             Delete person
                         </LemonButton>
@@ -171,14 +177,19 @@ export function PersonScene(): JSX.Element | null {
                                 onClick={() => setSplitMergeModalShown(true)}
                                 data-attr="merge-person-button"
                                 type="secondary"
+                                size="small"
                             >
                                 Split IDs
                             </LemonButton>
                         )}
-                    </div>
+                    </>
                 }
             />
+            <SceneDivider />
 
+            <PersonCaption person={person} />
+
+            <SceneDivider />
             <PersonDeleteModal />
 
             <LemonTabs
@@ -214,21 +225,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: (
-                            <Query
-                                query={{
-                                    kind: NodeKind.DataTableNode,
-                                    full: true,
-                                    hiddenColumns: ['person'],
-                                    source: {
-                                        kind: NodeKind.EventsQuery,
-                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                        personId: person.id,
-                                        after: '-24h',
-                                    },
-                                }}
-                            />
-                        ),
+                        content: <Query query={eventsQuery} />,
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
@@ -266,6 +263,11 @@ export function PersonScene(): JSX.Element | null {
                                 </div>
                             </>
                         ),
+                    },
+                    {
+                        key: PersonsTabType.EXCEPTIONS,
+                        label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
+                        content: <Query query={exceptionsQuery} />,
                     },
                     {
                         key: PersonsTabType.COHORTS,
@@ -356,6 +358,21 @@ export function PersonScene(): JSX.Element | null {
             />
 
             {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
-        </>
+        </SceneContent>
+    )
+}
+
+function OpenInAdminPanelButton(): JSX.Element {
+    const { person } = useValues(personsLogic)
+    const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
+
+    return (
+        <LemonButton
+            type="secondary"
+            onClick={() => openInAdminPanel(person?.properties.email)}
+            disabledReason={disabledReason}
+        >
+            Open in Admin Panel
+        </LemonButton>
     )
 }

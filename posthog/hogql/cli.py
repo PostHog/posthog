@@ -1,9 +1,10 @@
 import sys
 import json
 
-from common.hogvm.python.execute import execute_bytecode
 from posthog.hogql.compiler.bytecode import create_bytecode, parse_program
 from posthog.hogql.compiler.javascript import to_js_program
+
+from common.hogvm.python.execute import execute_bytecode
 
 modifiers = [arg for arg in sys.argv if arg.startswith("-")]
 args = [arg for arg in sys.argv if arg != "" and not arg.startswith("-")]

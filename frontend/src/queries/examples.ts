@@ -1,5 +1,5 @@
 // This file contains example queries, used in storybook and in the /query interface.
-import { RETENTION_FIRST_TIME } from 'lib/constants'
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
@@ -40,6 +40,7 @@ import {
 } from '~/types'
 
 import { WEB_VITALS_THRESHOLDS } from './nodes/WebVitals/definitions'
+import { setLatestVersionsOnQuery } from './utils'
 
 const Events: EventsQuery = {
     kind: NodeKind.EventsQuery,
@@ -203,6 +204,19 @@ const InsightTrendsQuery: TrendsQuery = {
     breakdownFilter: {
         breakdown: '$geoip_country_code',
         breakdown_type: 'event',
+    },
+}
+
+const InsightCalendarHeatmapQuery: TrendsQuery = {
+    kind: NodeKind.TrendsQuery,
+    properties: [],
+    filterTestAccounts,
+    series,
+    dateRange: {
+        date_from: '-7d',
+    },
+    trendsFilter: {
+        display: ChartDisplayType.CalendarHeatmap,
     },
 }
 
@@ -488,7 +502,7 @@ const WebAnalyticsRetention: InsightVizNode<RetentionQuery> = {
         },
         filterTestAccounts: false,
         retentionFilter: {
-            retentionType: RETENTION_FIRST_TIME,
+            retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
             retentionReference: 'total',
             totalIntervals: 8,
             period: RetentionPeriod.Week,
@@ -516,6 +530,11 @@ export const queryExamples: Record<string, Node> = {
     PersonsTableFull,
     InsightTrendsQuery,
     InsightTrends: { kind: NodeKind.InsightVizNode, source: InsightTrendsQuery } as InsightVizNode<TrendsQuery>,
+    InsightCalendarHeatmapQuery,
+    InsightCalendarHeatmap: {
+        kind: NodeKind.InsightVizNode,
+        source: InsightCalendarHeatmapQuery,
+    } as InsightVizNode<TrendsQuery>,
     InsightFunnelsQuery,
     InsightFunnels: { kind: NodeKind.InsightVizNode, source: InsightFunnelsQuery } as InsightVizNode<FunnelsQuery>,
     InsightRetentionQuery,
@@ -548,7 +567,7 @@ export const stringifiedQueryExamples: Record<string, string> = Object.fromEntri
     Object.entries(queryExamples).map(([key, node]) => [key, JSON.stringify(node)])
 )
 
-export const examples: Record<string, Node> = {
+export const examples: Record<string, Node> = setLatestVersionsOnQuery({
     ...queryExamples,
     HogQLRaw,
     HogQLTable,
@@ -557,7 +576,7 @@ export const examples: Record<string, Node> = {
     Hog,
     Hoggonacci,
     DataWarehouse,
-}
+})
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(
     Object.entries(examples).map(([key, node]) => [key, JSON.stringify(node)])

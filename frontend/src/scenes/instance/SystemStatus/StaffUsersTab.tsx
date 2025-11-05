@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconTrash } from '@posthog/icons'
 import { LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'

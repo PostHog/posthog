@@ -1,14 +1,11 @@
-import datetime
 import json
+import datetime
 from typing import Any, TypedDict, Union, cast
 
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.group.group import Group
 from posthog.models.person.person import Person
-from posthog.models.property.util import (
-    extract_tables_and_properties,
-    get_single_or_multi_property_string_expr,
-)
+from posthog.models.property.util import extract_tables_and_properties, get_single_or_multi_property_string_expr
 from posthog.models.team.team import Team
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.trends.util import offset_time_series_date_by_interval

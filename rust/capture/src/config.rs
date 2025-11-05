@@ -2,11 +2,21 @@ use std::{net::SocketAddr, num::NonZeroU32};
 
 use envconfig::Envconfig;
 use health::HealthStrategy;
+use tracing::Level;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum CaptureMode {
     Events,
     Recordings,
+}
+
+impl CaptureMode {
+    pub fn as_tag(&self) -> &'static str {
+        match self {
+            CaptureMode::Events => "events",
+            CaptureMode::Recordings => "recordings",
+        }
+    }
 }
 
 impl std::str::FromStr for CaptureMode {
@@ -35,14 +45,24 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub overflow_enabled: bool,
 
+    #[envconfig(default = "false")]
+    pub overflow_preserve_partition_locality: bool,
+
     #[envconfig(default = "100")]
     pub overflow_per_second_limit: NonZeroU32,
 
     #[envconfig(default = "1000")]
     pub overflow_burst_limit: NonZeroU32,
 
-    pub overflow_forced_keys: Option<String>, // Coma-delimited keys
-    pub dropped_keys: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
+    pub ingestion_force_overflow_by_token_distinct_id: Option<String>, // Comma-delimited keys
+
+    pub drop_events_by_token_distinct_id: Option<String>, // "<token>:<distinct_id or *>,<distinct_id or *>;<token>..."
+
+    #[envconfig(default = "false")]
+    pub enable_historical_rerouting: bool,
+
+    #[envconfig(default = "1")]
+    pub historical_rerouting_threshold_days: i64,
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
@@ -73,6 +93,20 @@ pub struct Config {
 
     #[envconfig(default = "ALL")]
     pub healthcheck_strategy: HealthStrategy,
+
+    #[envconfig(default = "false")]
+    pub is_mirror_deploy: bool,
+
+    #[envconfig(default = "info")]
+    pub log_level: Level,
+
+    // deploy var [0.0..100.0] to sample behavior of interest for verbose logging
+    #[envconfig(default = "0.0")]
+    pub verbose_sample_percent: f32,
+
+    // AI endpoint size limits
+    #[envconfig(default = "26214400")] // 25MB in bytes
+    pub ai_max_sum_of_parts_bytes: usize,
 }
 
 #[derive(Envconfig, Clone)]
@@ -90,13 +124,15 @@ pub struct KafkaConfig {
     pub kafka_hosts: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_topic: String,
+    #[envconfig(default = "events_plugin_ingestion_overflow")]
+    pub kafka_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_historical")]
     pub kafka_historical_topic: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_client_ingestion_warning_topic: String,
-    #[envconfig(default = "events_plugin_ingestion")]
+    #[envconfig(default = "exceptions_ingestion")]
     pub kafka_exceptions_topic: String,
-    #[envconfig(default = "events_plugin_ingestion")]
+    #[envconfig(default = "heatmaps_ingestion")]
     pub kafka_heatmaps_topic: String,
     #[envconfig(default = "session_recording_snapshot_item_overflow")]
     pub kafka_replay_overflow_topic: String,
@@ -104,12 +140,14 @@ pub struct KafkaConfig {
     pub kafka_tls: bool,
     #[envconfig(default = "")]
     pub kafka_client_id: String,
-    #[envconfig(default = "60000")]
-    pub kafka_metadata_max_age_ms: u32,
     #[envconfig(default = "2")]
     pub kafka_producer_max_retries: u32,
     #[envconfig(default = "all")]
     pub kafka_producer_acks: String,
-    #[envconfig(default = "60000")]
+    // interval between metadata refreshes from the Kafka brokers
+    #[envconfig(default = "20000")]
     pub kafka_topic_metadata_refresh_interval_ms: u32,
+    // default is 3x metadata refresh interval so we maintain that here
+    #[envconfig(default = "60000")]
+    pub kafka_metadata_max_age_ms: u32,
 }

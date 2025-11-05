@@ -1,10 +1,11 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { notebooksModel } from '~/models/notebooksModel'
-import { NotebookListItemType } from '~/types'
 
 import { NotebookSelectPopover } from '../NotebookSelectButton/NotebookSelectButton'
+import { NotebookListItemType } from '../types'
 
 export type NotebookListMiniProps = {
     selectedNotebookId?: string

@@ -15,6 +15,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { encodeParams, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isDomain, isURL } from 'lib/utils'
@@ -23,7 +24,6 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { ExperimentIdType, ToolbarParams, ToolbarUserIntent } from '~/types'
 
@@ -157,7 +157,7 @@ export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]
         if (wildcardMatch) {
             return true
         }
-    } catch (error) {
+    } catch {
         // Ignore invalid URLs
     }
 
@@ -236,20 +236,18 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
         suggestions: {
             __default: [] as SuggestedDomain[],
             loadSuggestions: async () => {
-                const query: HogQLQuery = {
-                    kind: NodeKind.HogQLQuery,
-                    query: hogql`select properties.$current_url, count()
-                        from events
-                           where event = '$pageview'
-                           and timestamp >= now() - interval 3 day 
-                            and timestamp <= now()
-                           and properties.$current_url is not null
-                         group by properties.$current_url
-                         order by count() desc
-                        limit 25`,
-                }
+                const query = hogql`
+                    select properties.$current_url, count()
+                    from events
+                        where event = '$pageview'
+                        and timestamp >= now() - interval 3 day 
+                        and timestamp <= now()
+                        and properties.$current_url is not null
+                        group by properties.$current_url
+                        order by count() desc
+                    limit 25`
 
-                const response = await api.query(query)
+                const response = await api.queryHogQL(query)
                 const result = response.results as [string, number][]
 
                 if (result && result.length === 0) {
@@ -288,11 +286,11 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
     })),
     subscriptions(({ props, actions }) => ({
         currentTeam: (currentTeam) => {
-            actions.setAuthorizedUrls(
+            const urls =
                 (props.type === AuthorizedUrlListType.RECORDING_DOMAINS
                     ? currentTeam.recording_domains
                     : currentTeam.app_urls) || []
-            )
+            actions.setAuthorizedUrls(urls.filter(Boolean))
         },
     })),
     afterMount(({ actions }) => {
@@ -332,8 +330,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             [] as string[],
             {
                 setAuthorizedUrls: (_, { authorizedUrls }) => authorizedUrls,
-                addUrl: (state, { url }) => (!state.includes(url) ? state.concat([url]) : state),
-                updateUrl: (state, { index, url }) => Object.assign([...state], { [index]: url }),
+                addUrl: (state, { url }) => (url && !state.includes(url) ? state.concat([url]) : state),
+                updateUrl: (state, { index, url }) => (url ? Object.assign([...state], { [index]: url }) : state),
                 removeUrl: (state, { index }) => {
                     const newUrls = [...state]
                     newUrls.splice(index, 1)
@@ -355,8 +353,8 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                     editUrlIndex && index < editUrlIndex
                         ? editUrlIndex - 1
                         : index === editUrlIndex
-                        ? null
-                        : editUrlIndex,
+                          ? null
+                          : editUrlIndex,
                 newUrl: () => -1,
                 updateUrl: () => null,
                 addUrl: () => null,

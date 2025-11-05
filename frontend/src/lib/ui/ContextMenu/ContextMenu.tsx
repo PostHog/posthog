@@ -1,16 +1,24 @@
 'use client'
 
-import { IconCheckCircle } from '@posthog/icons'
 import * as ContextMenuPrimitive from '@radix-ui/react-context-menu'
+import * as React from 'react'
+
+import { IconCheckCircle } from '@posthog/icons'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
-import * as React from 'react'
 
 const ContextMenu = ContextMenuPrimitive.Root
 
 const ContextMenuTrigger = ContextMenuPrimitive.Trigger
 
-const ContextMenuGroup = ContextMenuPrimitive.Group
+const ContextMenuGroup = React.forwardRef<
+    React.ElementRef<typeof ContextMenuPrimitive.Group>,
+    React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Group>
+>(({ className, ...props }, ref): JSX.Element => {
+    return <ContextMenuPrimitive.Group ref={ref} className={cn('flex flex-col gap-px p-1', className)} {...props} />
+})
+ContextMenuGroup.displayName = ContextMenuPrimitive.Group.displayName
 
 const ContextMenuPortal = ContextMenuPrimitive.Portal
 
@@ -25,7 +33,7 @@ const ContextMenuSubTrigger = React.forwardRef<
     }
 >(
     ({ className, inset, ...props }, ref): JSX.Element => (
-        <ContextMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-8', className)} {...props} />
+        <ContextMenuPrimitive.SubTrigger ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
     )
 )
 ContextMenuSubTrigger.displayName = ContextMenuPrimitive.SubTrigger.displayName
@@ -38,7 +46,10 @@ const ContextMenuSubContent = React.forwardRef<
         <ContextMenuPrimitive.SubContent
             ref={ref}
             collisionPadding={collisionPadding}
-            className={cn('primitive-menu-content', className)}
+            className={cn(
+                'primitive-menu-content max-h-[var(--radix-context-menu-content-available-height)]',
+                className
+            )}
             {...props}
         >
             <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
@@ -58,7 +69,10 @@ const ContextMenuContent = React.forwardRef<
             <ContextMenuPrimitive.Content
                 ref={ref}
                 collisionPadding={collisionPadding}
-                className={cn(`primitive-menu-content`, className)}
+                className={cn(
+                    `primitive-menu-content max-h-[var(--radix-context-menu-content-available-height)]`,
+                    className
+                )}
                 {...props}
             >
                 <ScrollableShadows direction="vertical" styledScrollbars innerClassName="primitive-menu-content-inner">
@@ -77,7 +91,7 @@ const ContextMenuItem = React.forwardRef<
     }
 >(
     ({ className, inset, ...props }, ref): JSX.Element => (
-        <ContextMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-8', className)} {...props} />
+        <ContextMenuPrimitive.Item ref={ref} className={cn(inset && 'pl-7', className)} {...props} />
     )
 )
 ContextMenuItem.displayName = ContextMenuPrimitive.Item.displayName
@@ -140,7 +154,7 @@ const ContextMenuLabel = React.forwardRef<
     ({ className, inset, ...props }, ref): JSX.Element => (
         <ContextMenuPrimitive.Label
             ref={ref}
-            className={cn('px-2 py-1.5 text-sm font-semibold text-foreground', inset && 'pl-8', className)}
+            className={cn('px-2 py-1.5 text-sm font-semibold text-foreground', inset && 'pl-7', className)}
             {...props}
         />
     )

@@ -1,17 +1,15 @@
 import './CodeSnippet.scss'
 
-import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { type HTMLProps, useEffect, useState } from 'react'
+import React, { type HTMLProps, useEffect, useState } from 'react'
 import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter'
 import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash'
 import csharp from 'react-syntax-highlighter/dist/esm/languages/prism/csharp'
 import dart from 'react-syntax-highlighter/dist/esm/languages/prism/dart'
 import elixir from 'react-syntax-highlighter/dist/esm/languages/prism/elixir'
 import go from 'react-syntax-highlighter/dist/esm/languages/prism/go'
+import groovy from 'react-syntax-highlighter/dist/esm/languages/prism/groovy'
 import http from 'react-syntax-highlighter/dist/esm/languages/prism/http'
 import java from 'react-syntax-highlighter/dist/esm/languages/prism/java'
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript'
@@ -27,6 +25,11 @@ import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
 import swift from 'react-syntax-highlighter/dist/esm/languages/prism/swift'
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript'
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
+
+import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -54,6 +57,7 @@ export enum Language {
     Markup = 'markup',
     SQL = 'sql',
     Kotlin = 'kotlin',
+    Groovy = 'groovy',
     CSharp = 'csharp',
     TypeScript = 'typescript',
 }
@@ -104,6 +108,8 @@ export const getLanguage = (lang: string): Language => {
             return Language.SQL
         case 'kotlin':
             return Language.Kotlin
+        case 'groovy':
+            return Language.Groovy
         default:
             return Language.Text
     }
@@ -131,6 +137,7 @@ SyntaxHighlighter.registerLanguage(Language.HTTP, http)
 SyntaxHighlighter.registerLanguage(Language.SQL, sql)
 SyntaxHighlighter.registerLanguage(Language.Kotlin, kotlin)
 SyntaxHighlighter.registerLanguage(Language.TypeScript, typescript)
+SyntaxHighlighter.registerLanguage(Language.Groovy, groovy)
 export interface CodeSnippetProps {
     children: string | undefined | null
     language?: Language
@@ -144,7 +151,7 @@ export interface CodeSnippetProps {
     maxLinesWithoutExpansion?: number
 }
 
-export function CodeSnippet({
+export const CodeSnippet = React.memo(function CodeSnippet({
     children: text,
     language = Language.Text,
     wrap = false,
@@ -155,11 +162,13 @@ export function CodeSnippet({
     maxLinesWithoutExpansion,
 }: CodeSnippetProps): JSX.Element | null {
     const [expanded, setExpanded] = useState(false)
-    const [indexOfLimitNewline, setIndexOfLimitNewline] = useState(
+    const [indexOfLimitNewline, setIndexOfLimitNewline] = useState(() =>
         maxLinesWithoutExpansion ? indexOfNth(text || '', '\n', maxLinesWithoutExpansion) : -1
     )
-    const [lineCount, setLineCount] = useState(-1)
-    const [displayedText, setDisplayedText] = useState('')
+    const [lineCount, setLineCount] = useState(() => text?.split('\n').length || -1)
+    const [displayedText, setDisplayedText] = useState(
+        () => (indexOfLimitNewline === -1 || expanded ? text : text?.slice(0, indexOfLimitNewline)) ?? ''
+    )
 
     useEffect(() => {
         if (text) {
@@ -167,7 +176,7 @@ export function CodeSnippet({
             setLineCount(text.split('\n').length)
             setDisplayedText(indexOfLimitNewline === -1 || expanded ? text : text.slice(0, indexOfLimitNewline))
         }
-    }, [text, maxLinesWithoutExpansion, expanded])
+    }, [text, maxLinesWithoutExpansion, expanded]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (lineCount == -1) {
         return null
@@ -209,7 +218,7 @@ export function CodeSnippet({
             )}
         </div>
     )
-}
+})
 
 const syntaxHighlighterLineProps: HTMLProps<HTMLElement> = {
     style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },

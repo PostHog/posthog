@@ -4,19 +4,16 @@ from typing import TYPE_CHECKING, Optional, Union
 import structlog
 from pydantic import BaseModel
 
+from posthog.schema import CacheMissResponse, DashboardFilter
+
+from posthog.hogql.constants import LimitContext
+
 from posthog.api.services.query import ExecutionMode, process_query_dict
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Insight,
-    Team,
-    User,
-)
+from posthog.models import Dashboard, DashboardTile, Insight, Team, User
 from posthog.models.insight import generate_insight_filters_hash
-from posthog.schema import CacheMissResponse, DashboardFilter
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 if TYPE_CHECKING:
     from posthog.caching.fetch_from_cache import InsightResult
@@ -30,7 +27,7 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
 
     if insight is not None:
-        with conversion_to_query_based(insight):
+        with upgrade_query(insight):
             if insight.query:
                 query_runner = get_query_runner_or_none(insight.query, insight.team)
                 if query_runner is None:
@@ -54,6 +51,7 @@ def calculate_for_query_based_insight(
     user: Optional[User],
     filters_override: Optional[dict] = None,
     variables_override: Optional[dict] = None,
+    tile_filters_override: Optional[dict] = None,
 ) -> "InsightResult":
     from posthog.caching.fetch_from_cache import InsightResult, NothingInCacheResult
     from posthog.caching.insight_cache import update_cached_state
@@ -62,23 +60,30 @@ def calculate_for_query_based_insight(
     if dashboard:
         tag_queries(dashboard_id=dashboard.pk)
 
+    dashboard_filters_json = (
+        filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
+    )
+
+    variables_override_json = (
+        variables_override if variables_override is not None else dashboard.variables if dashboard is not None else None
+    )
+
+    # Tile filters overrides all other filters
+    if tile_filters_override is not None and tile_filters_override != {}:
+        dashboard_filters_json = tile_filters_override
+        variables_override_json = None
+
     response = process_response = process_query_dict(
         team,
         insight.query,
-        dashboard_filters_json=(
-            filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
-        ),
-        variables_override_json=(
-            variables_override
-            if variables_override is not None
-            else dashboard.variables
-            if dashboard is not None
-            else None
-        ),
+        dashboard_filters_json=dashboard_filters_json,
+        variables_override_json=variables_override_json,
         execution_mode=execution_mode,
         user=user,
         insight_id=insight.pk,
         dashboard_id=dashboard.pk if dashboard else None,
+        # QUERY_ASYNC provides extended max execution time for insight queries
+        limit_context=LimitContext.QUERY_ASYNC,
     )
 
     if isinstance(process_response, BaseModel):

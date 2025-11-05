@@ -220,7 +220,7 @@ exports[`performance-event-utils can map network events containing server timing
     "fetch_start": 10640.09999999404,
     "initiator_type": "fetch",
     "is_initial": true,
-    "name": "http://localhost:8000/api/projects/1/activity_log/important_changes?unread=true",
+    "name": "http://localhost:8000/api/projects/1/important_changes?unread=true",
     "next_hop_protocol": "http/1.1",
     "raw": {
       "connectEnd": 12722.59999999404,
@@ -237,7 +237,7 @@ exports[`performance-event-utils can map network events containing server timing
       "firstInterimResponseStart": 0,
       "initiatorType": "fetch",
       "isInitial": true,
-      "name": "http://localhost:8000/api/projects/1/activity_log/important_changes?unread=true",
+      "name": "http://localhost:8000/api/projects/1/important_changes?unread=true",
       "nextHopProtocol": "http/1.1",
       "redirectEnd": 0,
       "redirectStart": 0,

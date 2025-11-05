@@ -17,7 +17,7 @@
             .definition-popover-header-row-title {
                 font-size: 0.6875rem;
                 font-weight: 600;
-                color: var(--text-secondary);
+                color: var(--color-text-secondary);
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
             }
@@ -33,7 +33,7 @@
                 }
 
                 .definition-popover-disabled-button {
-                    color: var(--text-secondary);
+                    color: var(--color-text-secondary);
                     cursor: not-allowed;
                 }
             }
@@ -41,6 +41,7 @@
 
         .definition-popover-title {
             display: flex;
+            gap: 0.25rem;
             align-items: center;
             min-height: 1.5rem;
             margin-bottom: 0.25rem;
@@ -55,7 +56,7 @@
                 font-size: 1.5rem;
 
                 &.taxonomy-icon-muted {
-                    color: var(--text-secondary);
+                    color: var(--color-text-secondary);
                 }
 
                 &.taxonomy-icon-verified {
@@ -63,7 +64,7 @@
                 }
 
                 &.taxonomy-icon-built-in {
-                    color: var(--accent);
+                    color: var(--color-accent);
                 }
             }
         }
@@ -80,7 +81,7 @@
 
         &.empty {
             font-style: italic;
-            color: var(--text-secondary);
+            color: var(--color-text-secondary);
         }
     }
 
@@ -102,7 +103,7 @@
     }
 
     .DefinitionPopover {
-        background-color: var(--bg-primary);
+        background-color: var(--color-bg-primary);
 
         .DefinitionPopover__label {
             align-items: flex-start;
@@ -124,7 +125,7 @@
             .definition-popover-grid-card-title {
                 font-size: 0.6875rem;
                 font-weight: 600;
-                color: var(--text-secondary);
+                color: var(--color-text-secondary);
                 text-transform: uppercase;
                 letter-spacing: 0.05em;
             }

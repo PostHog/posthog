@@ -1,9 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
-import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { DashboardBasicType } from '~/types'
+import { AccessControlLevel, DashboardBasicType } from '~/types'
 
 import { dashboardsModel, nameCompareFunction } from './dashboardsModel'
 
@@ -39,6 +38,24 @@ const dashboards: Partial<DashboardBasicType>[] = [
         id: 8,
         name: 'k',
     },
+    {
+        id: 9,
+        name: 'Pinned Later',
+        pinned: true,
+        last_viewed_at: '2024-05-02T12:00:00Z',
+    },
+    {
+        id: 10,
+        name: 'Pinned Never',
+        pinned: true,
+        last_viewed_at: null,
+    },
+    {
+        id: 11,
+        name: 'Pinned Earlier',
+        pinned: true,
+        last_viewed_at: '2024-04-30T12:00:00Z',
+    },
 ]
 
 const basicDashboard: DashboardBasicType = {
@@ -48,14 +65,12 @@ const basicDashboard: DashboardBasicType = {
     pinned: false,
     created_at: new Date().toISOString(),
     created_by: null,
+    last_accessed_at: null,
+    last_viewed_at: null,
     is_shared: false,
     deleted: false,
     creation_mode: 'default',
-    restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
-    effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
-    effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
-    user_access_level: 'editor',
-    access_control_version: 'v1',
+    user_access_level: AccessControlLevel.Editor,
 }
 
 describe('the dashboards model', () => {
@@ -90,6 +105,24 @@ describe('the dashboards model', () => {
                 .toDispatchActions(['loadDashboardsSuccess'])
                 .toMatchValues({
                     nameSortedDashboards: [
+                        {
+                            id: 11,
+                            last_viewed_at: '2024-04-30T12:00:00Z',
+                            name: 'Pinned Earlier',
+                            pinned: true,
+                        },
+                        {
+                            id: 9,
+                            last_viewed_at: '2024-05-02T12:00:00Z',
+                            name: 'Pinned Later',
+                            pinned: true,
+                        },
+                        {
+                            id: 10,
+                            last_viewed_at: null,
+                            name: 'Pinned Never',
+                            pinned: true,
+                        },
                         {
                             id: 5,
                             name: 'Dashboard: 112',
@@ -132,6 +165,20 @@ describe('the dashboards model', () => {
 
             expect(nameCompareFunction(randomDashboard2, randomDashboard)).toEqual(1)
             expect(nameCompareFunction(randomDashboard, randomDashboard2)).toEqual(-1)
+        })
+
+        it('sorts pinned dashboards by last viewed time', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadDashboards()
+            })
+                .toDispatchActions(['loadDashboardsSuccess'])
+                .toMatchValues({
+                    pinnedDashboards: [
+                        expect.objectContaining({ id: 9 }),
+                        expect.objectContaining({ id: 11 }),
+                        expect.objectContaining({ id: 10 }),
+                    ],
+                })
         })
     })
 })

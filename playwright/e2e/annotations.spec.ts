@@ -3,7 +3,7 @@ import { expect, test } from '../utils/playwright-test-base'
 test.describe('Annotations', () => {
     test.beforeEach(async ({ page }) => {
         await page.goToMenuItem('datamanagement')
-        await page.click('[data-attr=data-management-annotations-tab]')
+        await page.goToMenuItem('annotations')
     })
 
     test('Annotations loaded', async ({ page }) => {
@@ -12,7 +12,7 @@ test.describe('Annotations', () => {
     })
 
     test('Create annotation', async ({ page }) => {
-        await page.click('.TopBar3000 [data-attr=create-annotation]')
+        await page.click('[data-attr=create-annotation]')
         await page.fill('[data-attr=create-annotation-input]', 'Test Annotation')
         await page.click('[data-attr=create-annotation-submit]')
         await expect(page.locator('[data-attr=annotations-table]')).toContainText('Test Annotation')

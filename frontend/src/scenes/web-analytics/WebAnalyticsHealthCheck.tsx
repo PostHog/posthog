@@ -1,11 +1,18 @@
 import { useValues } from 'kea'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { ConversionGoalWarning, ProductTab, webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
+
+import { ConversionGoalWarning, ProductTab } from './common'
 
 export const WebAnalyticsHealthCheck = (): JSX.Element | null => {
     const { statusCheck, conversionGoalWarning, productTab } = useValues(webAnalyticsLogic)
+
+    if (productTab === ProductTab.MARKETING) {
+        return null
+    }
 
     if (conversionGoalWarning) {
         switch (conversionGoalWarning) {

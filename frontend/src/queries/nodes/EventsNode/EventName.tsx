@@ -1,6 +1,6 @@
-import { LemonEventName } from 'scenes/actions/EventName'
-
 import { EventsNode, EventsQuery } from '~/queries/schema/schema-general'
+
+import { EventName as EventNameComponent } from 'products/actions/frontend/components/EventName'
 
 interface EventNameProps {
     query: EventsNode | EventsQuery
@@ -9,7 +9,7 @@ interface EventNameProps {
 
 export function EventName({ query, setQuery }: EventNameProps): JSX.Element {
     return (
-        <LemonEventName
+        <EventNameComponent
             value={query.event ?? ''}
             disabled={!setQuery}
             onChange={(value) => setQuery?.({ ...query, event: value })}

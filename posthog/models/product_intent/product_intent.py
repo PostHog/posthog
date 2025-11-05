@@ -1,21 +1,23 @@
 from datetime import UTC, datetime
 from typing import Optional
 
-from celery import shared_task
 from django.db import models
+
+from celery import shared_task
 from rest_framework import serializers
 
 from posthog.models.dashboard import Dashboard
-from posthog.models.error_tracking import ErrorTrackingIssue
 from posthog.models.experiment import Experiment
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.surveys.survey import Survey
 from posthog.models.insight import Insight
+from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDModel, RootTeamMixin
+from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm
+
+from products.error_tracking.backend.models import ErrorTrackingIssue
 
 """
 How to use this model:
@@ -26,14 +28,13 @@ selecting a product during onboarding or clicking on a certain button.
 
 Some buttons that show product intent are frequently used by all users of the product,
 so we need to know if it's a new product intent, or if it's just regular usage. We
-can use the `activated_at` field to know if we should continue to update the product
-intent row, or if we should stop because it's just regular usage.
+can use the `activated_at` field to know when a product intent is activated.
 
 The `activated_at` field is set by checking against certain criteria that differs for
 each product. For instance, for the data warehouse product, we check if the user has
 created any DataVisualizationNode insights in the 30 days after the product intent
 was created. Each product needs to implement a method that checks for activation
-criteria if the intent actions are the same as the general usage actions.
+criteria.
 
 We shouldn't use this model and the `activated_at` field in place of sending events
 about product usage because that limits our data exploration later. Definitely continue
@@ -57,7 +58,7 @@ class ProductIntentSerializer(serializers.Serializer):
     intent_context = serializers.CharField(required=False, default="unknown")
 
 
-class ProductIntent(UUIDModel, RootTeamMixin):
+class ProductIntent(UUIDTModel, RootTeamMixin):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -170,6 +171,14 @@ class ProductIntent(UUIDModel, RootTeamMixin):
         return self.team.ingested_event
 
     def check_and_update_activation(self, skip_reporting: bool = False) -> bool:
+        # If the intent is already activated, we don't need to check again
+        if self.activated_at:
+            return True
+
+        # Update the last activation check time
+        self.activation_last_checked_at = datetime.now(tz=UTC)
+        self.save()
+
         activation_checks = {
             "data_warehouse": self.has_activated_data_warehouse,
             "experiments": self.has_activated_experiments,
@@ -186,6 +195,7 @@ class ProductIntent(UUIDModel, RootTeamMixin):
             if not skip_reporting:
                 self.report_activation(self.product_type)
             return True
+
         return False
 
     def report_activation(self, product_key: str) -> None:
@@ -203,10 +213,15 @@ class ProductIntent(UUIDModel, RootTeamMixin):
         )
 
     @staticmethod
-    def register(team: Team, product_type: str, context: str, user: User, metadata: Optional[dict] = None) -> None:
+    def register(
+        team: Team,
+        product_type: str,
+        context: str,
+        user: User,
+        metadata: Optional[dict] = None,
+        is_onboarding: bool = False,
+    ) -> "ProductIntent":
         from posthog.event_usage import report_user_action
-
-        should_report_product_intent = False
 
         product_intent, created = ProductIntent.objects.get_or_create(team=team, product_type=product_type)
 
@@ -216,30 +231,29 @@ class ProductIntent(UUIDModel, RootTeamMixin):
             **contexts,
             context: contexts.get(context, 0) + 1,
         }
+
+        if is_onboarding:
+            product_intent.onboarding_completed_at = datetime.now(tz=UTC)
+
         product_intent.save()
 
         if created:
             # For new intents, check activation immediately but skip reporting
-            was_already_activated = product_intent.check_and_update_activation(skip_reporting=True)
-            # Only report the action if they haven't already activated
-            if isinstance(user, User) and not was_already_activated:
-                should_report_product_intent = True
+            product_intent.check_and_update_activation(skip_reporting=True)
         else:
             if not product_intent.activated_at:
-                is_activated = product_intent.check_and_update_activation()
-                if not is_activated:
-                    should_report_product_intent = True
+                product_intent.check_and_update_activation()
             product_intent.updated_at = datetime.now(tz=UTC)
             product_intent.save()
 
-        if should_report_product_intent and isinstance(user, User):
+        if isinstance(user, User):
             report_user_action(
                 user,
                 "user showed product intent",
                 {
                     **(metadata or {}),
                     "product_key": product_type,
-                    "$set_once": {"first_onboarding_product_selected": product_type},
+                    "$set_once": {"first_onboarding_product_selected": product_type} if is_onboarding else {},
                     "intent_context": context,
                     "is_first_intent_for_product": created,
                     "intent_created_at": product_intent.created_at,
@@ -248,6 +262,8 @@ class ProductIntent(UUIDModel, RootTeamMixin):
                 },
                 team=team,
             )
+
+        return product_intent
 
 
 @shared_task(ignore_result=True)

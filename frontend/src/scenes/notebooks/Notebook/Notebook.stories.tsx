@@ -1,12 +1,11 @@
-import { Meta, StoryFn } from '@storybook/react'
-import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { NotebookType } from '~/types'
 
+import { NotebookType } from '../types'
 import notebook12345Json from './__mocks__/notebook-12345.json'
 import { notebookTestTemplate } from './__mocks__/notebook-template-for-snapshot'
 
@@ -181,6 +180,66 @@ const testCases: Record<string, NotebookType> = {
             ],
         },
     ]),
+    'api/projects/:team_id/notebooks/collapsed-headings': notebookTestTemplate('collapsible-headings', [
+        {
+            type: 'heading',
+            attrs: { level: 2, collapsed: true },
+            content: [
+                {
+                    type: 'text',
+                    text: 'Heading collapsed midway',
+                },
+            ],
+        },
+        {
+            type: 'heading',
+            attrs: { level: 3 },
+            content: [
+                {
+                    type: 'text',
+                    text: 'Nested heading',
+                },
+            ],
+        },
+        {
+            type: 'heading',
+            attrs: { level: 3, collapsed: true },
+            content: [
+                {
+                    type: 'text',
+                    text: 'Nested heading collapsed',
+                },
+            ],
+        },
+        {
+            type: 'paragraph',
+            content: [
+                {
+                    type: 'text',
+                    text: 'This is a paragraph',
+                },
+            ],
+        },
+        {
+            type: 'heading',
+            attrs: { level: 2, collapsed: true },
+            content: [
+                {
+                    type: 'text',
+                    text: 'Heading collapsed at the end',
+                },
+            ],
+        },
+        {
+            type: 'paragraph',
+            content: [
+                {
+                    type: 'text',
+                    text: 'This is a paragraph also',
+                },
+            ],
+        },
+    ]),
     'api/projects/:team_id/notebooks/recordings-playlist': notebookTestTemplate('recordings-playlist', [
         {
             type: 'ph-recording-playlist',
@@ -197,11 +256,13 @@ const testCases: Record<string, NotebookType> = {
 }
 
 const meta: Meta = {
+    component: App,
     title: 'Scenes-App/Notebooks',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04', // To stabilize relative dates
+        pageUrl: urls.notebooks(),
     },
     decorators: [
         mswDecorator({
@@ -349,70 +410,23 @@ const meta: Meta = {
     ],
 }
 export default meta
-export const NotebooksList: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.notebooks())
-    }, [])
-    return <App />
-}
 
-export const Headings: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.notebook('headings'))
-    }, [])
-    return <App />
-}
+type Story = StoryObj<typeof meta>
+export const NotebooksList: Story = {}
+export const Headings: Story = { parameters: { pageUrl: urls.notebook('headings') } }
+export const CollapsedHeadings: Story = { parameters: { pageUrl: urls.notebook('collapsed-headings') } }
+export const TextFormats: Story = { parameters: { pageUrl: urls.notebook('text-formats') } }
+export const NumberedList: Story = { parameters: { pageUrl: urls.notebook('numbered-list') } }
+export const BulletList: Story = { parameters: { pageUrl: urls.notebook('bullet-list') } }
+export const TextOnlyNotebook: Story = { parameters: { pageUrl: urls.notebook('12345') } }
+export const EmptyNotebook: Story = { parameters: { pageUrl: urls.notebook('empty') } }
+export const NotebookNotFound: Story = { parameters: { pageUrl: urls.notebook('abcde') } }
 
-export const TextFormats: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.notebook('text-formats'))
-    }, [])
-    return <App />
-}
-
-export const NumberedList: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.notebook('numbered-list'))
-    }, [])
-    return <App />
-}
-
-export const BulletList: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.notebook('bullet-list'))
-    }, [])
-    return <App />
-}
-
-export const RecordingsPlaylist: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.notebook('recordings-playlist'))
-    }, [])
-    return <App />
-}
-RecordingsPlaylist.parameters = {
-    testOptions: {
-        waitForSelector: '.NotebookNode__content', // All stories with widget-style nodes needs this
+export const RecordingsPlaylist: Story = {
+    parameters: {
+        pageUrl: urls.notebook('recordings-playlist'),
+        testOptions: {
+            waitForSelector: '.NotebookNode__content', // All stories with widget-style nodes needs this
+        },
     },
-}
-
-export const TextOnlyNotebook: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.notebook('12345'))
-    }, [])
-    return <App />
-}
-
-export const EmptyNotebook: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.notebook('empty'))
-    }, [])
-    return <App />
-}
-
-export const NotebookNotFound: StoryFn = () => {
-    useEffect(() => {
-        router.actions.push(urls.notebook('abcde'))
-    }, [])
-    return <App />
 }

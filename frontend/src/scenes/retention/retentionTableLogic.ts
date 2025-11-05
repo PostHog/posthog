@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { dayjs } from 'lib/dayjs'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -20,7 +20,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
             insightVizDataLogic(props),
             ['dateRange', 'retentionFilter', 'vizSpecificOptions', 'theme'],
             retentionLogic(props),
-            ['results', 'selectedBreakdownValue'],
+            ['results', 'selectedBreakdownValue', 'retentionMeans', 'breakdownDisplayNames'],
         ],
         actions: [retentionLogic(props), ['setSelectedBreakdownValue']],
     })),
@@ -76,12 +76,12 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         ],
 
         tableRows: [
-            (s) => [s.filteredResults, s.retentionFilter, s.hideSizeColumn],
+            (s) => [s.filteredResults, s.retentionFilter],
             (filteredResults, retentionFilter): RetentionTableRow[] => {
                 const { period } = retentionFilter || {}
 
                 return filteredResults.map((currentResult: ProcessedRetentionPayload) => {
-                    const currentDate = dayjs.utc(currentResult.date)
+                    const currentDate = currentResult.date
 
                     let label // Prepare for some date gymnastics
 
@@ -117,13 +117,14 @@ export const retentionTableLogic = kea<retentionTableLogicType>([
         tableRowsSplitByBreakdownValue: [
             (s) => [s.tableRows],
             (tableRows): Record<string, RetentionTableRow[]> =>
-                tableRows.reduce((acc, row) => {
-                    acc[row.breakdown_value ?? NO_BREAKDOWN_VALUE] = [
-                        ...(acc[row.breakdown_value ?? NO_BREAKDOWN_VALUE] || []),
-                        row,
-                    ]
-                    return acc
-                }, {} as Record<string, RetentionTableRow[]>),
+                tableRows.reduce(
+                    (acc, row) => {
+                        const breakdownValue = row.breakdown_value ?? NO_BREAKDOWN_VALUE
+                        acc[breakdownValue] = [...(acc[breakdownValue] || []), row]
+                        return acc
+                    },
+                    {} as Record<string, RetentionTableRow[]>
+                ),
         ],
     }),
 ])

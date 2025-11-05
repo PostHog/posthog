@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { alphabet } from 'lib/utils'
@@ -12,19 +13,22 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { FunnelsQuery, LifecycleQuery, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
-import { FilterType } from '~/types'
+import { ChartDisplayType, FilterType } from '~/types'
 
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 
 export function TrendsSeries(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, isLifecycle, isStickiness, display, hasFormula, series } = useValues(
+    const { querySource, isTrends, isLifecycle, isStickiness, display, hasFormula, series } = useValues(
         insightVizDataLogic(insightProps)
     )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
-    const { showGroupsOptions, groupsTaxonomicTypes } = useValues(groupsModel)
+    const { showGroupsOptions: showGroupsOptionsFromModel, groupsTaxonomicTypes } = useValues(groupsModel)
+
+    // Disable groups for calendar heatmap
+    const showGroupsOptions = display === ChartDisplayType.CalendarHeatmap ? false : showGroupsOptionsFromModel
 
     const propertiesTaxonomicGroupTypes = [
         TaxonomicFilterGroupType.EventProperties,
@@ -48,8 +52,10 @@ export function TrendsSeries(): JSX.Element | null {
     const mathAvailability = isLifecycle
         ? MathAvailability.None
         : isStickiness
-        ? MathAvailability.ActorsOnly
-        : MathAvailability.All
+          ? MathAvailability.ActorsOnly
+          : display === ChartDisplayType.CalendarHeatmap
+            ? MathAvailability.CalendarHeatmapOnly
+            : MathAvailability.All
 
     return (
         <>
@@ -89,9 +95,12 @@ export function TrendsSeries(): JSX.Element | null {
                 actionsTaxonomicGroupTypes={[
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
-                    TaxonomicFilterGroupType.DataWarehouse,
+                    ...(isTrends && display !== ChartDisplayType.CalendarHeatmap
+                        ? [TaxonomicFilterGroupType.DataWarehouse]
+                        : []),
                 ]}
                 hideDeleteBtn={series?.length === 1}
+                addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"
             />
         </>
     )

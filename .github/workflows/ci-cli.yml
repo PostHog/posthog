@@ -1,0 +1,75 @@
+name: CI CLI
+permissions:
+    contents: read
+on:
+    pull_request:
+        paths:
+            - 'cli/**'
+            - '.github/workflows/ci-cli.yml'
+
+jobs:
+    check-lockfile:
+        name: Check lockfile is up to date
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: cli
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+
+            - name: Check Cargo.lock is up to date
+              run: |
+                  cargo update --workspace --locked
+                  git diff --exit-code Cargo.lock
+
+    tests:
+        name: Run tests
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: cli
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+
+            - name: Run tests
+              run: cargo test --all-features
+
+    clippy:
+        name: Clippy
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: cli
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              with:
+                  components: clippy
+
+            - name: Run clippy
+              run: cargo clippy --all-targets --all-features -- -D warnings
+
+    format:
+        name: Format
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: cli
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@6691ebadcb18182cc1391d07c9f295f657c593cd # 1.88
+              with:
+                  components: rustfmt
+
+            - name: Check formatting
+              run: cargo fmt --all -- --check

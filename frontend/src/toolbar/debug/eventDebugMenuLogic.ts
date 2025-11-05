@@ -1,4 +1,5 @@
 import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+
 import { uuid } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
@@ -171,10 +172,12 @@ export const eventDebugMenuLogic = kea<eventDebugMenuLogicType>([
             },
         ],
     }),
-    afterMount(({ values, actions }) => {
-        values.posthog?.on('eventCaptured', (e) => {
-            actions.addEvent(e)
-        })
+    afterMount(({ values, actions, cache }) => {
+        cache.disposables.add(() => {
+            return values.posthog?.on('eventCaptured', (e) => {
+                actions.addEvent(e)
+            })
+        }, 'posthogEventListener')
     }),
     permanentlyMount(),
 ])

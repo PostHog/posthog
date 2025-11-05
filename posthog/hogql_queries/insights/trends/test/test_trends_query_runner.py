@@ -1,36 +1,27 @@
-import itertools
 import re
 import zoneinfo
+import itertools
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import groupby
 from typing import Any, Optional
-from unittest.mock import MagicMock, patch
 
 import pytest
-from django.test import override_settings
 from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+)
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
+
 from pydantic import ValidationError
 
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql_queries.insights.trends.breakdown import (
-    BREAKDOWN_NULL_DISPLAY,
-    BREAKDOWN_NULL_STRING_LABEL,
-    BREAKDOWN_OTHER_STRING_LABEL,
-)
-from posthog.hogql_queries.insights.trends.trends_query_runner import (
-    BREAKDOWN_OTHER_DISPLAY,
-    TrendsQueryRunner,
-)
-from posthog.models import GroupTypeMapping
-from posthog.models.action.action import Action
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.group.util import create_group
-from posthog.models.property_definition import PropertyDefinition
-from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -42,32 +33,44 @@ from posthog.schema import (
     CompareFilter,
     CompareItem,
     CountPerActorMathType,
+    DateRange,
     DayItem,
     EventMetadataPropertyFilter,
     EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
     InCohortVia,
-    DateRange,
     IntervalType,
+    MathGroupTypeIndex,
     MultipleBreakdownType,
     PersonPropertyFilter,
     PropertyMathType,
     PropertyOperator,
+    Series as InsightActorsQuerySeries,
     TrendsFilter,
+    TrendsFormulaNode,
     TrendsQuery,
 )
-from posthog.schema import Series as InsightActorsQuerySeries
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    also_test_with_materialized_columns,
-    flush_persons_and_events,
-)
+
+from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.insights.trends.breakdown import (
+    BREAKDOWN_NULL_DISPLAY,
+    BREAKDOWN_NULL_STRING_LABEL,
+    BREAKDOWN_OTHER_STRING_LABEL,
+)
+from posthog.hogql_queries.insights.trends.trends_query_runner import BREAKDOWN_OTHER_DISPLAY, TrendsQueryRunner
+from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import Cohort
+from posthog.models.group.util import create_group
+from posthog.models.property_definition import PropertyDefinition
+from posthog.models.team.team import Team
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 @dataclass
@@ -95,6 +98,8 @@ class SeriesTestData:
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
+    maxDiff = None
+
     default_date_from = "2020-01-09"
     default_date_to = "2020-01-19"
 
@@ -230,10 +235,10 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
 
     def _create_test_groups(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=1
         )
 
@@ -553,6 +558,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.default_date_to,
             IntervalType.DAY,
             [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            hogql_modifiers=HogQLQueryModifiers(timings=True),
         )
 
         self.assertEqual(2, len(response.results))
@@ -1052,6 +1058,132 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1]["breakdown_value"] == "all"
         assert response.results[1]["count"] == 16
         assert response.results[1]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
+
+        # action needs to be unset to display custom label
+        assert response.results[0]["action"] is None
+
+    def test_multiple_formula_with_multi_cohort_all_breakdown(self):
+        self._create_test_events()
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(
+                formulaNodes=[
+                    TrendsFormulaNode(formula="A+B", custom_name="Formula (A+B)"),
+                    TrendsFormulaNode(formula="B+1", custom_name="Formula (B+1)"),
+                ]
+            ),
+            BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk, "all"]),
+        )
+
+        assert len(response.results) == 4
+
+        response.results.sort(key=lambda r: r["count"])
+
+        assert response.results[0]["label"] == "Formula (A+B)"
+        assert response.results[0]["breakdown_value"] == cohort1.pk
+        assert response.results[0]["count"] == 9
+        assert response.results[0]["data"] == [0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 1, 0]
+
+        assert response.results[1]["label"] == "Formula (B+1)"
+        assert response.results[1]["breakdown_value"] == cohort1.pk
+        assert response.results[1]["count"] == 15
+        assert response.results[1]["data"] == [1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1]
+
+        assert response.results[2]["label"] == "Formula (A+B)"
+        assert response.results[2]["breakdown_value"] == "all"
+        assert response.results[2]["count"] == 16
+        assert response.results[2]["data"] == [1, 0, 2, 4, 4, 0, 2, 1, 1, 0, 1, 0]
+
+        assert response.results[3]["label"] == "Formula (B+1)"
+        assert response.results[3]["breakdown_value"] == "all"
+        assert response.results[3]["count"] == 18
+        assert response.results[3]["data"] == [1, 1, 2, 2, 4, 1, 1, 2, 1, 1, 1, 1]
+
+        # action needs to be unset to display custom label
+        assert response.results[0]["action"] is None
+
+    def test_formula_with_multi_cohort_all_breakdown_with_compare(self):
+        self._create_test_events()
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "name",
+                            "value": "p1",
+                            "type": "person",
+                        }
+                    ]
+                }
+            ],
+            name="cohort p1",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview"), EventsNode(event="$pageleave")],
+            TrendsFilter(formula="A+B"),
+            BreakdownFilter(breakdown_type=BreakdownType.COHORT, breakdown=[cohort1.pk, "all"]),
+            compare_filters=CompareFilter(compare=True),
+        )
+
+        assert len(response.results) == 4
+
+        response.results.sort(key=lambda r: r["count"])
+
+        self.assertEqual(True, response.results[0]["compare"])
+        self.assertEqual(True, response.results[1]["compare"])
+        self.assertEqual(True, response.results[2]["compare"])
+        self.assertEqual(True, response.results[3]["compare"])
+
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual("current", response.results[1]["compare_label"])
+        self.assertEqual("previous", response.results[2]["compare_label"])
+        self.assertEqual("previous", response.results[3]["compare_label"])
+
+        assert response.results[0]["label"] == "Formula (A+B)"
+        assert response.results[0]["breakdown_value"] == cohort1.pk
+        assert response.results[0]["count"] == 3
+        assert response.results[0]["data"] == [1.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+
+        assert response.results[1]["label"] == "Formula (A+B)"
+        assert response.results[1]["breakdown_value"] == "all"
+        assert response.results[1]["count"] == 5
+        assert response.results[1]["data"] == [2.0, 1.0, 1.0, 0.0, 1.0, 0.0]
+
+        assert response.results[2]["label"] == "Formula (A+B)"
+        assert response.results[2]["breakdown_value"] == cohort1.pk
+        assert response.results[2]["count"] == 6
+        assert response.results[2]["data"] == [0.0, 0.0, 2.0, 2.0, 2.0, 0.0]
+
+        assert response.results[3]["label"] == "Formula (A+B)"
+        assert response.results[3]["breakdown_value"] == "all"
+        assert response.results[3]["count"] == 11
+        assert response.results[3]["data"] == [1.0, 0.0, 2.0, 4.0, 4.0, 0.0]
 
         # action needs to be unset to display custom label
         assert response.results[0]["action"] is None
@@ -1702,6 +1834,32 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "2020-02-01",
             IntervalType.MONTH,
             [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
+            None,
+            None,
+        )
+
+        assert response.results[0]["data"] == [0, 4, 0]
+
+    def test_trends_aggregation_monthly_active_groups_long_interval(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+        self._create_test_events_for_groups()
+
+        response = self._run_trends_query(
+            "2019-12-31",
+            "2020-02-01",
+            IntervalType.MONTH,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=BaseMathType.MONTHLY_ACTIVE,
+                    math_group_type_index=MathGroupTypeIndex.NUMBER_0,
+                )
+            ],
             None,
             None,
         )
@@ -4027,6 +4185,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         """
         Test all possible combinations do not throw.
         """
+        self._create_test_groups()
         self._create_test_events_for_groups()
         flush_persons_and_events()
 
@@ -5447,3 +5606,203 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results[0]["count"], 5.0)  # Should use person property value
         self.assertEqual(response.results[0]["data"], [0.0, 0.0, 5.0] + [0.0] * 8)
+
+    def _compare_trends_test(self, compare_filters: CompareFilter):
+        """
+        Test a TrendsQuery with daily aggregation that has compare to previous period enabled.
+        It uses a -7d window, sets the team's timezone to US/Pacific, and generates events at 9PM and 11PM each day.
+        """
+        # Set the team's timezone to US/Pacific
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        # Create a person
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["test_user"],
+            properties={},
+        )
+
+        # Get the current time and generate events for the past 15 days
+        # We'll freeze time at 10PM Pacific time
+        freeze_time_at = datetime.now(zoneinfo.ZoneInfo("US/Pacific")).replace(
+            hour=22, minute=0, second=0, microsecond=0
+        )
+
+        # Generate one event at 9PM and another at 11PM each day for the past 16 days.
+        # On the first day at 9 PM and on the last day at 11 PM, generate 10 events
+        for days_ago in range(0, 15):
+            event_date = freeze_time_at - timedelta(days=days_ago)
+
+            # Create event at 9PM
+            for _ in range(10 if days_ago == 14 else 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id="test_user",
+                    timestamp=(event_date - timedelta(hours=1)).isoformat(),  # 9PM
+                    properties={"key": "value"},
+                )
+
+            # Create event at 11PM
+            for _ in range(10 if days_ago == 0 else 1):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id="test_user",
+                    timestamp=(event_date + timedelta(hours=1)).isoformat(),  # 11PM
+                    properties={"key": "value"},
+                )
+
+        with freeze_time(freeze_time_at.isoformat()):
+            response = TrendsQueryRunner(
+                query=self._create_trends_query(
+                    date_from="-7d",
+                    date_to=None,
+                    interval=IntervalType.DAY,
+                    series=[EventsNode(event="$pageview")],
+                    trends_filters=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+                    compare_filters=compare_filters,
+                ),
+                team=self.team,
+            ).calculate()
+
+        # Verify the response
+        self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
+
+        # Check compare labels
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual("previous", response.results[1]["compare_label"])
+
+        # Check that each period has 8 days of data (includes one extra day)
+        self.assertEqual(8, len(response.results[0]["data"]))
+        self.assertEqual(8, len(response.results[1]["data"]))
+
+        # Each day should have 2 events (9PM and 11PM)
+        for value in response.results[0]["data"][0:-1]:
+            self.assertEqual(2, value)
+        self.assertEqual(11, response.results[0]["data"][-1])
+
+        for value in response.results[1]["data"][1:-1]:
+            self.assertEqual(2, value)
+        self.assertEqual(11, response.results[1]["data"][0])
+
+        # Test with bold number to make sure it represents just a week
+        with freeze_time(freeze_time_at.isoformat()):
+            response = TrendsQueryRunner(
+                query=self._create_trends_query(
+                    date_from="-7d",
+                    date_to=None,
+                    interval=IntervalType.DAY,
+                    series=[EventsNode(event="$pageview")],
+                    trends_filters=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+                    compare_filters=compare_filters,
+                ),
+                team=self.team,
+            ).calculate()
+
+        self.assertEqual(2, len(response.results), "Should have 2 results (current and previous period)")
+        for result in response.results:
+            self.assertEqual(14, result["aggregated_value"])
+
+    def test_trends_daily_compare_to_previous_period(self):
+        self._compare_trends_test(CompareFilter(compare=True))
+
+    def test_trends_daily_compare_to_7_days_ago(self):
+        self._compare_trends_test(CompareFilter(compare=True, compare_to="-7d"))
+
+    def test_trends_all_time(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "all",
+            self.default_date_to,
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+        )
+
+        self.assertEqual(1, len(response.results))
+
+        # Check the first day is included
+        self.assertIn(
+            "2020-01-09",
+            response.results[0]["days"],
+        )
+
+    def test_cohort_breakdown_list_assertion_error_scenario(self):
+        """
+        In trends query runner, we run a couple things after init. When updating filters, make sure they get run again.
+        """
+        self._create_test_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+            name="test cohort",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        base_query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
+            interval=IntervalType.DAY,
+        )
+
+        # Apply filters_override with cohort breakdown list (like from dashboard)
+        from posthog.schema import DashboardFilter
+
+        filters_override = DashboardFilter(
+            breakdown_filter=BreakdownFilter(
+                breakdown_type=BreakdownType.COHORT,
+                breakdown=[cohort.pk],  # This is a list - the problematic case
+            )
+        )
+
+        runner = TrendsQueryRunner(team=self.team, query=base_query)
+        runner.apply_dashboard_filters(filters_override)
+
+        # This is the call that would fail with assertion error before the fix
+        response = runner.calculate()
+
+        # If we get here, the fix is working
+        self.assertIsNotNone(response)
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0]["breakdown_value"], cohort.pk)
+
+    def test_week_interval_includes_only_data_after_date_from(self):
+        """
+        When using week intervals, the data should only include data after the date_from and not the start of the week.
+        """
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-14",
+            "2020-01-16",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+        )
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(1, len(response.results[0]["days"]))
+        self.assertEqual(2, response.results[0]["count"])
+
+        # check it works correctly if the date_from is on the week start
+        response = self._run_trends_query(
+            "2020-01-12",
+            "2020-01-16",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+        )
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(1, len(response.results[0]["days"]))
+        self.assertEqual(6, response.results[0]["count"])
+
+        # check it works correctly if the date_from is before the week start
+        response = self._run_trends_query(
+            "2020-01-10",
+            "2020-01-16",
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+        )
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(2, len(response.results[0]["days"]))
+        self.assertEqual(7, response.results[0]["count"])

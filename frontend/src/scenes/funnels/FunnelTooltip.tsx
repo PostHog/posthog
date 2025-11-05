@@ -1,16 +1,17 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { useEffect, useRef } from 'react'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
-import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -112,10 +113,11 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
     const { aggregationLabel } = useValues(groupsModel)
 
     const vizRef = useRef<HTMLDivElement>(null)
+    const { getTooltip } = useInsightTooltip()
 
     useEffect(() => {
         const svgRect = vizRef.current?.getBoundingClientRect()
-        const [tooltipRoot, tooltipEl] = ensureTooltip()
+        const [tooltipRoot, tooltipEl] = getTooltip()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipOrigin) {
@@ -150,7 +152,7 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
-    }, [isTooltipShown, tooltipOrigin, currentTooltip])
+    }, [isTooltipShown, tooltipOrigin, currentTooltip]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return vizRef
 }

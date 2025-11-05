@@ -1,11 +1,15 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SlackChannelType } from '~/types'
 
 import type { slackIntegrationLogicType } from './slackIntegrationLogicType'
+
+export const SLACK_CHANNELS_MIN_REFRESH_INTERVAL_MINUTES = 5
 
 export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
     props({} as { id: number }),
@@ -15,17 +19,16 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         values: [preflightLogic, ['siteUrlMisconfigured', 'preflight']],
     })),
     actions({
-        loadAllSlackChannels: () => ({}),
+        loadAllSlackChannels: (forceRefresh: boolean = false) => ({ forceRefresh }),
         loadSlackChannelById: (channelId: string) => ({ channelId }),
     }),
 
     loaders(({ props }) => ({
         allSlackChannels: [
-            null as SlackChannelType[] | null,
+            null as { channels: SlackChannelType[]; lastRefreshedAt: string } | null,
             {
-                loadAllSlackChannels: async () => {
-                    const res = await api.integrations.slackChannels(props.id)
-                    return res.channels
+                loadAllSlackChannels: async ({ forceRefresh }) => {
+                    return await api.integrations.slackChannels(props.id, forceRefresh)
                 },
             },
         ],
@@ -45,7 +48,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         _fetchedSlackChannels: [
             [] as SlackChannelType[],
             {
-                loadAllSlackChannelsSuccess: (_, { allSlackChannels }) => allSlackChannels ?? [],
+                loadAllSlackChannelsSuccess: (_, { allSlackChannels }) => allSlackChannels.channels ?? [],
             },
         ],
         _fetchedSlackChannelById: [
@@ -83,6 +86,22 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                     const [channelId] = channel.split('|')
                     return slackChannels.find((x) => x.id === channelId)?.is_private_without_access ?? false
                 }
+            },
+        ],
+        getChannelRefreshButtonDisabledReason: [
+            (s) => [s.allSlackChannels],
+            (allSlackChannels: { channels: SlackChannelType[]; lastRefreshedAt: string } | null) => (): string => {
+                const now = dayjs()
+                if (allSlackChannels) {
+                    const earliestRefresh = dayjs(allSlackChannels.lastRefreshedAt).add(
+                        SLACK_CHANNELS_MIN_REFRESH_INTERVAL_MINUTES,
+                        'minutes'
+                    )
+                    if (now.isBefore(earliestRefresh)) {
+                        return `You can refresh the channels again ${earliestRefresh.from(now)}`
+                    }
+                }
+                return ''
             },
         ],
     }),

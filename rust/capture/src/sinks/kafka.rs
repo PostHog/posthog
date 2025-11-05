@@ -5,11 +5,10 @@ use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
 use health::HealthHandle;
-use limiters::overflow::OverflowLimiter;
+use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
-use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
@@ -29,6 +28,15 @@ impl rdkafka::ClientContext for KafkaContext {
         if brokers_up {
             self.liveness.report_healthy_blocking();
         }
+
+        let total_brokers = stats.brokers.len();
+        let up_brokers = stats
+            .brokers
+            .values()
+            .filter(|broker| broker.state == "UP")
+            .count();
+        let down_brokers = total_brokers.saturating_sub(up_brokers);
+        gauge!("capture_kafka_any_brokers_down").set(if down_brokers > 0 { 1.0 } else { 0.0 });
 
         // Update exported metrics
         gauge!("capture_kafka_callback_queue_depth",).set(stats.replyq as f64);
@@ -52,6 +60,13 @@ impl rdkafka::ClientContext for KafkaContext {
 
         for (_, stats) in stats.brokers {
             let id_string = format!("{}", stats.nodeid);
+
+            // Per-broker connectivity (1 = connected/UP, 0 = not connected)
+            gauge!(
+                "capture_kafka_broker_connected",
+                "broker" => id_string.clone()
+            )
+            .set(if stats.state == "UP" { 1.0 } else { 0.0 });
             if let Some(rtt) = stats.rtt {
                 gauge!(
                     "capture_kafka_produce_rtt_latency_us",
@@ -113,6 +128,7 @@ pub struct KafkaSink {
     producer: FutureProducer<KafkaContext>,
     partition: Option<OverflowLimiter>,
     main_topic: String,
+    overflow_topic: String,
     historical_topic: String,
     client_ingestion_warning_topic: String,
     exceptions_topic: String,
@@ -173,7 +189,7 @@ impl KafkaSink {
                 .set("enable.ssl.certificate.verification", "false");
         };
 
-        debug!("rdkafka configuration: {:?}", client_config);
+        debug!("rdkafka configuration: {client_config:?}");
         let producer: FutureProducer<KafkaContext> =
             client_config.create_with_context(KafkaContext {
                 liveness: liveness.clone(),
@@ -197,6 +213,7 @@ impl KafkaSink {
             producer,
             partition,
             main_topic: config.kafka_topic,
+            overflow_topic: config.kafka_overflow_topic,
             historical_topic: config.kafka_historical_topic,
             client_ingestion_warning_topic: config.kafka_client_ingestion_warning_topic,
             exceptions_topic: config.kafka_exceptions_topic,
@@ -215,15 +232,16 @@ impl KafkaSink {
         let (event, metadata) = (event.event, event.metadata);
 
         let payload = serde_json::to_string(&event).map_err(|e| {
-            error!("failed to serialize event: {}", e);
+            error!("failed to serialize event: {e}");
             CaptureError::NonRetryableSinkError
         })?;
 
-        let token = event.token.clone();
         let data_type = metadata.data_type;
         let event_key = event.key();
         let session_id = metadata.session_id.clone();
-        let distinct_id = event.distinct_id.clone();
+
+        // Use the event's to_headers() method for consistent header serialization
+        let mut headers = event.to_headers();
 
         drop(event); // Events can be EXTREMELY memory hungry
 
@@ -231,14 +249,38 @@ impl KafkaSink {
             DataType::AnalyticsHistorical => (&self.historical_topic, Some(event_key.as_str())), // We never trigger overflow on historical events
             DataType::AnalyticsMain => {
                 // TODO: deprecate capture-led overflow or move logic in handler
-                let is_limited = match &self.partition {
-                    None => false,
+                let overflow_result = match &self.partition {
+                    None => OverflowLimiterResult::NotLimited,
                     Some(partition) => partition.is_limited(&event_key),
                 };
-                if is_limited {
-                    (&self.main_topic, None) // Analytics overflow goes to the main topic without locality
-                } else {
-                    (&self.main_topic, Some(event_key.as_str()))
+
+                match overflow_result {
+                    OverflowLimiterResult::ForceLimited => {
+                        headers.set_force_disable_person_processing(true);
+                        counter!(
+                            "capture_events_rerouted_overflow",
+                            &[("reason", "force_limited")]
+                        )
+                        .increment(1);
+                        (&self.overflow_topic, None)
+                    }
+                    OverflowLimiterResult::Limited => {
+                        counter!(
+                            "capture_events_rerouted_overflow",
+                            &[("reason", "rate_limited")]
+                        )
+                        .increment(1);
+                        if self.partition.as_ref().unwrap().should_preserve_locality() {
+                            (&self.overflow_topic, Some(event_key.as_str()))
+                        } else {
+                            (&self.overflow_topic, None)
+                        }
+                    }
+                    OverflowLimiterResult::NotLimited => {
+                        // event_key is "<token>:<distinct_id>" for std events or
+                        // "<token>:<ip_addr>" for cookieless events
+                        (&self.main_topic, Some(event_key.as_str()))
+                    }
                 }
             }
             DataType::ClientIngestionWarning => (
@@ -270,28 +312,20 @@ impl KafkaSink {
             partition: None,
             key: partition_key,
             timestamp: None,
-            headers: Some(
-                OwnedHeaders::new()
-                    .insert(Header {
-                        key: "token",
-                        value: Some(&token),
-                    })
-                    .insert(Header {
-                        key: "distinct_id",
-                        value: Some(&distinct_id),
-                    }),
-            ),
+            headers: Some(headers.into()),
         }) {
             Ok(ack) => Ok(ack),
             Err((e, _)) => match e.rdkafka_error_code() {
                 Some(RDKafkaErrorCode::MessageSizeTooLarge) => {
                     report_dropped_events("kafka_message_size", 1);
-                    Err(CaptureError::EventTooBig)
+                    Err(CaptureError::EventTooBig(
+                        "Event rejected by kafka during send".to_string(),
+                    ))
                 }
                 _ => {
                     // TODO(maybe someday): Don't drop them but write them somewhere and try again
                     report_dropped_events("kafka_write_error", 1);
-                    error!("failed to produce event: {}", e);
+                    error!("failed to produce event: {e}");
                     Err(CaptureError::RetryableSinkError)
                 }
             },
@@ -309,12 +343,14 @@ impl KafkaSink {
             Ok(Err((KafkaError::MessageProduction(RDKafkaErrorCode::MessageSizeTooLarge), _))) => {
                 // Rejected by broker due to message size
                 report_dropped_events("kafka_message_size", 1);
-                Err(CaptureError::EventTooBig)
+                Err(CaptureError::EventTooBig(
+                    "Event rejected by kafka broker during ack".to_string(),
+                ))
             }
             Ok(Err((err, _))) => {
                 // Unretriable produce error
                 counter!("capture_kafka_produce_errors_total").increment(1);
-                error!("failed to produce to Kafka: {}", err);
+                error!("failed to produce to Kafka: {err}");
                 Err(CaptureError::RetryableSinkError)
             }
             Ok(Ok(_)) => {
@@ -359,7 +395,7 @@ impl Event for KafkaSink {
                     }
                     Err(err) => {
                         set.abort_all();
-                        error!("join error while waiting on Kafka ACK: {:?}", err);
+                        error!("join error while waiting on Kafka ACK: {err:?}");
                         return Err(CaptureError::RetryableSinkError);
                     }
                 }
@@ -404,6 +440,7 @@ mod tests {
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),
             None,
+            false,
         ));
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
         let config = config::KafkaConfig {
@@ -415,6 +452,7 @@ mod tests {
             kafka_compression_codec: "none".to_string(),
             kafka_hosts: cluster.bootstrap_servers(),
             kafka_topic: "events_plugin_ingestion".to_string(),
+            kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
             kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
             kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
             kafka_exceptions_topic: "events_plugin_ingestion".to_string(),
@@ -447,12 +485,17 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            event: "test_event".to_string(),
+            timestamp: chrono::Utc::now(),
             is_cookieless_mode: false,
+            historical_migration: false,
         };
 
         let metadata = ProcessedEventMetadata {
             data_type: DataType::AnalyticsMain,
             session_id: None,
+            computed_timestamp: None,
+            event_name: "test_event".to_string(),
         };
 
         let event = ProcessedEvent {
@@ -489,7 +532,10 @@ mod tests {
             now: "".to_string(),
             sent_at: None,
             token: "token1".to_string(),
+            event: "test_event".to_string(),
+            timestamp: chrono::Utc::now(),
             is_cookieless_mode: false,
+            historical_migration: false,
         };
 
         let big_event = ProcessedEvent {
@@ -517,14 +563,17 @@ mod tests {
                 now: "".to_string(),
                 sent_at: None,
                 token: "token1".to_string(),
+                event: "test_event".to_string(),
+                timestamp: chrono::Utc::now(),
                 is_cookieless_mode: false,
+                historical_migration: false,
             },
             metadata: metadata.clone(),
         };
 
         match sink.send(big_event).await {
-            Err(CaptureError::EventTooBig) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(CaptureError::EventTooBig(_)) => {} // Expected
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
 
@@ -533,8 +582,8 @@ mod tests {
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
         match sink.send(event.clone()).await {
-            Err(CaptureError::EventTooBig) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(CaptureError::EventTooBig(_)) => {} // Expected
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
@@ -542,7 +591,7 @@ mod tests {
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
         match sink.send_batch(vec![event.clone(), event.clone()]).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
 
@@ -566,13 +615,80 @@ mod tests {
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
         match sink.send(event.clone()).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
         match sink.send_batch(vec![event.clone(), event.clone()]).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
-            Err(err) => panic!("wrong error code {}", err),
+            Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
+    }
+
+    #[tokio::test]
+    async fn test_historical_migration_headers() {
+        use common_types::CapturedEventHeaders;
+        use rdkafka::message::OwnedHeaders;
+
+        // Test that historical_migration=true is set in headers for AnalyticsHistorical
+        let headers_historical = CapturedEventHeaders {
+            token: Some("test_token".to_string()),
+            distinct_id: Some("test_id".to_string()),
+            timestamp: Some("2023-01-01T12:00:00Z".to_string()),
+            event: Some("test_event".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            now: Some("2023-01-01T12:00:00Z".to_string()),
+            force_disable_person_processing: None,
+            historical_migration: Some(true),
+        };
+
+        let owned_headers: OwnedHeaders = headers_historical.into();
+        let parsed_headers = CapturedEventHeaders::from(owned_headers);
+        assert_eq!(parsed_headers.historical_migration, Some(true));
+        assert_eq!(parsed_headers.now, Some("2023-01-01T12:00:00Z".to_string()));
+
+        let headers_main = CapturedEventHeaders {
+            token: Some("test_token".to_string()),
+            distinct_id: Some("test_id".to_string()),
+            timestamp: Some("2023-01-01T12:00:00Z".to_string()),
+            event: Some("test_event".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            now: Some("2023-01-01T12:00:00Z".to_string()),
+            force_disable_person_processing: None,
+            historical_migration: Some(false),
+        };
+
+        let owned_headers: OwnedHeaders = headers_main.into();
+        let parsed_headers = CapturedEventHeaders::from(owned_headers);
+        assert_eq!(parsed_headers.historical_migration, Some(false));
+        assert_eq!(parsed_headers.now, Some("2023-01-01T12:00:00Z".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_now_header_is_set() {
+        use common_types::CapturedEventHeaders;
+        use rdkafka::message::OwnedHeaders;
+
+        // Test that the 'now' header is correctly set and parsed
+        let test_now = "2024-01-15T10:30:45Z".to_string();
+        let headers = CapturedEventHeaders {
+            token: Some("test_token".to_string()),
+            distinct_id: Some("test_id".to_string()),
+            timestamp: Some("2024-01-15T10:30:00Z".to_string()),
+            event: Some("test_event".to_string()),
+            uuid: Some("test-uuid".to_string()),
+            now: Some(test_now.clone()),
+            force_disable_person_processing: None,
+            historical_migration: None,
+        };
+
+        // Convert to owned headers and back
+        let owned_headers: OwnedHeaders = headers.into();
+        let parsed_headers = CapturedEventHeaders::from(owned_headers);
+
+        // Verify the 'now' field is preserved
+        assert_eq!(parsed_headers.now, Some(test_now));
+        assert_eq!(parsed_headers.token, Some("test_token".to_string()));
+        assert_eq!(parsed_headers.distinct_id, Some("test_id".to_string()));
     }
 }

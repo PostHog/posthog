@@ -1,13 +1,11 @@
 .SidePanel3000 {
-    --side-panel-bar-width: 3rem;
-
     position: relative;
     z-index: var(--z-main-nav);
     box-sizing: content-box;
     display: flex;
     flex-shrink: 0;
     width: 3rem;
-    background: var(--bg-surface-secondary);
+    background: var(--color-bg-surface-secondary);
 
     &--open {
         position: relative;
@@ -84,8 +82,10 @@
                 )
                 0.25rem
                 calc(
-                    var(--lemon-button-padding-left, var(--lemon-button-padding-horizontal)) -
-                        var(--lemon-button-chrome-depth) * 0.5
+                    var(--lemon-button-padding-left, var(--lemon-button-padding-horizontal)) - var(
+                            --lemon-button-chrome-depth
+                        ) *
+                        0.5
                 ) !important;
 
             &::after {
@@ -100,7 +100,8 @@
                 transform: translateX(var(--lemon-button-depth)) !important;
 
                 &::after {
-                    box-shadow: calc(var(--lemon-button-chrome-depth) - var(--lemon-button-depth)) 0 0 -1px var(--lemon-button-frame-bg-color) !important;
+                    box-shadow: calc(var(--lemon-button-chrome-depth) - var(--lemon-button-depth)) 0 0 -1px
+                        var(--lemon-button-frame-bg-color) !important;
                 }
 
                 &::before {

@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestEventsQueryRunner.test_absolute_date_range
   '''
-  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC')) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'))`
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'UTC')))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
@@ -14,12 +14,13 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_absolute_date_range_minus_utc
   '''
-  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'America/Phoenix'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'America/Phoenix')) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'America/Phoenix'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'America/Phoenix'))`
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'America/Phoenix'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'America/Phoenix'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'America/Phoenix'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'America/Phoenix'), person_mode)`
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'America/Phoenix')), greater(toTimeZone(events.timestamp, 'America/Phoenix'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'America/Phoenix')))
   ORDER BY toTimeZone(events.timestamp, 'America/Phoenix') ASC
@@ -32,12 +33,13 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_absolute_date_range_plus_utc
   '''
-  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'Asia/Tokyo'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'Asia/Tokyo')) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'Asia/Tokyo'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'Asia/Tokyo'))`
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'Asia/Tokyo'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'Asia/Tokyo'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'Asia/Tokyo'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'Asia/Tokyo'), person_mode)`
   FROM events
   WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 23:59:59.000000', 6, 'Asia/Tokyo')), greater(toTimeZone(events.timestamp, 'Asia/Tokyo'), toDateTime64('2020-01-12 00:00:00.000000', 6, 'Asia/Tokyo')))
   ORDER BY toTimeZone(events.timestamp, 'Asia/Tokyo') ASC
@@ -50,12 +52,13 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_element_chain_property_filter
   '''
-  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC')) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'))`
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events
   WHERE and(equals(events.team_id, 99999), notILike(toString(events.elements_chain), '%div%'), equals(events.event, '$autocapture'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-20 00:00:00.000000', 6, 'UTC')))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
@@ -68,7 +71,8 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_element_chain_property_filter.1
@@ -121,7 +125,7 @@
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table
   '''
-  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC')) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'))`
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events
   WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'a'), 0), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
@@ -134,15 +138,16 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table.1
   '''
-  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC')) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'))`
+  SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events
   WHERE and(equals(events.team_id, 99999), in(tuple(toTimeZone(events.timestamp, 'UTC'), events.event, cityHash64(events.distinct_id), cityHash64(events.uuid)),
-                                                (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.event AS event, cityHash64(events.distinct_id) AS did, cityHash64(events.uuid) AS uuid
+                                                (SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp, events.event AS event, cityHash64(events.distinct_id) AS `cityHash64(distinct_id)`, cityHash64(events.uuid) AS `cityHash64(uuid)`
                                                  FROM events
                                                  WHERE and(equals(events.team_id, 99999), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'some_prop'), ''), 'null'), '^"|"$', ''), 'a'), 0), equals(events.event, '$pageview'), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
                                                  ORDER BY toTimeZone(events.timestamp, 'UTC') ASC
@@ -158,6 +163,7 @@
                     max_expanded_ast_elements=4000000,
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
-                    optimize_min_equality_disjunction_chain_length=4294967295
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
   '''
 # ---

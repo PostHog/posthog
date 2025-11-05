@@ -1,6 +1,8 @@
 import os
 import time
 
+from django.dispatch import receiver
+
 import structlog
 from celery import Celery
 from celery.signals import (
@@ -12,12 +14,9 @@ from celery.signals import (
     task_success,
     worker_process_init,
 )
-from django.dispatch import receiver
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
 from prometheus_client import Counter, Histogram
-
-from posthog.cloud_utils import is_cloud
 
 logger = structlog.get_logger(__name__)
 
@@ -60,6 +59,11 @@ CELERY_TASK_DURATION_HISTOGRAM = Histogram(
     buckets=(1, 5, 10, 30, 60, 120, 600, 1200, float("inf")),
 )
 
+CELERY_TASK_INITIALIZATION_FAILURE_COUNTER = Counter(
+    "posthog_celery_task_initialization_failure",
+    "Number of times task initialization failed",
+)
+
 
 # Using a string here means the worker doesn't have to serialize
 # the configuration object to child processes.
@@ -99,11 +103,10 @@ def receiver_bind_extra_request_metadata(sender, signal, task=None, logger=None)
 
 @worker_process_init.connect
 def on_worker_start(**kwargs) -> None:
+    from posthoganalytics import setup
     from prometheus_client import start_http_server
 
-    from posthog.settings import sentry_init
-
-    sentry_init()
+    setup()  # makes sure things like exception autocapture are initialised
     start_http_server(int(os.getenv("CELERY_METRICS_PORT", "8001")))
 
 
@@ -112,10 +115,7 @@ def on_worker_start(**kwargs) -> None:
 def prerun_signal_handler(task_id, task, **kwargs):
     from statshog.defaults.django import statsd
 
-    from posthog.clickhouse.client.connection import (
-        Workload,
-        set_default_clickhouse_workload_type,
-    )
+    from posthog.clickhouse.client.connection import Workload, set_default_clickhouse_workload_type
     from posthog.clickhouse.query_tagging import tag_queries
 
     statsd.incr("celery_tasks_metrics.pre_run", tags={"name": task.name})
@@ -158,18 +158,11 @@ def retry_signal_handler(sender, reason, **kwargs):
 
 @app.on_after_finalize.connect
 def setup_periodic_tasks(sender: Celery, **kwargs):
-    from posthog.pagerduty.pd import create_incident
     from posthog.tasks.scheduled import setup_periodic_tasks
 
     try:
         setup_periodic_tasks(sender)
     except Exception as exc:
         # Setup fails silently. Alert the team if a configuration error is detected in periodic tasks.
-        if is_cloud():
-            create_incident(
-                f"Periodic tasks setup failed: {exc}",
-                "posthog.celery.setup_periodic_tasks",
-                "critical",
-            )
-        else:
-            logger.exception("Periodic tasks setup failed", exception=exc)
+        CELERY_TASK_INITIALIZATION_FAILURE_COUNTER.inc()
+        logger.exception("Periodic tasks setup failed", exception=exc)

@@ -1,5 +1,6 @@
-from setuptools import setup, Extension
 import platform
+
+from setuptools import Extension, setup
 
 system = platform.system()
 if system not in ("Darwin", "Linux"):
@@ -32,7 +33,7 @@ module = Extension(
 
 setup(
     name="hogql_parser",
-    version="1.1.1",
+    version="1.2.11",
     url="https://github.com/PostHog/posthog/tree/master/common/hogql_parser",
     description="HogQL parser for internal PostHog use",
     author="PostHog Inc.",

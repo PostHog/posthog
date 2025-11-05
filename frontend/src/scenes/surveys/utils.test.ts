@@ -1,14 +1,28 @@
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
-import { EventPropertyFilter, PropertyFilterType, Survey, SurveyAppearance } from '~/types'
+import {
+    EventPropertyFilter,
+    PropertyFilterType,
+    Survey,
+    SurveyAppearance,
+    SurveyDisplayConditions,
+    SurveyQuestionType,
+    SurveyType,
+    SurveyWidgetType,
+} from '~/types'
 
 import {
+    buildSurveyTimestampFilter,
     calculateNpsBreakdown,
-    calculateNpsScore,
     createAnswerFilterHogQLExpression,
+    getSurveyEndDateForQuery,
+    getSurveyResponse,
+    getSurveyStartDateForQuery,
     sanitizeColor,
+    sanitizeSurvey,
     sanitizeSurveyAppearance,
-    validateColor,
+    sanitizeSurveyDisplayConditions,
+    validateCSSProperty,
 } from './utils'
 
 describe('survey utils', () => {
@@ -76,31 +90,29 @@ describe('survey utils', () => {
     describe('validateColor', () => {
         it('returns undefined for valid colors in different formats', () => {
             // Hex colors
-            expect(validateColor('#ff0000', 'test')).toBeUndefined()
-            expect(validateColor('#f00', 'test')).toBeUndefined()
-            expect(validateColor('#ff000080', 'test')).toBeUndefined() // With alpha
+            expect(validateCSSProperty('color', '#ff0000')).toBeUndefined()
+            expect(validateCSSProperty('color', '#f00')).toBeUndefined()
+            expect(validateCSSProperty('color', '#ff000080')).toBeUndefined() // With alpha
 
             // RGB/RGBA colors
-            expect(validateColor('rgb(255, 0, 0)', 'test')).toBeUndefined()
-            expect(validateColor('rgba(255, 0, 0, 0.5)', 'test')).toBeUndefined()
+            expect(validateCSSProperty('color', 'rgb(255, 0, 0)')).toBeUndefined()
+            expect(validateCSSProperty('color', 'rgba(255, 0, 0, 0.5)')).toBeUndefined()
 
             // HSL/HSLA colors
-            expect(validateColor('hsl(0, 100%, 50%)', 'test')).toBeUndefined()
-            expect(validateColor('hsla(0, 100%, 50%, 0.5)', 'test')).toBeUndefined()
+            expect(validateCSSProperty('color', 'hsl(0, 100%, 50%)')).toBeUndefined()
+            expect(validateCSSProperty('color', 'hsla(0, 100%, 50%, 0.5)')).toBeUndefined()
 
             // Named colors
-            expect(validateColor('red', 'test')).toBeUndefined()
-            expect(validateColor('transparent', 'test')).toBeUndefined()
+            expect(validateCSSProperty('color', 'red')).toBeUndefined()
+            expect(validateCSSProperty('color', 'transparent')).toBeUndefined()
         })
 
         it('returns error message for invalid colors', () => {
-            expect(validateColor('not-a-color', 'test')).toBe(
-                'Invalid color value for test. Please use a valid CSS color.'
-            )
+            expect(validateCSSProperty('color', 'not-a-color')).toBe('not-a-color is not a valid property for color.')
         })
 
         it('returns undefined for undefined input', () => {
-            expect(validateColor(undefined, 'test')).toBeUndefined()
+            expect(validateCSSProperty('color', undefined)).toBeUndefined()
         })
     })
 
@@ -146,6 +158,240 @@ describe('survey utils', () => {
             expect(result?.ratingButtonColor).toBe('#ffffff')
             expect(result?.submitButtonColor).toBe('#000000')
             expect(result?.submitButtonTextColor).toBe('#cccccc')
+        })
+
+        it('removes surveyPopupDelaySeconds for external surveys', () => {
+            const input: SurveyAppearance = {
+                backgroundColor: '#ffffff',
+                surveyPopupDelaySeconds: 5,
+                submitButtonColor: '#000000',
+            }
+
+            const result = sanitizeSurveyAppearance(input, false, SurveyType.ExternalSurvey)
+
+            expect(result?.backgroundColor).toBe('#ffffff')
+            expect(result?.submitButtonColor).toBe('#000000')
+            expect(result?.surveyPopupDelaySeconds).toBeUndefined()
+        })
+
+        it('preserves surveyPopupDelaySeconds for non-external surveys', () => {
+            const input: SurveyAppearance = {
+                backgroundColor: '#ffffff',
+                surveyPopupDelaySeconds: 5,
+                submitButtonColor: '#000000',
+            }
+
+            const result = sanitizeSurveyAppearance(input, false, SurveyType.Popover)
+
+            expect(result?.backgroundColor).toBe('#ffffff')
+            expect(result?.submitButtonColor).toBe('#000000')
+            expect(result?.surveyPopupDelaySeconds).toBe(5)
+        })
+    })
+
+    describe('sanitizeSurveyDisplayConditions', () => {
+        it('returns null for null input with non-external survey', () => {
+            expect(sanitizeSurveyDisplayConditions(null, SurveyType.Popover)).toBeNull()
+        })
+
+        it('returns empty conditions object for external surveys with populated input', () => {
+            const input: SurveyDisplayConditions = {
+                url: 'https://example.com',
+                actions: { values: [{ id: 123, name: 'test' }] },
+                deviceTypes: ['mobile'],
+                seenSurveyWaitPeriodInDays: 7,
+                events: { values: [{ name: 'test' }] },
+            }
+
+            const result = sanitizeSurveyDisplayConditions(input, SurveyType.ExternalSurvey)
+
+            expect(result).toEqual({
+                actions: { values: [] },
+                events: { values: [] },
+                deviceTypes: undefined,
+                deviceTypesMatchType: undefined,
+                linkedFlagVariant: undefined,
+                seenSurveyWaitPeriodInDays: undefined,
+                url: undefined,
+                urlMatchType: undefined,
+            })
+        })
+
+        it('preserves conditions for non-external surveys', () => {
+            const input: SurveyDisplayConditions = {
+                url: 'https://example.com',
+                actions: { values: [{ id: 123, name: 'test' }] },
+                events: { values: [{ name: 'test' }] },
+                deviceTypes: ['mobile'],
+            }
+
+            const result = sanitizeSurveyDisplayConditions(input, SurveyType.Popover)
+
+            expect(result?.url).toBe('https://example.com')
+            expect(result?.actions).toEqual({ values: [{ id: 123, name: 'test' }] })
+            expect(result?.events).toEqual({ values: [{ name: 'test' }] })
+            expect(result?.deviceTypes).toEqual(['mobile'])
+        })
+    })
+
+    describe('sanitizeSurvey', () => {
+        it('sanitizes external survey by removing prohibited fields', () => {
+            const inputSurvey = {
+                type: SurveyType.ExternalSurvey,
+                name: 'Test External Survey',
+                questions: [],
+                linked_flag_id: 123,
+                targeting_flag_filters: { groups: [{ rollout_percentage: 50 }] },
+                conditions: {
+                    url: 'https://example.com',
+                    actions: { values: [{ id: 123, name: 'test' }] },
+                    events: { values: [{ name: 'test' }] },
+                },
+                appearance: {
+                    backgroundColor: '#ffffff',
+                    surveyPopupDelaySeconds: 5,
+                    submitButtonColor: '#000000',
+                },
+            }
+
+            const result = sanitizeSurvey(inputSurvey)
+
+            // Should remove prohibited fields
+            expect(result.linked_flag_id).toBeNull()
+            expect(result.targeting_flag_filters).toBeUndefined()
+            expect(result.remove_targeting_flag).toBe(true)
+
+            // Should sanitize conditions to empty values
+            expect(result.conditions).toEqual({
+                actions: { values: [] },
+                events: { values: [] },
+                deviceTypes: undefined,
+                deviceTypesMatchType: undefined,
+                linkedFlagVariant: undefined,
+                seenSurveyWaitPeriodInDays: undefined,
+                url: undefined,
+                urlMatchType: undefined,
+            })
+
+            // Should remove surveyPopupDelaySeconds from appearance
+            expect(result.appearance?.surveyPopupDelaySeconds).toBeUndefined()
+            expect(result.appearance?.backgroundColor).toBe('#ffffff')
+            expect(result.appearance?.submitButtonColor).toBe('#000000')
+        })
+
+        it('preserves fields for non-external surveys', () => {
+            const inputSurvey = {
+                type: SurveyType.Popover,
+                name: 'Test Popover Survey',
+                questions: [],
+                linked_flag_id: 123,
+                targeting_flag_filters: { groups: [{ rollout_percentage: 50 }] },
+                conditions: {
+                    url: 'https://example.com',
+                    actions: { values: [{ id: 123, name: 'test' }] },
+                    events: { values: [{ name: 'test' }] },
+                },
+                appearance: {
+                    backgroundColor: '#ffffff',
+                    surveyPopupDelaySeconds: 5,
+                    submitButtonColor: '#000000',
+                },
+            }
+
+            const result = sanitizeSurvey(inputSurvey)
+
+            // Should preserve all fields for non-external surveys
+            expect(result.linked_flag_id).toBe(123)
+            expect(result.targeting_flag_filters).toEqual({ groups: [{ rollout_percentage: 50 }] })
+            expect(result.remove_targeting_flag).toBeUndefined()
+
+            // Should preserve conditions
+            expect(result.conditions?.url).toBe('https://example.com')
+            expect(result.conditions?.actions).toEqual({ values: [{ id: 123, name: 'test' }] })
+            expect(result.conditions?.events).toEqual({ values: [{ name: 'test' }] })
+
+            // Should preserve surveyPopupDelaySeconds
+            expect(result.appearance?.surveyPopupDelaySeconds).toBe(5)
+            expect(result.appearance?.backgroundColor).toBe('#ffffff')
+            expect(result.appearance?.submitButtonColor).toBe('#000000')
+        })
+
+        it('removes widget-specific fields for non-widget surveys', () => {
+            const inputSurvey: Partial<Survey> = {
+                type: SurveyType.Popover,
+                name: 'Test Survey',
+                questions: [],
+                appearance: {
+                    backgroundColor: '#ffffff',
+                    widgetType: SurveyWidgetType.Tab,
+                    widgetLabel: 'Feedback',
+                    widgetColor: '#ff0000',
+                },
+            }
+
+            const result = sanitizeSurvey(inputSurvey)
+
+            // Should remove widget-specific fields for non-widget surveys
+            expect(result.appearance?.backgroundColor).toBe('#ffffff')
+            expect(result.appearance).not.toHaveProperty('widgetType')
+            expect(result.appearance).not.toHaveProperty('widgetLabel')
+            expect(result.appearance).not.toHaveProperty('widgetColor')
+        })
+
+        it('removing conditions object makes it go back to the empty conditions object', () => {
+            const inputSurvey = {
+                type: SurveyType.ExternalSurvey,
+                name: 'Test Survey',
+                questions: [],
+                conditions: {
+                    actions: { values: [] },
+                    events: { values: [] },
+                },
+            }
+
+            const result = sanitizeSurvey(inputSurvey)
+
+            // Should remove empty conditions object
+            expect(result.conditions).toEqual({
+                actions: {
+                    values: [],
+                },
+                events: {
+                    values: [],
+                },
+                deviceTypes: undefined,
+                deviceTypesMatchType: undefined,
+                linkedFlagVariant: undefined,
+                seenSurveyWaitPeriodInDays: undefined,
+                url: undefined,
+                urlMatchType: undefined,
+            })
+        })
+
+        it('Remove conditions key if its value is null', () => {
+            const inputSurvey = {
+                type: SurveyType.ExternalSurvey,
+                name: 'Test Survey',
+                questions: [],
+                conditions: null,
+            }
+
+            const result = sanitizeSurvey(inputSurvey)
+
+            expect(result.conditions).toBeUndefined()
+        })
+
+        it('Keep conditions key even if its value is null when option is present', () => {
+            const inputSurvey = {
+                type: SurveyType.ExternalSurvey,
+                name: 'Test Survey',
+                questions: [],
+                conditions: null,
+            }
+
+            const result = sanitizeSurvey(inputSurvey, { keepEmptyConditions: true })
+
+            expect(result.conditions).toBeNull()
         })
     })
 
@@ -195,6 +441,7 @@ describe('survey utils', () => {
                 detractors: 0,
                 passives: 0,
                 promoters: 0,
+                score: '0.0',
                 total: 0,
             })
         })
@@ -223,6 +470,7 @@ describe('survey utils', () => {
                 detractors: 7,
                 passives: 4,
                 promoters: 6,
+                score: '-5.9',
                 total: 17,
             })
         })
@@ -239,6 +487,7 @@ describe('survey utils', () => {
                 detractors: 0,
                 passives: 0,
                 promoters: 0,
+                score: '0.0',
                 total: 0,
             })
         })
@@ -255,6 +504,7 @@ describe('survey utils', () => {
                 detractors: 0,
                 passives: 0,
                 promoters: 10,
+                score: '100.0',
                 total: 10,
             })
         })
@@ -271,6 +521,7 @@ describe('survey utils', () => {
                 detractors: 0,
                 passives: 10,
                 promoters: 0,
+                score: '0.0',
                 total: 10,
             })
         })
@@ -287,95 +538,57 @@ describe('survey utils', () => {
                 detractors: 14,
                 passives: 0,
                 promoters: 0,
+                score: '-100.0',
                 total: 14,
             })
         })
     })
 
-    describe('calculateNps', () => {
-        it('calculates NPS score correctly with mixed responses', () => {
-            const breakdown = {
-                total: 100,
-                promoters: 50, // 50%
-                passives: 30, // 30%
-                detractors: 20, // 20%
-            }
+    describe('buildSurveyTimestampFilter', () => {
+        it('uses survey default dates when no date range provided', () => {
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+            const result = buildSurveyTimestampFilter(survey)
 
-            const result = calculateNpsScore(breakdown)
-
-            // NPS = % promoters - % detractors
-            // NPS = 50% - 20% = 30
-            expect(result).toBe(30)
+            expect(result).toBe(`AND timestamp >= '2024-08-27T00:00:00'
+        AND timestamp <= '2024-08-30T23:59:59'`)
         })
 
-        it('returns -100 when all respondents are detractors', () => {
-            const breakdown = {
-                total: 50,
-                promoters: 0,
-                passives: 0,
-                detractors: 50,
-            }
+        it('respects user date range when provided', () => {
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+            const dateRange = { date_from: '2024-08-28', date_to: '2024-08-29' }
+            const result = buildSurveyTimestampFilter(survey, dateRange)
 
-            const result = calculateNpsScore(breakdown)
-
-            // NPS = 0% - 100% = -100
-            expect(result).toBe(-100)
+            expect(result).toBe(`AND timestamp >= '2024-08-28T00:00:00'
+    AND timestamp <= '2024-08-29T23:59:59'`)
         })
 
-        it('returns 100 when all respondents are promoters', () => {
-            const breakdown = {
-                total: 75,
-                promoters: 75,
-                passives: 0,
-                detractors: 0,
-            }
+        it('enforces survey creation date as minimum even with earlier user date', () => {
+            const survey = { created_at: '2024-08-27T15:30:00Z', end_date: null }
+            const dateRange = { date_from: '2024-08-25', date_to: '2024-08-29' } // Earlier than survey creation
+            const result = buildSurveyTimestampFilter(survey, dateRange)
 
-            const result = calculateNpsScore(breakdown)
-
-            // NPS = 100% - 0% = 100
-            expect(result).toBe(100)
+            expect(result).toContain(`timestamp >= '2024-08-27T00:00:00'`) // Should use survey start, not user's earlier date
         })
 
-        it('returns 0 when promoters and detractors are equal', () => {
-            const breakdown = {
-                total: 100,
-                promoters: 40,
-                passives: 20,
-                detractors: 40,
-            }
+        it('handles timezone consistency across different user timezones', () => {
+            const timezones = [0, 180, -480] // UTC, GMT-3, GMT+8
 
-            const result = calculateNpsScore(breakdown)
+            timezones.forEach((offset) => {
+                const originalGetTimezoneOffset = Date.prototype.getTimezoneOffset
+                Date.prototype.getTimezoneOffset = jest.fn(() => offset)
 
-            // NPS = 40% - 40% = 0
-            expect(result).toBe(0)
-        })
+                try {
+                    const survey = { created_at: '2024-08-27T15:30:00Z', end_date: '2024-08-30T10:00:00Z' }
+                    const dateRange = { date_from: '2024-08-28T12:00:00Z', date_to: '2024-08-29T12:00:00Z' }
+                    const result = buildSurveyTimestampFilter(survey, dateRange)
 
-        it('returns 0 when there are only passives', () => {
-            const breakdown = {
-                total: 30,
-                promoters: 0,
-                passives: 30,
-                detractors: 0,
-            }
-
-            const result = calculateNpsScore(breakdown)
-
-            // NPS = 0% - 0% = 0
-            expect(result).toBe(0)
-        })
-
-        it('handles zero total responses', () => {
-            const breakdown = {
-                total: 0,
-                promoters: 0,
-                passives: 0,
-                detractors: 0,
-            }
-
-            const result = calculateNpsScore(breakdown)
-
-            // When no responses, return 0 instead of NaN
-            expect(result).toBe(0)
+                    // All timezones should produce the same result
+                    expect(result).toBe(`AND timestamp >= '2024-08-28T00:00:00'
+    AND timestamp <= '2024-08-29T23:59:59'`)
+                } finally {
+                    Date.prototype.getTimezoneOffset = originalGetTimezoneOffset
+                }
+            })
         })
     })
 })
@@ -394,29 +607,29 @@ describe('createAnswerFilterHogQLExpression', () => {
         expect(createAnswerFilterHogQLExpression(undefined as any, mockSurvey)).toBe('')
     })
 
-    it('handles $survey_response key (question index 0)', () => {
+    it('handles single exact filter', () => {
         const filters = [
-            { key: '$survey_response', value: 'yes', operator: 'exact', type: PropertyFilterType.Event },
+            { key: '$survey_response_q1', value: 'yes', operator: 'exact', type: PropertyFilterType.Event },
         ] as EventPropertyFilter[]
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
-        expect(result).toBe(`AND (properties['$survey_response'] = 'yes' OR properties['$survey_response_q1'] = 'yes')`)
+        expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} = 'yes')`)
     })
 
-    it('handles $survey_response_X key format', () => {
+    it('handles filter for a different question', () => {
         const filters = [
-            { key: '$survey_response_1', value: 'no', operator: 'exact', type: PropertyFilterType.Event },
+            { key: '$survey_response_q2', value: 'no', operator: 'exact', type: PropertyFilterType.Event },
         ] as EventPropertyFilter[]
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
-        expect(result).toBe(`AND (properties['$survey_response_1'] = 'no' OR properties['$survey_response_q2'] = 'no')`)
+        expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[1], 1)} = 'no')`)
     })
 
     it('skips filters with empty values', () => {
         const filters = [
-            { key: '$survey_response', value: '', operator: 'exact', type: PropertyFilterType.Event },
-            { key: '$survey_response_1', value: null, operator: 'exact', type: PropertyFilterType.Event },
-            { key: '$survey_response_2', value: undefined, operator: 'exact', type: PropertyFilterType.Event },
+            { key: '$survey_response_q1', value: '', operator: 'exact', type: PropertyFilterType.Event },
+            { key: '$survey_response_q2', value: null, operator: 'exact', type: PropertyFilterType.Event },
+            { key: '$survey_response_q3', value: undefined, operator: 'exact', type: PropertyFilterType.Event },
         ] as EventPropertyFilter[]
 
         expect(createAnswerFilterHogQLExpression(filters, mockSurvey)).toBe('')
@@ -424,7 +637,7 @@ describe('createAnswerFilterHogQLExpression', () => {
 
     it('skips filters with empty arrays', () => {
         const filters = [
-            { key: '$survey_response', value: [], operator: 'exact', type: PropertyFilterType.Event },
+            { key: '$survey_response_q1', value: [], operator: 'exact', type: PropertyFilterType.Event },
         ] as EventPropertyFilter[]
 
         expect(createAnswerFilterHogQLExpression(filters, mockSurvey)).toBe('')
@@ -432,9 +645,9 @@ describe('createAnswerFilterHogQLExpression', () => {
 
     it('skips icontains filters with empty search patterns', () => {
         const filters = [
-            { key: '$survey_response', value: '%', operator: 'icontains', type: PropertyFilterType.Event },
-            { key: '$survey_response_1', value: '%%', operator: 'icontains', type: PropertyFilterType.Event },
-            { key: '$survey_response_2', value: '   ', operator: 'icontains', type: PropertyFilterType.Event },
+            { key: '$survey_response_q1', value: '%', operator: 'icontains', type: PropertyFilterType.Event },
+            { key: '$survey_response_q2', value: '%%', operator: 'icontains', type: PropertyFilterType.Event },
+            { key: '$survey_response_q3', value: '   ', operator: 'icontains', type: PropertyFilterType.Event },
         ] as EventPropertyFilter[]
 
         expect(createAnswerFilterHogQLExpression(filters, mockSurvey)).toBe('')
@@ -442,19 +655,17 @@ describe('createAnswerFilterHogQLExpression', () => {
 
     it('handles exact operator with single value', () => {
         const filters = [
-            { key: '$survey_response', value: 'test', operator: 'exact', type: PropertyFilterType.Event },
+            { key: '$survey_response_q1', value: 'test', operator: 'exact', type: PropertyFilterType.Event },
         ] as EventPropertyFilter[]
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
-        expect(result).toBe(
-            `AND (properties['$survey_response'] = 'test' OR properties['$survey_response_q1'] = 'test')`
-        )
+        expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} = 'test')`)
     })
 
     it('handles exact operator with array values', () => {
         const filters = [
             {
-                key: '$survey_response',
+                key: '$survey_response_q1',
                 value: ['option1', 'option2'],
                 operator: 'exact',
                 type: PropertyFilterType.Event,
@@ -462,26 +673,22 @@ describe('createAnswerFilterHogQLExpression', () => {
         ] as EventPropertyFilter[]
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
-        expect(result).toBe(
-            `AND (properties['$survey_response'] IN ('option1', 'option2') OR properties['$survey_response_q1'] IN ('option1', 'option2'))`
-        )
+        expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} IN ('option1', 'option2'))`)
     })
 
     it('handles is_not operator with single value', () => {
         const filters = [
-            { key: '$survey_response', value: 'test', operator: 'is_not', type: PropertyFilterType.Event },
+            { key: '$survey_response_q1', value: 'test', operator: 'is_not', type: PropertyFilterType.Event },
         ] as EventPropertyFilter[]
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
-        expect(result).toBe(
-            `AND (properties['$survey_response'] != 'test' OR properties['$survey_response_q1'] != 'test')`
-        )
+        expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} != 'test')`)
     })
 
     it('handles is_not operator with array values', () => {
         const filters = [
             {
-                key: '$survey_response',
+                key: '$survey_response_q1',
                 value: ['option1', 'option2'],
                 operator: 'is_not',
                 type: PropertyFilterType.Event,
@@ -489,59 +696,64 @@ describe('createAnswerFilterHogQLExpression', () => {
         ] as EventPropertyFilter[]
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
-        expect(result).toBe(
-            `AND (properties['$survey_response'] NOT IN ('option1', 'option2') OR properties['$survey_response_q1'] NOT IN ('option1', 'option2'))`
-        )
+        expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} NOT IN ('option1', 'option2'))`)
     })
 
     it('handles icontains operator', () => {
         const filters = [
-            { key: '$survey_response', value: 'search', operator: 'icontains', type: PropertyFilterType.Event },
+            { key: '$survey_response_q1', value: 'search', operator: 'icontains', type: PropertyFilterType.Event },
         ] as EventPropertyFilter[]
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
-        expect(result).toBe(
-            `AND (properties['$survey_response'] ILIKE '%search%' OR properties['$survey_response_q1'] ILIKE '%search%')`
-        )
+        expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} ILIKE '%search%')`)
+    })
+
+    it('handles not_icontains operator', () => {
+        const filters = [
+            { key: '$survey_response_q1', value: 'search', operator: 'not_icontains', type: PropertyFilterType.Event },
+        ] as EventPropertyFilter[]
+
+        const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+        expect(result).toBe(`AND (NOT ${getSurveyResponse(mockSurvey.questions[0], 0)} ILIKE '%search%')`)
     })
 
     it('handles regex operator', () => {
         const filters = [
-            { key: '$survey_response', value: '.*test.*', operator: 'regex', type: PropertyFilterType.Event },
+            { key: '$survey_response_q1', value: '.*test.*', operator: 'regex', type: PropertyFilterType.Event },
         ] as EventPropertyFilter[]
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
-        expect(result).toBe(
-            `AND (match(properties['$survey_response'], '.*test.*') OR match(properties['$survey_response_q1'], '.*test.*'))`
-        )
+        expect(result).toBe(`AND (match(${getSurveyResponse(mockSurvey.questions[0], 0)}, '.*test.*'))`)
     })
 
     it('handles not_regex operator', () => {
         const filters = [
-            { key: '$survey_response', value: '.*test.*', operator: 'not_regex', type: PropertyFilterType.Event },
+            { key: '$survey_response_q1', value: '.*test.*', operator: 'not_regex', type: PropertyFilterType.Event },
         ] as EventPropertyFilter[]
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
-        expect(result).toBe(
-            `AND (NOT match(properties['$survey_response'], '.*test.*') OR NOT match(properties['$survey_response_q1'], '.*test.*'))`
-        )
+        expect(result).toBe(`AND (NOT match(${getSurveyResponse(mockSurvey.questions[0], 0)}, '.*test.*'))`)
     })
 
     it('combines multiple filters with AND', () => {
         const filters = [
-            { key: '$survey_response', value: 'yes', operator: 'exact', type: PropertyFilterType.Event },
-            { key: '$survey_response_1', value: 'no', operator: 'exact', type: PropertyFilterType.Event },
+            { key: '$survey_response_q1', value: 'yes', operator: 'exact', type: PropertyFilterType.Event },
+            { key: '$survey_response_q2', value: 'no', operator: 'exact', type: PropertyFilterType.Event },
         ] as EventPropertyFilter[]
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
         expect(result).toBe(
-            `AND (properties['$survey_response'] = 'yes' OR properties['$survey_response_q1'] = 'yes') AND (properties['$survey_response_1'] = 'no' OR properties['$survey_response_q2'] = 'no')`
+            `AND (${getSurveyResponse(mockSurvey.questions[0], 0)} = 'yes') AND (${getSurveyResponse(
+                mockSurvey.questions[1],
+                1
+            )} = 'no')`
         )
     })
 
-    it('skips filters with invalid question indices', () => {
+    it('skips filters with invalid question keys', () => {
         const filters = [
             { key: '$survey_response_invalid', value: 'test', operator: 'exact', type: PropertyFilterType.Event },
+            { key: '$survey_response_q4', value: 'test2', operator: 'exact', type: PropertyFilterType.Event }, // q4 doesn't exist in mockSurvey
         ] as EventPropertyFilter[]
 
         expect(createAnswerFilterHogQLExpression(filters, mockSurvey)).toBe('')
@@ -549,9 +761,9 @@ describe('createAnswerFilterHogQLExpression', () => {
 
     it('handles array values for regex and not_regex operators', () => {
         const filters = [
-            { key: '$survey_response', value: ['.*pattern.*'], operator: 'regex', type: PropertyFilterType.Event },
+            { key: '$survey_response_q1', value: ['.*pattern.*'], operator: 'regex', type: PropertyFilterType.Event },
             {
-                key: '$survey_response_1',
+                key: '$survey_response_q2',
                 value: ['.*pattern.*'],
                 operator: 'not_regex',
                 type: PropertyFilterType.Event,
@@ -560,113 +772,224 @@ describe('createAnswerFilterHogQLExpression', () => {
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
         expect(result).toBe(
-            `AND (match(properties['$survey_response'], '.*pattern.*') OR match(properties['$survey_response_q1'], '.*pattern.*')) AND (NOT match(properties['$survey_response_1'], '.*pattern.*') OR NOT match(properties['$survey_response_q2'], '.*pattern.*'))`
+            `AND (match(${getSurveyResponse(
+                mockSurvey.questions[0],
+                0
+            )}, '.*pattern.*')) AND (NOT match(${getSurveyResponse(mockSurvey.questions[1], 1)}, '.*pattern.*'))`
         )
     })
 
     it('handles array values for icontains operator', () => {
         const filters = [
-            { key: '$survey_response', value: ['searchterm'], operator: 'icontains', type: PropertyFilterType.Event },
+            {
+                key: '$survey_response_q1',
+                value: ['searchterm'],
+                operator: 'icontains',
+                type: PropertyFilterType.Event,
+            },
         ] as EventPropertyFilter[]
 
         const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
-        expect(result).toBe(
-            `AND (properties['$survey_response'] ILIKE '%searchterm%' OR properties['$survey_response_q1'] ILIKE '%searchterm%')`
-        )
+        expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} ILIKE '%searchterm%')`)
     })
 
     it('handles unsupported operators', () => {
         const filters = [
             {
-                key: '$survey_response',
-                value: 'test',
-                operator: 'unsupported_op' as any,
+                key: '$survey_response_q1',
+                value: "O'Reilly",
+                operator: 'exact',
                 type: PropertyFilterType.Event,
             },
         ] as EventPropertyFilter[]
 
-        expect(createAnswerFilterHogQLExpression(filters, mockSurvey)).toBe('')
+        const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+        expect(result).toBe(`AND (${getSurveyResponse(mockSurvey.questions[0], 0)} = 'O\\'Reilly')`)
     })
 
-    describe('SQL injection prevention', () => {
-        it('escapes single quotes in values', () => {
-            const filters = [
+    it('escapes backslashes in values', () => {
+        const filters = [
+            {
+                key: '$survey_response_q1',
+                value: 'C:\\\\path\\\\to\\\\file',
+                operator: 'exact',
+                type: PropertyFilterType.Event,
+            },
+        ] as EventPropertyFilter[]
+
+        const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+        expect(result).toBe(
+            `AND (${getSurveyResponse(mockSurvey.questions[0], 0)} = 'C:\\\\\\\\path\\\\\\\\to\\\\\\\\file')`
+        )
+    })
+
+    it('escapes SQL injection attempts in array values', () => {
+        const filters = [
+            {
+                key: '$survey_response_q1',
+                value: ['normal', "'; DROP TABLE users; --", "Robert'); DROP TABLE students; --"],
+                operator: 'exact',
+                type: PropertyFilterType.Event,
+            },
+        ] as EventPropertyFilter[]
+
+        const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+        expect(result).toBe(
+            `AND (${getSurveyResponse(
+                mockSurvey.questions[0],
+                0
+            )} IN ('normal', '\\'; DROP TABLE users; --', 'Robert\\'); DROP TABLE students; --'))`
+        )
+    })
+
+    it('escapes complex SQL injection patterns', () => {
+        const filters = [
+            {
+                key: '$survey_response_q1',
+                value: "' UNION SELECT * FROM users; --",
+                operator: 'exact',
+                type: PropertyFilterType.Event,
+            },
+        ] as EventPropertyFilter[]
+
+        const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+        expect(result).toBe(
+            `AND (${getSurveyResponse(mockSurvey.questions[0], 0)} = '\\' UNION SELECT * FROM users; --')`
+        )
+    })
+
+    it('handles regex patterns with special characters', () => {
+        const filters = [
+            {
+                key: '$survey_response_q1',
+                value: ".*'; DROP TABLE.*",
+                operator: 'regex',
+                type: PropertyFilterType.Event,
+            },
+        ] as EventPropertyFilter[]
+
+        const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+        expect(result).toBe(`AND (match(${getSurveyResponse(mockSurvey.questions[0], 0)}, '.*\\'; DROP TABLE.*'))`)
+    })
+
+    describe('multiple choice questions', () => {
+        const surveyWithMultipleChoiceQuestion = {
+            ...mockSurvey,
+            questions: [
                 {
-                    key: '$survey_response',
-                    value: "O'Reilly",
-                    operator: 'exact',
-                    type: PropertyFilterType.Event,
+                    ...mockSurvey.questions[0],
+                    type: SurveyQuestionType.MultipleChoice,
+                    choices: [
+                        { id: 'c1', label: 'test' },
+                        { id: 'c2', label: 'test2' },
+                    ],
                 },
+            ],
+        } as any as Survey
+
+        it('handles icontains operator', () => {
+            const filters = [
+                { key: '$survey_response_q1', value: 'test', operator: 'icontains', type: PropertyFilterType.Event },
             ] as EventPropertyFilter[]
 
-            const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+            const result = createAnswerFilterHogQLExpression(filters, surveyWithMultipleChoiceQuestion)
             expect(result).toBe(
-                `AND (properties['$survey_response'] = 'O\\'Reilly' OR properties['$survey_response_q1'] = 'O\\'Reilly')`
+                `AND (arrayExists(x -> x ilike '%test%', ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
             )
         })
 
-        it('escapes backslashes in values', () => {
+        it('handles not_icontains operator for multiple choice question', () => {
             const filters = [
                 {
-                    key: '$survey_response',
-                    value: 'C:\\path\\to\\file',
-                    operator: 'exact',
+                    key: '$survey_response_q1',
+                    value: 'test',
+                    operator: 'not_icontains',
                     type: PropertyFilterType.Event,
                 },
             ] as EventPropertyFilter[]
 
-            const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+            const result = createAnswerFilterHogQLExpression(filters, surveyWithMultipleChoiceQuestion)
             expect(result).toBe(
-                `AND (properties['$survey_response'] = 'C:\\\\path\\\\to\\\\file' OR properties['$survey_response_q1'] = 'C:\\\\path\\\\to\\\\file')`
+                `AND (NOT arrayExists(x -> x ilike '%test%', ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
             )
         })
 
-        it('escapes SQL injection attempts in array values', () => {
+        it('handles regex operator', () => {
             const filters = [
-                {
-                    key: '$survey_response',
-                    value: ['normal', "'; DROP TABLE users; --", "Robert'); DROP TABLE students; --"],
-                    operator: 'exact',
-                    type: PropertyFilterType.Event,
-                },
+                { key: '$survey_response_q1', value: '.*test.*', operator: 'regex', type: PropertyFilterType.Event },
             ] as EventPropertyFilter[]
 
-            const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+            const result = createAnswerFilterHogQLExpression(filters, surveyWithMultipleChoiceQuestion)
             expect(result).toBe(
-                `AND (properties['$survey_response'] IN ('normal', '\\'; DROP TABLE users; --', 'Robert\\'); DROP TABLE students; --') OR properties['$survey_response_q1'] IN ('normal', '\\'; DROP TABLE users; --', 'Robert\\'); DROP TABLE students; --'))`
+                `AND (arrayExists(x -> match(x, '.*test.*'), ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
             )
         })
 
-        it('escapes complex SQL injection patterns', () => {
+        it('handles not_regex operator', () => {
             const filters = [
                 {
-                    key: '$survey_response',
-                    value: "' UNION SELECT * FROM users; --",
-                    operator: 'exact',
+                    key: '$survey_response_q1',
+                    value: '.*test.*',
+                    operator: 'not_regex',
                     type: PropertyFilterType.Event,
                 },
             ] as EventPropertyFilter[]
 
-            const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
+            const result = createAnswerFilterHogQLExpression(filters, surveyWithMultipleChoiceQuestion)
             expect(result).toBe(
-                `AND (properties['$survey_response'] = '\\' UNION SELECT * FROM users; --' OR properties['$survey_response_q1'] = '\\' UNION SELECT * FROM users; --')`
+                `AND (NOT arrayExists(x -> match(x, '.*test.*'), ${getSurveyResponse(surveyWithMultipleChoiceQuestion.questions[0], 0)}))`
             )
         })
+    })
+})
 
-        it('handles regex patterns with special characters', () => {
-            const filters = [
-                {
-                    key: '$survey_response',
-                    value: ".*'; DROP TABLE.*",
-                    operator: 'regex',
-                    type: PropertyFilterType.Event,
-                },
-            ] as EventPropertyFilter[]
+describe('timezone handling in survey date queries', () => {
+    const createMockSurvey = (createdAt: string, endDate?: string): Pick<Survey, 'created_at' | 'end_date'> => ({
+        created_at: createdAt,
+        end_date: endDate || null,
+    })
 
-            const result = createAnswerFilterHogQLExpression(filters, mockSurvey)
-            expect(result).toBe(
-                `AND (match(properties['$survey_response'], '.*\\'; DROP TABLE.*') OR match(properties['$survey_response_q1'], '.*\\'; DROP TABLE.*'))`
-            )
+    describe('regression test for timezone parsing bug', () => {
+        it('parses UTC dates correctly regardless of user timezone', () => {
+            // Mock different timezones to ensure our fix works
+            const timezones = [
+                { name: 'UTC', offset: 0 },
+                { name: 'GMT-3', offset: 180 },
+                { name: 'GMT+8', offset: -480 },
+            ]
+
+            timezones.forEach(({ offset }) => {
+                const originalGetTimezoneOffset = Date.prototype.getTimezoneOffset
+                Date.prototype.getTimezoneOffset = jest.fn(() => offset)
+
+                try {
+                    const survey = createMockSurvey('2024-08-27T15:30:00Z', '2024-08-30T10:00:00Z')
+
+                    const startDate = getSurveyStartDateForQuery(survey)
+                    const endDate = getSurveyEndDateForQuery(survey)
+
+                    // All timezones should produce the same UTC results
+                    expect(startDate).toBe('2024-08-27T00:00:00')
+                    expect(endDate).toBe('2024-08-30T23:59:59')
+                } finally {
+                    Date.prototype.getTimezoneOffset = originalGetTimezoneOffset
+                }
+            })
+        })
+
+        it('handles null end_date correctly', () => {
+            const originalGetTimezoneOffset = Date.prototype.getTimezoneOffset
+            Date.prototype.getTimezoneOffset = jest.fn(() => 180) // GMT-3
+
+            try {
+                const survey = createMockSurvey('2024-08-27T15:30:00Z')
+                const result = getSurveyEndDateForQuery(survey)
+
+                // Should use current day end, format should be consistent
+                expect(result).toMatch(/^\d{4}-\d{2}-\d{2}T23:59:59$/)
+            } finally {
+                Date.prototype.getTimezoneOffset = originalGetTimezoneOffset
+            }
         })
     })
 })

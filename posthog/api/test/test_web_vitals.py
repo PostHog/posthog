@@ -1,7 +1,8 @@
-from rest_framework import status
 from freezegun import freeze_time
-
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+
+from rest_framework import status
+
 from posthog.models.utils import uuid7
 
 

@@ -1,14 +1,20 @@
 import './Playlist.scss'
 
-import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+import { useValues } from 'kea'
+import { ReactNode, useRef, useState } from 'react'
+
+import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils'
-import { ReactNode, useRef, useState } from 'react'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 import { SessionRecordingType } from '~/types'
+
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { playlistLogic } from './playlistLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -49,6 +55,7 @@ export type PlaylistProps = {
     'data-attr'?: string
     activeItemId?: string
     isCollapsed?: boolean
+    filterContent?: ReactNode | (({ activeItem }: { activeItem: SessionRecordingType | null }) => JSX.Element) | null
 }
 
 export function Playlist({
@@ -68,7 +75,11 @@ export function Playlist({
     onSelect,
     onChangeSections,
     'data-attr': dataAttr,
+    filterContent,
 }: PlaylistProps): JSX.Element {
+    const { isFiltersExpanded } = useValues(playlistLogic)
+    const { isCinemaMode } = useValues(playerSettingsLogic)
+
     const firstItem = sections
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
         ?.find((s) => s.items.length > 0)?.items[0]
@@ -131,14 +142,38 @@ export function Playlist({
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
         .flatMap((s) => s.items).length
 
+    const showCinemaMode = isCinemaMode && itemsCount > 0 && activeItemId !== null
     return (
         <>
             <div
-                className={clsx('flex flex-col w-full gap-2 h-full', {
-                    'xl:flex-row': true,
+                className={clsx('w-full gap-2 h-full', {
+                    'flex flex-col xl:flex-row order-last': !showCinemaMode,
                 })}
             >
-                <div className="flex flex-col xl:max-w-80">
+                <div
+                    className={clsx('Playlist w-full min-w-96', {
+                        'h-full min-h-96 lg:min-w-[560px] order-first xl:order-none': !showCinemaMode,
+                        'order-first mb-2': showCinemaMode,
+                        'Playlist--wide': size !== 'small',
+                        'Playlist--embedded': embedded,
+                    })}
+                >
+                    {!isFiltersExpanded && content && (
+                        <div className="Playlist__main h-full">
+                            {' '}
+                            {typeof content === 'function' ? content({ activeItem }) : content}
+                        </div>
+                    )}
+
+                    {isFiltersExpanded && filterContent && (
+                        <div className="bg-surface-primary p-2 w-full min-h-full">{filterContent}</div>
+                    )}
+                </div>
+                <div
+                    className={clsx('flex flex-col min-w-60', {
+                        'xl:max-w-80 xl:min-w-80 order-first mt-2': !showCinemaMode,
+                    })}
+                >
                     {filterActions && (
                         <DraggableToNotebook className="mb-2" href={notebooksHref}>
                             {filterActions}
@@ -147,7 +182,9 @@ export function Playlist({
                     <div
                         ref={playlistRef}
                         data-attr={dataAttr}
-                        className={clsx('Playlist w-full min-w-60 min-h-96', {
+                        className={clsx('Playlist w-full min-w-60', {
+                            'min-h-96': !showCinemaMode,
+                            'h-96': showCinemaMode,
                             'Playlist--wide': size !== 'small',
                             'Playlist--embedded': embedded,
                         })}
@@ -211,22 +248,6 @@ export function Playlist({
                             </div>
                         </div>
                     </div>
-                </div>
-                <div
-                    className={clsx(
-                        'Playlist h-full min-h-96 w-full min-w-96 lg:min-w-[560px] order-first xl:order-none',
-                        {
-                            'Playlist--wide': size !== 'small',
-                            'Playlist--embedded': embedded,
-                        }
-                    )}
-                >
-                    {content && (
-                        <div className="Playlist__main h-full">
-                            {' '}
-                            {typeof content === 'function' ? content({ activeItem }) : content}
-                        </div>
-                    )}
                 </div>
             </div>
         </>

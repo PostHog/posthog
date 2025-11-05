@@ -1,7 +1,10 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
+
+import { DEFAULT_HEATMAP_FILTERS, calculateViewportRange } from 'lib/components/IframedToolbarBrowser/utils'
 import {
     CommonFilters,
     HeatmapFilters,
@@ -9,10 +12,8 @@ import {
     HeatmapJsData,
     HeatmapJsDataPoint,
 } from 'lib/components/heatmaps/types'
-import { calculateViewportRange, DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { dateFilterToText } from 'lib/utils'
-import { isLikelyRegex } from 'lib/utils/regexp'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
@@ -27,8 +28,17 @@ export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'blue', label: 'Blue (monocolor)' },
 ]
 
+export interface HeatmapDataLogicProps {
+    context: 'in-app' | 'toolbar'
+    exportToken?: string | null
+}
+
+export type HrefMatchType = 'exact' | 'pattern'
+
 export const heatmapDataLogic = kea<heatmapDataLogicType>([
-    path(['lib', 'components', 'heatmap', 'heatmapDataLogic']),
+    path((key) => ['lib', 'components', 'heatmap', 'heatmapDataLogic', key]),
+    props({ context: 'toolbar', exportToken: null } as HeatmapDataLogicProps),
+    key((props) => props.context),
     actions({
         loadHeatmap: true,
         setCommonFilters: (filters: CommonFilters) => ({ filters }),
@@ -37,21 +47,20 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
         setHeatmapColorPalette: (Palette: string | null) => ({ Palette }),
         setHref: (href: string) => ({ href }),
-        setFetchFn: (fetchFn: 'native' | 'toolbar') => ({ fetchFn }),
+        setHrefMatchType: (matchType: HrefMatchType) => ({ matchType }),
         setHeatmapScrollY: (scrollY: number) => ({ scrollY }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
+        setIsReady: (isReady: boolean) => ({ isReady }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
         windowHeight: (window: Window) => window.innerHeight,
     })),
     reducers({
-        // TODO with toolbar on the posthog page as well as the page itself, this will clash
-        // need to make a separate data logic for toolbar and page
-        fetchFn: [
-            'toolbar' as 'toolbar' | 'native',
+        hrefMatchType: [
+            'exact' as HrefMatchType,
             {
-                setFetchFn: (_, { fetchFn }) => fetchFn,
+                setHrefMatchType: (_, { matchType }) => matchType,
             },
         ],
         commonFilters: [
@@ -101,17 +110,29 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 setWindowWidthOverride: (_, { widthOverride }) => widthOverride,
             },
         ],
+        isReady: [
+            false as boolean,
+            {
+                setIsReady: (_, { isReady }) => isReady,
+            },
+        ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, props, actions }) => ({
         rawHeatmap: [
             null as HeatmapResponseType | null,
             {
                 resetHeatmapData: () => ({ results: [] }),
                 loadHeatmap: async (_, breakpoint) => {
+                    await breakpoint(150)
+
                     if (!values.href || !values.href.trim().length) {
                         return null
                     }
-                    await breakpoint(150)
+                    if (!values.heatmapFilters.enabled) {
+                        return null
+                    }
+
+                    actions.setIsReady(false)
 
                     const { date_from, date_to, filter_test_accounts } = values.commonFilters
                     const { type, aggregation } = values.heatmapFilters
@@ -122,8 +143,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             type,
                             date_from,
                             date_to,
-                            url_exact: isLikelyRegex(values.href) ? undefined : values.href,
-                            url_pattern: isLikelyRegex(values.href) ? values.href : undefined,
+                            url_exact: values.hrefMatchType === 'exact' ? values.href : undefined,
+                            url_pattern: values.hrefMatchType === 'pattern' ? values.href : undefined,
                             viewport_width_min: values.viewportRange.min,
                             viewport_width_max: values.viewportRange.max,
                             aggregation,
@@ -132,10 +153,15 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                         '?'
                     )}`
 
-                    const response = await (values.fetchFn === 'toolbar' ? toolbarFetch(apiURL, 'GET') : fetch(apiURL))
+                    // if we export the heatmap, we need to add the export token to the headers
+                    const response = await (props.context === 'toolbar'
+                        ? toolbarFetch(apiURL, 'GET')
+                        : props.exportToken
+                          ? fetch(apiURL, { headers: { Authorization: `Bearer ${props.exportToken}` } })
+                          : fetch(apiURL))
                     breakpoint()
 
-                    if (response.status === 403) {
+                    if (props.context === 'toolbar' && response.status === 403) {
                         toolbarConfigLogic.actions.authenticate()
                     }
 
@@ -143,7 +169,9 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                         throw new Error('API error')
                     }
 
-                    return await response.json()
+                    const data = await response.json()
+                    actions.setIsReady(true)
+                    return data
                 },
             },
         ],
@@ -239,7 +267,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     )
                     const x = Math.round(element.xPercentage * width)
 
-                    return [...acc, { x, y, value: element.count }]
+                    acc.push({ x, y, value: element.count })
+                    return acc
                 }, [] as HeatmapJsDataPoint[])
 
                 // Max is the highest value in the data set we have
@@ -262,7 +291,11 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHeatmapFilters: () => {
             actions.loadHeatmap()
         },
-        patchHeatmapFilters: () => {
+        patchHeatmapFilters: ({ filters }) => {
+            // Clear old data when switching heatmap types
+            if (filters.type) {
+                actions.resetHeatmapData()
+            }
             actions.loadHeatmap()
         },
         setHeatmapFixedPositionMode: () => {
@@ -275,6 +308,14 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             actions.loadHeatmap()
         },
         setWindowWidthOverride: () => {
+            actions.loadHeatmap()
+        },
+    })),
+    subscriptions(({ actions }) => ({
+        windowWidth: () => {
+            actions.loadHeatmap()
+        },
+        windowHeight: () => {
             actions.loadHeatmap()
         },
     })),

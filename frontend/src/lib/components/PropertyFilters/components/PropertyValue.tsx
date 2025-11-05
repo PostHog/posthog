@@ -1,4 +1,14 @@
 import { useActions, useValues } from 'kea'
+import { useCallback, useEffect } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
+import {
+    AssigneeIconDisplay,
+    AssigneeLabelDisplay,
+    AssigneeResolver,
+} from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from '@posthog/products-error-tracking/frontend/components/Assignee/AssigneeSelect'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
@@ -6,14 +16,14 @@ import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/Prope
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { formatDate, isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import { useEffect } from 'react'
 
 import {
     PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS,
     PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS,
     propertyDefinitionsModel,
 } from '~/models/propertyDefinitionsModel'
-import { GroupTypeIndex, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
+import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
+import { GroupTypeIndex, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 
 export interface PropertyValueProps {
     propertyKey: string
@@ -21,15 +31,16 @@ export interface PropertyValueProps {
     endpoint?: string // Endpoint to fetch options from
     placeholder?: string
     onSet: CallableFunction
-    value?: string | number | bigint | Array<string | number | bigint> | null
+    value?: PropertyFilterValue
     operator: PropertyOperator
     autoFocus?: boolean
     eventNames?: string[]
     addRelativeDateTimeOptions?: boolean
-    forceSingleSelect?: boolean
     inputClassName?: string
-    additionalPropertiesFilter?: { key: string; values: string | string[] }[]
     groupTypeIndex?: GroupTypeIndex
+    size?: 'xsmall' | 'small' | 'medium'
+    editable?: boolean
+    preloadValues?: boolean
 }
 
 export function PropertyValue({
@@ -40,49 +51,104 @@ export function PropertyValue({
     onSet,
     value,
     operator,
+    size,
     autoFocus = false,
     eventNames = [],
     addRelativeDateTimeOptions = false,
-    forceSingleSelect = false,
     inputClassName = undefined,
-    additionalPropertiesFilter = [],
     groupTypeIndex = undefined,
+    editable = true,
+    preloadValues = false,
 }: PropertyValueProps): JSX.Element {
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
     const { loadPropertyValues } = useActions(propertyDefinitionsModel)
+    const propertyOptions = options[propertyKey]
+    const isFlagDependencyProperty = type === PropertyFilterType.Flag
 
-    const isMultiSelect = operator && isOperatorMulti(operator) && !forceSingleSelect
+    const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
     const propertyDefinitionType = propertyFilterTypeToPropertyDefinitionType(type)
 
     const isDurationProperty =
         propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Duration
 
-    const load = (newInput: string | undefined): void => {
-        loadPropertyValues({
-            endpoint,
-            type: propertyDefinitionType,
-            newInput,
-            propertyKey,
-            eventNames,
-            properties: additionalPropertiesFilter,
-        })
-    }
+    const isAssigneeProperty =
+        propertyKey && describeProperty(propertyKey, propertyDefinitionType) === PropertyType.Assignee
+
+    const load = useCallback(
+        (newInput: string | undefined): void => {
+            loadPropertyValues({
+                endpoint,
+                type: propertyDefinitionType,
+                newInput,
+                propertyKey,
+                eventNames,
+                properties: [],
+            })
+        },
+        [loadPropertyValues, endpoint, propertyDefinitionType, propertyKey, eventNames]
+    )
 
     const setValue = (newValue: PropertyValueProps['value']): void => onSet(newValue)
 
     useEffect(() => {
-        if (!isDateTimeProperty) {
+        if (preloadValues && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
             load('')
         }
-    }, [propertyKey, isDateTimeProperty])
+    }, [preloadValues, load, propertyOptions?.status])
 
-    const displayOptions = options[propertyKey]?.values || []
+    useEffect(() => {
+        if (!isDateTimeProperty && propertyOptions?.status !== 'loading' && propertyOptions?.status !== 'loaded') {
+            load('')
+        }
+    }, [propertyKey, isDateTimeProperty, load, propertyOptions?.status])
+
+    const displayOptions = propertyOptions?.values || []
 
     const onSearchTextChange = (newInput: string): void => {
         if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
             load(newInput.trim())
         }
+    }
+
+    if (isAssigneeProperty) {
+        // Kludge: when switching between operators the value isn't always JSON
+        const parseAssignee = (value: PropertyFilterValue): ErrorTrackingIssueAssignee | null => {
+            try {
+                return JSON.parse(value as string)
+            } catch {
+                return null
+            }
+        }
+
+        const assignee = value ? parseAssignee(value) : null
+
+        return editable ? (
+            <AssigneeSelect assignee={assignee} onChange={(value) => setValue(JSON.stringify(value))}>
+                {(displayAssignee) => (
+                    <LemonButton fullWidth type="secondary" size={size}>
+                        <AssigneeLabelDisplay assignee={displayAssignee} placeholder="Choose user" />
+                    </LemonButton>
+                )}
+            </AssigneeSelect>
+        ) : (
+            <AssigneeResolver assignee={assignee}>
+                {({ assignee }) => (
+                    <>
+                        <AssigneeIconDisplay assignee={assignee} />
+                        <AssigneeLabelDisplay assignee={assignee} />
+                    </>
+                )}
+            </AssigneeResolver>
+        )
+    }
+
+    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
+        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
+    )
+
+    if (!editable) {
+        return <>{formattedValues.join(' or ')}</>
     }
 
     if (isDurationProperty) {
@@ -92,7 +158,12 @@ export function PropertyValue({
     if (isDateTimeProperty) {
         if (!addRelativeDateTimeOptions || operator === PropertyOperator.IsDateExact) {
             return (
-                <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
+                <PropertyFilterDatePicker
+                    autoFocus={autoFocus}
+                    operator={operator}
+                    value={value as string | number | null}
+                    setValue={setValue}
+                />
             )
         }
 
@@ -133,27 +204,39 @@ export function PropertyValue({
         )
     }
 
-    const formattedValues = (value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]).map(
-        (label) => String(formatPropertyValueForDisplay(propertyKey, label, propertyDefinitionType, groupTypeIndex))
-    )
+    function formatLabelContent(value: any): JSX.Element {
+        const name = toString(value)
+        if (name === '') {
+            return <i>(empty string)</i>
+        }
+        if (isFlagDependencyProperty && typeof value === 'boolean') {
+            return <code>{name}</code>
+        }
+        return <>{formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)}</>
+    }
+
+    // Disable comma splitting for user agent properties that contain commas in their values
+    const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
 
     return (
         <LemonInputSelect
             className={inputClassName}
             data-attr="prop-val"
-            loading={options[propertyKey]?.status === 'loading'}
+            loading={propertyOptions?.status === 'loading'}
             value={formattedValues}
             mode={isMultiSelect ? 'multiple' : 'single'}
-            allowCustomValues={options[propertyKey]?.allowCustomValues ?? true}
+            allowCustomValues={propertyOptions?.allowCustomValues ?? true}
             onChange={(nextVal) => (isMultiSelect ? setValue(nextVal) : setValue(nextVal[0]))}
             onInputChange={onSearchTextChange}
             placeholder={placeholder}
+            size={size}
+            disableCommaSplitting={isUserAgentProperty}
             title={
                 PROPERTY_FILTER_TYPES_WITH_TEMPORAL_SUGGESTIONS.includes(type)
                     ? 'Suggested values (last 7 days)'
                     : PROPERTY_FILTER_TYPES_WITH_ALL_TIME_SUGGESTIONS.includes(type)
-                    ? 'Suggested values'
-                    : undefined
+                      ? 'Suggested values'
+                      : undefined
             }
             popoverClassName="max-w-200"
             options={displayOptions.map(({ name: _name }, index) => {
@@ -161,13 +244,10 @@ export function PropertyValue({
                 return {
                     key: name,
                     label: name,
+                    value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
                     labelComponent: (
                         <span key={name} data-attr={'prop-val-' + index} className="ph-no-capture" title={name}>
-                            {name === '' ? (
-                                <i>(empty string)</i>
-                            ) : (
-                                formatPropertyValueForDisplay(propertyKey, name, propertyDefinitionType, groupTypeIndex)
-                            )}
+                            {formatLabelContent(isFlagDependencyProperty ? _name : name)}
                         </span>
                     ),
                 }

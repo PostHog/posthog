@@ -1,6 +1,6 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-template: HogFunctionTemplate = HogFunctionTemplate(
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
     free=True,
     type="site_app",
@@ -9,7 +9,8 @@ template: HogFunctionTemplate = HogFunctionTemplate(
     description="Show a notification bar for your users",
     icon_url="/static/hedgehog/list-hog.png",
     category=["Custom", "Analytics"],
-    hog="""
+    code_language="javascript",
+    code="""
 export function onLoad({ inputs }) {
     if (inputs.domains) {
         const domains = inputs.domains.split(',').map((domain) => domain.trim())

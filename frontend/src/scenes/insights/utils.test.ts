@@ -1,5 +1,6 @@
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
+    compareInsightTopLevelSections,
     extractObjectDiffKeys,
     formatAggregationValue,
     formatBreakdownLabel,
@@ -10,7 +11,7 @@ import {
 } from 'scenes/insights/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { ActionsNode, BreakdownFilter, EventsNode, NodeKind } from '~/queries/schema/schema-general'
+import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
 import { CompareLabelType, Entity, EntityFilter, FilterType, InsightType } from '~/types'
 
@@ -548,5 +549,152 @@ describe('getTrendDatasetKey()', () => {
         }
 
         expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":"formula"}')
+    })
+
+    it('handles insights with non-array breakdown values', () => {
+        const dataset: Partial<IndexedTrendResult> = {
+            label: 'Opera',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+            breakdown_value: 'Opera',
+        }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0,"breakdown_value":["Opera"]}')
+    })
+})
+
+describe('compareTopLevelSections()', () => {
+    it('compares top-level sections', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            interval: 'day',
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.FunnelsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            interval: 'day',
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Insight type'])
+    })
+
+    it('compares source fields', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            interval: 'day',
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            interval: 'week',
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Interval'])
+    })
+
+    it('compares multiple source fields', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            interval: 'day',
+            breakdownFilter: undefined,
+            dateRange: { date_from: '-7d' },
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            interval: 'week',
+            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+            dateRange: { date_from: '-30d' },
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Breakdowns', 'Date range', 'Interval'])
+    })
+
+    it('handles unknown source fields', () => {
+        const obj1 = { kind: NodeKind.TrendsQuery, series: [], unknownField: 'value1' } as any
+        const obj2 = { kind: NodeKind.TrendsQuery, series: [], unknownField: 'value2' } as any
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['unknownField'])
+    })
+
+    it('handles nested objects in source fields', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            breakdownFilter: { breakdown: '$os', breakdown_type: 'event' },
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Breakdowns'])
+    })
+
+    it('handles arrays in source fields', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview' },
+                { kind: NodeKind.EventsNode, event: '$autocapture' },
+            ],
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Series'])
+    })
+
+    it('returns empty array when no differences', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            interval: 'day',
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            interval: 'day',
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual([])
+    })
+
+    it('handles arrays with same elements in different order', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview' },
+                { kind: NodeKind.EventsNode, event: '$autocapture' },
+            ],
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                { kind: NodeKind.EventsNode, event: '$autocapture' },
+                { kind: NodeKind.EventsNode, event: '$pageview' },
+            ],
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual([])
+    })
+
+    it('handles null/undefined objects', () => {
+        expect(
+            compareInsightTopLevelSections(null as any, { kind: NodeKind.TrendsQuery, series: [] } as InsightQueryNode)
+        ).toEqual(['Insight type'])
+        expect(
+            compareInsightTopLevelSections({ kind: NodeKind.TrendsQuery, series: [] } as InsightQueryNode, null as any)
+        ).toEqual(['Insight type'])
+        expect(compareInsightTopLevelSections(null as any, null as any)).toEqual([])
     })
 })

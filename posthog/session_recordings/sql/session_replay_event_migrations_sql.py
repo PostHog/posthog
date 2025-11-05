@@ -1,20 +1,19 @@
 from django.conf import settings
 
-from posthog.session_recordings.sql.session_replay_event_sql import (
-    SESSION_REPLAY_EVENTS_DATA_TABLE,
-)
+from posthog.session_recordings.sql.session_replay_event_sql import SESSION_REPLAY_EVENTS_DATA_TABLE
 
-DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL = (
-    lambda: "DROP TABLE IF EXISTS session_replay_events_mv ON CLUSTER {cluster}".format(
-        cluster=settings.CLICKHOUSE_CLUSTER,
-    )
-)
 
-DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL = (
-    lambda: "DROP TABLE IF EXISTS kafka_session_replay_events ON CLUSTER {cluster}".format(
-        cluster=settings.CLICKHOUSE_CLUSTER,
+def DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True):
+    return "DROP TABLE IF EXISTS session_replay_events_mv" + (
+        f" ON CLUSTER {settings.CLICKHOUSE_CLUSTER}" if on_cluster else ""
     )
-)
+
+
+def DROP_KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
+    return "DROP TABLE IF EXISTS kafka_session_replay_events" + (
+        f" ON CLUSTER {settings.CLICKHOUSE_CLUSTER}" if on_cluster else ""
+    )
+
 
 # this alter command exists because existing installations
 # need to have the columns added, the SESSION_REPLAY_EVENTS_TABLE_BASE_SQL string
@@ -155,4 +154,175 @@ ADD_LIBRARY_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REP
 ADD_LIBRARY_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_LIBRARY_COLUMN.format(
     table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
+)
+
+# migration to add retention_period column to the session replay table
+ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_COLUMN = """
+    ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS retention_period Nullable(String)
+"""
+
+ADD_RETENTION_PERIOD_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_COLUMN.format(
+        table_name="session_replay_events",
+    )
+)
+
+ADD_RETENTION_PERIOD_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_COLUMN.format(
+        table_name="writable_session_replay_events",
+    )
+)
+
+ADD_RETENTION_PERIOD_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_COLUMN.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+# migration to add retention_period column to the session replay table and drop the old string column
+ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_COLUMN = """
+    ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS retention_period_days Nullable(Int64)
+"""
+
+ADD_RETENTION_PERIOD_DAYS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_COLUMN.format(
+        table_name="session_replay_events",
+    )
+)
+
+ADD_RETENTION_PERIOD_DAYS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_COLUMN.format(
+        table_name="writable_session_replay_events",
+    )
+)
+
+ADD_RETENTION_PERIOD_DAYS_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_COLUMN.format(
+        table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+    )
+)
+
+ALTER_SESSION_REPLAY_DROP_RETENTION_PERIOD_COLUMN = """
+    ALTER TABLE {table_name} DROP COLUMN IF EXISTS retention_period
+"""
+
+DROP_RETENTION_PERIOD_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_DROP_RETENTION_PERIOD_COLUMN.format(
+        table_name="session_replay_events",
+    )
+)
+
+DROP_RETENTION_PERIOD_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_DROP_RETENTION_PERIOD_COLUMN.format(
+        table_name="writable_session_replay_events",
+    )
+)
+
+DROP_RETENTION_PERIOD_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_DROP_RETENTION_PERIOD_COLUMN.format(
+        table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+    )
+)
+
+# migration to add a TTL policy to the session replay tables
+ALTER_SESSION_REPLAY_ADD_TTL = """
+    ALTER TABLE {table_name}
+        MODIFY TTL addDays(dateTrunc('day', min_first_timestamp), 1) + toIntervalDay(coalesce(retention_period_days, 365))
+"""
+
+ADD_TTL_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_TTL.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+ALTER_SESSION_REPLAY_SET_TTL_ONLY_DROP_PARTS = """
+    ALTER TABLE {table_name}
+        MODIFY SETTING ttl_only_drop_parts=1
+"""
+
+SET_TTL_ONLY_DROP_PARTS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_SET_TTL_ONLY_DROP_PARTS.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+# migration to remove TTL policy and change retention period column type
+ALTER_SESSION_REPLAY_REMOVE_TTL = """
+    ALTER TABLE {table_name}
+        REMOVE TTL,
+        RESET SETTING ttl_only_drop_parts
+"""
+
+REMOVE_TTL_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_REMOVE_TTL.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+ALTER_SESSION_REPLAY_DROP_RETENTION_PERIOD_DAYS = """
+    ALTER TABLE {table_name}
+        DROP COLUMN IF EXISTS retention_period_days
+"""
+
+ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_AGGREGATE_TYPE = """
+    ALTER TABLE {table_name}
+        ADD COLUMN IF NOT EXISTS retention_period_days SimpleAggregateFunction(max, Nullable(Int64))
+"""
+
+DROP_RETENTION_PERIOD_DAYS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_DROP_RETENTION_PERIOD_DAYS.format(
+        table_name="session_replay_events",
+    )
+)
+
+DROP_RETENTION_PERIOD_DAYS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_DROP_RETENTION_PERIOD_DAYS.format(
+        table_name="writable_session_replay_events",
+    )
+)
+
+DROP_RETENTION_PERIOD_DAYS_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_DROP_RETENTION_PERIOD_DAYS.format(
+        table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+    )
+)
+
+ADD_RETENTION_PERIOD_DAYS_AGGREGATE_TYPE_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_AGGREGATE_TYPE.format(
+        table_name="session_replay_events",
+    )
+)
+
+ADD_RETENTION_PERIOD_DAYS_AGGREGATE_TYPE_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_AGGREGATE_TYPE.format(
+        table_name="writable_session_replay_events",
+    )
+)
+
+ADD_RETENTION_PERIOD_DAYS_AGGREGATE_TYPE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
+    lambda: ALTER_SESSION_REPLAY_ADD_RETENTION_PERIOD_DAYS_AGGREGATE_TYPE.format(
+        table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+    )
+)
+
+# =========================
+# MIGRATION: Add block columns to support session recording v2 implementation
+# This migration adds block_url to the kafka table, and block_first_timestamps, block_last_timestamps, and block_urls
+# to the sharded, writable, and distributed session replay events tables.
+# The Kafka table only has block_url String (not arrays).
+# These columns are required for the v2 session recording implementation.
+# =========================
+
+# 1. Sharded table (physical storage)
+ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS = """
+    ALTER TABLE {table_name}
+        ADD COLUMN IF NOT EXISTS block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+        ADD COLUMN IF NOT EXISTS block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
+        ADD COLUMN IF NOT EXISTS block_urls SimpleAggregateFunction(groupArrayArray, Array(String))
+"""
+ADD_BLOCK_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+# 2. Writable table (for writing to sharded table)
+ADD_BLOCK_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS.format(
+    table_name="writable_session_replay_events",
+)
+
+# 3. Distributed table (for reading)
+ADD_BLOCK_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_BLOCK_COLUMNS.format(
+    table_name="session_replay_events",
 )

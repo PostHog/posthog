@@ -1,74 +1,50 @@
-import { IconSparkles } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconTools } from 'lib/lemon-ui/icons'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import React, { useEffect } from 'react'
-import { userLogic } from 'scenes/userLogic'
+import React from 'react'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
-import { SidePanelTab } from '~/types'
+import { IconSparkles, IconWrench } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
-import { maxGlobalLogic, ToolDefinition } from './maxGlobalLogic'
+import { AnimatedSparkles } from './components/AnimatedSparkles'
+import { ToolRegistration } from './max-constants'
+import { useMaxTool } from './useMaxTool'
 
-interface MaxToolProps extends ToolDefinition {
+interface MaxToolProps extends Omit<ToolRegistration, 'name' | 'description'> {
     /** The child element(s) that will be wrapped by this component */
     children: React.ReactElement | (({ toolAvailable }: { toolAvailable: boolean }) => React.ReactElement)
-    initialMaxPrompt: string
+    /** Whether MaxTool functionality is active. When false, just renders children without MaxTool wrapper. */
+    active?: boolean
+    initialMaxPrompt?: string
     onMaxOpen?: () => void
-}
-
-function generateBurstPoints(spikeCount: number, spikiness: number): string {
-    if (spikiness < 0 || spikiness > 1) {
-        throw new Error('Spikiness must be between 0 and 1')
-    }
-    if (spikeCount < 1) {
-        throw new Error('Spikes must be at least 1')
-    }
-
-    let points = ''
-    const outerRadius = 50
-    const innerRadius = 50 * (1 - spikiness)
-
-    for (let i = 0; i < spikeCount * 2; i++) {
-        const radius = i % 2 === 0 ? outerRadius : innerRadius
-        const angle = (Math.PI * i) / spikeCount
-        const x = 50 + radius * Math.cos(angle)
-        const y = 50 + radius * Math.sin(angle)
-        points += `${x},${y} `
-    }
-
-    return points.trim()
+    className?: string
+    position?: 'top-right' | 'bottom-right' | 'top-left' | 'bottom-left'
 }
 
 export function MaxTool({
-    name,
-    displayName,
+    identifier,
     context,
+    introOverride,
     callback,
+    suggestions,
     children: Children,
+    active = true,
     initialMaxPrompt,
     onMaxOpen,
+    className,
+    position = 'top-right',
 }: MaxToolProps): JSX.Element {
-    const { registerTool, deregisterTool } = useActions(maxGlobalLogic)
-    const { user } = useValues(userLogic)
-    const { openSidePanel } = useActions(sidePanelLogic)
-    const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
-
-    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG')
-    const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
-
-    useEffect(() => {
-        registerTool({ name, displayName, context, callback })
-        return () => {
-            deregisterTool(name)
-        }
-    }, [name, displayName, JSON.stringify(context), callback, registerTool, deregisterTool])
+    const { definition, isMaxOpen, openMax } = useMaxTool({
+        identifier,
+        context,
+        introOverride,
+        callback,
+        suggestions,
+        active,
+        initialMaxPrompt,
+        onMaxOpen,
+    })
 
     let content: JSX.Element
-    if (!isMaxAvailable) {
+    if (!definition) {
         content = <>{typeof Children === 'function' ? <Children toolAvailable={false} /> : Children}</>
     } else {
         content = (
@@ -78,14 +54,16 @@ export function MaxTool({
                         !isMaxOpen ? (
                             <>
                                 <IconSparkles className="mr-1.5" />
-                                {displayName} with Max
+                                {definition.name} with PostHog AI
                             </>
                         ) : (
                             <>
-                                Max can use this tool
+                                PostHog AI can use this tool
                                 <br />
-                                <IconTools className="mr-1.5" />
-                                <i>{displayName}</i>
+                                <div className="flex items-center">
+                                    {definition.icon || <IconWrench />}
+                                    <i className="ml-1.5">{definition.name}</i>
+                                </div>
                             </>
                         )
                     }
@@ -93,22 +71,17 @@ export function MaxTool({
                     delayMs={0}
                 >
                     <button
-                        className="absolute -top-2 -right-2 z-10 transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110"
+                        className={clsx(
+                            'absolute z-10 transition duration-50 cursor-pointer -scale-x-100 hover:scale-y-110 hover:-scale-x-110 rounded-lg border border-dashed border-accent size-7 backdrop-blur-[2px] bg-[rgba(255,255,255,0.5)] dark:bg-[rgba(0,0,0,0.5)]',
+                            position === 'top-right' && '-top-2 -right-2',
+                            position === 'bottom-right' && '-bottom-2 -right-2',
+                            position === 'top-left' && '-top-2 -left-2',
+                            position === 'bottom-left' && '-bottom-2 -left-2'
+                        )}
                         type="button"
-                        onClick={() => {
-                            openSidePanel(SidePanelTab.Max, initialMaxPrompt)
-                            onMaxOpen?.()
-                        }}
+                        onClick={openMax || undefined}
                     >
-                        {/* Burst border - the inset and size vals are very specific just bc these look nice */}
-                        <svg className={clsx('absolute -inset-1 size-8')} viewBox="0 0 100 100">
-                            <polygon points={generateBurstPoints(16, 3 / 16)} fill="var(--primary-3000)" />
-                        </svg>
-                        <ProfilePicture
-                            user={{ hedgehog_config: { ...user?.hedgehog_config, use_as_profile: true } }}
-                            size="md"
-                            className="bg-bg-light"
-                        />
+                        <AnimatedSparkles className="relative size-full pl-0.5 pb-0.5" />
                     </button>
                 </Tooltip>
                 {typeof Children === 'function' ? <Children toolAvailable={true} /> : Children}
@@ -117,10 +90,14 @@ export function MaxTool({
     }
     return (
         <div
-            className={
+            className={clsx(
+                'relative flex flex-col',
                 // Rounding is +1px to account for the border
-                isMaxOpen ? 'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]' : ''
-            }
+                isMaxOpen &&
+                    active &&
+                    'border border-primary-3000 border-dashed -m-px rounded-[calc(var(--radius)+1px)]',
+                className
+            )}
         >
             {content}
         </div>

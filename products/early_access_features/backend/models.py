@@ -1,15 +1,17 @@
 from typing import TYPE_CHECKING
+
 from django.db import models
 from django.db.models import QuerySet
-from posthog.models.utils import UUIDModel, RootTeamMixin, sane_repr
+
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.utils import RootTeamMixin, UUIDTModel, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
-class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
+class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     class Meta:
         db_table = "posthog_earlyaccessfeature"
         managed = True
@@ -56,7 +58,7 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         return FileSystemRepresentation(
-            base_folder="Unfiled/Early Access Features",
+            base_folder=self._get_assigned_folder("Unfiled/Early Access Features"),
             type="early_access_feature",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.name or "Untitled",

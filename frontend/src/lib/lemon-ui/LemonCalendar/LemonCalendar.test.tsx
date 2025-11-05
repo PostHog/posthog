@@ -1,5 +1,6 @@
 import { render, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+
 import { dayjs } from 'lib/dayjs'
 import { range } from 'lib/utils'
 
@@ -199,25 +200,21 @@ describe('LemonCalendar', () => {
         const minutes = range(0, 60).map((num) => ['m', num])
         expect(calls.length).toBe(74)
         expect(calls).toEqual([
-            ...[
-                ['h', 12],
-                ['h', 1],
-                ['h', 2],
-                ['h', 3],
-                ['h', 4],
-                ['h', 5],
-                ['h', 6],
-                ['h', 7],
-                ['h', 8],
-                ['h', 9],
-                ['h', 10],
-                ['h', 11],
-            ],
+            ['h', 12],
+            ['h', 1],
+            ['h', 2],
+            ['h', 3],
+            ['h', 4],
+            ['h', 5],
+            ['h', 6],
+            ['h', 7],
+            ['h', 8],
+            ['h', 9],
+            ['h', 10],
+            ['h', 11],
             ...minutes,
-            ...[
-                ['a', 'am'],
-                ['a', 'pm'],
-            ],
+            ['a', 'am'],
+            ['a', 'pm'],
         ])
     })
 })

@@ -1,21 +1,24 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api, { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
-import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
 import { getAppContext } from 'lib/utils/getAppContext'
 import {
-    addProductIntent,
-    addProductIntentForCrossSell,
     type ProductCrossSellProperties,
     type ProductIntentProperties,
+    addProductIntent,
+    addProductIntentForCrossSell,
 } from 'lib/utils/product-intents'
 
 import { activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { CurrencyCode } from '~/queries/schema/schema-general'
 import { CorrelationConfigType, ProductKey, ProjectType, TeamPublicType, TeamType } from '~/types'
 
 import { organizationLogic } from './organizationLogic'
@@ -23,13 +26,22 @@ import { projectLogic } from './projectLogic'
 import type { teamLogicType } from './teamLogicType'
 import { userLogic } from './userLogic'
 
-const parseUpdatedAttributeName = (attr: string | null): string => {
+const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
     if (attr === 'slack_incoming_webhook') {
         return 'Webhook'
     }
     if (attr === 'app_urls') {
         return 'Authorized URLs'
     }
+
+    if (attr === 'web_analytics_pre_aggregated_tables_enabled') {
+        return 'New query engine'
+    }
+
+    if (attr === 'session_recording_minimum_duration_milliseconds') {
+        return 'Session recording minimum duration'
+    }
+
     return attr ? identifierToHuman(attr) : 'Project'
 }
 
@@ -74,6 +86,7 @@ export const teamLogic = kea<teamLogicType>([
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return null
                     }
+
                     try {
                         return await api.get('api/environments/@current')
                     } catch {
@@ -115,7 +128,8 @@ export const teamLogic = kea<teamLogicType>([
                     actions.loadUser()
 
                     /* Notify user the update was successful  */
-                    const updatedAttribute = Object.keys(payload).length === 1 ? Object.keys(payload)[0] : null
+                    const updatedAttribute =
+                        Object.keys(payload).length === 1 ? (Object.keys(payload)[0] as keyof TeamType) : null
 
                     let message: string
                     if (updatedAttribute === 'slack_incoming_webhook') {
@@ -124,6 +138,14 @@ export const teamLogic = kea<teamLogicType>([
                                   payload.slack_incoming_webhook
                               )}`
                             : 'Webhook integration disabled'
+                    } else if (updatedAttribute === 'feature_flag_confirmation_enabled') {
+                        message = payload.feature_flag_confirmation_enabled
+                            ? 'Feature flag confirmation enabled'
+                            : 'Feature flag confirmation disabled'
+                    } else if (updatedAttribute === 'default_evaluation_environments_enabled') {
+                        message = payload.default_evaluation_environments_enabled
+                            ? 'Default evaluation environments enabled'
+                            : 'Default evaluation environments disabled'
                     } else if (
                         updatedAttribute === 'completed_snippet_onboarding' ||
                         updatedAttribute === 'has_completed_onboarding_for'
@@ -134,7 +156,9 @@ export const teamLogic = kea<teamLogicType>([
                     }
 
                     Object.keys(payload).map((property) => {
-                        eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(property, payload[property])
+                        eventUsageLogic
+                            .findMounted()
+                            ?.actions?.reportTeamSettingChange(property, payload[property as keyof TeamType])
                     })
 
                     const isUpdatingOnboardingTasks = Object.keys(payload).every((key) => key === 'onboarding_tasks')
@@ -153,7 +177,13 @@ export const teamLogic = kea<teamLogicType>([
                     }
                     return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
                 },
+                // Project API Token
                 resetToken: async () => await api.update(`api/environments/${values.currentTeamId}/reset_token`, {}),
+                // Feature Flags Secure API Token
+                rotateSecretToken: async () =>
+                    await api.update(`api/environments/${values.currentTeamId}/rotate_secret_token`, {}),
+                deleteSecretTokenBackup: async () =>
+                    await api.update(`api/environments/${values.currentTeamId}/delete_secret_token_backup`, {}),
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
                  */
@@ -179,6 +209,12 @@ export const teamLogic = kea<teamLogicType>([
                     return false
                 }
                 return true
+            },
+        ],
+        hasIngestedEvent: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): boolean => {
+                return currentTeam?.ingested_event ?? false
             },
         ],
         currentTeamId: [
@@ -235,6 +271,10 @@ export const teamLogic = kea<teamLogicType>([
                 }
                 return frequentMistakes
             },
+        ],
+        baseCurrency: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam: TeamType): CurrencyCode => currentTeam?.base_currency ?? DEFAULT_CURRENCY,
         ],
     })),
     listeners(({ actions }) => ({

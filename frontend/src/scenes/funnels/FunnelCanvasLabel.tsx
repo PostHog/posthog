@@ -1,10 +1,12 @@
+import { useActions, useValues } from 'kea'
+import React from 'react'
+
 import { IconInfo, IconTestTube } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import React from 'react'
 import { getExperimentMetricFromInsight } from 'scenes/experiments/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -87,7 +89,7 @@ export function FunnelCanvasLabel(): JSX.Element | null {
                               intent_context: ProductIntentContext.CREATE_EXPERIMENT_FROM_FUNNEL_BUTTON,
                           })
                       }
-                      to={urls.experiment('new', {
+                      to={urls.experiment('new', null, {
                           metric: getExperimentMetricFromInsight(insight as QueryBasedInsightModel),
                           name: insight.name || insight.derived_name || derivedName,
                       })}

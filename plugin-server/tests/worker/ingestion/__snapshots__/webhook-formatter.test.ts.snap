@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`WebhookFormatter slack webhook formatting options { messageFormat: '[action.name]' } 1`] = `"action1"`;
 
@@ -11,27 +11,6 @@ exports[`WebhookFormatter slack webhook formatting options { messageFormat: '[ev
 exports[`WebhookFormatter slack webhook formatting options { messageFormat: '[person]' } 1`] = `"test@posthog.com"`;
 
 exports[`WebhookFormatter slack webhook formatting options { messageFormat: '[person]' } 2`] = `"<http://localhost:8000/project/123/person/WALL-E|test@posthog.com>"`;
-
-exports[`WebhookFormatter webhook formatting options {
-  messageFormat: '[person.properties.enjoys_broccoli_on_pizza]',
-  personProperties: [Object]
-} 1`] = `"false"`;
-
-exports[`WebhookFormatter webhook formatting options {
-  messageFormat: '[person.properties.pizza_ingredient_ranking]',
-  personProperties: [Object]
-} 1`] = `"["pineapple","broccoli","aubergine"\\]"`;
-
-exports[`WebhookFormatter webhook formatting options {
-  messageFormat: '[person]',
-  personProperties: [Object],
-  team: [Object]
-} 1`] = `"[Brzęczyszczykiewicz](http://localhost:8000/project/123/person/WALL-E)"`;
-
-exports[`WebhookFormatter webhook formatting options {
-  messageFormat: '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit], [event.properties.with space]',
-  event: [Object]
-} 1`] = `"[test@posthog.com](http://localhost:8000/project/123/person/2) from Chrome on Pricing page with undefined, yes sir"`;
 
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[action.name\\\\] got done by \\\\[user.name\\\\]' } 1`] = `"[action.name] got done by [user.name]"`;
 
@@ -74,3 +53,11 @@ exports[`WebhookFormatter webhook formatting options { messageFormat: '[user.bro
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[user.missing_property]' } 1`] = `"undefined"`;
 
 exports[`WebhookFormatter webhook formatting options { messageFormat: '[user.name]' } 1`] = `"[test@posthog.com](http://localhost:8000/project/123/person/WALL-E)"`;
+
+exports[`WebhookFormatter webhook formatting options {\\n  messageFormat: '[person.properties.enjoys_broccoli_on_pizza]',\\n  personProperties: [Object]\\n} 1`] = `"false"`;
+
+exports[`WebhookFormatter webhook formatting options {\\n  messageFormat: '[person.properties.pizza_ingredient_ranking]',\\n  personProperties: [Object]\\n} 1`] = `"["pineapple","broccoli","aubergine"\\]"`;
+
+exports[`WebhookFormatter webhook formatting options {\\n  messageFormat: '[person]',\\n  personProperties: [Object],\\n  team: [Object]\\n} 1`] = `"[Brzęczyszczykiewicz](http://localhost:8000/project/123/person/WALL-E)"`;
+
+exports[`WebhookFormatter webhook formatting options {\\n  messageFormat: '[user.name] from [user.browser] on [event.properties.page_title] page with [event.properties.fruit], [event.properties.with space]',\\n  event: [Object]\\n} 1`] = `"[test@posthog.com](http://localhost:8000/project/123/person/2) from Chrome on Pricing page with undefined, yes sir"`;

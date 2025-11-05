@@ -1,23 +1,40 @@
-from concurrent.futures import ThreadPoolExecutor
 import uuid
-from unittest import mock
-from typing import Any, Optional
+import functools
+from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
+
 import pytest
-from asgiref.sync import sync_to_async
+from unittest import mock
+
+from django.conf import settings
 from django.test import override_settings
 
-from posthog.temporal.data_imports.settings import import_data_activity_sync
+import boto3
+import psycopg
+import pytest_asyncio
+from asgiref.sync import sync_to_async
+from temporalio.common import RetryPolicy
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.models import Team
 from posthog.temporal.data_imports.external_data_job import (
+    Any_Source_Errors,
+    ExternalDataJobWorkflow,
+    ExternalDataWorkflowInputs,
     UpdateExternalDataJobStatusInputs,
     create_source_templates,
     update_external_data_job_model,
 )
-from posthog.temporal.data_imports.external_data_job import (
-    ExternalDataJobWorkflow,
-    ExternalDataWorkflowInputs,
-    Any_Source_Errors,
-)
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
+from posthog.temporal.data_imports.settings import import_data_activity_sync
+from posthog.temporal.data_imports.sources.stripe.constants import (
+    BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+)
+from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as STRIPE_ENDPOINTS
+from posthog.temporal.data_imports.workflow_activities.calculate_table_size import calculate_table_size_activity
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import check_billing_limits_activity
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
@@ -28,30 +45,14 @@ from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import (
     SyncNewSchemasActivityInputs,
     sync_new_schemas_activity,
 )
-from posthog.warehouse.models import (
-    get_latest_run_if_exists,
+
+from products.data_warehouse.backend.models import (
     ExternalDataJob,
-    ExternalDataSource,
     ExternalDataSchema,
+    ExternalDataSource,
+    get_latest_run_if_exists,
 )
-
-from posthog.temporal.data_imports.pipelines.schemas import (
-    PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING,
-)
-from posthog.models import Team
-from temporalio.testing import WorkflowEnvironment
-from temporalio.common import RetryPolicy
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
-from posthog.constants import DATA_WAREHOUSE_TASK_QUEUE
-import pytest_asyncio
-import boto3
-import functools
-from django.conf import settings
-from dlt.sources.helpers.rest_client.client import RESTClient
-from dlt.common.configuration.specs.aws_credentials import AwsCredentials
-import psycopg
-
-from posthog.warehouse.models.external_data_schema import get_all_schemas_for_source_id
+from products.data_warehouse.backend.models.external_data_schema import get_all_schemas_for_source_id
 
 BUCKET_NAME = "test-pipeline"
 SESSION = boto3.Session()
@@ -96,7 +97,10 @@ def minio_client(bucket_name):
 
     delete_all_from_s3(minio_client, bucket_name, key_prefix="")
 
-    minio_client.delete_bucket(Bucket=bucket_name)
+    try:
+        minio_client.delete_bucket(Bucket=bucket_name)
+    except:
+        pass
 
 
 @pytest.fixture
@@ -194,7 +198,7 @@ def test_create_external_job_activity_schemas_exist(activity_environment, team, 
     )
 
     schema = ExternalDataSchema.objects.create(
-        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
     )
@@ -218,10 +222,11 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
         team=team,
         status="running",
         source_type="Stripe",
+        job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
     )
 
     ExternalDataSchema.objects.create(
-        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
@@ -231,9 +236,9 @@ def test_create_external_job_activity_update_schemas(activity_environment, team,
 
     activity_environment.run(sync_new_schemas_activity, inputs)
 
-    all_schemas = get_all_schemas_for_source_id(new_source.pk, team.id)
+    all_schemas = get_all_schemas_for_source_id(str(new_source.pk), team.id)
 
-    assert len(all_schemas) == len(PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[ExternalDataSource.Type.STRIPE])
+    assert len(all_schemas) == len(STRIPE_ENDPOINTS)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -251,7 +256,7 @@ def test_update_external_job_activity(activity_environment, team, **kwargs):
     )
 
     schema = ExternalDataSchema.objects.create(
-        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
@@ -295,7 +300,7 @@ def test_update_external_job_activity_with_retryable_error(activity_environment,
     )
 
     schema = ExternalDataSchema.objects.create(
-        name=PIPELINE_TYPE_SCHEMA_DEFAULT_MAPPING[new_source.source_type][0],
+        name=STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
         should_sync=True,
@@ -363,7 +368,9 @@ def test_update_external_job_activity_with_non_retryable_error(activity_environm
         source_id=str(new_source.pk),
         team_id=team.id,
     )
-    with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):
+    with mock.patch(
+        "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
+    ):
         activity_environment.run(update_external_data_job_model, inputs)
 
     new_job.refresh_from_db()
@@ -411,7 +418,9 @@ def test_update_external_job_activity_with_not_source_sepecific_non_retryable_er
         source_id=str(new_source.pk),
         team_id=team.id,
     )
-    with mock.patch("posthog.warehouse.models.external_data_schema.external_data_workflow_exists", return_value=False):
+    with mock.patch(
+        "products.data_warehouse.backend.models.external_data_schema.external_data_workflow_exists", return_value=False
+    ):
         activity_environment.run(update_external_data_job_model, inputs)
 
     new_job.refresh_from_db()
@@ -422,8 +431,46 @@ def test_update_external_job_activity_with_not_source_sepecific_non_retryable_er
     assert schema.should_sync is False
 
 
+@pytest.fixture
+def mock_stripe_client():
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient") as MockStripeClient:
+        mock_balance_transaction_list = mock.MagicMock()
+        mock_charges_list = mock.MagicMock()
+        mock_customers_list = mock.MagicMock()
+        mock_invoice_list = mock.MagicMock()
+        mock_price_list = mock.MagicMock()
+        mock_product_list = mock.MagicMock()
+        mock_subscription_list = mock.MagicMock()
+
+        mock_charges_list.auto_paging_iter.return_value = [
+            {
+                "id": "chg_123",
+                "customer": "cus_1",
+                "created": 123,
+            }
+        ]
+        mock_customers_list.auto_paging_iter.return_value = [
+            {
+                "id": "cus_123",
+                "name": "John Doe",
+                "created": 123,
+            }
+        ]
+
+        instance = MockStripeClient.return_value
+        instance.balance_transactions.list.return_value = mock_balance_transaction_list
+        instance.charges.list.return_value = mock_charges_list
+        instance.customers.list.return_value = mock_customers_list
+        instance.invoices.list.return_value = mock_invoice_list
+        instance.prices.list.return_value = mock_price_list
+        instance.products.list.return_value = mock_product_list
+        instance.subscriptions.list.return_value = mock_subscription_list
+
+        yield instance
+
+
 @pytest.mark.django_db(transaction=True)
-def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
+def test_run_stripe_job(activity_environment, team, minio_client, mock_stripe_client, **kwargs):
     def setup_job_1():
         new_source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -435,7 +482,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
             job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
-        customer_schema = _create_schema("Customer", new_source, team)
+        customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
 
         new_job: ExternalDataJob = ExternalDataJob.objects.create(
             team_id=team.id,
@@ -468,7 +515,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
             job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
-        charge_schema = _create_schema("Charge", new_source, team)
+        charge_schema = _create_schema(STRIPE_CHARGE_RESOURCE_NAME, new_source, team)
 
         new_job: ExternalDataJob = ExternalDataJob.objects.create(
             team_id=team.id,
@@ -493,68 +540,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
     job_1, job_1_inputs = setup_job_1()
     job_2, job_2_inputs = setup_job_2()
 
-    def mock_customers_paginate(
-        class_self,
-        path: str = "",
-        method: Any = "GET",
-        params: Optional[dict[str, Any]] = None,
-        json: Optional[dict[str, Any]] = None,
-        auth: Optional[Any] = None,
-        paginator: Optional[Any] = None,
-        data_selector: Optional[Any] = None,
-        hooks: Optional[Any] = None,
-    ):
-        return iter(
-            [
-                {
-                    "id": "cus_123",
-                    "name": "John Doe",
-                }
-            ]
-        )
-
-    def mock_charges_paginate(
-        class_self,
-        path: str = "",
-        method: Any = "GET",
-        params: Optional[dict[str, Any]] = None,
-        json: Optional[dict[str, Any]] = None,
-        auth: Optional[Any] = None,
-        paginator: Optional[Any] = None,
-        data_selector: Optional[Any] = None,
-        hooks: Optional[Any] = None,
-    ):
-        return iter(
-            [
-                {
-                    "id": "chg_123",
-                    "customer": "cus_1",
-                }
-            ]
-        )
-
-    def mock_to_session_credentials(class_self):
-        return {
-            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "aws_session_token": None,
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
-    def mock_to_object_store_rs_credentials(class_self):
-        return {
-            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region": "us-east-1",
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
     with (
-        mock.patch.object(RESTClient, "paginate", mock_customers_paginate),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -563,14 +549,12 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
             },
         ),
-        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
-        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
     ):
         activity_environment.run(import_data_activity_sync, job_1_inputs)
 
@@ -580,7 +564,6 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
         assert len(job_1_customer_objects["Contents"]) == 3
 
     with (
-        mock.patch.object(RESTClient, "paginate", mock_charges_paginate),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -589,14 +572,12 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "customer": {"clickhouse": "string", "hogql": "StringDatabaseField"},
             },
         ),
-        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
-        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
     ):
         activity_environment.run(import_data_activity_sync, job_2_inputs)
 
@@ -605,7 +586,7 @@ def test_run_stripe_job(activity_environment, team, minio_client, **kwargs):
 
 
 @pytest.mark.django_db(transaction=True)
-def test_run_stripe_job_row_count_update(activity_environment, team, minio_client, **kwargs):
+def test_run_stripe_job_row_count_update(activity_environment, team, minio_client, mock_stripe_client, **kwargs):
     def setup_job_1():
         new_source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()),
@@ -617,7 +598,7 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
             job_inputs={"stripe_secret_key": "test-key", "stripe_account_id": "acct_id"},
         )
 
-        customer_schema = _create_schema("Customer", new_source, team)
+        customer_schema = _create_schema(STRIPE_CUSTOMER_RESOURCE_NAME, new_source, team)
 
         new_job: ExternalDataJob = ExternalDataJob.objects.create(
             team_id=team.id,
@@ -643,48 +624,7 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
 
     job_1, job_1_inputs = setup_job_1()
 
-    def mock_customers_paginate(
-        class_self,
-        path: str = "",
-        method: Any = "GET",
-        params: Optional[dict[str, Any]] = None,
-        json: Optional[dict[str, Any]] = None,
-        auth: Optional[Any] = None,
-        paginator: Optional[Any] = None,
-        data_selector: Optional[Any] = None,
-        hooks: Optional[Any] = None,
-    ):
-        return iter(
-            [
-                {
-                    "id": "cus_123",
-                    "name": "John Doe",
-                }
-            ]
-        )
-
-    def mock_to_session_credentials(class_self):
-        return {
-            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "aws_session_token": None,
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
-    def mock_to_object_store_rs_credentials(class_self):
-        return {
-            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region": "us-east-1",
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
     with (
-        mock.patch.object(RESTClient, "paginate", mock_customers_paginate),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -693,14 +633,12 @@ def test_run_stripe_job_row_count_update(activity_environment, team, minio_clien
             BUCKET_NAME=BUCKET_NAME,
         ),
         mock.patch(
-            "posthog.warehouse.models.table.DataWarehouseTable.get_columns",
+            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns",
             return_value={
                 "id": {"clickhouse": "string", "hogql": "StringDatabaseField"},
                 "name": {"clickhouse": "string", "hogql": "StringDatabaseField"},
             },
         ),
-        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
-        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
     ):
         activity_environment.run(import_data_activity_sync, job_1_inputs)
 
@@ -730,7 +668,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        name="Customer",
+        name=STRIPE_CUSTOMER_RESOURCE_NAME,
         team_id=team.id,
         source_id=new_source.pk,
     )
@@ -746,29 +684,32 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
         return {}
 
     with (
-        mock.patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}),
+        mock.patch(
+            "products.data_warehouse.backend.models.table.DataWarehouseTable.get_columns", return_value={"id": "string"}
+        ),
         mock.patch.object(PipelineNonDLT, "run", mock_func),
     ):
         with (
             override_settings(
                 BUCKET_URL=f"s3://{BUCKET_NAME}",
+                BUCKET_PATH=BUCKET_NAME,
                 AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
                 AIRBYTE_BUCKET_REGION="us-east-1",
                 AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
-                BUCKET_NAME=BUCKET_NAME,
             ),
         ):
             async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
                 async with Worker(
                     activity_environment.client,
-                    task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     workflows=[ExternalDataJobWorkflow],
                     activities=[
                         create_external_data_job_model_activity,
                         update_external_data_job_model,
                         import_data_activity_sync,
                         create_source_templates,
+                        calculate_table_size_activity,
                         check_billing_limits_activity,
                         sync_new_schemas_activity,
                     ],
@@ -780,7 +721,7 @@ async def test_external_data_job_workflow_with_schema(team, **kwargs):
                         ExternalDataJobWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=DATA_WAREHOUSE_TASK_QUEUE,
+                        task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
@@ -845,37 +786,13 @@ async def test_run_postgres_job(
 
     job_1, job_1_inputs = await setup_job_1()
 
-    def mock_to_session_credentials(class_self):
-        return {
-            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "aws_session_token": None,
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
-    def mock_to_object_store_rs_credentials(class_self):
-        return {
-            "aws_access_key_id": settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            "aws_secret_access_key": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT,
-            "region": "us-east-1",
-            "AWS_ALLOW_HTTP": "true",
-            "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
-        }
-
-    with (
-        override_settings(
-            BUCKET_URL=f"s3://{BUCKET_NAME}",
-            AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            AIRBYTE_BUCKET_REGION="us-east-1",
-            AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
-            BUCKET_NAME=BUCKET_NAME,
-        ),
-        mock.patch.object(AwsCredentials, "to_session_credentials", mock_to_session_credentials),
-        mock.patch.object(AwsCredentials, "to_object_store_rs_credentials", mock_to_object_store_rs_credentials),
+    with override_settings(
+        BUCKET_URL=f"s3://{BUCKET_NAME}",
+        BUCKET_PATH=BUCKET_NAME,
+        AIRBYTE_BUCKET_KEY=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        AIRBYTE_BUCKET_SECRET=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        AIRBYTE_BUCKET_REGION="us-east-1",
+        AIRBYTE_BUCKET_DOMAIN="objectstorage:19000",
     ):
         await sync_to_async(activity_environment.run)(import_data_activity_sync, job_1_inputs)
 

@@ -1,25 +1,29 @@
-import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
-import { Editor, isTextSelection } from '@tiptap/core'
-import { BubbleMenu } from '@tiptap/react'
-import { useActions } from 'kea'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconBold, IconComment, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
-import { isURL, uuid } from 'lib/utils'
+import { isTextSelection } from '@tiptap/core'
+import { BubbleMenu } from '@tiptap/react/menus'
+import { useValues } from 'kea'
 import { useRef } from 'react'
 
-import NotebookIconHeading from './NotebookIconHeading'
-import { notebookLogic } from './notebookLogic'
+import { IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
-export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
-    const { insertComment } = useActions(notebookLogic)
-    const { href, target } = editor.getAttributes('link')
+import { richContentEditorLogic } from 'lib/components/RichContentEditor/richContentEditorLogic'
+import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
+import { IconBold, IconItalic, IconLink, IconOpenInNew } from 'lib/lemon-ui/icons'
+import { isURL } from 'lib/utils'
+
+import NotebookIconHeading from './NotebookIconHeading'
+
+export const InlineMenu = ({
+    extra = () => null,
+}: {
+    extra: (editor: RichContentEditorType) => JSX.Element | null
+}): JSX.Element => {
+    const { ttEditor, richContentEditor } = useValues(richContentEditorLogic)
+    const { href, target } = ttEditor.getAttributes('link')
     const menuRef = useRef<HTMLDivElement>(null)
-    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
-    const commentSelected = editor.isActive('comment')
 
     const setLink = (href: string): void => {
-        editor.commands.setMark('link', { href: href })
+        ttEditor.commands.setMark('link', { href: href })
     }
 
     const openLink = (): void => {
@@ -28,7 +32,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
 
     return (
         <BubbleMenu
-            editor={editor}
+            editor={ttEditor}
             shouldShow={({ editor: { isEditable }, view, state, from, to }) => {
                 const isChildOfMenu = menuRef.current?.contains(document.activeElement)
                 const focused = view.hasFocus() || isChildOfMenu
@@ -40,12 +44,13 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
 
                 return state.doc.textBetween(from, to).length > 0
             }}
+            options={{ placement: 'top-start' }}
         >
             <div
                 ref={menuRef}
                 className="NotebookInlineMenu flex bg-surface-primary rounded border items-center text-secondary p-1 gap-x-0.5"
             >
-                {editor.isActive('link') ? (
+                {ttEditor.isActive('link') ? (
                     <>
                         <LemonInput
                             size="small"
@@ -62,7 +67,7 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                             disabledReason={!isURL(href) && 'Enter a URL.'}
                         />
                         <LemonButton
-                            onClick={() => editor.chain().focus().unsetMark('link').run()}
+                            onClick={() => ttEditor.chain().focus().unsetMark('link').run()}
                             icon={<IconTrash />}
                             status="danger"
                             size="small"
@@ -71,55 +76,42 @@ export const InlineMenu = ({ editor }: { editor: Editor }): JSX.Element => {
                 ) : (
                     <>
                         <LemonButton
-                            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-                            active={editor.isActive('heading', { level: 1 })}
+                            onClick={() => ttEditor.chain().focus().toggleHeading({ level: 1 }).run()}
+                            active={ttEditor.isActive('heading', { level: 1 })}
                             icon={<NotebookIconHeading level={1} />}
                             size="small"
                         />
                         <LemonButton
-                            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-                            active={editor.isActive('heading', { level: 2 })}
+                            onClick={() => ttEditor.chain().focus().toggleHeading({ level: 2 }).run()}
+                            active={ttEditor.isActive('heading', { level: 2 })}
                             icon={<NotebookIconHeading level={2} />}
                             size="small"
                         />
                         <LemonButton
-                            onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
-                            active={editor.isActive('heading', { level: 3 })}
+                            onClick={() => ttEditor.chain().focus().toggleHeading({ level: 3 }).run()}
+                            active={ttEditor.isActive('heading', { level: 3 })}
                             icon={<NotebookIconHeading level={3} />}
                             size="small"
                         />
                         <LemonDivider vertical />
                         <LemonButton
-                            onClick={() => editor.chain().focus().toggleMark('italic').run()}
-                            active={editor.isActive('italic')}
+                            onClick={() => ttEditor.chain().focus().toggleMark('italic').run()}
+                            active={ttEditor.isActive('italic')}
                             icon={<IconItalic />}
                             size="small"
                         />
                         <LemonButton
-                            onClick={() => editor.chain().focus().toggleMark('bold').run()}
-                            active={editor.isActive('bold')}
+                            onClick={() => ttEditor.chain().focus().toggleMark('bold').run()}
+                            active={ttEditor.isActive('bold')}
                             icon={<IconBold />}
                             size="small"
                         />
                         <LemonButton
-                            onClick={() => editor.chain().focus().setMark('link').run()}
+                            onClick={() => ttEditor.chain().focus().setMark('link').run()}
                             icon={<IconLink />}
                             size="small"
                         />
-                    </>
-                )}
-                {hasDiscussions && !commentSelected && (
-                    <>
-                        <LemonDivider vertical />
-                        <LemonButton
-                            onClick={() => {
-                                const markId = uuid()
-                                editor.commands.setMark('comment', { id: markId })
-                                insertComment({ type: 'mark', id: markId })
-                            }}
-                            icon={<IconComment className="w-4 h-4" />}
-                            size="small"
-                        />
+                        {extra(richContentEditor)}
                     </>
                 )}
             </div>

@@ -1,10 +1,6 @@
 from django.test import TestCase
 
-from posthog.models.entity import (
-    TREND_FILTER_TYPE_ACTIONS,
-    TREND_FILTER_TYPE_EVENTS,
-    Entity,
-)
+from posthog.models.entity import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, Entity
 
 
 class TestEntity(TestCase):

@@ -1,0 +1,346 @@
+#!/bin/bash
+
+set -e
+
+# Source utility functions
+source "$(dirname "$0")/helpers/_utils.sh"
+
+# Parse arguments
+COMMAND=${1:-"help"}
+shift || true
+
+# Parse remaining arguments - flags and positional args
+BRANCH_NAME=""
+BASE_BRANCH="master"
+CUSTOM_DIR=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dir)
+            if [[ -z "$2" ]]; then
+                error "Missing argument for --dir flag"
+                exit 1
+            fi
+            CUSTOM_DIR="$2"
+            shift 2
+            ;;
+        *)
+            # First non-flag arg is branch name, second is base branch
+            if [[ -z "$BRANCH_NAME" ]]; then
+                BRANCH_NAME="$1"
+            elif [[ "$BASE_BRANCH" == "master" ]]; then
+                BASE_BRANCH="$1"
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Worktree base directory (configurable via POSTHOG_WORKTREE_BASE)
+WORKTREE_BASE="${POSTHOG_WORKTREE_BASE:-${HOME}/.worktrees/posthog}"
+
+
+# Function to create a new worktree
+create_worktree() {
+    if [ -z "$BRANCH_NAME" ]; then
+        error "Branch name required"
+        echo "Usage: $0 create <branch-name> [base-branch] [--dir <dirname>]"
+        exit 1
+    fi
+
+    # Use custom dirname if provided, otherwise use branch name
+    local dirname="${CUSTOM_DIR:-${BRANCH_NAME}}"
+    local worktree_path="${WORKTREE_BASE}/${dirname}"
+    
+    # Check if base branch exists
+    if ! git show-ref --verify --quiet "refs/heads/${BASE_BRANCH}" && 
+       ! git show-ref --verify --quiet "refs/remotes/origin/${BASE_BRANCH}"; then
+        error "Base branch '${BASE_BRANCH}' not found locally or on origin"
+        echo "Available branches:"
+        git branch -a | grep -v HEAD | sed 's/^[* ]*//' | sed 's/remotes\/origin\///' | sort -u | head -20
+        exit 1
+    fi
+    
+    success "Creating worktree for NEW branch: ${BRANCH_NAME} (from ${BASE_BRANCH})"
+    
+    # Create worktree with new branch from specified base
+    mkdir -p "${WORKTREE_BASE}"
+    git worktree add "${worktree_path}" -b "${BRANCH_NAME}" "${BASE_BRANCH}"
+    
+    # Use common setup function
+    setup_worktree_environment "${worktree_path}"
+}
+
+# Function to remove a worktree
+remove_worktree() {
+    if [ -z "$BRANCH_NAME" ]; then
+        error "Branch name required"
+        echo "Usage: $0 remove <branch-name>"
+        exit 1
+    fi
+    
+    print_color yellow "Removing worktree for: ${BRANCH_NAME}"
+    
+    # Find the actual worktree path using git worktree list
+    local worktree_path=$(git worktree list | grep -E "\[${BRANCH_NAME}\]$" | awk '{print $1}')
+    
+    if [ -n "$worktree_path" ]; then
+        # Remove using the actual path found by git
+        git worktree remove "${worktree_path}" --force
+        success "Worktree removed: ${worktree_path}"
+    else
+        # Fallback: let git find it by branch name
+        if git worktree remove "${BRANCH_NAME}" --force 2>/dev/null; then
+            success "Worktree removed"
+        else
+            error "Could not find worktree for branch: ${BRANCH_NAME}"
+            echo "Available worktrees:"
+            git worktree list
+            exit 1
+        fi
+    fi
+}
+
+# Function to checkout existing branch in worktree
+checkout_worktree() {
+    if [ -z "$BRANCH_NAME" ]; then
+        error "Branch name required"
+        echo "Usage: $0 checkout <branch-name> [--dir <dirname>]"
+        exit 1
+    fi
+
+    # Check if worktree already exists for this branch
+    local existing_path=$(git worktree list | grep -E "\[${BRANCH_NAME}\]$" | awk '{print $1}')
+    if [[ -n "$existing_path" ]]; then
+        success "Worktree already exists for branch: ${BRANCH_NAME}"
+        success "Location: ${existing_path}"
+        return 0
+    fi
+
+    # Use custom dirname if provided, otherwise use branch name
+    local dirname="${CUSTOM_DIR:-${BRANCH_NAME}}"
+    local worktree_path="${WORKTREE_BASE}/${dirname}"
+    
+    # Check if branch exists
+    if ! git show-ref --verify --quiet "refs/heads/${BRANCH_NAME}" && 
+       ! git show-ref --verify --quiet "refs/remotes/origin/${BRANCH_NAME}"; then
+        error "Branch '${BRANCH_NAME}' not found locally or on origin"
+        echo "Available branches:"
+        git branch -a | grep -v HEAD | sed 's/^[* ]*//' | sed 's/remotes\/origin\///' | sort -u | head -20
+        exit 1
+    fi
+    
+    success "Creating worktree for EXISTING branch: ${BRANCH_NAME}"
+    
+    # Create worktree
+    mkdir -p "${WORKTREE_BASE}"
+    
+    # Try to add worktree (will use existing branch)
+    if git worktree add "${worktree_path}" "${BRANCH_NAME}" 2>/dev/null; then
+        success "Using local branch ${BRANCH_NAME}"
+    else
+        # Try with origin branch
+        git worktree add "${worktree_path}" "origin/${BRANCH_NAME}" || fatal "Failed to create worktree"
+        success "Tracking origin/${BRANCH_NAME}"
+    fi
+    
+    # Continue with standard setup
+    setup_worktree_environment "${worktree_path}"
+}
+
+# Function to checkout PR in worktree
+checkout_pr_worktree() {
+    local pr_number="$BRANCH_NAME"  # Reusing BRANCH_NAME variable for PR number
+
+    if [ -z "$pr_number" ]; then
+        error "PR number required"
+        echo "Usage: $0 pr <pr-number> [--dir <dirname>]"
+        exit 1
+    fi
+
+    # Check if gh and jq are installed
+    if ! command_exists gh; then
+        fatal "GitHub CLI (gh) is required. Install with: brew install gh"
+    fi
+    if ! command_exists jq; then
+        fatal "jq is required for parsing JSON. Install with: brew install jq"
+    fi
+
+    print_color blue "Fetching PR #${pr_number} information…"
+
+    # Get PR info
+    local pr_info=$(gh pr view "${pr_number}" --json headRefName,author,title 2>/dev/null || echo "")
+    if [ -z "$pr_info" ]; then
+        fatal "Could not fetch PR #${pr_number}. Make sure you're authenticated with gh."
+    fi
+
+    local pr_branch=$(echo "$pr_info" | jq -r '.headRefName')
+    local pr_author=$(echo "$pr_info" | jq -r '.author.login')
+    local pr_title=$(echo "$pr_info" | jq -r '.title' | cut -c1-50)
+
+    # Use custom dirname if provided, otherwise use pr-number-author format
+    local worktree_dirname="${CUSTOM_DIR:-pr-${pr_number}-${pr_author}}"
+    local worktree_path="${WORKTREE_BASE}/${worktree_dirname}"
+    
+    success "Checking out PR #${pr_number}: ${pr_title}…"
+    print_color blue "Author: ${pr_author}, Branch: ${pr_branch}"
+    
+    # Create worktree
+    mkdir -p "${WORKTREE_BASE}"
+    
+    # Fetch the PR and create worktree
+    git fetch origin "pull/${pr_number}/head:pr-${pr_number}" || fatal "Failed to fetch PR #${pr_number}"
+    git worktree add "${worktree_path}" "pr-${pr_number}" || fatal "Failed to create worktree for PR #${pr_number}"
+    
+    # Continue with standard setup
+    setup_worktree_environment "${worktree_path}"
+}
+
+# Common function to setup worktree environment
+setup_worktree_environment() {
+    local worktree_path="$1"
+    
+    success "Worktree created at: ${worktree_path}"
+    
+    # Get the main repo path
+    local main_repo=$(git worktree list | head -n1 | awk '{print $1}')
+    
+    # Setup Flox environment for this worktree
+    cd "${worktree_path}"
+    
+    # Copy both .flox manifest and .envrc for direnv
+    mkdir -p "${worktree_path}/.flox/env"
+    cp "${main_repo}/.flox/env/manifest.toml" "${worktree_path}/.flox/env/"
+    cp "${main_repo}/.envrc" "${worktree_path}/"
+    
+    # Copy .vscode/settings.json if it exists
+    if [[ -f "${main_repo}/.vscode/settings.json" ]]; then
+        print_color blue "Copying .vscode/settings.json…"
+        mkdir -p "${worktree_path}/.vscode"
+        cp "${main_repo}/.vscode/settings.json" "${worktree_path}/.vscode/"
+    fi
+    
+    # Copy .env and .env.* files if they exist
+    if find "${main_repo}" -maxdepth 1 \( -name ".env" -o -name ".env.*" \) -type f | grep -q .; then
+        print_color blue "Copying .env files…"
+        find "${main_repo}" -maxdepth 1 \( -name ".env" -o -name ".env.*" \) -type f -exec cp {} "${worktree_path}/" \;
+    fi
+    
+    # Initialize Flox in the new worktree
+    cd "${worktree_path}"
+    print_color blue "Initializing Flox environment (this will share packages from cache)…"
+    
+    # Check if direnv is installed and set up
+    if command_exists direnv; then
+        print_color blue "Detected direnv - allowing automatic activation…"
+        # Clean up stale environment variables before direnv activation
+        env -u VIRTUAL_ENV -u PYTHONPATH -u CONDA_DEFAULT_ENV direnv allow .
+        # direnv will automatically activate flox and run uv sync
+    else
+        # Manual activation if direnv not present
+        print_color blue "Installing Python dependencies via uv sync (this may take a minute)…"
+        # Clean up any stale environment variables that might conflict
+        unset VIRTUAL_ENV PYTHONPATH CONDA_DEFAULT_ENV
+        flox activate --trust -- uv sync
+    fi
+    
+    success "✅ Worktree setup complete!"
+    echo ""
+    echo "To start working:"
+    print_color blue "  cd ${worktree_path}"
+    print_color blue "  bin/start"
+    echo ""
+    print_color yellow "💡 Tip: For auto-cd functionality, add this to your shell profile:"
+    print_color yellow "   source $(dirname "$0")/phw"
+}
+
+# Function to list all worktrees
+list_worktrees() {
+    print_color green "All PostHog Worktrees:"
+    echo ""
+    printf "%-30s %-60s %-10s\n" "Branch" "Path" "Location"
+    printf "%-30s %-60s %-10s\n" "------" "----" "--------"
+    
+    git worktree list | while read -r line; do
+        worktree_path=$(echo "$line" | awk '{print $1}')
+        branch=$(echo "$line" | sed -n 's/.*\[\(.*\)\].*/\1/p')
+        
+        # Determine location indicator
+        local location_indicator=""
+        if [[ "$worktree_path" == "${WORKTREE_BASE}"* ]]; then
+            location_indicator="current"
+        else
+            location_indicator="other"
+        fi
+        
+        printf "%-30s %-60s %-10s\n" "$branch" "$worktree_path" "$location_indicator"
+    done
+    
+    echo ""
+    print_color yellow "Legend:"
+    print_color yellow "  current = in current worktree base (${WORKTREE_BASE})"
+    print_color yellow "  other   = in different location"
+}
+
+# Main command handling
+case "$COMMAND" in
+    create)
+        create_worktree
+        ;;
+    remove|rm)
+        remove_worktree
+        ;;
+    list|ls)
+        list_worktrees
+        ;;
+    checkout)
+        checkout_worktree
+        ;;
+    pr)
+        checkout_pr_worktree
+        ;;
+    help|*)
+        echo "PostHog Worktree Manager"
+        echo ""
+        echo "Usage: $0 <command> [arguments]"
+        echo ""
+        echo "Commands:"
+        echo "  create <branch> [base-branch] [--dir <dirname>]   - Create NEW branch in worktree"
+        echo "  checkout <branch> [--dir <dirname>]               - Checkout EXISTING branch in worktree"
+        echo "  pr <number> [--dir <dirname>]                     - Checkout pull request in worktree"
+        echo "  remove <branch>                                   - Remove worktree"
+        echo "  list                                              - List all worktrees"
+        echo ""
+        echo "  Note: Use 'phw switch <branch>' to switch to existing worktree"
+        echo ""
+        echo "Examples:"
+        echo "  $0 create haacked/new-feature                     # Create new branch from master (default)"
+        echo "  $0 create haacked/fix-bug main                    # Create new branch from main"
+        echo "  $0 create haacked/first-branch --dir my-theme     # Create in custom directory"
+        echo "  $0 checkout main                                  # Checkout existing branch"
+        echo "  $0 checkout haacked/existing --dir my-theme       # Checkout to custom directory"
+        echo "  $0 pr 12345                                       # Checkout PR #12345"
+        echo "  $0 pr 12345 --dir review-theme                    # Checkout PR to custom directory"
+        echo "  $0 list                                           # List all worktrees"
+        echo ""
+        echo "Working with worktrees:"
+        echo "  cd ${WORKTREE_BASE}/<dirname>        # Enter worktree directory"
+        echo "  bin/start                            # Start PostHog (standard command)"
+        echo "  git checkout -b another-branch       # Switch branches within same worktree"
+        echo ""
+        echo "Notes:"
+        echo "  - Worktrees are created in: ${WORKTREE_BASE}/<branch-or-dirname>"
+        echo "  - Use --dir to decouple directory name from branch name"
+        echo "  - Useful for theme-based workflows with multiple related branches"
+        echo "  - Each worktree has its own isolated Flox environment"
+        echo "  - Use standard 'bin/start' command within each worktree"
+        echo ""
+        echo "Configuration:"
+        echo "  - Set POSTHOG_WORKTREE_BASE to customize worktree location"
+        echo "  - Default: ~/.worktrees/posthog"
+        echo ""
+        print_color yellow "💡 For auto-cd functionality, add to ~/.zshrc or ~/.bashrc:"
+        print_color yellow "   source $(dirname "$0")/phw"
+        print_color yellow "   Then use 'phw' instead of '$0'"
+        ;;
+esac

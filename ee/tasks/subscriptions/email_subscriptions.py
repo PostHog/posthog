@@ -3,13 +3,29 @@ from typing import Optional
 
 import structlog
 
-from ee.tasks.subscriptions.subscription_utils import UTM_TAGS_BASE
 from posthog.email import EmailMessage
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.subscription import Subscription, get_unsubscribe_token
 from posthog.utils import absolute_uri
 
+from ee.tasks.subscriptions.subscription_utils import UTM_TAGS_BASE
+
 logger = structlog.get_logger(__name__)
+
+
+def _get_asset_data_for_email(asset: ExportedAsset) -> dict:
+    if asset.exception:
+        insight_name = asset.insight.name or asset.insight.derived_name if asset.insight else "Unknown insight"
+        return {
+            "error": True,
+            "insight_name": insight_name,
+            "error_message": asset.exception,
+        }
+
+    return {
+        "error": False,
+        "image_url": asset.get_public_content_url(),
+    }
 
 
 def send_email_subscription_report(
@@ -18,6 +34,7 @@ def send_email_subscription_report(
     assets: list[ExportedAsset],
     invite_message: Optional[str] = None,
     total_asset_count: Optional[int] = None,
+    send_async: bool = True,
 ) -> None:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=email"
 
@@ -50,7 +67,7 @@ def send_email_subscription_report(
         subject=subject,
         template_name="subscription_report",
         template_context={
-            "images": [x.get_public_content_url() for x in assets],
+            "asset_data": [_get_asset_data_for_email(x) for x in assets],
             "resource_noun": resource_info.kind,
             "resource_name": resource_info.name,
             "resource_url": f"{resource_info.url}?{utm_tags}",
@@ -64,4 +81,4 @@ def send_email_subscription_report(
         },
     )
     message.add_recipient(email=email)
-    message.send()
+    message.send(send_async=send_async)

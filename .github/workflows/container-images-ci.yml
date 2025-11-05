@@ -2,22 +2,41 @@ name: Container Images CI
 
 on:
     pull_request:
-        paths-ignore:
-            - 'rust/**'
-            - 'livestream/**'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
     cancel-in-progress: true
 
 jobs:
+    changes:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: github.repository == 'PostHog/posthog'
+        name: Determine need to run Docker checks
+        # Set job outputs to values from filter step
+        outputs:
+            docker_files: ${{ steps.filter.outputs.docker_files }}
+        steps:
+            - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+              id: filter
+              with:
+                  predicate-quantifier: 'every'
+                  filters: |
+                      docker_files:
+                        - '**'
+                        - '!rust/**'
+                        - '!livestream/**'
+
     posthog_build:
+        needs: changes
         name: Build Docker image
         # run these on 4, if they're RAM constrained the FE build will fail randomly in Docker build
         runs-on: depot-ubuntu-latest-4
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
+        # Only on PostHog/posthog, as there's no docker login on forks
+        if: ${{ github.event.pull_request.head.repo.full_name  == github.repository && needs.changes.outputs.docker_files == 'true' }}
 
         steps:
             # If this run wasn't initiated by PostHog Bot (meaning: snapshot update),
@@ -27,7 +46,7 @@ jobs:
               if: github.actor != 'posthog-bot'
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
-                  workflow: .github/workflows/storybook-chromatic.yml
+                  workflow: .github/workflows/ci-storybook.yml
 
             - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
               if: github.actor != 'posthog-bot'
@@ -36,13 +55,13 @@ jobs:
                   workflow: .github/workflows/ci-backend.yml
 
             - name: Check out
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
 
             - name: Build and cache Docker image in Depot
               uses: ./.github/actions/build-n-cache-image
               with:
                   actions-id-token-request-url: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-                  push-image: true
+                  push-image: ${{ github.repository == 'PostHog/posthog' }} # Don't push on forks due to lack of credentials
                   aws-access-key: ${{ secrets.AWS_ACCESS_KEY_ID }}
                   aws-access-secret: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
@@ -53,16 +72,16 @@ jobs:
     deploy_preview:
         name: Deploy preview environment
         uses: ./.github/workflows/pr-preview-deploy.yml
-        needs: [posthog_build]
+        needs: [posthog_build, changes]
         secrets: inherit
-        if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') }}
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'deploy') && needs.changes.outputs.docker_files == 'true' }}
 
     lint:
         name: Lint changed Dockerfiles
         runs-on: ubuntu-24.04
         steps:
             - name: Check out
-              uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3
+              uses: actions/checkout@v4
               with:
                   fetch-depth: 0
 

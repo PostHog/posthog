@@ -14,8 +14,8 @@
     text-align: left;
     cursor: text;
     background: none;
-    background-color: var(--bg-fill-input);
-    border: 1px solid var(--border-primary);
+    background-color: var(--color-bg-fill-input);
+    border: 1px solid var(--color-border-primary);
     border-radius: var(--radius);
 
     &[aria-disabled='true'] {
@@ -24,7 +24,7 @@
 
     &:hover:not([aria-disabled='true']),
     &.LemonInput--focused:not([aria-disabled='true']) {
-        border-color: var(--border-secondary);
+        border-color: var(--color-border-secondary);
     }
 
     &.LemonInput--transparent-background {
@@ -56,7 +56,7 @@
         width: 1em;
         height: 1em;
         font-size: 1.25rem;
-        color: var(--text-secondary);
+        color: var(--color-text-secondary);
         transition: color 200ms ease;
     }
 
@@ -90,7 +90,7 @@
 
     &.LemonInput--has-content {
         > .LemonIcon {
-            color: var(--accent);
+            color: var(--color-accent);
         }
     }
 

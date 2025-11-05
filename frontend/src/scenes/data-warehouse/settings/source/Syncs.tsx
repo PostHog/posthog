@@ -1,26 +1,39 @@
-import { LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { TZLabel } from 'lib/components/TZLabel'
 
-import { ExternalDataJob, ExternalDataJobStatus } from '~/types'
+import { LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { dayjsUtcToTimezone } from 'lib/dayjs'
+import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { ExternalDataJob, ExternalDataJobStatus, LogEntryLevel } from '~/types'
 
 import { dataWarehouseSourceSettingsLogic } from './dataWarehouseSourceSettingsLogic'
-import { LogsView } from './Logs'
 
 const StatusTagSetting: Record<ExternalDataJob['status'], LemonTagType> = {
     Running: 'primary',
     Completed: 'success',
     Failed: 'danger',
-    'Billing limits': 'danger',
+    [ExternalDataJobStatus.BillingLimits]: 'danger',
+    [ExternalDataJobStatus.BillingLimitTooLow]: 'danger',
 }
 
 interface SyncsProps {
     id: string
 }
 
+const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
+
 export const Syncs = ({ id }: SyncsProps): JSX.Element => {
-    const { jobs, jobsLoading, canLoadMoreJobs } = useValues(dataWarehouseSourceSettingsLogic({ id }))
-    const { loadMoreJobs } = useActions(dataWarehouseSourceSettingsLogic({ id }))
+    const { timezone } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
+    const { jobs, jobsLoading, canLoadMoreJobs } = useValues(
+        dataWarehouseSourceSettingsLogic({ id, availableSources: {} })
+    )
+    const { loadMoreJobs } = useActions(dataWarehouseSourceSettingsLogic({ id, availableSources: {} }))
+    const showDebugLogs = user?.is_staff || user?.is_impersonated
 
     return (
         <LemonTable
@@ -66,7 +79,26 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                     ? {
                           expandedRowRender: (job) => (
                               <div className="p-4">
-                                  <LogsView job={job} />
+                                  <LogsViewer
+                                      sourceType="external_data_jobs"
+                                      sourceId={job.schema.id}
+                                      groupByInstanceId={false}
+                                      hideDateFilter={true}
+                                      hideLevelsFilter={true}
+                                      hideInstanceIdColumn={true}
+                                      defaultFilters={{
+                                          instanceId: job.workflow_run_id,
+                                          dateFrom: dayjsUtcToTimezone(job.created_at, timezone).format(
+                                              'YYYY-MM-DD HH:mm:ss'
+                                          ),
+                                          dateTo: job.finished_at
+                                              ? dayjsUtcToTimezone(job.finished_at, timezone)
+                                                    .add(1, 'hour')
+                                                    .format('YYYY-MM-DD HH:mm:ss')
+                                              : undefined,
+                                          levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
+                                      }}
+                                  />
                               </div>
                           ),
                           rowExpandable: () => true,

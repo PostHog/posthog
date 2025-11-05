@@ -1,6 +1,8 @@
+import { BindLogic, useActions, useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonInput, Link, Tooltip } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { humanFriendlyNumber } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -11,23 +13,20 @@ import { ExperimentIdType, InsightType } from '~/types'
 
 import { MetricInsightId } from '../constants'
 import { experimentLogic } from '../experimentLogic'
+import { minimumSampleSizePerVariant, recommendedExposureForCountData } from '../legacyExperimentCalculations'
+
 interface ExperimentCalculatorProps {
     experimentId: ExperimentIdType
 }
 
 function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const {
-        minimumDetectableEffect,
-        experiment,
-        conversionMetrics,
-        minimumSampleSizePerVariant,
-        recommendedRunningTime,
-        variants,
-    } = useValues(experimentLogic({ experimentId }))
+    const { minimumDetectableEffect, experiment, conversionMetrics, recommendedRunningTime, variants } = useValues(
+        experimentLogic({ experimentId })
+    )
 
     const funnelConversionRate = conversionMetrics?.totalRate * 100 || 0
     const conversionRate = conversionMetrics.totalRate * 100
-    const sampleSizePerVariant = minimumSampleSizePerVariant(conversionRate)
+    const sampleSizePerVariant = minimumSampleSizePerVariant(minimumDetectableEffect, conversionRate)
     const funnelSampleSize = sampleSizePerVariant * variants.length
 
     // Displayed values
@@ -68,12 +67,10 @@ function FunnelCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Ele
 }
 
 function TrendCalculation({ experimentId }: ExperimentCalculatorProps): JSX.Element {
-    const { minimumDetectableEffect, experiment, trendResults, recommendedExposureForCountData } = useValues(
-        experimentLogic({ experimentId })
-    )
+    const { minimumDetectableEffect, experiment, trendResults } = useValues(experimentLogic({ experimentId }))
 
     const trendCount = trendResults[0]?.count || 0
-    const trendExposure = recommendedExposureForCountData(trendCount)
+    const trendExposure = recommendedExposureForCountData(minimumDetectableEffect, trendCount)
 
     // Displayed values
     const baselineCount = humanFriendlyNumber(trendCount || 0)

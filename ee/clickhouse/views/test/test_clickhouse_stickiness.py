@@ -1,24 +1,18 @@
 from datetime import datetime, timedelta
 
-from django.test.client import Client
 from freezegun.api import freeze_time
+from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 
-from ee.clickhouse.queries.stickiness import ClickhouseStickiness
-from posthog.api.test.test_stickiness import (
-    get_stickiness_time_series_ok,
-    stickiness_test_factory,
-)
+from django.test.client import Client
+
+from posthog.api.test.test_stickiness import get_stickiness_time_series_ok, stickiness_test_factory
 from posthog.models.action import Action
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group.util import create_group
 from posthog.queries.util import get_earliest_timestamp
-from posthog.test.base import (
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
 from posthog.test.test_journeys import journeys_for
+
+from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 
 
 def _create_action(**kwargs):
@@ -44,7 +38,7 @@ class TestClickhouseStickiness(
         _create_action,
         get_earliest_timestamp,
     ),
-):  # type: ignore
+):
     @snapshot_clickhouse_queries
     def test_filter_by_group_properties(self):
         create_group(

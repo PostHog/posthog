@@ -1,7 +1,9 @@
+from enum import StrEnum
+
 import structlog
 
-from enum import StrEnum
-from datetime import datetime, timedelta, UTC
+from posthog.date_util import thirty_days_ago
+
 from .feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
@@ -27,6 +29,8 @@ class FeatureFlagStatus(StrEnum):
 #       NOTE: The "inactive" status is not currently used, but may be used in the future to automatically archive flags.
 # - DELETED: The feature flag has been soft deleted.
 # - UNKNOWN: The feature flag is not found in the database.
+#
+# When we update the logic for stale flags, do check/update the function `_filter_request`` in feature_flag.py
 class FeatureFlagStatusChecker:
     def __init__(
         self,
@@ -56,7 +60,8 @@ class FeatureFlagStatusChecker:
 
         # See if the flag is set to 100% on one variant (or 100% on rolled out and active if boolean flag).
         is_flag_fully_rolled_out, fully_rolled_out_explanation = self.is_flag_fully_rolled_out(flag)
-        is_flag_at_least_thirty_days_old = flag.created_at < datetime.now(UTC) - timedelta(days=30)
+        is_flag_at_least_thirty_days_old = flag.created_at < thirty_days_ago()
+
         if is_flag_fully_rolled_out and is_flag_at_least_thirty_days_old:
             return FeatureFlagStatus.STALE, fully_rolled_out_explanation
 
@@ -68,22 +73,6 @@ class FeatureFlagStatusChecker:
         if not flag.active:
             logger.debug(f"Flag {flag.id} is not active")
             return False, ""
-
-        # If flag is using super groups and any super group is rolled out to 100%,
-        # it is fully rolled out.
-        if flag.filters.get("super_groups", None):
-            for super_group in flag.filters.get("super_groups"):
-                if self.is_group_fully_rolled_out(super_group):
-                    logger.debug(f"Flag {flag.id} has super group is rolled out to 100%")
-                    return True, "Super group is rolled out to 100%"
-
-        # If flag is using holdout groups and any holdout group is rolled out to 100%,
-        # it is fully rolled out.
-        if flag.filters.get("holdout_groups", None):
-            for holdout_group in flag.filters.get("holdout_groups"):
-                if self.is_group_fully_rolled_out(holdout_group):
-                    logger.debug(f"Flag {flag.id} has holdout group is rolled out to 100%")
-                    return True, "Holdout group is rolled out to 100%"
 
         multivariate = flag.filters.get("multivariate", None)
         if multivariate:

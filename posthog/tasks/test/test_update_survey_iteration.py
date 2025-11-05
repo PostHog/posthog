@@ -1,8 +1,11 @@
-from posthog.models import Survey, Organization, Team, User, FeatureFlag
-from django.test import TestCase
-from datetime import timedelta, datetime
-from django.utils.timezone import now
+from datetime import datetime, timedelta
+
 from posthog.test.base import ClickhouseTestMixin
+
+from django.test import TestCase
+from django.utils.timezone import now
+
+from posthog.models import FeatureFlag, Organization, Survey, Team, User
 from posthog.tasks.update_survey_iteration import update_survey_iteration
 
 
@@ -67,7 +70,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         self.recurring_survey.refresh_from_db()
         self.assertEqual(self.recurring_survey.current_iteration, 3)
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "groups": [
                     {
@@ -89,8 +92,8 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
                         "rollout_percentage": 100,
                     }
                 ]
-            },
-            self.recurring_survey.internal_targeting_flag.filters,
+            }.items(),
+            self.recurring_survey.internal_targeting_flag.filters.items(),
         )
 
     def test_can_create_internal_targeting_flag(self) -> None:
@@ -106,7 +109,7 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
         internal_flag = FeatureFlag.objects.get(key=self.recurring_survey.id)
         assert internal_flag is not None
         if internal_flag is not None:
-            self.assertDictContainsSubset(
+            self.assertLessEqual(
                 {
                     "groups": [
                         {
@@ -128,6 +131,6 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
                             "rollout_percentage": 100,
                         }
                     ]
-                },
-                internal_flag.filters,
+                }.items(),
+                internal_flag.filters.items(),
             )
