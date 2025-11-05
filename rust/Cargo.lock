@@ -1565,11 +1565,9 @@ dependencies = [
  "common-metrics",
  "envconfig",
  "health",
- "http-body-util",
  "jsonwebtoken",
  "limiters",
  "metrics",
- "mockall",
  "opentelemetry-proto 0.29.0",
  "prost 0.13.5",
  "rdkafka",
@@ -1579,7 +1577,6 @@ dependencies = [
  "sha2",
  "thiserror 2.0.16",
  "tokio",
- "tokio-test",
  "tonic 0.12.3",
  "tracing",
  "tracing-subscriber",
@@ -8360,19 +8357,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
-]
-
-[[package]]
-name = "tokio-test"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2468baabc3311435b55dd935f702f42cd1b8abb7e754fb7dfb16bd36aa88f9f7"
-dependencies = [
- "async-stream",
- "bytes",
- "futures-core",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]

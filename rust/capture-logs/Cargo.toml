@@ -35,9 +35,6 @@ prost = "0.13.5"
 bytes = { workspace = true }
 
 [dev-dependencies]
-mockall = "0.13"
-tokio-test = "0.4"
-http-body-util = "0.1"
 
 [lints]
 workspace = true
