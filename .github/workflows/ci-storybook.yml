@@ -530,26 +530,6 @@ jobs:
                   fi
                   echo "All jobs in the visual-regression test matrix passed."
 
-    post-check-comment:
-        name: Post check mode comment
-        runs-on: ubuntu-latest
-        needs: [visual-regression, detect-snapshot-mode]
-        if: always() && needs.detect-snapshot-mode.outputs.mode == 'check' && needs.visual-regression.result == 'failure'
-        steps:
-            - uses: actions/checkout@v4
-
-            - name: Post check-failed comment
-              env:
-                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-              run: |
-                  .github/scripts/post-snapshot-comment.js \
-                    "storybook" \
-                    "check-failed" \
-                    "" \
-                    "${{ github.event.pull_request.number }}" \
-                    "${{ github.repository }}" \
-                    "${{ github.event.pull_request.head.sha }}"
-
     handle-snapshots:
         name: Handle snapshot changes
         runs-on: ubuntu-latest
