@@ -2,6 +2,7 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers, select
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
@@ -33,7 +34,7 @@ export const syntheticMonitorLogic = kea<syntheticMonitorLogicType>([
             },
         ],
     })),
-    forms(({ props, actions, values }) => ({
+    forms(({ props, actions }) => ({
         monitorForm: {
             defaults: {
                 name: '',
@@ -55,8 +56,8 @@ export const syntheticMonitorLogic = kea<syntheticMonitorLogicType>([
                 url: !url
                     ? 'URL is required'
                     : !url.startsWith('http://') && !url.startsWith('https://')
-                    ? 'URL must start with http:// or https://'
-                    : undefined,
+                      ? 'URL must start with http:// or https://'
+                      : undefined,
                 expected_status_code:
                     expected_status_code && (expected_status_code < 100 || expected_status_code >= 600)
                         ? 'Status code must be between 100 and 599'
@@ -102,7 +103,7 @@ export const syntheticMonitorLogic = kea<syntheticMonitorLogicType>([
             ],
         ],
     }),
-    listeners(({ values, actions }) => ({
+    listeners(({ actions }) => ({
         loadMonitorSuccess: ({ monitor }) => {
             if (monitor) {
                 actions.setMonitorFormValues(monitor)

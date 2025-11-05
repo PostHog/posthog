@@ -254,6 +254,15 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'heatmap',
     },
     [Scene.HogFunction]: { projectBased: true, name: 'Hog function', activityScope: ActivityScope.HOG_FUNCTION },
+    [Scene.SyntheticMonitoring]: {
+        projectBased: true,
+        name: 'Synthetic Monitoring',
+        description: 'Monitor your endpoints and track uptime, latency, and performance from multiple regions',
+    },
+    [Scene.SyntheticMonitor]: {
+        projectBased: true,
+        name: 'Monitor',
+    },
     [Scene.Insight]: {
         projectBased: true,
         name: 'Insights',
@@ -724,5 +733,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.legacyPlugin(':id')]: [Scene.LegacyPlugin, 'legacyPlugin'],
     [urls.hogFunction(':id')]: [Scene.HogFunction, 'hogFunction'],
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
+    [urls.syntheticMonitoring()]: [Scene.SyntheticMonitoring, 'syntheticMonitoring'],
+    [urls.syntheticMonitor(':id')]: [Scene.SyntheticMonitor, 'syntheticMonitor'],
     ...productRoutes,
 }

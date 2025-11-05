@@ -1,9 +1,9 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -58,26 +58,19 @@ export const syntheticMonitoringLogic = kea<syntheticMonitoringLogicType>([
         ],
     }),
     selectors({
-        activeMonitors: [
-            (s) => [s.monitors],
-            (monitors): SyntheticMonitor[] => monitors.filter((m) => m.enabled),
-        ],
-        pausedMonitors: [
-            (s) => [s.monitors],
-            (monitors): SyntheticMonitor[] => monitors.filter((m) => !m.enabled),
-        ],
+        activeMonitors: [(s) => [s.monitors], (monitors): SyntheticMonitor[] => monitors.filter((m) => m.enabled)],
+        pausedMonitors: [(s) => [s.monitors], (monitors): SyntheticMonitor[] => monitors.filter((m) => !m.enabled)],
         failingMonitors: [
             (s) => [s.monitors],
-            (monitors): SyntheticMonitor[] =>
-                monitors.filter((m) => m.state === 'failing' || m.state === 'error'),
+            (monitors): SyntheticMonitor[] => monitors.filter((m) => m.state === 'failing' || m.state === 'error'),
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(() => ({
         testMonitor: async ({ id }) => {
             try {
                 await api.syntheticMonitoring.test(id)
                 lemonToast.success('Test check triggered')
-            } catch (error) {
+            } catch {
                 lemonToast.error('Failed to trigger test check')
             }
         },
