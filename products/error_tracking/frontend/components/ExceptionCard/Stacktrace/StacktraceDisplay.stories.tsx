@@ -5,10 +5,9 @@ import { LemonCard } from '@posthog/lemon-ui'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { mswDecorator } from '~/mocks/browser'
-import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionLogicWrapper, TEST_EVENTS, TestEventName } from '../../../__mocks__/events'
-import { HeaderRenderer, StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './StacktraceBase'
+import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './StacktraceBase'
 import { StacktraceGenericDisplay } from './StacktraceGenericDisplay'
 import { StacktraceTextDisplay } from './StacktraceTextDisplay'
 
@@ -40,88 +39,69 @@ export default meta
 ////////////////////// Generic stacktraces
 
 export function GenericDisplayPropertiesLoading(): JSX.Element {
-    const props = defaultBaseProps({}, false)
     return (
         <ExceptionLogicWrapper eventName="python_resolved" loading={true}>
-            <StacktraceGenericDisplay {...props} />
+            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
         </ExceptionLogicWrapper>
     )
 }
 
 export function GenericDisplayEmpty(): JSX.Element {
-    const props = defaultBaseProps({}, false)
     return (
         <ExceptionLogicWrapper eventName="javascript_empty">
-            <StacktraceGenericDisplay {...props} />
+            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
         </ExceptionLogicWrapper>
     )
 }
 
 export function GenericDisplayWithStacktrace(): JSX.Element {
-    const props = defaultBaseProps({}, false)
     return (
         <StacktraceWrapperAllEvents>
-            <StacktraceGenericDisplay {...props} />
+            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
         </StacktraceWrapperAllEvents>
+    )
+}
+
+export function GenericDisplayWithJavascriptScriptError(): JSX.Element {
+    return (
+        <ExceptionLogicWrapper eventName="javascript_script_error">
+            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+        </ExceptionLogicWrapper>
     )
 }
 
 ///////////////////// Text stacktraces
 
 export function TextDisplayEmpty(): JSX.Element {
-    const props = defaultBaseProps({}, false)
     return (
         <ExceptionLogicWrapper eventName="javascript_empty">
-            <StacktraceTextDisplay {...props} />
+            <StacktraceTextDisplay {...DEFAULT_PROPS} />
         </ExceptionLogicWrapper>
     )
 }
 
 export function TextDisplayPropertiesLoading(): JSX.Element {
-    const props = defaultBaseProps({}, false)
     return (
         <ExceptionLogicWrapper eventName="javascript_resolved">
-            <StacktraceTextDisplay {...props} />
+            <StacktraceTextDisplay {...DEFAULT_PROPS} />
         </ExceptionLogicWrapper>
     )
 }
 
 export function TextDisplayWithStacktrace(): JSX.Element {
-    const props = defaultBaseProps({}, false)
     return (
         <StacktraceWrapperAllEvents>
-            <StacktraceTextDisplay {...props} />
+            <StacktraceTextDisplay {...DEFAULT_PROPS} />
         </StacktraceWrapperAllEvents>
     )
 }
 
 //////////////////// Utils
 
-const issue = {
-    id: '123',
-    name: 'Issue Title',
-    description: 'Issue Description',
-    status: 'active',
-    assignee: null,
-    first_seen: '2022-01-05',
-} as ErrorTrackingRelationalIssue
-
-function defaultBaseProps(
-    overrideProps: Partial<StacktraceBaseDisplayProps> = {},
-    issueLoading: boolean = false
-): StacktraceBaseDisplayProps {
-    return {
-        truncateMessage: true,
-        renderLoading: (renderHeader: HeaderRenderer) =>
-            renderHeader({
-                type: issue?.name ?? undefined,
-                value: issue?.description ?? undefined,
-                loading: issueLoading,
-            }),
-        renderEmpty: () => <StacktraceEmptyDisplay />,
-        ...overrideProps,
-    } as StacktraceBaseDisplayProps
-}
+const DEFAULT_PROPS = {
+    truncateMessage: true,
+    renderEmpty: () => <StacktraceEmptyDisplay />,
+} as StacktraceBaseDisplayProps
 
 function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JSX.Element {
     const eventNames = Object.keys(TEST_EVENTS) as TestEventName[]

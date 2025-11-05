@@ -19,12 +19,12 @@ import { StacktraceBaseDisplayProps, StacktraceBaseExceptionHeaderProps } from '
 export function StacktraceGenericDisplay({
     className,
     truncateMessage,
-    renderLoading,
     renderEmpty,
 }: StacktraceBaseDisplayProps): JSX.Element {
     const { exceptionAttributes, hasStacktrace } = useValues(errorPropertiesLogic)
     const { issueId, loading, showAllFrames } = useValues(exceptionCardLogic)
     const { runtime } = exceptionAttributes || {}
+
     const renderExceptionHeader = useCallback(
         ({ exception, loading, part }: ExceptionHeaderProps): JSX.Element => {
             return (
@@ -42,18 +42,23 @@ export function StacktraceGenericDisplay({
     return (
         <div className={className}>
             {loading ? (
-                renderLoading(renderExceptionHeader)
+                <div className="flex flex-col gap-y-1">
+                    <LemonSkeleton className="h-6 w-1/2" />
+                    <LemonSkeleton className="h-4 w-full" />
+                </div>
             ) : (
-                <ChainedStackTraces
-                    showAllFrames={showAllFrames}
-                    renderExceptionHeader={renderExceptionHeader}
-                    onFrameContextClick={(_, e) => cancelEvent(e)}
-                    onFirstFrameExpanded={() => {
-                        posthog.capture('error_tracking_stacktrace_explored', { issue_id: issueId })
-                    }}
-                />
+                <>
+                    <ChainedStackTraces
+                        showAllFrames={showAllFrames}
+                        renderExceptionHeader={renderExceptionHeader}
+                        onFrameContextClick={(_, e) => cancelEvent(e)}
+                        onFirstFrameExpanded={() => {
+                            posthog.capture('error_tracking_stacktrace_explored', { issue_id: issueId })
+                        }}
+                    />
+                    {!hasStacktrace && renderEmpty()}
+                </>
             )}
-            {!loading && !hasStacktrace && renderEmpty()}
         </div>
     )
 }

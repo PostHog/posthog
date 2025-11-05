@@ -6,7 +6,7 @@ import { MouseEvent, useEffect, useState } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { IconBox } from '@posthog/icons'
-import { LemonCollapse, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, Link, Tooltip } from '@posthog/lemon-ui'
 import { cancelEvent } from '@posthog/products-error-tracking/frontend/utils'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -70,7 +70,7 @@ export function ChainedStackTraces({
     onFirstFrameExpanded?: () => void
 }): JSX.Element {
     const { loadFromRawIds } = useActions(stackFrameLogic)
-    const { exceptionList, getExceptionFingerprint } = useValues(errorPropertiesLogic)
+    const { exceptionList, exceptionAttributes, getExceptionFingerprint } = useValues(errorPropertiesLogic)
     const [hasCalledOnFirstExpanded, setHasCalledOnFirstExpanded] = useState<boolean>(false)
 
     const handleFrameExpanded = (): void => {
@@ -91,6 +91,12 @@ export function ChainedStackTraces({
         loadFromRawIds(frames.map(({ raw_id }) => raw_id))
     }, [exceptionList, loadFromRawIds])
 
+    const isScriptError =
+        exceptionAttributes &&
+        exceptionAttributes.type === 'Error' &&
+        exceptionAttributes.runtime === 'web' &&
+        exceptionAttributes.value === 'Script error'
+
     return (
         <div className="flex flex-col gap-y-2">
             {exceptionList.map((exception, index) => {
@@ -98,6 +104,7 @@ export function ChainedStackTraces({
                 const displayTrace = shouldDisplayTrace(stacktrace, showAllFrames)
                 const part = getExceptionFingerprint(id)
                 const traceHeaderProps = { id, exception, part, loading: false }
+
                 return (
                     <div
                         key={id ?? index}
@@ -107,6 +114,19 @@ export function ChainedStackTraces({
                             .with(P.nullish, () => <ExceptionHeader {...traceHeaderProps} />)
                             .with(P.any, () => renderExceptionHeader!(traceHeaderProps))
                             .exhaustive()}
+                        {isScriptError && (
+                            <LemonBanner type="warning">
+                                This error occurs when JavaScript exceptions are thrown from a third-party script but
+                                details are hidden due to cross-origin restrictions.{' '}
+                                <Link
+                                    to="https://posthog.com/docs/error-tracking/common-questions#what-is-a-script-error-with-no-stack-traces"
+                                    target="_blank"
+                                >
+                                    Read our docs
+                                </Link>{' '}
+                                to learn how to get the full exception context.
+                            </LemonBanner>
+                        )}
                         {displayTrace && (
                             <Trace
                                 frames={stacktrace?.frames || []}

@@ -1,61 +1,29 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useEffect } from 'react'
+import { useEffect } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { stackFrameLogic } from 'lib/components/Errors/stackFrameLogic'
 import { ErrorTrackingException, ErrorTrackingStackFrame } from 'lib/components/Errors/types'
 import { formatExceptionDisplay, formatResolvedName } from 'lib/components/Errors/utils'
-import { cn } from 'lib/utils/css-classes'
 
 import { exceptionCardLogic } from '../exceptionCardLogic'
-import { StacktraceBaseDisplayProps, StacktraceBaseExceptionHeaderProps } from './StacktraceBase'
+import { StacktraceBaseDisplayProps } from './StacktraceBase'
 
-export function StacktraceTextDisplay({
-    className,
-    renderLoading,
-    renderEmpty,
-    truncateMessage,
-}: StacktraceBaseDisplayProps): JSX.Element {
+export function StacktraceTextDisplay({ className, renderEmpty }: StacktraceBaseDisplayProps): JSX.Element {
     const { exceptionList, hasStacktrace } = useValues(errorPropertiesLogic)
     const { loading } = useValues(exceptionCardLogic)
-    const renderExceptionHeader = useCallback(
-        ({ exception, loading, part }: ExceptionHeaderProps): JSX.Element => {
-            return (
-                <StacktraceTextExceptionHeader
-                    exception={exception}
-                    part={part}
-                    loading={loading}
-                    truncate={truncateMessage}
-                />
-            )
-        },
-        [truncateMessage]
-    )
     return (
         <div className={className}>
-            {loading
-                ? renderLoading(renderExceptionHeader)
-                : exceptionList.map((exception: ErrorTrackingException) => (
-                      <ExceptionTextDisplay key={exception.id} exception={exception} />
-                  ))}
-            {!loading && !hasStacktrace && renderEmpty()}
-        </div>
-    )
-}
-
-export function StacktraceTextExceptionHeader({ exception, loading }: StacktraceBaseExceptionHeaderProps): JSX.Element {
-    return (
-        <div className={cn('font-mono')}>
             {loading ? (
-                <div>
-                    <LemonSkeleton className="h-2 w-1/2" />
-                </div>
+                <LemonSkeleton className="h-2 w-1/2" />
             ) : (
-                formatExceptionDisplay(exception)
+                exceptionList.map((exception: ErrorTrackingException) => (
+                    <ExceptionTextDisplay key={exception.id} exception={exception} />
+                ))
             )}
+            {!loading && !hasStacktrace && renderEmpty()}
         </div>
     )
 }

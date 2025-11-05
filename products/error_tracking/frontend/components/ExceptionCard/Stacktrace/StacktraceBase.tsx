@@ -6,7 +6,6 @@ export type HeaderRenderer = (props: ExceptionHeaderProps) => JSX.Element
 export interface StacktraceBaseDisplayProps {
     className?: string
     truncateMessage: boolean
-    renderLoading: (renderHeader: HeaderRenderer) => JSX.Element
     renderEmpty: () => JSX.Element
 }
 
