@@ -1,1 +1,1 @@
-0904_make_default_anonymize_ips_not_null
+0902_organization_default_anonymize_ips
