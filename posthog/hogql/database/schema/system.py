@@ -206,6 +206,28 @@ exports: PostgresTable = PostgresTable(
     },
 )
 
+heatmaps: PostgresTable = PostgresTable(
+    name="heatmaps",
+    postgres_table_name="posthog_heatmapsaved",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "short_id": StringDatabaseField(name="short_id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "url": StringDatabaseField(name="url"),
+        "data_url": StringDatabaseField(name="data_url"),
+        "target_widths": StringJSONDatabaseField(name="target_widths"),
+        "type": StringDatabaseField(name="type"),
+        "status": StringDatabaseField(name="status"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "created_by_id": IntegerDatabaseField(name="created_by_id"),
+        "exception": StringDatabaseField(name="exception"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
@@ -215,6 +237,7 @@ class SystemTables(TableNode):
         "insights": TableNode(name="insights", table=insights),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
+        "heatmaps": TableNode(name="heatmaps", table=heatmaps),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
         "groups": TableNode(name="groups", table=groups),
