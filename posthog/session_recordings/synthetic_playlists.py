@@ -13,7 +13,6 @@ from urllib.parse import urlparse
 
 from django.core.cache import cache
 
-import pytz
 import posthoganalytics
 
 from posthog.schema import RecordingOrder, RecordingsQuery
@@ -383,7 +382,7 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
         if cached_data is not None:
             return cached_data
 
-        now = datetime.now(pytz.timezone("UTC"))
+        now = datetime.now(UTC)
         lookback_start = now - timedelta(days=NewUrlsSyntheticPlaylistSource.LOOKBACK_DAYS)
         history_window_start = now - timedelta(days=90)
 
