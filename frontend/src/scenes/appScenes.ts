@@ -82,6 +82,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),
+    [Scene.SessionProfile]: () => import('./sessions/SessionProfileScene'),
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.Signup]: () => import('./authentication/signup/SignupContainer'),
     [Scene.Site]: () => import('./sites/Site'),
