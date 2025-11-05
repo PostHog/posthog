@@ -17,7 +17,7 @@ import { HogExecutorService } from '../hog-executor.service'
 import { HogFunctionTemplateManagerService } from '../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
-import { HogFlowExecutorService } from './hogflow-executor.service'
+import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
 // Mock before importing fetch
@@ -1115,18 +1115,14 @@ describe('Hogflow Executor', () => {
                     uuid: '',
                     elements_chain: '',
                 },
+                project: { id: 1, name: 'Test Project', url: '' },
                 person: { id: 'person_id', name: '', properties: {}, url: '' },
                 variables: {
                     overrideMe: 'customValue',
                     extra: 'shouldBeIncluded',
                 },
             }
-            const filterGlobals = createHogExecutionGlobals()
-            const invocation = require('./hogflow-executor.service').createHogFlowInvocation(
-                globals,
-                hogFlow,
-                filterGlobals
-            )
+            const invocation = createHogFlowInvocation(globals, hogFlow, {} as any)
             expect(invocation.state.variables).toEqual({
                 foo: 'bar',
                 baz: 123,
