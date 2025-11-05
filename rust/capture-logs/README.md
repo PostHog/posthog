@@ -44,14 +44,14 @@ The JWT token must contain a `team_id` claim which is used to associate logs wit
 ### From Source
 
 ```bash
-cargo run --bin log_capture
+cargo run --bin capture_logs
 ```
 
 ### With Docker
 
 ```bash
-docker build -t posthog/log-capture .
-docker run -p 4317:4317 -p 8000:8000 -e JWT_SECRET=your_secret_key posthog/log-capture
+docker build -t posthog/capture-logs .
+docker run -p 4317:4317 -p 8000:8000 -e JWT_SECRET=your_secret_key posthog/capture-logs
 ```
 
 ## Sending Logs

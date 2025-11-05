@@ -2,11 +2,11 @@ use std::time::Duration;
 
 use axum::{routing::get, routing::post, Router};
 use capture::metrics_middleware::track_metrics;
+use capture_logs::config::Config;
+use capture_logs::kafka::KafkaSink;
+use capture_logs::service::export_logs_http;
+use capture_logs::service::Service;
 use common_metrics::{serve, setup_metrics_routes};
-use log_capture::config::Config;
-use log_capture::kafka::KafkaSink;
-use log_capture::service::export_logs_http;
-use log_capture::service::Service;
 use std::future::ready;
 
 use health::HealthRegistry;

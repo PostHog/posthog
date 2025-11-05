@@ -1,7 +1,10 @@
 from django.core.management.base import BaseCommand
 
-from posthog.warehouse.data_load.service import external_data_workflow_exists, sync_external_data_job_workflow
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.data_load.service import (
+    external_data_workflow_exists,
+    sync_external_data_job_workflow,
+)
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
 
 class Command(BaseCommand):
