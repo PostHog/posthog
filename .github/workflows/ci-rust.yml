@@ -85,6 +85,7 @@ jobs:
                 package:
                     - batch-import-worker
                     - capture
+                    - capture-logs
                     - common-alloc
                     - common-cookieless
                     - common-compression
@@ -110,7 +111,6 @@ jobs:
                     - hook-worker
                     - kafka-deduplicator
                     - limiters
-                    - log-capture
                     - posthog-symbol-data
                     - property-defs-rs
                     - serve-metrics

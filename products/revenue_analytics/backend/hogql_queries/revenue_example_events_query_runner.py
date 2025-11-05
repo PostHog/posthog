@@ -3,6 +3,7 @@ from typing import Any, cast
 
 from posthog.schema import (
     CachedRevenueExampleEventsQueryResponse,
+    DatabaseSchemaManagedViewTableKind,
     RevenueExampleEventsQuery,
     RevenueExampleEventsQueryResponse,
 )
@@ -15,7 +16,8 @@ from posthog.hogql.database.models import UnknownDatabaseField
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import QueryRunnerWithHogQLContext
 
-from products.revenue_analytics.backend.views import RevenueAnalyticsChargeView
+from products.revenue_analytics.backend.hogql_queries.revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 
 class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
@@ -31,16 +33,15 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        view_names = self.database.get_view_names()
-        all_views = [self.database.get_table(view_name) for view_name in view_names]
-        views = [
-            view
-            for view in all_views
-            if isinstance(view, RevenueAnalyticsChargeView) and view.is_event_view() and not view.union_all
-        ]
-
         queries: list[ast.SelectQuery] = []
+        views = RevenueAnalyticsQueryRunner.revenue_subqueries(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CHARGE],
+            self.database,
+        )
         for view in views:
+            if not view.is_event_view():
+                continue
+
             queries.append(
                 ast.SelectQuery(
                     select=[

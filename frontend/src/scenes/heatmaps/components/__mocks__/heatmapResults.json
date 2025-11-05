@@ -1,0 +1,12 @@
+{
+    "results": [
+        { "pointer_target_fixed": true, "pointer_relative_x": 0.1, "pointer_y": 120, "count": 8 },
+        { "pointer_target_fixed": true, "pointer_relative_x": 0.25, "pointer_y": 320, "count": 15 },
+        { "pointer_target_fixed": false, "pointer_relative_x": 0.5, "pointer_y": 540, "count": 22 },
+        { "pointer_target_fixed": false, "pointer_relative_x": 0.75, "pointer_y": 720, "count": 12 },
+        { "pointer_target_fixed": true, "pointer_relative_x": 0.33, "pointer_y": 260, "count": 18 },
+        { "pointer_target_fixed": false, "pointer_relative_x": 0.66, "pointer_y": 460, "count": 9 },
+        { "pointer_target_fixed": true, "pointer_relative_x": 0.15, "pointer_y": 180, "count": 5 },
+        { "pointer_target_fixed": false, "pointer_relative_x": 0.85, "pointer_y": 900, "count": 7 }
+    ]
+}

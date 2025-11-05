@@ -7,6 +7,8 @@ import contextlib
 import pytest
 from unittest import mock
 
+from django.conf import settings
+
 import aioboto3
 import botocore.exceptions
 from temporalio import activity
@@ -16,7 +18,6 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from types_aiobotocore_s3.client import S3Client
 
-from posthog import constants
 from posthog.batch_exports.service import BatchExportModel
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
@@ -69,7 +70,7 @@ async def test_s3_export_workflow_handles_unexpected_insert_activity_errors(atea
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -88,7 +89,7 @@ async def test_s3_export_workflow_handles_unexpected_insert_activity_errors(atea
                         S3BatchExportWorkflow.run,
                         inputs,
                         id=workflow_id,
-                        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
 
@@ -133,7 +134,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(a
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -151,7 +152,7 @@ async def test_s3_export_workflow_handles_insert_activity_non_retryable_errors(a
                     S3BatchExportWorkflow.run,
                     inputs,
                     id=workflow_id,
-                    task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
 
@@ -192,7 +193,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -206,7 +207,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_batch_export, i
                 S3BatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
             await asyncio.sleep(5)
@@ -286,7 +287,7 @@ async def test_s3_export_workflow_with_request_timeouts(
         await WorkflowEnvironment.start_time_skipping() as activity_environment,
         Worker(
             activity_environment.client,
-            task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
             workflows=[S3BatchExportWorkflow],
             activities=[
                 mocked_start_batch_export_run,
@@ -308,7 +309,7 @@ async def test_s3_export_workflow_with_request_timeouts(
                 S3BatchExportWorkflow.run,
                 inputs,
                 id=workflow_id,
-                task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
                 retry_policy=RetryPolicy(maximum_attempts=2),
                 execution_timeout=dt.timedelta(minutes=2),
             )
