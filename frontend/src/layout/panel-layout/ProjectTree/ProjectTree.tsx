@@ -113,7 +113,7 @@ export function ProjectTree({
                         <li>Dragging any link to this panel</li>
                         <li>
                             Pressing{' '}
-                            <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                            <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> /
                             side-clicking a panel item, then "Add to shortcuts panel"
                         </li>
                         <li>Inside an app's resources file menu</li>
