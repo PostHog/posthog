@@ -71,6 +71,7 @@ export interface ErrorTrackingStackFrame {
     resolved: boolean
     resolve_failure: string | null
     module: string | null
+    code_variables?: Record<string, string>
 }
 
 export interface ErrorTrackingFingerprint {
