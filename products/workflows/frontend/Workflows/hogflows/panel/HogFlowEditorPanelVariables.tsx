@@ -24,7 +24,9 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
 
     const editVariableKey = (idx: number, key: string): void => {
         const updatedVariables = [...(workflow?.variables || [])]
-        updatedVariables[idx].key = key
+        const sanitizedKey = key.replace(/\s+/g, '_')
+        updatedVariables[idx].key = sanitizedKey
+        updatedVariables[idx].label = sanitizedKey
         setWorkflowInfo({
             variables: updatedVariables,
         })
