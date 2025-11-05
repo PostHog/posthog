@@ -1566,6 +1566,7 @@ dependencies = [
  "envconfig",
  "health",
  "jsonwebtoken",
+ "limiters",
  "metrics",
  "opentelemetry-proto 0.29.0",
  "prost 0.13.5",

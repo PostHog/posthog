@@ -97,6 +97,8 @@ def logout(request):
 
     clear_two_factor_session_flags(request)
 
+    request.session.pop("reauth", None)
+
     if is_impersonated_session(request):
         restore_original_login(request)
         return redirect("/admin/")

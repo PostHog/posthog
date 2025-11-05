@@ -87,6 +87,8 @@ DEFAULT_TOOLS: list[type["MaxTool"]] = [
     SwitchModeTool,
 ]
 
+logger = structlog.get_logger(__name__)
+
 
 class AgentToolkit:
     def __init__(self, team: Team, user: User, context_manager: AssistantContextManager):
@@ -437,7 +439,7 @@ class AgentToolsNode(BaseAgentNode):
 
         reset_state = PartialAssistantState(root_tool_call_id=None)
         # Should never happen, but just in case.
-        if not isinstance(last_message, AssistantMessage) or not state.root_tool_call_id:
+        if not isinstance(last_message, AssistantMessage) or not last_message.id or not state.root_tool_call_id:
             return reset_state
 
         # Find the current tool call in the last message.
@@ -479,6 +481,7 @@ class AgentToolsNode(BaseAgentNode):
             config=config,
             context_manager=self.context_manager,
         )
+
         try:
             result = await tool_class.ainvoke(
                 ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id), config=config

@@ -45,7 +45,6 @@ The trends insights have the following features:
 - And more.
 
 Examples of use cases include:
-
 - How the product's most important metrics change over time.
 - Long-term patterns, or cycles in product's usage.
 - The usage of different features side-by-side.
@@ -84,7 +83,6 @@ A retention insight visualizes how many users return to the product after perfor
 The retention insights have the following features: filter data, sample data, and more.
 
 Examples of use cases include:
-
 - How many users come back and perform an action after their first visit.
 - How many users come back to perform action X after performing action Y.
 - How often users return to use a specific feature.
@@ -579,7 +577,6 @@ class CreateAndQueryInsightTool(MaxTool):
                 ui_payload={self.get_name(): maybe_viz_message.answer.model_dump(exclude_none=True)},
                 id=tool_call_message.id,
                 tool_call_id=tool_call_message.tool_call_id,
-                visible=self.show_tool_call_message,
             )
 
         return "", ToolMessagesArtifact(messages=[maybe_viz_message, tool_call_message])
