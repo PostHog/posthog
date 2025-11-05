@@ -6,12 +6,14 @@ This PR implements the MVP for PostHog Synthetic Monitoring with AWS Lambda exec
 
 ## Architecture
 
-**Simplified Event-Only Pattern:**
+**ClickHouse-Only Event Pattern:**
 
 - Monitor configurations stored in PostgreSQL (Django model)
-- Check results stored as events in ClickHouse (no separate check table)
+- **All check results stored as events in ClickHouse** - no state tracking in Postgres
+- Monitor state (last_checked_at, consecutive_failures, state) computed from ClickHouse events on-demand
+- Only `last_alerted_at` stored in Postgres (alert cooldown state)
 - AWS Lambda functions deployed per region for true multi-region monitoring
-- Celery tasks invoke Lambda and wait for results (15s timeout)
+- External service sends results to PostHog via webhook/API, which stores them as events
 
 ## What's Implemented (Backend Complete)
 
@@ -22,13 +24,13 @@ This PR implements the MVP for PostHog Synthetic Monitoring with AWS Lambda exec
   - Configurable frequency (1-60 minutes)
   - Multi-region support via `regions` field (list of AWS regions)
   - Integrated alert configuration (email + Slack)
-  - State management (healthy, failing, error, disabled)
-  - No CheckConstraint for Django compatibility
+  - **All check results stored in ClickHouse** - monitor state (last_checked_at, consecutive_failures, state) is computed from ClickHouse events on-demand
+  - Only `last_alerted_at` stored in Postgres (alert state, not check result state)
 
 ### 2. Database Migration (`posthog/migrations/0901_synthetic_monitoring.py`)
 
 - Creates `SyntheticMonitor` table only
-- Indexes for performance: `(team, enabled)`, `(next_check_at)`
+- Indexes for performance: `(team, enabled)`
 - No check table (results stored as events)
 
 ### 3. AWS Lambda Function (`lambda/synthetic-monitor/`)
@@ -48,41 +50,26 @@ TODO. Do not implement this for now.
 
 **Features:**
 
-- Search and filtering by state, enabled status
+- Search and filtering by enabled status (state filtering requires ClickHouse queries)
 - Full CRUD operations with validation
 - User action tracking for analytics
-- Check history queried from events (not included in API response)
+- Check history and monitor state computed from ClickHouse events on-demand
 
-### 5. Celery Tasks (`posthog/tasks/alerts/synthetic_monitoring.py`)
+### 5. Execution and Alerts
 
-**Scheduled Tasks:**
+**External Service Execution:**
 
-- `schedule_synthetic_checks()` - Runs every minute to trigger due checks
-  - Spawns `execute_http_check` task for each monitor × region combination
+- Check execution is handled by an external AWS Lambda service
+- The external service runs on a fixed cron schedule
+- Results are sent back to PostHog via webhook or API
 
-**Execution Tasks:**
+**Alert Handling:**
 
-- `execute_http_check(monitor_id, region)` - Invokes AWS Lambda synchronously
-  - Creates boto3 Lambda client for specified region
-  - Invocation type: RequestResponse (waits for result)
-  - 15-second timeout for Lambda response
-  - Parses Lambda response payload
-  - Updates monitor state (success/failure tracking)
-  - Emits `synthetic_http_check` event to ClickHouse
-  - Triggers alert task if threshold exceeded
-
-**Alert Tasks:**
-
-- `send_synthetic_monitor_alert()` - Sends notifications when monitors fail
+- Alerts are triggered when monitors fail (handled by external service or webhook)
   - 1-hour cooldown between alerts
   - Email notifications to configured recipients
   - Slack notifications via Integration model
   - Configurable failure threshold
-
-### 6. Periodic Task Setup (`posthog/tasks/scheduled.py`)
-
-- Integrated with PostHog's Celery scheduler
-- `schedule_synthetic_checks` runs every 60 seconds
 
 ## Event Schema
 
@@ -114,33 +101,34 @@ All check results are stored as events in ClickHouse:
 
 ### Architecture
 
-1. **PostHog Celery task** invokes AWS Lambda function in specified region
+1. **AWS Lambda** runs on a fixed cron schedule (external to PostHog)
 2. **Lambda executes** HTTP check using Python `urllib`
-3. **Lambda returns** results synchronously (15s timeout)
-4. **PostHog processes** results, updates state, emits events, triggers alerts
+3. **Lambda sends results** to PostHog via webhook/API endpoint
+4. **PostHog webhook handler** stores result as `synthetic_http_check` event in ClickHouse
+5. **Alert logic** (in webhook handler) queries ClickHouse to determine if alerts should be triggered
 
-### Required Configuration
+### Webhook Endpoint
 
-```python
-# settings.py or environment variables
-SYNTHETIC_MONITOR_LAMBDA_FUNCTION_NAME = "posthog-synthetic-monitor"  # default
-AWS_ACCESS_KEY_ID = "your-access-key"  # IAM user with lambda:InvokeFunction
-AWS_SECRET_ACCESS_KEY = "your-secret-key"
-```
+The external Lambda service sends check results to PostHog via webhook:
+
+- `POST /api/projects/:id/synthetic_monitors/webhook/`
+- Receives check result payload and stores as ClickHouse event
+- Computes alert state from ClickHouse events if needed
 
 ### Deployment
 
-See `lambda/synthetic-monitor/README.md` and `lambda/synthetic-monitor/SETTINGS.md` for detailed instructions.
+See `lambda/synthetic-monitor/README.md` for Lambda deployment instructions.
 
 ## Alert Flow
 
-1. Check fails → `consecutive_failures` increments
-2. When `consecutive_failures >= alert_threshold_failures`:
-   - Alert triggered (if not in cooldown)
+1. External service executes check and sends result to PostHog via webhook/API
+2. PostHog stores result as `synthetic_http_check` event in ClickHouse
+3. Alert logic (in webhook handler or external service) queries ClickHouse to compute consecutive failures
+4. When consecutive failures (from ClickHouse events) >= `alert_threshold_failures`:
+   - Alert triggered (if not in cooldown - checked via `last_alerted_at` in Postgres)
    - Email sent to `alert_recipients`
    - Slack message sent to `slack_integration`
-   - `last_alerted_at` updated
-3. Check succeeds → `consecutive_failures` resets to 0
+   - `last_alerted_at` updated in Postgres
 
 ## What's Next (Frontend + Tests)
 

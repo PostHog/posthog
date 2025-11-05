@@ -1,3 +1,4 @@
+// Monitor state is computed from ClickHouse events, not stored in Postgres
 export enum MonitorState {
     Healthy = 'healthy',
     Failing = 'failing',
@@ -21,11 +22,11 @@ export interface SyntheticMonitor {
     alert_recipient_ids: string[]
     slack_integration_id: string | null
     enabled: boolean
-    state: MonitorState
-    last_checked_at: string | null
-    next_check_at: string | null
-    consecutive_failures: number
     last_alerted_at: string | null
+    // Computed from ClickHouse events (not stored in Postgres):
+    // state: MonitorState
+    // last_checked_at: string | null
+    // consecutive_failures: number
     created_by: {
         id: string
         uuid: string

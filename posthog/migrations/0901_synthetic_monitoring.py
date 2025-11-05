@@ -65,22 +65,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("enabled", models.BooleanField(default=True)),
-                (
-                    "state",
-                    models.CharField(
-                        choices=[
-                            ("healthy", "Healthy"),
-                            ("failing", "Failing"),
-                            ("error", "Error"),
-                            ("disabled", "Disabled"),
-                        ],
-                        default="healthy",
-                        max_length=20,
-                    ),
-                ),
-                ("last_checked_at", models.DateTimeField(blank=True, null=True)),
-                ("next_check_at", models.DateTimeField(blank=True, null=True)),
-                ("consecutive_failures", models.IntegerField(default=0)),
                 ("last_alerted_at", models.DateTimeField(blank=True, null=True)),
                 (
                     "created_by",
@@ -120,9 +104,5 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="syntheticmonitor",
             index=models.Index(fields=["team", "enabled"], name="posthog_syn_team_en_idx"),
-        ),
-        migrations.AddIndex(
-            model_name="syntheticmonitor",
-            index=models.Index(fields=["next_check_at"], name="posthog_syn_next_ch_idx"),
         ),
     ]

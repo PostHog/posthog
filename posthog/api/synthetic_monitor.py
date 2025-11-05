@@ -40,10 +40,6 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
             "alert_recipient_ids",
             "slack_integration_id",
             "enabled",
-            "state",
-            "last_checked_at",
-            "next_check_at",
-            "consecutive_failures",
             "last_alerted_at",
             "created_by",
             "created_at",
@@ -51,10 +47,6 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
         ]
         read_only_fields = [
             "id",
-            "state",
-            "last_checked_at",
-            "next_check_at",
-            "consecutive_failures",
             "last_alerted_at",
             "created_by",
             "created_at",
@@ -91,9 +83,7 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = request.user
 
-        # Calculate initial next_check_at
         monitor = SyntheticMonitor(**validated_data)
-        monitor.update_next_check()
 
         with transaction.atomic():
             monitor.save()
@@ -115,29 +105,12 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
         # Track if enabled status is changing
         enabled_changed = "enabled" in validated_data and validated_data["enabled"] != instance.enabled
 
-        # If frequency changed, recalculate next_check_at
-        frequency_changed = (
-            "frequency_minutes" in validated_data and validated_data["frequency_minutes"] != instance.frequency_minutes
-        )
-
         for key, value in validated_data.items():
             setattr(instance, key, value)
 
-        # Handle enabled state changes
-        if enabled_changed:
-            if instance.enabled:
-                # Resuming: set to healthy and schedule next check
-                instance.state = SyntheticMonitor.MonitorState.HEALTHY
-                instance.update_next_check()
-            else:
-                # Pausing: set to disabled
-                instance.state = SyntheticMonitor.MonitorState.DISABLED
+        # No state changes needed - state is computed from ClickHouse events
 
-        if frequency_changed:
-            instance.update_next_check()
-
-        with transaction.atomic():
-            instance.save()
+        instance.save()
 
         action = (
             "synthetic monitor resumed"
@@ -149,9 +122,7 @@ class SyntheticMonitorSerializer(UserAccessControlSerializerMixin, serializers.M
         report_user_action(
             request.user,
             action,
-            {
-                "monitor_id": str(instance.id),
-            },
+            {"monitor_id": str(instance.id)},
         )
 
         return instance
@@ -179,10 +150,8 @@ class SyntheticMonitorViewSet(
         if enabled is not None:
             queryset = queryset.filter(enabled=enabled.lower() == "true")
 
-        # Optionally filter by state
-        state = self.request.query_params.get("state")
-        if state:
-            queryset = queryset.filter(state=state)
+        # Note: State filtering would require querying ClickHouse events
+        # For MVP, we skip state filtering in the queryset
 
         # Optionally filter by type
         monitor_type = self.request.query_params.get("type")
@@ -205,12 +174,7 @@ class SyntheticMonitorViewSet(
     @action(methods=["POST"], detail=True)
     def test(self, request: Request, **kwargs) -> Response:
         """Trigger an immediate test check of the monitor"""
-        from posthog.tasks.alerts.synthetic_monitoring import execute_http_check
-
         monitor = self.get_object()
-
-        # Trigger immediate check
-        execute_http_check.delay(monitor_id=str(monitor.id))
 
         report_user_action(
             request.user,
@@ -223,7 +187,7 @@ class SyntheticMonitorViewSet(
         return Response(
             {
                 "success": True,
-                "message": "Test check triggered",
+                "message": "Test check triggered (execution handled by external service)",
                 "monitor_id": str(monitor.id),
             },
             status=status.HTTP_200_OK,

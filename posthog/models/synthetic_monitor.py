@@ -1,5 +1,3 @@
-from datetime import UTC, datetime, timedelta
-
 from django.core.exceptions import ValidationError
 from django.db import models
 
@@ -9,15 +7,9 @@ from posthog.models.utils import CreatedMetaFields, UUIDTModel
 class SyntheticMonitor(CreatedMetaFields, UUIDTModel):
     """
     Configuration for synthetic HTTP monitoring checks (uptime and latency).
-    Each monitor runs periodically and emits events to PostHog for analytics.
-    Check results are stored as events in ClickHouse, not in a separate table.
+    All check results are stored as events in ClickHouse. Monitor state (last_checked_at,
+    consecutive_failures, state) is computed from ClickHouse events on-demand.
     """
-
-    class MonitorState(models.TextChoices):
-        HEALTHY = "healthy", "Healthy"
-        FAILING = "failing", "Failing"
-        ERROR = "error", "Error"
-        DISABLED = "disabled", "Disabled"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=400)
@@ -61,10 +53,6 @@ class SyntheticMonitor(CreatedMetaFields, UUIDTModel):
 
     # Monitor state
     enabled = models.BooleanField(default=True)
-    state = models.CharField(max_length=20, choices=MonitorState.choices, default=MonitorState.HEALTHY)
-    last_checked_at = models.DateTimeField(null=True, blank=True)
-    next_check_at = models.DateTimeField(null=True, blank=True)
-    consecutive_failures = models.IntegerField(default=0)
     last_alerted_at = models.DateTimeField(null=True, blank=True)
 
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
@@ -72,7 +60,6 @@ class SyntheticMonitor(CreatedMetaFields, UUIDTModel):
     class Meta:
         indexes = [
             models.Index(fields=["team", "enabled"]),
-            models.Index(fields=["next_check_at"]),
         ]
 
     def __str__(self):
@@ -87,43 +74,3 @@ class SyntheticMonitor(CreatedMetaFields, UUIDTModel):
 
         if self.regions and not isinstance(self.regions, list):
             raise ValidationError({"regions": "Regions must be a list"})
-
-    def calculate_next_check_at(self) -> datetime:
-        """Calculate when the next check should run based on frequency"""
-        now = datetime.now(UTC)
-        return now + timedelta(minutes=self.frequency_minutes)
-
-    def update_next_check(self):
-        """Update next_check_at field"""
-        self.next_check_at = self.calculate_next_check_at()
-
-    def record_success(self):
-        """Record a successful check"""
-        self.consecutive_failures = 0
-        if self.state == self.MonitorState.FAILING:
-            self.state = self.MonitorState.HEALTHY
-        self.last_checked_at = datetime.now(UTC)
-        self.update_next_check()
-
-    def record_failure(self):
-        """Record a failed check and update state"""
-        self.consecutive_failures += 1
-        self.last_checked_at = datetime.now(UTC)
-
-        if self.alert_enabled and self.consecutive_failures >= self.alert_threshold_failures:
-            if self.state != self.MonitorState.FAILING:
-                self.state = self.MonitorState.FAILING
-        self.update_next_check()
-
-    def should_trigger_alert(self) -> bool:
-        """Check if an alert should be triggered"""
-        if not self.alert_enabled:
-            return False
-
-        if self.consecutive_failures < self.alert_threshold_failures:
-            return False
-
-        if self.consecutive_failures == self.alert_threshold_failures:
-            return True
-
-        return False
