@@ -28,6 +28,7 @@ pub struct Team {
     pub name: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(default)]
     pub anonymize_ips: bool,
     pub person_processing_opt_out: Option<bool>,
     pub autocapture_opt_out: Option<bool>,
@@ -35,6 +36,7 @@ pub struct Team {
     pub autocapture_web_vitals_opt_in: Option<bool>,
     pub capture_performance_opt_in: Option<bool>,
     pub capture_console_log_opt_in: Option<bool>,
+    #[serde(default)]
     pub session_recording_opt_in: bool,
     pub inject_web_apps: Option<bool>,
     pub surveys_opt_in: Option<bool>,
