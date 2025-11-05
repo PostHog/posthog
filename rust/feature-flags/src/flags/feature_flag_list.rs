@@ -78,6 +78,9 @@ impl FeatureFlagList {
             })
             .await?;
 
+        // Our loader (load_from_pg) always returns Some(metadata), never None.
+        // Even empty flag lists are wrapped in Some. However, we use unwrap_or
+        // defensively to gracefully handle any future loader contract violations.
         let metadata = result.value.take().unwrap_or(FlagsWithMetadata {
             flags: vec![],
             had_deserialization_errors: false,
