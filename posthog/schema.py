@@ -267,7 +267,6 @@ class AssistantTool(StrEnum):
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
     CREATE_MESSAGE_TEMPLATE = "create_message_template"
     NAVIGATE = "navigate"
-    EDIT_CURRENT_INSIGHT = "edit_current_insight"
     FILTER_ERROR_TRACKING_ISSUES = "filter_error_tracking_issues"
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
@@ -922,6 +921,7 @@ class DatabaseSchemaTableType(StrEnum):
     BATCH_EXPORT = "batch_export"
     MATERIALIZED_VIEW = "materialized_view"
     MANAGED_VIEW = "managed_view"
+    ENDPOINT = "endpoint"
 
 
 class DatabaseSerializedFieldType(StrEnum):
@@ -13434,6 +13434,19 @@ class DataVisualizationNode(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class DatabaseSchemaEndpointTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    query: HogQLQuery
+    row_count: Optional[float] = None
+    status: Optional[str] = None
+    type: Literal["endpoint"] = "endpoint"
+
+
 class DatabaseSchemaManagedViewTable(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14530,6 +14543,7 @@ class QueryResponseAlternative66(BaseModel):
             DatabaseSchemaManagedViewTable,
             DatabaseSchemaBatchExportTable,
             DatabaseSchemaMaterializedViewTable,
+            DatabaseSchemaEndpointTable,
         ],
     ]
 
@@ -14745,6 +14759,7 @@ class DatabaseSchemaQueryResponse(BaseModel):
             DatabaseSchemaManagedViewTable,
             DatabaseSchemaBatchExportTable,
             DatabaseSchemaMaterializedViewTable,
+            DatabaseSchemaEndpointTable,
         ],
     ]
 
