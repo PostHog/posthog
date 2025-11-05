@@ -225,32 +225,39 @@ jobs:
                     fi
                   done
 
-                  # Delete previous comments from this workflow
+                  # Get existing comments
                   COMMENTS=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                     -H "Accept: application/vnd.github.v3+json" \
                     "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
 
-                  echo "Output from listing comments: $COMMENTS"
-                  echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | while read -r comment_id; do
-                    echo "Deleting comment $comment_id"
-                    curl -X DELETE \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
-                  done
+                  # Extract comment ID if exists
+                  SQL_COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## Migration SQL Changes")) | .id' | head -1)
+
+                  # Add timestamp to SQL changes
+                  TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+                  COMMENT_BODY+="\n*Last updated: $TIMESTAMP*"
 
                   # Convert \n into actual newlines
                   COMMENT_BODY=$(printf '%b' "$COMMENT_BODY")
                   COMMENT_BODY_JSON=$(jq -n --arg body "$COMMENT_BODY" '{body: $body}')
 
-                  # Post SQL comment to PR
-                  echo "Posting SQL comment to PR"
-                  echo "$COMMENT_BODY_JSON"
-                  curl -X POST \
-                    -H "Authorization: token $GITHUB_TOKEN" \
-                    -H "Accept: application/vnd.github.v3+json" \
-                    "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                    -d "$COMMENT_BODY_JSON"
+                  if [ -n "$SQL_COMMENT_ID" ]; then
+                    # Update existing comment
+                    echo "Updating existing SQL comment $SQL_COMMENT_ID"
+                    curl -X PATCH \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$SQL_COMMENT_ID" \
+                      -d "$COMMENT_BODY_JSON"
+                  else
+                    # Post new SQL comment to PR
+                    echo "Posting new SQL comment to PR"
+                    curl -X POST \
+                      -H "Authorization: token $GITHUB_TOKEN" \
+                      -H "Accept: application/vnd.github.v3+json" \
+                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                      -d "$COMMENT_BODY_JSON"
+                  fi
 
             - name: Run migration risk analysis and post comment
               if: github.event_name == 'pull_request'
