@@ -88,10 +88,6 @@ const typeToIconAndDescription: Record<InspectorListItem['type'], IconAndDescrip
         Icon: IconChat,
         tooltip: 'A user commented on this timestamp in the recording',
     },
-    annotation: {
-        Icon: IconChat,
-        tooltip: 'An annotation was added to this timestamp',
-    },
     'inspector-summary': {
         Icon: undefined,
         tooltip: undefined,
