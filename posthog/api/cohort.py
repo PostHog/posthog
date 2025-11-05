@@ -666,19 +666,21 @@ class CohortSerializer(serializers.ModelSerializer):
                     )
 
                 # Check if cohort is used in insights
-                from django.db.models import Q
 
                 from posthog.models.insight import Insight
 
+                # Use PostgreSQL's jsonb_path_exists for recursive JSONB searching
+                # This finds cohort references at any depth in the JSON structure
                 insights_using_cohort = Insight.objects.filter(
                     team_id=cohort.team_id,
                     deleted=False,
-                ).filter(
-                    Q(query__icontains=f'"type": "cohort", "value": {cohort.id}')
-                    | (
-                        Q(query__source__breakdownFilter__breakdown_type="cohort")
-                        & Q(query__source__breakdownFilter__breakdown__contains=cohort.id)
-                    )
+                ).extra(
+                    where=[
+                        """jsonb_path_exists(query, '$.**  ? (@.type == "cohort" && @.value == $cohort_id)', %s::jsonb)
+                        OR (query->'source'->'breakdownFilter'->>'breakdown_type' = 'cohort'
+                            AND query->'source'->'breakdownFilter'->'breakdown' @> %s::jsonb)"""
+                    ],
+                    params=[f'{{"cohort_id": {cohort.id}}}', f"[{cohort.id}]"],
                 )
 
                 if insights_using_cohort.exists():
@@ -687,6 +689,8 @@ class CohortSerializer(serializers.ModelSerializer):
                         insight.name or insight.derived_name or "Unnamed" for insight in insights_using_cohort[:5]
                     ]
                     names_str = ", ".join(insight_names)
+                    if count > 5:
+                        names_str = f"{names_str}, and {count - 5} more"
                     raise ValidationError(
                         f"This cohort is used in {count} insight(s): {names_str}. "
                         "Please remove the cohort from these insights before deleting it."

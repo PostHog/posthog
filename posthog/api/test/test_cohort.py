@@ -3628,6 +3628,45 @@ email@example.org,
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_more_than_five_insights(self, patch_calculate_cohort, patch_capture):
+        from posthog.models.insight import Insight
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        # Create 7 insights that use the cohort in breakdown filter
+        for i in range(7):
+            Insight.objects.create(
+                team=self.team,
+                name=f"Insight {i + 1}",
+                query={"source": {"breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_id]}}},
+            )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = response.json()["detail"]
+        self.assertIn("This cohort is used in 7 insight(s):", detail)
+        # Should list first 5 insights
+        self.assertIn("Insight 1", detail)
+        self.assertIn("Insight 2", detail)
+        self.assertIn("Insight 3", detail)
+        self.assertIn("Insight 4", detail)
+        self.assertIn("Insight 5", detail)
+        # Should cap at 5 and mention the remaining
+        self.assertIn("and 2 more", detail)
+        # Should NOT list insights 6 and 7 individually
+        self.assertNotIn("Insight 6", detail)
+        self.assertNotIn("Insight 7", detail)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_can_delete_cohort_not_used_in_insights(self, patch_calculate_cohort, patch_capture):
         from posthog.models.insight import Insight
 
