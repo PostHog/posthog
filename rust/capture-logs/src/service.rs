@@ -51,7 +51,7 @@ pub async fn export_logs_http(
         error!("No token provided");
         return Err((
             StatusCode::UNAUTHORIZED,
-            Json(json!({"error": format!("No Authorization header")})),
+            Json(json!({"error": format!("No token provided")})),
         ));
     }
 
