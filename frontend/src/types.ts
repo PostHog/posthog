@@ -4710,6 +4710,7 @@ export enum ActivityScope {
     EXTERNAL_DATA_SCHEMA = 'ExternalDataSchema',
     ENDPOINT = 'Endpoint',
     HEATMAP = 'Heatmap',
+    USER = 'User',
 }
 
 export type CommentType = {
