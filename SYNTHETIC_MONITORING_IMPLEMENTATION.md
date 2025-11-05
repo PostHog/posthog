@@ -33,25 +33,7 @@ This PR implements the MVP for PostHog Synthetic Monitoring with AWS Lambda exec
 
 ### 3. AWS Lambda Function (`lambda/synthetic-monitor/`)
 
-**Lambda Function** (`lambda_function.py`):
-
-- Executes HTTP checks using Python's `urllib` (no dependencies)
-- Returns structured results with timing and error information
-- Deployed to multiple AWS regions for true multi-region monitoring
-- Runtime: Python 3.12
-- Timeout: 30 seconds
-- Memory: 256MB
-
-**Deployment Script** (`deploy.sh`):
-
-- Automated deployment to multiple regions
-- Creates IAM role with CloudWatch Logs permission
-- Default regions: us-east-1, us-west-2, eu-west-1, ap-southeast-1
-
-**Documentation:**
-
-- `README.md`: Deployment guide and cost estimation
-- `SETTINGS.md`: PostHog configuration and AWS credentials setup
+TODO. Do not implement this for now.
 
 ### 4. REST API (`posthog/api/synthetic_monitor.py`)
 
