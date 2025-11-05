@@ -7,10 +7,12 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ActivityTab } from '~/types'
 
 import { SessionDetailsCard } from './components/SessionDetailsCard'
 import { SessionEventsList } from './components/SessionEventsList'
@@ -43,6 +45,16 @@ export function SessionProfileScene(): JSX.Element {
                 resourceType={{
                     type: sceneConfigurations[Scene.SessionProfile].iconType || 'default_icon_type',
                 }}
+                forceBackTo={{
+                    name: sceneConfigurations[Scene.ExploreSessions].name,
+                    path: urls.activity(ActivityTab.ExploreSessions),
+                    key: 'sessions',
+                }}
+                actions={
+                    <LemonButton type="secondary" onClick={() => loadSessionData()}>
+                        Refresh
+                    </LemonButton>
+                }
             />
             <SceneDivider />
 
@@ -85,12 +97,6 @@ export function SessionProfileScene(): JSX.Element {
                 <SessionDetailsCard sessionData={sessionData} isLoading={isLoading} />
 
                 <SessionEventsList events={sessionEvents} isLoading={isLoading} onLoadEventDetails={loadEventDetails} />
-
-                <div className="flex gap-2">
-                    <LemonButton type="secondary" onClick={() => loadSessionData()}>
-                        Refresh
-                    </LemonButton>
-                </div>
             </div>
         </SceneContent>
     )

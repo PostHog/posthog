@@ -1,6 +1,8 @@
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { Link } from 'lib/lemon-ui/Link'
 import { colonDelimitedDuration } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -11,6 +13,14 @@ export function getSessionsColumns(): QueryContext['columns'] {
     return {
         session_id: {
             title: 'Session ID',
+            render: ({ value }) => {
+                const sessionId = value as string
+                return (
+                    <Link to={urls.sessionProfile(sessionId)} className="font-mono">
+                        {sessionId}
+                    </Link>
+                )
+            },
         },
         $start_timestamp: {
             title: 'Start time',
