@@ -64,15 +64,15 @@ impl FeatureFlagList {
     /// * `project_id` - Project ID to fetch flags for
     ///
     /// # Returns
-    /// * `Ok((FeatureFlagList, bool, CacheResult))` - Flags, deserialization error flag, and cache source information
+    /// * `Ok(CacheResult<FlagsWithMetadata>)` - Cache result containing flags and metadata
     /// * `Err(FlagError)` - Error from database or cache
     pub async fn get_with_cache(
         cache: &ReadThroughCache,
         pg_client: PostgresReader,
         project_id: ProjectId,
-    ) -> Result<(FeatureFlagList, bool, CacheResult<FlagsWithMetadata>), FlagError> {
+    ) -> Result<CacheResult<FlagsWithMetadata>, FlagError> {
         let pg_client = pg_client.clone();
-        let mut result = cache
+        let mut cache_result = cache
             .get_or_load(&project_id, |&project_id| async move {
                 Self::load_from_pg(pg_client, project_id).await
             })
@@ -81,16 +81,14 @@ impl FeatureFlagList {
         // Our loader (load_from_pg) always returns Some(metadata), never None.
         // Even empty flag lists are wrapped in Some. However, we use unwrap_or
         // defensively to gracefully handle any future loader contract violations.
-        let metadata = result.value.take().unwrap_or(FlagsWithMetadata {
-            flags: vec![],
-            had_deserialization_errors: false,
-        });
+        if cache_result.value.is_none() {
+            cache_result.value = Some(FlagsWithMetadata {
+                flags: vec![],
+                had_deserialization_errors: false,
+            });
+        }
 
-        let flag_list = FeatureFlagList {
-            flags: metadata.flags,
-        };
-
-        Ok((flag_list, metadata.had_deserialization_errors, result))
+        Ok(cache_result)
     }
 
     /// Load feature flags from PostgreSQL

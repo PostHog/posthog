@@ -154,7 +154,7 @@ impl FlagService {
         &self,
         project_id: ProjectId,
     ) -> Result<FlagResult, FlagError> {
-        let (flag_list, had_deserialization_errors, cache_result) =
+        let cache_result =
             FeatureFlagList::get_with_cache(&self.flags_cache, self.pg_client.clone(), project_id)
                 .await?;
 
@@ -180,10 +180,17 @@ impl FlagService {
             );
         }
 
+        // Extract metadata from cache result
+        let metadata = cache_result
+            .value
+            .expect("cache result always contains a value after get_with_cache");
+
         Ok(FlagResult {
-            flag_list,
+            flag_list: FeatureFlagList {
+                flags: metadata.flags,
+            },
             was_cache_hit,
-            had_deserialization_errors,
+            had_deserialization_errors: metadata.had_deserialization_errors,
         })
     }
 }
