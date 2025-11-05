@@ -196,8 +196,11 @@ def _render_tree(
                     expandable_marker = f"<<<GEN_EXPANDABLE|{event_id}|{display_text}|{encoded_content}>>>"
                     lines.append(f"{prefix}{current_prefix}{expandable_marker}")
                 else:
-                    # Plain text for backend/LLM
+                    # Plain text for backend/LLM - show fully expanded content inline
                     lines.append(f"{prefix}{current_prefix}[+] {node_prefix} {summary}")
+                    # Indent and append the full content
+                    for line in gen_content.split("\n"):
+                        lines.append(f"{prefix}{child_prefix}    {line}")
 
         elif event_type == "$ai_span":
             node_prefix = "[SPAN]"
@@ -216,8 +219,11 @@ def _render_tree(
                     expandable_marker = f"<<<GEN_EXPANDABLE|{event_id}|{display_text}|{encoded_content}>>>"
                     lines.append(f"{prefix}{current_prefix}{expandable_marker}")
                 else:
-                    # Plain text for backend/LLM
+                    # Plain text for backend/LLM - show fully expanded content inline
                     lines.append(f"{prefix}{current_prefix}[+] {node_prefix} {summary}")
+                    # Indent and append the full content
+                    for line in span_content.split("\n"):
+                        lines.append(f"{prefix}{child_prefix}    {line}")
 
         elif event_type == "$ai_embedding":
             node_prefix = "[EMBED]"
@@ -236,8 +242,11 @@ def _render_tree(
                     expandable_marker = f"<<<GEN_EXPANDABLE|{event_id}|{display_text}|{encoded_content}>>>"
                     lines.append(f"{prefix}{current_prefix}{expandable_marker}")
                 else:
-                    # Plain text for backend/LLM
+                    # Plain text for backend/LLM - show fully expanded content inline
                     lines.append(f"{prefix}{current_prefix}[+] {node_prefix} {summary}")
+                    # Indent and append the full content
+                    for line in embedding_content.split("\n"):
+                        lines.append(f"{prefix}{child_prefix}    {line}")
 
         else:
             # For other events, use event link marker

@@ -3,13 +3,12 @@
  *
  * Manages API calls for trace/event summarization and state.
  */
-import { actions, kea, key, listeners, path, props, reducers } from 'kea'
+import { kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { getCookie } from 'lib/api'
 
-import { LLMTrace, LLMTraceEvent } from '../types'
-import type { summaryTabLogicType } from './summaryTabLogicType'
+import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 export interface SummaryTabLogicProps {
     trace?: LLMTrace
@@ -17,7 +16,7 @@ export interface SummaryTabLogicProps {
     tree?: any[]
 }
 
-export const summaryTabLogic = kea<summaryTabLogicType>([
+export const summaryTabLogic = kea([
     path(['products', 'llm_analytics', 'frontend', 'components', 'summaryTabLogic']),
     props({} as SummaryTabLogicProps),
     key((props) => {
@@ -30,22 +29,9 @@ export const summaryTabLogic = kea<summaryTabLogicType>([
         }
         return 'unknown'
     }),
-    actions({
-        generateSummary: true,
-        setSummaryError: (error: string | null) => ({ error }),
-    }),
-    reducers({
-        summaryError: [
-            null as string | null,
-            {
-                setSummaryError: (_, { error }) => error,
-                generateSummary: () => null, // Clear error when starting new request
-            },
-        ],
-    }),
     loaders(({ props }) => ({
-        summary: {
-            __default: null as string | null,
+        summaryData: {
+            __default: null as { summary: string; text_repr: string } | null,
             generateSummary: async () => {
                 // Determine if we're summarizing a trace or an event
                 const isTrace = !!props.trace
@@ -89,20 +75,11 @@ export const summaryTabLogic = kea<summaryTabLogicType>([
                 }
 
                 const data = await response.json()
-                return data.summary
+                return {
+                    summary: data.summary,
+                    text_repr: data.text_repr,
+                }
             },
-        },
-    })),
-    listeners(({ actions }) => ({
-        generateSummaryFailure: ({ error }) => {
-            // Extract error message
-            const errorMessage =
-                error instanceof Error
-                    ? error.message
-                    : typeof error === 'string'
-                      ? error
-                      : 'An unexpected error occurred'
-            actions.setSummaryError(errorMessage)
         },
     })),
 ])

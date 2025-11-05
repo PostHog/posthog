@@ -45,8 +45,7 @@ class SummarizeResponseSerializer(serializers.Serializer):
         help_text="AI-generated summary with line references",
     )
     text_repr = serializers.CharField(
-        required=False,
-        help_text="Line-numbered text representation used for summarization",
+        help_text="Line-numbered text representation that the summary references",
     )
     metadata = serializers.JSONField(
         required=False,
@@ -248,6 +247,7 @@ The response includes the summary text and optional metadata.
             # Build response
             result = {
                 "summary": summary,
+                "text_repr": text_repr,  # Include line-numbered text for navigation
                 "metadata": {
                     "text_repr_length": len(text_repr),
                     "summarize_type": summarize_type,

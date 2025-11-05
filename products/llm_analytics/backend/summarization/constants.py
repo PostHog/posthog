@@ -2,8 +2,7 @@
 
 # LLM model configuration
 SUMMARIZATION_MODEL = "gpt-4.1"
-SUMMARIZATION_TEMPERATURE = 0.1
-SUMMARIZATION_TIMEOUT = 600  # 10 minutes
+SUMMARIZATION_TIMEOUT = 120  # 2 minutes
 
 # Feature flag
 SUMMARIZATION_FEATURE_FLAG = "ai-llm-trace-summary"

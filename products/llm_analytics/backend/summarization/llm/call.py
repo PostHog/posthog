@@ -1,12 +1,50 @@
 """
 LLM calling function for summarization.
 
-Reuses PostHog's existing LLM infrastructure from session_summaries.
+In dev mode, uses direct OpenAI client without PostHog analytics tracking.
+In production, can use PostHog-wrapped client for cost tracking if available.
 """
 
-from ee.hogai.session_summaries.llm.call import get_async_openai_client
+import os
 
-from ..constants import SUMMARIZATION_MODEL, SUMMARIZATION_TEMPERATURE, SUMMARIZATION_TIMEOUT
+from django.conf import settings
+
+from openai import AsyncOpenAI as DirectAsyncOpenAI
+from rest_framework import exceptions
+
+from ..constants import SUMMARIZATION_MODEL, SUMMARIZATION_TIMEOUT
+
+
+def _get_openai_client():
+    """
+    Get OpenAI client for summarization.
+
+    In dev mode, uses direct OpenAI client without analytics tracking.
+    In production, tries PostHog-wrapped client, falls back to direct client.
+    """
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise exceptions.ValidationError("OpenAI API key is not configured")
+
+    # In dev mode, use direct OpenAI client
+    if settings.DEBUG:
+        return DirectAsyncOpenAI(
+            api_key=os.environ.get("OPENAI_API_KEY"),
+            timeout=SUMMARIZATION_TIMEOUT,
+            base_url=getattr(settings, "OPENAI_BASE_URL", None),
+        )
+
+    # In production, try to use PostHog-wrapped client for cost tracking
+    try:
+        from ee.hogai.session_summaries.llm.call import get_async_openai_client
+
+        return get_async_openai_client()
+    except Exception:
+        # Fallback to direct client if PostHog client unavailable
+        return DirectAsyncOpenAI(
+            api_key=os.environ.get("OPENAI_API_KEY"),
+            timeout=SUMMARIZATION_TIMEOUT,
+            base_url=getattr(settings, "OPENAI_BASE_URL", None),
+        )
 
 
 async def call_summarization_llm(system_prompt: str, user_prompt: str) -> str:
@@ -20,7 +58,7 @@ async def call_summarization_llm(system_prompt: str, user_prompt: str) -> str:
     Returns:
         Summary text from the LLM
     """
-    client = get_async_openai_client()
+    client = _get_openai_client()
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -31,8 +69,6 @@ async def call_summarization_llm(system_prompt: str, user_prompt: str) -> str:
     response = await client.chat.completions.create(
         model=SUMMARIZATION_MODEL,
         messages=messages,
-        temperature=SUMMARIZATION_TEMPERATURE,
-        timeout=SUMMARIZATION_TIMEOUT,
     )
 
     return response.choices[0].message.content or ""
