@@ -283,5 +283,55 @@ describe('CdpCohortMembershipConsumer', () => {
 
             expect(result.rows).toHaveLength(0) // No data should be inserted
         })
+
+        it('should not publish to Kafka when database insertion fails', async () => {
+            const testEvents = createCohortMembershipEvents([
+                {
+                    personId: personId1,
+                    cohortId: 456,
+                    teamId: 1,
+                    cohort_membership_changed: 'entered',
+                },
+                {
+                    personId: personId2,
+                    cohortId: 456,
+                    teamId: 1,
+                    cohort_membership_changed: 'entered',
+                },
+            ])
+
+            const messages = testEvents.map((event, index) =>
+                createKafkaMessage(event, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: index })
+            )
+
+            const cohortMembershipChanges = consumer['_parseAndValidateBatch'](messages)
+
+            // Mock the database query to fail
+            const originalQuery = hub.postgres.query.bind(hub.postgres)
+            hub.postgres.query = jest.fn().mockRejectedValue(new Error('Database connection failed'))
+
+            // Attempt to persist changes (should fail)
+            await expect(consumer['persistCohortMembershipChanges'](cohortMembershipChanges)).rejects.toThrow(
+                'Database connection failed'
+            )
+
+            // Verify NO messages were published to Kafka since DB insertion failed
+            const kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
+                KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER
+            )
+            expect(kafkaMessages).toHaveLength(0)
+
+            // Restore original query function
+            hub.postgres.query = originalQuery
+
+            // Verify data was NOT written to PostgreSQL
+            const result = await hub.postgres.query(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                'SELECT * FROM cohort_membership WHERE team_id = $1',
+                [1],
+                'testQuery'
+            )
+            expect(result.rows).toHaveLength(0)
+        })
     })
 })
