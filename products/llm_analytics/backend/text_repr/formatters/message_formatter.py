@@ -34,22 +34,22 @@ class ToolCall(TypedDict, total=False):
 
 def add_line_numbers(text: str) -> str:
     """
-    Add line numbers to each line of text in format: L1: content
+    Add line numbers to each line of text in format: L001: content
 
     Args:
         text: Multi-line text string
 
     Returns:
-        Text with line numbers prefixed to each line
+        Text with zero-padded line numbers prefixed to each line
     """
     lines = text.split("\n")
-    # Calculate padding for line numbers (e.g., L1:, L10:, L100:)
+    # Calculate padding for line numbers (e.g., L001:, L010:, L100:)
     max_line_num = len(lines)
     padding = len(str(max_line_num))
 
     numbered_lines = []
     for i, line in enumerate(lines, start=1):
-        line_num = str(i).rjust(padding)
+        line_num = str(i).zfill(padding)
         numbered_lines.append(f"L{line_num}: {line}")
 
     return "\n".join(numbered_lines)
@@ -314,6 +314,52 @@ def extract_text_content(content: Any) -> str:
     return safe_extract_text(content)
 
 
+def format_messages_array(messages: list[Any], options: FormatterOptions | None = None) -> list[str]:
+    """
+    Format an array of message objects without header.
+
+    This is the core message formatting logic shared across formatters.
+    Each message should have role/content/tool_calls structure.
+
+    Args:
+        messages: List of message dictionaries with role, content, tool_calls
+        options: Formatting options (truncation, etc.)
+
+    Returns:
+        List of formatted lines (no header, starts directly with messages)
+    """
+    lines: list[str] = []
+
+    for i, msg in enumerate(messages):
+        if not isinstance(msg, dict):
+            continue
+
+        role = msg.get("role") or msg.get("type") or "unknown"
+        content = msg.get("content", "")
+        tool_calls = msg.get("tool_calls", [])
+
+        lines.append("")
+        lines.append(f"[{i + 1}] {role.upper()}")
+        lines.append("")
+
+        if content:
+            text_content = extract_text_content(content)
+            if text_content:
+                content_lines, _ = truncate_content(text_content, options)
+                lines.extend(content_lines)
+
+        if tool_calls:
+            lines.append("")
+            lines.extend(format_tool_calls(tool_calls))
+
+        # Add separator between messages (but not after the last one)
+        if i < len(messages) - 1:
+            lines.append("")
+            lines.append("-" * 80)
+
+    return lines
+
+
 def format_input_messages(ai_input: Any, options: FormatterOptions | None = None) -> list[str]:
     """Format input messages section."""
     lines: list[str] = []
@@ -333,33 +379,7 @@ def format_input_messages(ai_input: Any, options: FormatterOptions | None = None
 
     # Handle array of message objects
     if isinstance(ai_input, list):
-        for i, msg in enumerate(ai_input):
-            if not isinstance(msg, dict):
-                continue
-
-            role = msg.get("role") or msg.get("type") or "unknown"
-            content = msg.get("content", "")
-            tool_calls = msg.get("tool_calls", [])
-
-            lines.append("")
-            lines.append(f"[{i + 1}] {role.upper()}")
-            lines.append("")
-
-            if content:
-                text_content = extract_text_content(content)
-                if text_content:
-                    content_lines, _ = truncate_content(text_content, options)
-                    lines.extend(content_lines)
-
-            if tool_calls:
-                lines.append("")
-                lines.extend(format_tool_calls(tool_calls))
-
-            # Add separator between messages (but not after the last one)
-            if i < len(ai_input) - 1:
-                lines.append("")
-                lines.append("-" * 80)
-
+        lines.extend(format_messages_array(ai_input, options))
         return lines
 
     # Unknown format - show raw with data preservation
@@ -396,10 +416,9 @@ def format_output_messages(
 
     # Output choices (most common format)
     if choices and isinstance(choices, list) and len(choices) > 0:
-        lines.append("")
-        lines.append("OUTPUT:")
-
-        for i, choice in enumerate(choices):
+        # Extract messages from choices
+        messages = []
+        for choice in choices:
             if not isinstance(choice, dict):
                 continue
 
@@ -413,28 +432,25 @@ def format_output_messages(
                 else:
                     continue
 
-            role = message.get("role", "assistant")
-            content = message.get("content", "")
+            # Normalize tool_calls - extract from content if present
             tool_calls = message.get("tool_calls", [])
-
-            # Extract tool calls from content if present
+            content = message.get("content", "")
             content_tool_calls = extract_tool_calls_from_content(content)
             if content_tool_calls:
                 tool_calls = content_tool_calls
 
-            lines.append("")
-            lines.append(f"[{i + 1}] {role.upper()}")
-            lines.append("")
+            # Create normalized message
+            normalized_message = {
+                "role": message.get("role", "assistant"),
+                "content": content,
+                "tool_calls": tool_calls,
+            }
+            messages.append(normalized_message)
 
-            if content:
-                text_content = extract_text_content(content)
-                if text_content:
-                    content_lines, _ = truncate_content(text_content, options)
-                    lines.extend(content_lines)
-
-            if tool_calls:
-                lines.append("")
-                lines.extend(format_tool_calls(tool_calls))
+        if messages:
+            lines.append("")
+            lines.append("OUTPUT:")
+            lines.extend(format_messages_array(messages, options))
 
         return lines
 

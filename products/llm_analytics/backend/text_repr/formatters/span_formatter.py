@@ -8,7 +8,7 @@ Displays span metadata, input/output state, and timing information with truncati
 import json
 from typing import Any
 
-from .message_formatter import FormatterOptions, add_line_numbers, truncate_content
+from .message_formatter import FormatterOptions, add_line_numbers, format_messages_array, truncate_content
 
 
 def _format_state(state: Any, label: str, options: FormatterOptions | None = None) -> list[str]:
@@ -28,7 +28,23 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
             lines.extend(content_lines)
             return lines
 
-        # Handle object state
+        # Check if state is a messages array (list of dicts with role/content)
+        if isinstance(state, list) and len(state) > 0 and isinstance(state[0], dict):
+            first_item = state[0]
+            if "role" in first_item or "content" in first_item:
+                # Format as messages using shared formatter
+                lines.extend(format_messages_array(state, options))
+                return lines
+
+        # Check if state is a dict containing a messages array
+        if isinstance(state, dict) and "messages" in state:
+            messages = state.get("messages")
+            if isinstance(messages, list) and len(messages) > 0:
+                # Format the messages array using shared formatter
+                lines.extend(format_messages_array(messages, options))
+                return lines
+
+        # Handle generic object state - dump as JSON
         if isinstance(state, dict) or isinstance(state, list):
             json_str = json.dumps(state, indent=2)
             content_lines, _ = truncate_content(json_str, options)
