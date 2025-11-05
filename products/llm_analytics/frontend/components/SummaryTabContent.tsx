@@ -160,7 +160,7 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
                     <div className="flex-1 flex flex-col min-h-0">
                         <h4 className="font-semibold mb-2">Text Representation</h4>
                         <div className="border rounded flex-1 overflow-hidden">
-                            <TextReprDisplay textRepr={summaryData.text_repr} />
+                            <TextReprDisplay textRepr={summaryData.text_repr} trace={trace} event={event} />
                         </div>
                     </div>
                 </>
@@ -376,7 +376,7 @@ function SummaryRenderer({ summary }: { summary: StructuredSummary }): JSX.Eleme
  * Displays line-numbered text representation with clickable line numbers
  * that link to the Conversation tab's text view
  */
-function TextReprDisplay({ textRepr }: { textRepr: string }): JSX.Element {
+function TextReprDisplay({ textRepr, event }: { textRepr: string; event?: LLMTraceEvent }): JSX.Element {
     // Parse text repr to add line anchors
     const lines = textRepr.split('\n')
 
@@ -384,6 +384,20 @@ function TextReprDisplay({ textRepr }: { textRepr: string }): JSX.Element {
         // Update URL with line parameter
         const url = new URL(window.location.href)
         url.searchParams.set('line', lineNumber.toString())
+
+        // If we're viewing a specific event's summary, ensure the URL includes that event ID
+        // This prevents defaulting to the top-level trace
+        if (event) {
+            // Update the path to include the event ID
+            const pathParts = url.pathname.split('/')
+            const traceIndex = pathParts.findIndex((part) => part === 'traces')
+            if (traceIndex !== -1 && traceIndex + 1 < pathParts.length) {
+                // Replace or add the event ID after the trace ID
+                pathParts[traceIndex + 1] = event.id
+                url.pathname = pathParts.join('/')
+            }
+        }
+
         const fullUrl = url.toString()
 
         // Copy URL to clipboard
