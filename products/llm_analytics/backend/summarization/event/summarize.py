@@ -26,10 +26,10 @@ async def summarize_event(event: dict[str, Any], text_repr: str, mode: str = "mi
     event_type = event.get("event", "unknown")
     event_name = event.get("properties", {}).get("$ai_span_name", event_type)
 
-    # Load prompt templates with mode variable
+    # Load prompt templates
     system_prompt = load_summarization_template(
-        "prompts/event/system.djt",
-        {"mode": mode},
+        f"prompts/event/system_{mode}.djt",
+        {},
     )
 
     user_prompt = load_summarization_template(

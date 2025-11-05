@@ -25,10 +25,10 @@ async def summarize_trace(
     Returns:
         Summary text with line references
     """
-    # Load prompt templates with mode variable
+    # Load prompt templates
     system_prompt = load_summarization_template(
-        "prompts/trace/system.djt",
-        {"mode": mode},
+        f"prompts/trace/system_{mode}.djt",
+        {},
     )
 
     user_prompt = load_summarization_template(
