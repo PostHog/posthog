@@ -152,6 +152,8 @@ class SessionMomentsLLMAnalyzer:
                     "timestamp": moment.timestamp_s,
                     "filename": moment_filename,
                     "duration": moment.duration_s,
+                    # 4x to reduce the rendering time
+                    "playback_speed": 4,
                     # Keeping default values
                     "mode": "screenshot",
                 },
