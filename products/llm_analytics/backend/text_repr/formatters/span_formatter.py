@@ -5,6 +5,7 @@ Handles formatting of $ai_span events, which represent units of work within an L
 Displays span metadata, input/output state, and timing information with truncation support.
 """
 
+import ast
 import json
 from typing import Any
 
@@ -28,8 +29,21 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
     lines.append("")
 
     try:
-        # Handle string state
+        # Handle string state - try parsing as Python literal first for better formatting
         if isinstance(state, str):
+            # Try to parse as Python literal (dict, list, etc.)
+            try:
+                parsed = ast.literal_eval(state)
+                # If successfully parsed, format as JSON for readability
+                if isinstance(parsed, dict | list):
+                    json_str = json.dumps(parsed, indent=2)
+                    content_lines, _ = truncate_content(json_str, options)
+                    lines.extend(content_lines)
+                    return lines
+            except (ValueError, SyntaxError):
+                pass
+
+            # Fallback to raw string
             content_lines, _ = truncate_content(state, options)
             lines.extend(content_lines)
             return lines
@@ -77,6 +91,26 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
                 # Format the messages array using shared formatter
                 lines.extend(format_messages_array(messages, options))
                 return lines
+
+        # Handle tool result format (common pattern: {type: "tool", name, content, status})
+        if isinstance(state, dict) and state.get("type") == "tool":
+            tool_name = state.get("name")
+            status = state.get("status")
+            content = state.get("content", "")
+
+            # Format as tool result with key info up front
+            header_parts = ["[TOOL RESULT]"]
+            if tool_name:
+                header_parts.append(tool_name)
+            if status:
+                header_parts.append(f"({status})")
+            lines.append(" ".join(header_parts))
+
+            if content:
+                lines.append("")
+                content_lines, _ = truncate_content(str(content), options)
+                lines.extend(content_lines)
+            return lines
 
         # Handle generic object state - dump as JSON
         if isinstance(state, dict) or isinstance(state, list):
