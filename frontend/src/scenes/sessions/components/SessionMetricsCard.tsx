@@ -34,6 +34,7 @@ export interface SessionMetricsCardProps {
     pageviewCount?: number
     autocaptureCount?: number
     screenCount?: number
+    otherEventCount?: number
     isLoading?: boolean
 }
 
@@ -44,6 +45,7 @@ export function SessionMetricsCard({
     pageviewCount,
     autocaptureCount,
     screenCount,
+    otherEventCount = 0,
     isLoading,
 }: SessionMetricsCardProps): JSX.Element {
     return (
@@ -61,7 +63,9 @@ export function SessionMetricsCard({
                     value={totalEventCount}
                     subtitle={
                         pageviewCount !== undefined && autocaptureCount !== undefined && screenCount !== undefined
-                            ? `${pageviewCount} pageviews, ${autocaptureCount} autocapture, ${screenCount} screens`
+                            ? `${pageviewCount} pageviews, ${autocaptureCount} autocapture, ${screenCount} screens${
+                                  otherEventCount > 0 ? ` + ${otherEventCount} other` : ''
+                              }`
                             : undefined
                     }
                     isLoading={isLoading}

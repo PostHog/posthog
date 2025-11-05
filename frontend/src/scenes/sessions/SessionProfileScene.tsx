@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -27,15 +29,26 @@ export const scene: SceneExport<SessionProfileLogicProps> = {
 }
 
 export function SessionProfileScene(): JSX.Element {
-    const { sessionData, sessionEvents, sessionDuration, uniqueUrlCount, totalEventCount, isLoading } =
-        useValues(sessionProfileLogic)
-    const { loadSessionData, loadEventDetails } = useActions(sessionProfileLogic)
+    const {
+        sessionData,
+        sessionEvents,
+        sessionDuration,
+        uniqueUrlCount,
+        totalEventCount,
+        categorizedEventCount,
+        otherEventCount,
+        isInitialLoading,
+        isLoadingMore,
+        hasMoreEvents,
+        sortOrder,
+    } = useValues(sessionProfileLogic)
+    const { loadEventDetails, loadSessionData, loadMoreSessionEvents, setSortOrder } = useActions(sessionProfileLogic)
 
-    if (!sessionData && !isLoading) {
+    if (!sessionData && !isInitialLoading) {
         return <NotFound object="session" />
     }
 
-    if (isLoading) {
+    if (isInitialLoading) {
         return <SpinnerOverlay sceneLevel />
     }
 
@@ -52,7 +65,7 @@ export function SessionProfileScene(): JSX.Element {
                     key: 'sessions',
                 }}
                 actions={
-                    <LemonButton type="secondary" onClick={() => loadSessionData()}>
+                    <LemonButton type="secondary" icon={<IconRefresh />} onClick={() => loadSessionData()}>
                         Refresh
                     </LemonButton>
                 }
@@ -64,7 +77,11 @@ export function SessionProfileScene(): JSX.Element {
                     <div className="flex flex-wrap gap-x-6 gap-y-2">
                         <div>
                             <div className="text-xs text-muted-alt">Session ID</div>
-                            <div className="font-mono text-sm">{sessionData.session_id}</div>
+                            <div className="font-mono text-sm">
+                                <CopyToClipboardInline description="session ID">
+                                    {sessionData.session_id}
+                                </CopyToClipboardInline>
+                            </div>
                         </div>
                         <div>
                             <div className="text-xs text-muted-alt">Person</div>
@@ -96,16 +113,27 @@ export function SessionProfileScene(): JSX.Element {
                 <SessionMetricsCard
                     duration={sessionDuration}
                     uniqueUrlCount={uniqueUrlCount}
-                    totalEventCount={totalEventCount}
+                    totalEventCount={totalEventCount || categorizedEventCount}
                     pageviewCount={sessionData?.pageview_count}
                     autocaptureCount={sessionData?.autocapture_count}
                     screenCount={sessionData?.screen_count}
-                    isLoading={isLoading}
+                    otherEventCount={otherEventCount}
+                    isLoading={isInitialLoading}
                 />
 
-                <SessionDetailsCard sessionData={sessionData} isLoading={isLoading} />
+                <SessionDetailsCard sessionData={sessionData} isLoading={isInitialLoading} />
 
-                <SessionEventsList events={sessionEvents} isLoading={isLoading} onLoadEventDetails={loadEventDetails} />
+                <SessionEventsList
+                    events={sessionEvents}
+                    totalEventCount={totalEventCount}
+                    isLoading={isInitialLoading}
+                    isLoadingMore={isLoadingMore}
+                    hasMoreEvents={hasMoreEvents}
+                    onLoadEventDetails={loadEventDetails}
+                    onLoadMoreEvents={loadMoreSessionEvents}
+                    sortOrder={sortOrder}
+                    onSortOrderChange={setSortOrder}
+                />
             </div>
         </SceneContent>
     )
