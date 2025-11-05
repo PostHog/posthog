@@ -361,7 +361,7 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
         # increase for tmate testing
-        timeout-minutes: 30
+        timeout-minutes: 60
 
         name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: depot-ubuntu-latest
@@ -746,9 +746,9 @@ jobs:
 
             # Uncomment this code to create an ssh-able console so you can debug issues with github actions
             # (Consider changing the timeout in ci-backend.yml to have more time)
-            # - name: Setup tmate session
-            #   if: failure()
-            #   uses: mxschmitt/action-tmate@v3
+            - name: Setup tmate session
+              if: failure()
+              uses: mxschmitt/action-tmate@v3
 
             - name: Run /decide read replica tests
               id: run-decide-read-replica-tests
