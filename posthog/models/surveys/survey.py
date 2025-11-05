@@ -1,5 +1,4 @@
 import json
-from re import S
 import uuid
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -360,7 +359,7 @@ def update_survey_iterations(sender, instance, *args, **kwargs):
         instance.current_iteration_start_date = instance.start_date
 
 
-def _get_surveys_response(team: Team) -> dict:
+def _get_surveys_response(team: "Team") -> dict:
     from posthog.api.survey import get_surveys_response
 
     return get_surveys_response(team)
