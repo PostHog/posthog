@@ -410,7 +410,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     },
                     body: JSON.stringify({
                         user_id: String(values.user?.id),
-                        variables,
+                        $variables: variables,
                     }),
                     credentials: 'omit',
                 })
