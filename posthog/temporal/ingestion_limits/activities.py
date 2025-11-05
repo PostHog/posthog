@@ -113,7 +113,7 @@ async def report_ingestion_limits_activity(inputs: ReportIngestionLimitsInput) -
         if should_send_slack:
             try:
                 slack_channel = inputs.workflow_inputs.slack_channel or getattr(
-                    settings, "SLACK_DEFAULT_CHANNEL", "#alerts"
+                    settings, "SLACK_DEFAULT_CHANNEL", "#alerts-ingestion"
                 )
                 slack_message = format_slack_message(inputs.report)
                 await send_to_slack(channel=slack_channel, message=slack_message)
