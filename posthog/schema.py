@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import Enum, StrEnum
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class SchemaRoot(RootModel[Any]):
@@ -13129,7 +13129,7 @@ class TeamTaxonomyQuery(BaseModel):
 
 class TrendsQuery(BaseModel):
     model_config = ConfigDict(
-        extra="allow",  # Temporarily allow extra fields for migration
+        extra="forbid",
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
@@ -13185,18 +13185,6 @@ class TrendsQuery(BaseModel):
     tags: Optional[QueryLogTags] = Field(default=None, description="Tags that will be added to the Query log comment")
     trendsFilter: Optional[TrendsFilter] = Field(default=None, description="Properties specific to the trends insight")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
-
-    @model_validator(mode="before")
-    @classmethod
-    def migrate_exact_time_range(cls, data: Any) -> Any:
-        """Migrate exactTimeRange from TrendsQuery to TrendsFilter"""
-        if isinstance(data, dict) and "exactTimeRange" in data:
-            exact_time_range = data.pop("exactTimeRange")
-            if "trendsFilter" not in data or data["trendsFilter"] is None:
-                data["trendsFilter"] = {}
-            if isinstance(data["trendsFilter"], dict):
-                data["trendsFilter"]["exactTimeRange"] = exact_time_range
-        return data
 
 
 class VectorSearchQuery(BaseModel):
