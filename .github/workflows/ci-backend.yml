@@ -273,29 +273,42 @@ jobs:
                     -H "Accept: application/vnd.github.v3+json" \
                     "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments")
 
-                  # Delete previous risk analysis comments
-                  echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | while read -r comment_id; do
-                    echo "Deleting risk analysis comment $comment_id"
-                    curl -X DELETE \
-                      -H "Authorization: token $GITHUB_TOKEN" \
-                      -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$comment_id"
-                  done
+                  # Extract comment ID if exists
+                  COMMENT_ID=$(echo "$COMMENTS" | jq -r '.[] | select(.body | startswith("## 🔍 Migration Risk Analysis")) | .id' | head -1)
 
                   if [ -n "$RISK_ANALYSIS" ] && echo "$RISK_ANALYSIS" | grep -q "Summary:"; then
-                    # Post risk analysis comment (output already contains markdown formatting with legend)
-                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS"
+                    # Add timestamp to analysis
+                    TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+                    RISK_COMMENT="## 🔍 Migration Risk Analysis\n\nWe've analyzed your migrations for potential risks.\n\n$RISK_ANALYSIS\n\n---\n*Last updated: $TIMESTAMP*"
                     RISK_COMMENT=$(printf '%b' "$RISK_COMMENT")
                     RISK_COMMENT_JSON=$(jq -n --arg body "$RISK_COMMENT" '{body: $body}')
 
-                    echo "Posting risk analysis comment to PR"
-                    curl -X POST \
+                    if [ -n "$COMMENT_ID" ]; then
+                      # Update existing comment
+                      echo "Updating existing risk analysis comment $COMMENT_ID"
+                      curl -X PATCH \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
+                        -d "$RISK_COMMENT_JSON"
+                    else
+                      # Create new comment if none exists
+                      echo "Posting new risk analysis comment to PR"
+                      curl -X POST \
+                        -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+                        -d "$RISK_COMMENT_JSON"
+                    fi
+                  elif [ -n "$COMMENT_ID" ]; then
+                    # No migrations to analyze but comment exists - delete it
+                    echo "Deleting risk analysis comment (no migrations to analyze)"
+                    curl -X DELETE \
                       -H "Authorization: token $GITHUB_TOKEN" \
                       -H "Accept: application/vnd.github.v3+json" \
-                      "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-                      -d "$RISK_COMMENT_JSON"
+                      "https://api.github.com/repos/${{ github.repository }}/issues/comments/$COMMENT_ID"
                   else
-                    echo "No migrations to analyze or risk analysis output empty - previous comments cleaned up"
+                    echo "No migrations to analyze and no existing comment"
                   fi
 
                   # Fail the job if there were blocked migrations
