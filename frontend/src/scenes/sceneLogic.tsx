@@ -848,7 +848,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 const response = await api.get<{
                     tabs?: SceneTab[]
                     homepage?: SceneTab | null
-                }>('api/user_pinned_scene_tabs/@me/')
+                }>('api/user_home_settings/@me/')
                 const tabs = response?.tabs ?? []
                 const homepage = response?.homepage ?? null
                 cache.skipNextPinnedSync = true
@@ -1431,7 +1431,7 @@ export const sceneLogic = kea<sceneLogicType>([
 
             cache.persistPinnedTabsTimeout = window.setTimeout(async () => {
                 try {
-                    await api.update('api/user_pinned_scene_tabs/@me/', {
+                    await api.update('api/user_home_settings/@me/', {
                         tabs: pinnedTabsForPersistence,
                         homepage: homepageForPersistence,
                     })

@@ -523,9 +523,9 @@ router.register(r"login/email-mfa", authentication.EmailMFAViewSet, "login_email
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet, "users")
 router.register(
-    r"user_pinned_scene_tabs",
+    r"user_home_settings",
     user_home_settings.UserHomeSettingsViewSet,
-    "user_pinned_scene_tabs",
+    "user_home_settings",
 )
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
