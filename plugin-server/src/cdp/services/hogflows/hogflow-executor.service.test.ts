@@ -1075,4 +1075,64 @@ describe('Hogflow Executor', () => {
             })
         })
     })
+
+    describe('variable merging', () => {
+        it('merges default and provided variables correctly', () => {
+            const hogFlow: HogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: {},
+                            },
+                        },
+
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                })
+                .build()
+
+            // Set variables directly with required fields
+            hogFlow.variables = [
+                { key: 'foo', default: 'bar', type: 'string', label: 'foo' },
+                { key: 'baz', default: 123, type: 'number', label: 'baz' },
+                { key: 'overrideMe', default: 'defaultValue', type: 'string', label: 'overrideMe' },
+            ]
+
+            const globals = {
+                event: {
+                    event: 'test',
+                    properties: {},
+                    url: '',
+                    distinct_id: '',
+                    timestamp: '',
+                    uuid: '',
+                    elements_chain: '',
+                },
+                person: { id: 'person_id', name: '', properties: {}, url: '' },
+                variables: {
+                    overrideMe: 'customValue',
+                    extra: 'shouldBeIncluded',
+                },
+            }
+            const filterGlobals = createHogExecutionGlobals()
+            const invocation = require('./hogflow-executor.service').createHogFlowInvocation(
+                globals,
+                hogFlow,
+                filterGlobals
+            )
+            expect(invocation.state.variables).toEqual({
+                foo: 'bar',
+                baz: 123,
+                overrideMe: 'customValue',
+                extra: 'shouldBeIncluded',
+            })
+        })
+    })
 })
