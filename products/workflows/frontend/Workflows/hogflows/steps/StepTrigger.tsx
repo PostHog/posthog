@@ -125,6 +125,10 @@ export function StepTriggerConfiguration({
                                               order: 1,
                                               value: '{request.body.user_id}',
                                           },
+                                          method: {
+                                              order: 2,
+                                              value: 'POST',
+                                          },
                                       },
                                   })
                                 : value === 'tracking_pixel'
