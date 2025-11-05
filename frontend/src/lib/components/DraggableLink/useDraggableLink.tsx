@@ -2,9 +2,9 @@ import { useActions } from 'kea'
 import { useState } from 'react'
 
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
-import { getIconTypeFromUrl } from 'lib/utils/iconTypeFromUrl'
 
 import { useNotebookNode } from '~/scenes/notebooks/Nodes/NotebookNodeContext'
+import { getIconTypeFromUrl } from '~/scenes/urls'
 
 import { draggableLinkLogic } from './draggableLinkLogic'
 
