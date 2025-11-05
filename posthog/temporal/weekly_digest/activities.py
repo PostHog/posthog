@@ -484,7 +484,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
 
                         if org_digest.is_empty():
                             logger.warning(
-                                f"Got empty digest for organization, skipping...", organization_id=organization.id
+                                "Got empty digest for organization, skipping...", organization_id=organization.id
                             )
                             empty_org_digest_count += 1
                             continue
@@ -508,7 +508,7 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
 
                             if user_specific_digest.is_empty():
                                 logger.warning(
-                                    f"Got empty digest for user, skipping...",
+                                    "Got empty digest for user, skipping...",
                                     organization_id=organization.id,
                                     user_id=user.id,
                                 )
