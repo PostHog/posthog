@@ -933,6 +933,46 @@
     (SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
             count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
      FROM
+       (SELECT toString(events.uuid) AS id,
+               toString(events.uuid) AS invoice_item_id,
+               'revenue_analytics.events.purchase' AS source_label,
+               toTimeZone(events.timestamp, 'UTC') AS timestamp,
+               timestamp AS created_at,
+               isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '')) AS is_recurring,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
+               toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
+               events.`$group_0` AS group_0_key,
+               events.`$group_1` AS group_1_key,
+               events.`$group_2` AS group_2_key,
+               events.`$group_3` AS group_3_key,
+               events.`$group_4` AS group_4_key,
+               NULL AS invoice_id,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
+               toString(events.`$session_id`) AS session_id,
+               events.event AS event_name,
+               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
+               coupon AS coupon_id,
+               upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
+               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
+               1 AS enable_currency_aware_divider,
+               if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
+               divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
+               'GBP' AS currency,
+               if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
+        FROM events
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1), isNotNull(amount)))
+        ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
+     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'))
+     UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
+                      count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
+     FROM
        (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
                invoice.invoice_item_id AS invoice_item_id,
                'stripe.posthog_test' AS source_label,
@@ -1009,47 +1049,7 @@
                            if(equals(original_currency, currency), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', original_currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', currency, toDate(ifNull(timestamp, toDateTime(0, 'UTC'))), toDecimal64(0, 10))))) AS amount
         FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_charges/posthog_test_stripe_charge/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `paid` Int8, `amount` Int64, `object` String, `source` String, `status` String, `created` DateTime, `invoice` String, `outcome` String, `captured` Int8, `currency` String, `customer` String, `disputed` Int8, `livemode` Int8, `metadata` String, `refunded` Int8, `description` String, `receipt_url` String, `failure_code` String, `fraud_details` String, `radar_options` String, `receipt_email` String, `payment_intent` String, `payment_method` String, `amount_captured` Int64, `amount_refunded` Int64, `billing_details` String, `failure_message` String, `balance_transaction` String, `statement_descriptor` String, `payment_method_details` String, `calculated_statement_descriptor` String') AS posthog_test_stripe_charge
         WHERE and(or(isNull(invoice_id), empty(invoice_id)), equals(posthog_test_stripe_charge.status, 'succeeded'))) AS revenue_analytics_revenue_item
-     WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), ifNull(equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'), 0))
-     UNION ALL SELECT coalesce(accurateCastOrNull(sum(revenue_analytics_revenue_item.amount), 'Decimal64(10)'), accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
-                      count(DISTINCT revenue_analytics_revenue_item.customer_id) AS paying_customer_count
-     FROM
-       (SELECT toString(events.uuid) AS id,
-               toString(events.uuid) AS invoice_item_id,
-               'revenue_analytics.events.purchase' AS source_label,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               timestamp AS created_at,
-               isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '')) AS is_recurring,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'product'), ''), 'null'), '^"|"$', '') AS product_id,
-               toString(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS customer_id,
-               events.`$group_0` AS group_0_key,
-               events.`$group_1` AS group_1_key,
-               events.`$group_2` AS group_2_key,
-               events.`$group_3` AS group_3_key,
-               events.`$group_4` AS group_4_key,
-               NULL AS invoice_id,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'subscription'), ''), 'null'), '^"|"$', '') AS subscription_id,
-               toString(events.`$session_id`) AS session_id,
-               events.event AS event_name,
-               replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'coupon'), ''), 'null'), '^"|"$', '') AS coupon,
-               coupon AS coupon_id,
-               upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')) AS original_currency,
-               accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Decimal64(10)') AS original_amount,
-               1 AS enable_currency_aware_divider,
-               if(enable_currency_aware_divider, accurateCastOrNull(1, 'Decimal64(10)'), accurateCastOrNull(100, 'Decimal64(10)')) AS currency_aware_divider,
-               divideDecimal(original_amount, currency_aware_divider) AS currency_aware_amount,
-               'GBP' AS currency,
-               if(isNull(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', ''))), accurateCastOrNull(currency_aware_amount, 'Decimal64(10)'), if(equals(upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), 'GBP'), toDecimal64(currency_aware_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(currency_aware_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', upper(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'GBP', toDate(toTimeZone(events.timestamp, 'UTC')), toDecimal64(0, 10)))))) AS amount
-        FROM events
-        LEFT OUTER JOIN
-          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                  person_distinct_id_overrides.distinct_id AS distinct_id
-           FROM person_distinct_id_overrides
-           WHERE equals(person_distinct_id_overrides.team_id, 99999)
-           GROUP BY person_distinct_id_overrides.distinct_id
-           HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-        WHERE and(equals(events.team_id, 99999), and(equals(events.event, 'purchase'), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'currency'), ''), 'null'), '^"|"$', '')), '%ARS%'), 1), isNotNull(amount)))
-        ORDER BY timestamp DESC) AS revenue_analytics_revenue_item
-     WHERE and(and(greaterOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(revenue_analytics_revenue_item.timestamp, 'UTC'), assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC')))), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase')))
+     WHERE and(and(ifNull(greaterOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(revenue_analytics_revenue_item.timestamp, assumeNotNull(toDateTime('2024-01-31 23:59:59', 'UTC'))), 0)), ifNull(greater(revenue_analytics_revenue_item.amount, accurateCastOrNull(0, 'Decimal64(10)')), 0), ifNull(equals(revenue_analytics_revenue_item.source_label, 'revenue_analytics.events.purchase'), 0)))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
