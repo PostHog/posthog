@@ -69,7 +69,7 @@ class Consumer:
             BatchExportResult:
                 - The total number of records in all consumed record batches. If an
                   error occurs, this will be None.
-                - The total number of bytes exported (this is the size of the actual
+                - The total number of bytes exported (this is the size of the actual data
                   exported, which takes into account the file type and compression). If
                   an error occurs, this will be None.
                 - The error that occurred, if any. If no error occurred, this will be
