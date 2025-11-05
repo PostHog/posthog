@@ -323,6 +323,161 @@
                     allow_experimental_join_condition=1
   '''
 # ---
+# name: TestFunnelUnorderedStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot
+  '''
+  SELECT sum(step_1) AS step_1,
+         sum(step_2) AS step_2,
+         if(isNaN(avgArrayOrNull(step_1_conversion_time_array) AS inter_1_conversion), NULL, inter_1_conversion) AS step_1_average_conversion_time,
+         if(isNaN(medianArrayOrNull(step_1_conversion_time_array) AS inter_1_median), NULL, inter_1_median) AS step_1_median_conversion_time,
+         if(ifNull(less(row_number, 26), 0), prop, ['Other']) AS final_prop
+  FROM
+    (SELECT countIf(ifNull(equals(steps, 1), 0)) AS step_1,
+            countIf(ifNull(equals(steps, 2), 0)) AS step_2,
+            groupArray(step_1_conversion_time) AS step_1_conversion_time_array,
+            prop AS prop,
+            row_number() OVER (
+                               ORDER BY step_2 DESC) AS row_number
+     FROM
+       (SELECT aggregation_target AS aggregation_target,
+               steps AS steps,
+               prop AS prop,
+               prop AS prop,
+               min(step_1_conversion_time) AS step_1_conversion_time
+        FROM
+          (SELECT aggregation_target AS aggregation_target,
+                  steps AS steps,
+                  prop AS prop,
+                  max(steps) OVER (PARTITION BY aggregation_target,
+                                                prop) AS max_steps,
+                                  step_1_conversion_time AS step_1_conversion_time,
+                                  prop AS prop
+           FROM
+             (SELECT aggregation_target AS aggregation_target,
+                     timestamp AS timestamp,
+                     step_0 AS step_0,
+                     latest_0 AS latest_0,
+                     step_1 AS step_1,
+                     latest_1 AS latest_1,
+                     prop AS prop,
+                     arraySort([latest_0, latest_1]) AS event_times,
+                     arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
+                     arraySort([latest_0, latest_1]) AS conversion_times,
+                     if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(toTimeZone(conversion_times[1], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time
+              FROM
+                (SELECT aggregation_target AS aggregation_target,
+                        timestamp AS timestamp,
+                        step_0 AS step_0,
+                        latest_0 AS latest_0,
+                        step_1 AS step_1,
+                        min(latest_1) OVER (PARTITION BY aggregation_target,
+                                                         prop
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1,
+                                           prop AS prop
+                 FROM
+                   (SELECT timestamp AS timestamp,
+                           aggregation_target AS aggregation_target,
+                           step_0 AS step_0,
+                           latest_0 AS latest_0,
+                           step_1 AS step_1,
+                           latest_1 AS latest_1,
+                           prop_basic AS prop_basic,
+                           prop,
+                           prop_vals AS prop_vals,
+                           if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['', '']) AS prop
+                    FROM
+                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                              if(equals(e.event, 'sign up'), 1, 0) AS step_0,
+                              if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                              if(equals(e.event, 'buy'), 1, 0) AS step_1,
+                              if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
+                              [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                              prop_basic AS prop,
+                              argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
+                       FROM events AS e
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
+              WHERE ifNull(equals(step_0, 1), 0)
+              UNION ALL SELECT aggregation_target AS aggregation_target,
+                               timestamp AS timestamp,
+                               step_0 AS step_0,
+                               latest_0 AS latest_0,
+                               step_1 AS step_1,
+                               latest_1 AS latest_1,
+                               prop AS prop,
+                               arraySort([latest_0, latest_1]) AS event_times,
+                               arraySum([if(and(ifNull(less(latest_0, latest_1), 0), ifNull(lessOrEquals(latest_1, plus(toTimeZone(latest_0, 'UTC'), toIntervalDay(14))), 0)), 1, 0), 1]) AS steps,
+                               arraySort([latest_0, latest_1]) AS conversion_times,
+                               if(and(isNotNull(conversion_times[2]), ifNull(lessOrEquals(conversion_times[2], plus(toTimeZone(conversion_times[1], 'UTC'), toIntervalDay(14))), 0)), dateDiff('second', conversion_times[1], conversion_times[2]), NULL) AS step_1_conversion_time
+              FROM
+                (SELECT aggregation_target AS aggregation_target,
+                        timestamp AS timestamp,
+                        step_0 AS step_0,
+                        latest_0 AS latest_0,
+                        step_1 AS step_1,
+                        min(latest_1) OVER (PARTITION BY aggregation_target,
+                                                         prop
+                                            ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) AS latest_1,
+                                           prop AS prop
+                 FROM
+                   (SELECT timestamp AS timestamp,
+                           aggregation_target AS aggregation_target,
+                           step_0 AS step_0,
+                           latest_0 AS latest_0,
+                           step_1 AS step_1,
+                           latest_1 AS latest_1,
+                           prop_basic AS prop_basic,
+                           prop,
+                           prop_vals AS prop_vals,
+                           if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['', '']) AS prop
+                    FROM
+                      (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                              if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS aggregation_target,
+                              if(equals(e.event, 'buy'), 1, 0) AS step_0,
+                              if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                              if(equals(e.event, 'sign up'), 1, 0) AS step_1,
+                              if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
+                              [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
+                              prop_basic AS prop,
+                              argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) OVER (PARTITION BY aggregation_target) AS prop_vals
+                       FROM events AS e
+                       LEFT OUTER JOIN
+                         (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                                 person_distinct_id_overrides.distinct_id AS distinct_id
+                          FROM person_distinct_id_overrides
+                          WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                          GROUP BY person_distinct_id_overrides.distinct_id
+                          HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('buy', 'sign up'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))))
+              WHERE ifNull(equals(step_0, 1), 0)))
+        GROUP BY aggregation_target,
+                 steps,
+                 prop
+        HAVING ifNull(equals(steps, max(max_steps)), isNull(steps)
+                      and isNull(max(max_steps))))
+     GROUP BY prop)
+  GROUP BY final_prop
+  ORDER BY step_2 DESC,
+           step_1 DESC
+  LIMIT 26 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=23622320128,
+                    allow_experimental_analyzer=1,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
   '''
   SELECT sum(step_1) AS step_1,
