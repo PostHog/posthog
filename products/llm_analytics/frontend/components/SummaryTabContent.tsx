@@ -4,14 +4,11 @@
  * Provides AI-powered summarization of LLM traces and events with line references.
  */
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { LemonButton, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
@@ -160,7 +157,7 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
                     <div className="flex-1 flex flex-col min-h-0">
                         <h4 className="font-semibold mb-2">Text Representation</h4>
                         <div className="border rounded flex-1 overflow-hidden">
-                            <TextReprDisplay textRepr={summaryData.text_repr} trace={trace} event={event} />
+                            <TextReprDisplay textRepr={summaryData.text_repr} />
                         </div>
                     </div>
                 </>
@@ -373,43 +370,11 @@ function SummaryRenderer({ summary }: { summary: StructuredSummary }): JSX.Eleme
 }
 
 /**
- * Displays line-numbered text representation with clickable line numbers
- * that link to the Conversation tab's text view
+ * Displays line-numbered text representation
  */
-function TextReprDisplay({ textRepr, event }: { textRepr: string; event?: LLMTraceEvent }): JSX.Element {
+function TextReprDisplay({ textRepr }: { textRepr: string }): JSX.Element {
     // Parse text repr to add line anchors
     const lines = textRepr.split('\n')
-
-    const handleLineClick = (lineNumber: number): void => {
-        // Update URL with line parameter
-        const url = new URL(window.location.href)
-        url.searchParams.set('line', lineNumber.toString())
-
-        // If we're viewing a specific event's summary, ensure the URL includes that event ID
-        // This prevents defaulting to the top-level trace
-        if (event) {
-            // Update the path to include the event ID
-            const pathParts = url.pathname.split('/')
-            const traceIndex = pathParts.findIndex((part) => part === 'traces')
-            if (traceIndex !== -1 && traceIndex + 1 < pathParts.length) {
-                // Replace or add the event ID after the trace ID
-                pathParts[traceIndex + 1] = event.id
-                url.pathname = pathParts.join('/')
-            }
-        }
-
-        const fullUrl = url.toString()
-
-        // Copy URL to clipboard
-        void copyToClipboard(fullUrl, 'line reference URL')
-
-        // Navigate to the URL, which will be picked up by the Conversation tab's text view
-        router.actions.push(url.pathname + url.search)
-
-        // Note: User will need to manually switch to Conversation tab and TextView mode
-        // to see the highlighted line. We don't auto-switch to avoid disrupting workflow.
-        lemonToast.info('Line reference URL copied. Switch to Conversation → Text view to see highlighted line.')
-    }
 
     return (
         <div className="p-4 overflow-auto h-full font-mono text-xs whitespace-pre bg-bg-light">
@@ -427,19 +392,7 @@ function TextReprDisplay({ textRepr, event }: { textRepr: string; event?: LLMTra
                         id={lineNumber ? `summary-line-${lineNumber}` : undefined}
                         className="transition-all duration-300 ease-in-out"
                     >
-                        {linePrefix && lineNumber ? (
-                            <Tooltip title="Click to link to this line in Conversation text view">
-                                <button
-                                    type="button"
-                                    className="text-muted hover:text-link cursor-pointer"
-                                    onClick={() => handleLineClick(lineNumber)}
-                                >
-                                    {linePrefix}
-                                </button>
-                            </Tooltip>
-                        ) : (
-                            linePrefix && <span className="text-muted">{linePrefix}</span>
-                        )}
+                        {linePrefix && <span className="text-muted">{linePrefix}</span>}
                         {lineContent}
                     </div>
                 )
