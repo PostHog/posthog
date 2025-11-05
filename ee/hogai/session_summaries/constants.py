@@ -35,8 +35,9 @@ FAILED_PATTERNS_ENRICHMENT_MIN_RATIO = 0.75  # If less than 75% of patterns were
 MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH = 150  # Maximum string of combined session ids to log in a readable format
 
 # Videos to validate issues in summaries
-SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO = 5
-VALIDATION_VIDEO_DURATION = 10
+SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO = 7
+VALIDATION_VIDEO_DURATION = 12
+VALIDATION_VIDEO_RENDERING_DELAY = 2  # Don't analyze first seconds of the video, as it could include malformed frames
 VALIDATION_VIDEO_PLAYBACK_SPEED = 16  # We don't need minor details, as LLM needs 1 frame per second
 FAILED_MOMENTS_MIN_RATIO = 0.5  # If less than 50% of moments failed to generate videos, fail the analysis
 EXPIRES_AFTER_DAYS = 90  # How long to store the videos used for validation

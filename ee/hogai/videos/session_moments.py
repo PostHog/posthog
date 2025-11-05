@@ -30,6 +30,7 @@ from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
     VALIDATION_VIDEO_DURATION,
     VALIDATION_VIDEO_PLAYBACK_SPEED,
+    VALIDATION_VIDEO_RENDERING_DELAY,
 )
 
 logger = structlog.get_logger(__name__)
@@ -234,7 +235,11 @@ class SessionMomentsLLMAnalyzer:
                 return None
             # Calculate how many seconds to skip from the start, as Puppeteer needs time to render the export UI
             total_video_duration = self._get_webm_duration(video_bytes=video_bytes)
-            start_offset_s = total_video_duration - VALIDATION_VIDEO_DURATION if total_video_duration else None
+            start_offset_s = (
+                total_video_duration - VALIDATION_VIDEO_DURATION + VALIDATION_VIDEO_RENDERING_DELAY
+                if total_video_duration
+                else None
+            )
             # Analyze the video with LLM
             content = await self._provider.understand_video(
                 video_bytes=video_bytes,
