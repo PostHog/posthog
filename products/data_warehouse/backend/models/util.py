@@ -42,6 +42,38 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
     return table
 
 
+def validate_source_prefix(prefix: str | None) -> tuple[bool, str]:
+    """
+    Validate that prefix will form valid HogQL/ClickHouse identifiers.
+
+    Valid prefixes must:
+    - Contain only letters, numbers, and underscores
+    - Start with a letter or underscore
+    - Not be empty after stripping underscores
+
+    Returns:
+        tuple[bool, str]: (is_valid, error_message)
+    """
+    if not prefix:
+        return True, ""  # Empty/None prefix is allowed
+
+    # Strip underscores that will be stripped during table name construction
+    cleaned = prefix.strip("_")
+
+    if not cleaned:
+        return False, "Prefix cannot consist of only underscores"
+
+    # Check if prefix matches HogQL identifier rules
+    # Must start with letter or underscore, contain only letters, digits, underscores
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", cleaned):
+        return (
+            False,
+            "Prefix must contain only letters, numbers, and underscores, and start with a letter or underscore",
+        )
+
+    return True, ""
+
+
 def remove_named_tuples(type):
     """Remove named tuples from query"""
     from products.data_warehouse.backend.models.table import CLICKHOUSE_HOGQL_MAPPING

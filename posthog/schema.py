@@ -1271,6 +1271,26 @@ class ExperimentExposureTimeSeries(BaseModel):
     variant: str
 
 
+class ExperimentMaxBayesianContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chance_to_win: float
+    credible_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    significant: bool
+
+
+class ExperimentMaxFrequentistContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_interval: list[float] = Field(..., max_length=2, min_length=2)
+    key: str
+    p_value: float
+    significant: bool
+
+
 class ExperimentMetricGoal(StrEnum):
     INCREASE = "increase"
     DECREASE = "decrease"
@@ -1318,6 +1338,11 @@ class ExperimentSignificanceCode(StrEnum):
     HIGH_P_VALUE = "high_p_value"
 
 
+class ExperimentStatsMethod(StrEnum):
+    BAYESIAN = "bayesian"
+    FREQUENTIST = "frequentist"
+
+
 class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
     BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
@@ -1344,6 +1369,7 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
 
 
 class ExternalDataSourceType(StrEnum):
+    CUSTOMER_IO = "CustomerIO"
     GITHUB = "Github"
     STRIPE = "Stripe"
     HUBSPOT = "Hubspot"
@@ -2010,6 +2036,26 @@ class MaxEventContext(BaseModel):
     id: str
     name: Optional[str] = None
     type: Literal["event"] = "event"
+
+
+class MaxExperimentVariantResultBayesian(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chance_to_win: Optional[float] = None
+    credible_interval: Optional[list[float]] = None
+    key: str
+    significant: bool
+
+
+class MaxExperimentVariantResultFrequentist(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_interval: Optional[list[float]] = None
+    key: str
+    p_value: Optional[float] = None
+    significant: bool
 
 
 class MaxProductInfo(BaseModel):
@@ -2893,6 +2939,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
+    ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
     MAX_AI_CONTEXT = "max_ai_context"
 
 
@@ -4394,6 +4441,26 @@ class MaxBillingContextBillingPeriod(BaseModel):
     current_period_end: str
     current_period_start: str
     interval: MaxBillingContextBillingPeriodInterval
+
+
+class MaxExperimentMetricResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str
+    variant_results: list[Union[MaxExperimentVariantResultBayesian, MaxExperimentVariantResultFrequentist]]
+
+
+class MaxExperimentSummaryContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    experiment_id: Union[float, str]
+    experiment_name: str
+    metrics_results: list[MaxExperimentMetricResult]
+    stats_method: ExperimentStatsMethod
+    variants: list[str]
 
 
 class NewExperimentQueryResponse(BaseModel):

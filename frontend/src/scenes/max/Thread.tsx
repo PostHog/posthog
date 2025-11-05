@@ -66,7 +66,7 @@ import {
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery } from '~/queries/utils'
+import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
@@ -1007,6 +1007,12 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     }, [isEditingInsight])
 
     const query = useMemo(() => visualizationTypeToQuery(message), [message])
+    const queryWithShowHeader = useMemo(() => {
+        if (query && isInsightVizNode(query)) {
+            return { ...query, showHeader: true }
+        }
+        return query
+    }, [query])
 
     return status !== 'completed'
         ? null
@@ -1045,7 +1051,11 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                                       to={
                                           message.short_id
                                               ? urls.insightView(message.short_id as InsightShortId)
-                                              : urls.insightNew({ query })
+                                              : urls.insightNew({
+                                                    query: queryWithShowHeader as
+                                                        | InsightVizNode
+                                                        | DataVisualizationNode,
+                                                })
                                       }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"
