@@ -2,10 +2,9 @@ import { actions, events, kea, key, listeners, path, props, selectors } from 'ke
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 
 import { hogql } from '~/queries/utils'
-import { RecordingEventType } from '~/types'
+import { SessionEventType } from '~/types'
 
 import type { sessionProfileLogicType } from './sessionProfileLogicType'
 
@@ -44,6 +43,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
     actions({
         loadSessionData: true,
         loadSessionEvents: true,
+        loadEventDetails: (eventId: string) => ({ eventId }),
     }),
     loaders(({ props }) => ({
         sessionData: [
@@ -112,7 +112,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
             },
         ],
         sessionEvents: [
-            null as RecordingEventType[] | null,
+            null as SessionEventType[] | null,
             {
                 loadSessionEvents: async () => {
                     const eventsQuery = hogql`
@@ -120,11 +120,16 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                             uuid,
                             event,
                             timestamp,
-                            elements_chain,
                             properties.$window_id,
                             properties.$current_url,
                             properties.$event_type,
-                            properties,
+                            properties.$screen_name,
+                            properties.$pathname,
+                            properties.$exception_type,
+                            properties.$exception_message,
+                            properties.$console_log_level,
+                            properties.$response_status,
+                            properties.$exception_list,
                             distinct_id
                         FROM events
                         WHERE $session_id = ${props.sessionId}
@@ -134,21 +139,82 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
 
                     const response = await api.queryHogQL(eventsQuery)
 
-                    return (response.results || []).map((row: any): RecordingEventType => {
+                    return (response.results || []).map((row: any): SessionEventType => {
+                        const properties: Record<string, any> = {}
+
+                        // Only add properties if they have values (not null/undefined)
+                        if (row[4] != null) {
+                            properties.$window_id = row[4]
+                        }
+                        if (row[5] != null) {
+                            properties.$current_url = row[5]
+                        }
+                        if (row[6] != null) {
+                            properties.$event_type = row[6]
+                        }
+                        if (row[7] != null) {
+                            properties.$screen_name = row[7]
+                        }
+                        if (row[8] != null) {
+                            properties.$pathname = row[8]
+                        }
+                        if (row[9] != null) {
+                            properties.$exception_type = row[9]
+                        }
+                        if (row[10] != null) {
+                            properties.$exception_message = row[10]
+                        }
+                        if (row[11] != null) {
+                            properties.$console_log_level = row[11]
+                        }
+                        if (row[12] != null) {
+                            properties.$response_status = row[12]
+                        }
+
+                        // Parse $exception_list if it exists (comes as JSON string)
+                        if (row[13] != null) {
+                            try {
+                                properties.$exception_list = JSON.parse(row[13])
+                            } catch (e) {
+                                console.error(e)
+                                properties.$exception_list = []
+                            }
+                        }
+
                         return {
                             id: row[0],
                             event: row[1],
                             timestamp: row[2],
-                            properties: {
-                                ...row[7],
-                                $window_id: row[4],
-                                $current_url: row[5],
-                                $event_type: row[6],
-                            },
-                            distinct_id: row[8],
+                            properties,
+                            distinct_id: row[14],
                             fullyLoaded: false,
                         }
                     })
+                },
+            },
+        ],
+        eventDetails: [
+            {} as Record<string, Record<string, any>>,
+            {
+                loadEventDetails: async ({ eventId }) => {
+                    // Fetch full properties for the specific event
+                    const detailsQuery = hogql`
+                        SELECT properties, uuid
+                        FROM events
+                        WHERE uuid = ${eventId}
+                        LIMIT 1
+                    `
+
+                    const response = await api.queryHogQL(detailsQuery)
+
+                    if (!response.results || response.results.length === 0) {
+                        return {}
+                    }
+
+                    const [propertiesJson, uuid] = response.results[0]
+                    const fullProperties = JSON.parse(propertiesJson)
+
+                    return { [uuid]: fullProperties }
                 },
             },
         ],
@@ -186,15 +252,37 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                 sessionDataLoading || sessionEventsLoading,
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadSessionData: () => {
-            console.log('JFBW: Loading session data')
             actions.loadSessionEvents()
+        },
+        loadEventDetailsSuccess: ({ eventDetails }) => {
+            // After loading event details, update the sessionEvents array
+            const events = values.sessionEvents
+            if (!events || !eventDetails || Object.keys(eventDetails).length === 0) {
+                return
+            }
+
+            const updatedEvents = events.map((event) => {
+                const fullProperties = eventDetails[event.id]
+                if (fullProperties) {
+                    return {
+                        ...event,
+                        properties: {
+                            ...event.properties,
+                            ...fullProperties,
+                        },
+                        fullyLoaded: true,
+                    }
+                }
+                return event
+            })
+
+            actions.loadSessionEventsSuccess(updatedEvents)
         },
     })),
     events(({ actions }) => ({
         afterMount: () => {
-            console.log('JFBW: Logic mounted, loading session data')
             actions.loadSessionData()
         },
     })),
