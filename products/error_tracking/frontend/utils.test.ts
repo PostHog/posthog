@@ -1,16 +1,8 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import {
-    generateDateRangeLabel,
-    generateSparklineLabels,
-    mergeIssues,
-    resolveDate,
-    resolveDateRange,
-    sourceDisplay,
-} from './utils'
 import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
-import { generateDateRangeLabel, mergeIssues } from './utils'
+import { generateDateRangeLabel, mergeIssues, sourceDisplay } from './utils'
 
 function wrapVolumeBuckets(
     initialDate: Dayjs,
@@ -40,7 +32,6 @@ describe('mergeIssues', () => {
             },
             library: 'web',
             status: 'active',
-            earliest: '',
             function: '<anonymous>',
             source: 'path/file.py',
             external_issues: [],
@@ -122,13 +113,9 @@ describe('mergeIssues', () => {
                 users: 102,
                 volume_buckets: wrapVolumeBuckets(initialDate, [0, 500, 1510, 1026, 1406]),
             },
-<<<<<<< HEAD:frontend/src/scenes/error-tracking/utils.test.ts
             function: '<anonymous>',
             source: 'path/file.py',
-        })
-=======
         } satisfies ErrorTrackingIssue)
->>>>>>> master:products/error_tracking/frontend/utils.test.ts
     })
 })
 
