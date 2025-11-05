@@ -153,7 +153,13 @@ export function SessionEventItem({
                     <div className="flex items-center p-0.5">
                         <EventIcon />
                     </div>
-                    <TZLabel time={event.timestamp} className="text-xs text-muted-alt min-w-32" />
+                    <TZLabel
+                        time={event.timestamp}
+                        formatDate="MMMM DD, YYYY"
+                        formatTime="h:mm:ss A"
+                        showPopover={false}
+                        className="text-xs text-muted-alt min-w-32"
+                    />
                     <span className="font-semibold truncate max-w-40">{event.event}</span>
                     {event.event === '$exception' ? (
                         <ExceptionTitlePill event={event} />
@@ -187,7 +193,9 @@ export function SessionEventItem({
                         highlightColor === 'primary' && 'bg-fill-success-highlight'
                     )}
                 >
-                    <SessionEventDetails event={event} />
+                    <div className="max-h-[400px] overflow-y-auto">
+                        <SessionEventDetails event={event} />
+                    </div>
                 </div>
             )}
         </div>

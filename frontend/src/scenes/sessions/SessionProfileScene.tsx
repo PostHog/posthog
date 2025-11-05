@@ -1,7 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -24,26 +26,47 @@ export const scene: SceneExport<SessionProfileLogicProps> = {
 }
 
 export function SessionProfileScene(): JSX.Element {
-    const { sessionData, sessionEvents, sessionDuration, uniqueUrlCount, totalEventCount, isLoading } =
-        useValues(sessionProfileLogic)
-    const { loadSessionData, loadEventDetails } = useActions(sessionProfileLogic)
+    const {
+        sessionData,
+        sessionEvents,
+        sessionDuration,
+        uniqueUrlCount,
+        totalEventCount,
+        categorizedEventCount,
+        otherEventCount,
+        isInitialLoading,
+        isLoadingMore,
+        hasMoreEvents,
+        sortOrder,
+    } = useValues(sessionProfileLogic)
+    const { loadEventDetails, loadSessionData, loadMoreSessionEvents, setSortOrder } = useActions(sessionProfileLogic)
 
-    if (!sessionData && !isLoading) {
+    if (!sessionData && !isInitialLoading) {
         return <NotFound object="session" />
     }
 
-    if (isLoading) {
+    if (isInitialLoading) {
         return <SpinnerOverlay sceneLevel />
     }
 
     return (
         <SceneContent>
-            <SceneTitleSection
-                name="Session Profile"
-                resourceType={{
-                    type: sceneConfigurations[Scene.SessionProfile].iconType || 'default_icon_type',
-                }}
-            />
+            <div className="flex items-center justify-between">
+                <SceneTitleSection
+                    name="Session Profile"
+                    resourceType={{
+                        type: sceneConfigurations[Scene.SessionProfile].iconType || 'default_icon_type',
+                    }}
+                />
+                <LemonButton
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    onClick={() => loadSessionData()}
+                    loading={isInitialLoading}
+                >
+                    Refresh
+                </LemonButton>
+            </div>
             <SceneDivider />
 
             <div className="space-y-4">
@@ -51,11 +74,19 @@ export function SessionProfileScene(): JSX.Element {
                     <div className="flex flex-wrap gap-x-6 gap-y-2">
                         <div>
                             <div className="text-xs text-muted-alt">Session ID</div>
-                            <div className="font-mono text-sm">{sessionData.session_id}</div>
+                            <div className="font-mono text-sm">
+                                <CopyToClipboardInline description="session ID">
+                                    {sessionData.session_id}
+                                </CopyToClipboardInline>
+                            </div>
                         </div>
                         <div>
                             <div className="text-xs text-muted-alt">Distinct ID</div>
-                            <div className="font-mono text-sm">{sessionData.distinct_id}</div>
+                            <div className="font-mono text-sm">
+                                <CopyToClipboardInline description="distinct ID">
+                                    {sessionData.distinct_id}
+                                </CopyToClipboardInline>
+                            </div>
                         </div>
                         <div>
                             <div className="text-xs text-muted-alt">Start time</div>
@@ -75,22 +106,27 @@ export function SessionProfileScene(): JSX.Element {
                 <SessionMetricsCard
                     duration={sessionDuration}
                     uniqueUrlCount={uniqueUrlCount}
-                    totalEventCount={totalEventCount}
+                    totalEventCount={totalEventCount || categorizedEventCount}
                     pageviewCount={sessionData?.pageview_count}
                     autocaptureCount={sessionData?.autocapture_count}
                     screenCount={sessionData?.screen_count}
-                    isLoading={isLoading}
+                    otherEventCount={otherEventCount}
+                    isLoading={isInitialLoading}
                 />
 
-                <SessionDetailsCard sessionData={sessionData} isLoading={isLoading} />
+                <SessionDetailsCard sessionData={sessionData} isLoading={isInitialLoading} />
 
-                <SessionEventsList events={sessionEvents} isLoading={isLoading} onLoadEventDetails={loadEventDetails} />
-
-                <div className="flex gap-2">
-                    <LemonButton type="secondary" onClick={() => loadSessionData()}>
-                        Refresh
-                    </LemonButton>
-                </div>
+                <SessionEventsList
+                    events={sessionEvents}
+                    totalEventCount={totalEventCount}
+                    isLoading={isInitialLoading}
+                    isLoadingMore={isLoadingMore}
+                    hasMoreEvents={hasMoreEvents}
+                    onLoadEventDetails={loadEventDetails}
+                    onLoadMoreEvents={loadMoreSessionEvents}
+                    sortOrder={sortOrder}
+                    onSortOrderChange={setSortOrder}
+                />
             </div>
         </SceneContent>
     )
