@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
@@ -21,8 +21,9 @@ export interface ConfigurePinnedTabsModalProps {
 export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTabsModalProps): JSX.Element {
     const { tabs, homepage } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { rawDashboards } = useValues(dashboardsModel)
+    const { rawDashboards, nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
     const { pinTab, unpinTab, setHomepage } = useActions(sceneLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
 
     const homepageTabForDisplay = homepage ? (tabs.find((tab) => tab.id === homepage.id) ?? homepage) : null
     const isUsingProjectDefault = !homepage
@@ -44,6 +45,14 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
         : isUsingNewTabHomepage
           ? 'New tab page'
           : null
+
+    const projectDefaultDashboardOptions: LemonSelectOptions<number | null> = [
+        { value: null, label: 'No default dashboard (open new tab)' },
+        ...nameSortedDashboards.map((dashboard) => ({
+            value: dashboard.id,
+            label: dashboard.name || 'Untitled',
+        })),
+    ]
 
     const homepageIcon = homepageTabForDisplay?.iconType
     const homepageIconElement = iconForType(
@@ -138,10 +147,10 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
             <div className="space-y-6">
                 {renderSection(
                     'Pinned tabs',
-                    'Pinned tabs are visible only to you and persist between sessions and devices.',
+                    'Pinned tabs are only visible to you and persist with the project.',
                     personalPinnedTabs,
                     (tab) => [homepageAction(tab), { label: 'Unpin', onClick: () => unpinTab(tab.id) }],
-                    'No personal pinned tabs yet.',
+                    'No pinned tabs yet.',
                     (tab) => homepage?.id === tab.id
                 )}
                 {renderSection(
@@ -155,7 +164,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                 <section className="space-y-3">
                     <div>
                         <h3 className="text-lg font-semibold text-primary">Homepage</h3>
-                        <p className="text-sm text-muted-alt">Choose where you land when you open PostHog.</p>
+                        <p className="text-sm text-muted-alt">Choose your personal homepage for this project.</p>
                     </div>
                     <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-surface-primary">
                         <div className="flex min-w-0 items-center gap-2">
@@ -186,6 +195,22 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                             </LemonButton>
                         </div>
                     </div>
+                </section>
+                <section className="space-y-3">
+                    <div>
+                        <h3 className="text-lg font-semibold text-primary">Project default dashboard</h3>
+                        <p className="text-sm text-muted-alt">
+                            This dashboard opens by default for everyone who has not set a custom homepage.
+                        </p>
+                    </div>
+                    <LemonSelect<number | null>
+                        className="w-full"
+                        fullWidth
+                        options={projectDefaultDashboardOptions}
+                        value={projectDefaultDashboardId}
+                        onChange={(dashboardId) => updateCurrentTeam({ primary_dashboard: dashboardId ?? null })}
+                        disabledReason={dashboardsLoading ? 'Loading dashboards…' : undefined}
+                    />
                 </section>
             </div>
         </LemonModal>
