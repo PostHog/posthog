@@ -148,13 +148,38 @@ function SummaryRenderer({
                     className="text-link hover:underline font-semibold cursor-pointer"
                     onClick={(e) => {
                         e.preventDefault()
-                        const element = document.getElementById(`line-${startLine}`)
-                        if (element) {
-                            element.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                            // Briefly highlight the line
-                            element.classList.add('bg-primary-highlight')
-                            setTimeout(() => element.classList.remove('bg-primary-highlight'), 2000)
+
+                        // Handle line ranges (e.g., [L45-52]) by highlighting all lines in range
+                        const start = parseInt(startLine)
+                        const end = endLine ? parseInt(endLine) : start
+
+                        // Scroll to the first line
+                        const firstElement = document.getElementById(`line-${start}`)
+                        if (firstElement) {
+                            firstElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
                         }
+
+                        // Highlight all lines in the range
+                        for (let i = start; i <= end; i++) {
+                            const element = document.getElementById(`line-${i}`)
+                            if (element) {
+                                element.classList.add('bg-warning-highlight')
+                                element.classList.add('border-l-4')
+                                element.classList.add('border-warning')
+                            }
+                        }
+
+                        // Remove highlight after 3 seconds
+                        setTimeout(() => {
+                            for (let i = start; i <= end; i++) {
+                                const element = document.getElementById(`line-${i}`)
+                                if (element) {
+                                    element.classList.remove('bg-warning-highlight')
+                                    element.classList.remove('border-l-4')
+                                    element.classList.remove('border-warning')
+                                }
+                            }
+                        }, 3000)
                     }}
                 >
                     {displayText}
@@ -214,7 +239,7 @@ function TextReprDisplay({ textRepr }: { textRepr: string }): JSX.Element {
                     <div
                         key={index}
                         id={lineNumber ? `line-${lineNumber}` : undefined}
-                        className="hover:bg-accent transition-colors"
+                        className="hover:bg-accent transition-all duration-300 ease-in-out"
                     >
                         {line}
                     </div>
