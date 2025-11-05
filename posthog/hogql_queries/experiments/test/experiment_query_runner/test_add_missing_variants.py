@@ -1,3 +1,5 @@
+from typing import cast
+
 from freezegun import freeze_time
 
 from django.test import override_settings
@@ -40,7 +42,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
             (None, ExperimentStatsBase(key="test", number_of_samples=150, sum=400.0, sum_squares=1200.0)),
         ]
 
-        result = runner._add_missing_variants(variants)
+        result = runner._add_missing_variants(cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants))
 
         assert len(result) == 2
         assert result == variants
@@ -59,7 +61,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
             (None, ExperimentStatsBase(key="control", number_of_samples=100, sum=250.0, sum_squares=750.0)),
         ]
 
-        result = runner._add_missing_variants(variants)
+        result = runner._add_missing_variants(cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants))
 
         assert len(result) == 2
         assert result[0][1].key == "control"
@@ -91,7 +93,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
             (None, ExperimentStatsBase(key="control", number_of_samples=100, sum=250.0, sum_squares=750.0)),
         ]
 
-        result = runner._add_missing_variants(variants)
+        result = runner._add_missing_variants(cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants))
 
         assert len(result) == 3
         keys = [v[1].key for v in result]
@@ -115,7 +117,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
             (("Safari",), ExperimentStatsBase(key="control", number_of_samples=50, sum=150.0, sum_squares=450.0)),
         ]
 
-        result = runner._add_missing_variants(variants)
+        result = runner._add_missing_variants(cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants))
 
         assert len(result) == 4  # 2 control + 2 test
         # Check test variants were added for both breakdowns
@@ -151,7 +153,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
             ),
         ]
 
-        result = runner._add_missing_variants(variants)
+        result = runner._add_missing_variants(cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants))
 
         assert len(result) == 4  # 2 control + 2 test
         test_variants = [v for v in result if v[1].key == "test"]
@@ -169,7 +171,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
         query = ExperimentQuery(experiment_id=self.experiment.id, kind="ExperimentQuery", metric=metric)
         runner = ExperimentQueryRunner(query=query, team=self.team)
 
-        variants = []
+        variants: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]] = []
 
         result = runner._add_missing_variants(variants)
 
@@ -195,7 +197,9 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
             (None, ExperimentStatsBase(key="control", number_of_samples=100, sum=250.0, sum_squares=750.0)),
         ]
 
-        result = runner._add_missing_variants(original_variants)
+        result = runner._add_missing_variants(
+            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], original_variants)
+        )
 
         # Original variant should be unchanged
         assert result[0] == original_variants[0]
@@ -219,7 +223,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
             (("Firefox",), ExperimentStatsBase(key="control", number_of_samples=20, sum=50.0, sum_squares=150.0)),
         ]
 
-        result = runner._add_missing_variants(variants)
+        result = runner._add_missing_variants(cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants))
 
         # Get all test variants
         test_variants = [v for v in result if v[1].key == "test"]
@@ -253,7 +257,7 @@ class TestAddMissingVariants(ExperimentQueryRunnerBaseTest):
             (None, ExperimentStatsBase(key="control", number_of_samples=100, sum=250.0, sum_squares=750.0)),
         ]
 
-        result = runner._add_missing_variants(variants)
+        result = runner._add_missing_variants(cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants))
 
         assert len(result) == 3  # control + test + holdout
         keys = [v[1].key for v in result]
