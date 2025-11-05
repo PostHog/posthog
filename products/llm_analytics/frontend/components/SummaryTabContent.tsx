@@ -123,10 +123,11 @@ function SummaryRenderer({
     summary: string
     isRenderingMarkdown: boolean
 }): JSX.Element {
-    // Parse line references like [L45] or [L45-52] and make them clickable
+    // Parse line references like [L45], [L45-52], or [L13-19, L553-555] and make them clickable
     const parseLineReferences = (text: string): (string | JSX.Element)[] => {
         const parts: (string | JSX.Element)[] = []
-        const regex = /\[L(\d+)(?:-(\d+))?\]/g
+        // Match patterns like [L10], [L10-20], [L10, L20-30], [L13-19, L553-555]
+        const regex = /\[L[\d\s,-]+\]/g
         let lastIndex = 0
         let match
 
@@ -136,10 +137,23 @@ function SummaryRenderer({
                 parts.push(text.slice(lastIndex, match.index))
             }
 
-            // Add clickable line reference
-            const startLine = match[1]
-            const endLine = match[2]
-            const displayText = endLine ? `[L${startLine}-${endLine}]` : `[L${startLine}]`
+            const displayText = match[0]
+            // Extract all line numbers and ranges from the match
+            const lineRangesText = match[0].slice(2, -1) // Remove [L and ]
+
+            // Parse individual ranges/lines (e.g., "13-19, 553-555" or "10, 20, 30-40")
+            const rangeStrings = lineRangesText.split(',').map((s) => s.trim())
+            const lineRanges: Array<{ start: number; end: number }> = []
+
+            for (const rangeStr of rangeStrings) {
+                if (rangeStr.includes('-')) {
+                    const [start, end] = rangeStr.split('-').map((s) => parseInt(s.trim()))
+                    lineRanges.push({ start, end })
+                } else {
+                    const line = parseInt(rangeStr)
+                    lineRanges.push({ start: line, end: line })
+                }
+            }
 
             parts.push(
                 <button
@@ -149,34 +163,36 @@ function SummaryRenderer({
                     onClick={(e) => {
                         e.preventDefault()
 
-                        // Handle line ranges (e.g., [L45-52]) by highlighting all lines in range
-                        const start = parseInt(startLine)
-                        const end = endLine ? parseInt(endLine) : start
-
-                        // Scroll to the first line
-                        const firstElement = document.getElementById(`line-${start}`)
-                        if (firstElement) {
-                            firstElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                        // Scroll to the first line in the first range
+                        if (lineRanges.length > 0) {
+                            const firstElement = document.getElementById(`line-${lineRanges[0].start}`)
+                            if (firstElement) {
+                                firstElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                            }
                         }
 
-                        // Highlight all lines in the range
-                        for (let i = start; i <= end; i++) {
-                            const element = document.getElementById(`line-${i}`)
-                            if (element) {
-                                element.classList.add('bg-warning-highlight')
-                                element.classList.add('border-l-4')
-                                element.classList.add('border-warning')
+                        // Highlight all lines in all ranges
+                        for (const { start, end } of lineRanges) {
+                            for (let i = start; i <= end; i++) {
+                                const element = document.getElementById(`line-${i}`)
+                                if (element) {
+                                    element.classList.add('bg-warning-highlight')
+                                    element.classList.add('border-l-4')
+                                    element.classList.add('border-warning')
+                                }
                             }
                         }
 
                         // Remove highlight after 3 seconds
                         setTimeout(() => {
-                            for (let i = start; i <= end; i++) {
-                                const element = document.getElementById(`line-${i}`)
-                                if (element) {
-                                    element.classList.remove('bg-warning-highlight')
-                                    element.classList.remove('border-l-4')
-                                    element.classList.remove('border-warning')
+                            for (const { start, end } of lineRanges) {
+                                for (let i = start; i <= end; i++) {
+                                    const element = document.getElementById(`line-${i}`)
+                                    if (element) {
+                                        element.classList.remove('bg-warning-highlight')
+                                        element.classList.remove('border-l-4')
+                                        element.classList.remove('border-warning')
+                                    }
                                 }
                             }
                         }, 3000)
