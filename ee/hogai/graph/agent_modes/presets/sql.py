@@ -2,8 +2,8 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from ee.hogai.graph.agent.factory import AgentDefinition
-from ee.hogai.graph.agent.nodes import AgentToolkit
+from ee.hogai.graph.agent_modes.factory import AgentDefinition
+from ee.hogai.graph.agent_modes.nodes import AgentToolkit
 from ee.hogai.tools import ExecuteSQLTool
 
 if TYPE_CHECKING:

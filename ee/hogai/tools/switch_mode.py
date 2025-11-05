@@ -75,7 +75,7 @@ async def _get_default_tools_prompt(
     config: RunnableConfig | None = None,
 ) -> str:
     """Get the prompt containing the description of the default tools."""
-    from ee.hogai.graph.agent.nodes import DEFAULT_TOOLS
+    from ee.hogai.graph.agent_modes.nodes import DEFAULT_TOOLS
 
     resolved_tools = await asyncio.gather(
         *[

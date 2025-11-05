@@ -415,10 +415,13 @@ class AssistantNodeName(StrEnum):
     SESSION_REPLAY_FILTER_OPTIONS_TOOLS = "session_replay_filter_options_tools"
     REVENUE_ANALYTICS_FILTER = "revenue_analytics_filter"
     REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS = "revenue_analytics_filter_options_tools"
+    AGENT_EXECUTOR = "agent_executor"
+    AGENT_EXECUTOR_TOOLS = "agent_executor_tools"
 
 
 class AssistantGraphName(StrEnum):
     ASSISTANT = "assistant_graph"
+    AGENT_EXECUTOR = "agent_executor_graph"
     INSIGHTS = "insights_graph"
     TAXONOMY = "taxonomy_graph"
     DEEP_RESEARCH = "deep_research_graph"

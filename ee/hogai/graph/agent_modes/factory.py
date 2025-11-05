@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel
 
-from ee.hogai.graph.agent.nodes import AgentNode, AgentToolkit, AgentToolsNode
+from ee.hogai.graph.agent_modes.nodes import AgentNode, AgentToolkit, AgentToolsNode
 from ee.hogai.utils.types.base import AgentMode
 
 

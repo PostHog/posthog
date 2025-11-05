@@ -29,15 +29,15 @@ from posthog.schema import (
 from posthog.models import Team, User
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.graph.agent.mode_manager import validate_mode
+from ee.hogai.graph.agent_modes.mode_manager import validate_mode
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.conversation_summarizer.nodes import AnthropicConversationSummarizer
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import ToolMessagesArtifact
 from ee.hogai.tools import ReadDataTool, ReadTaxonomyTool, SearchTool, SwitchModeTool, TodoWriteTool
-from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
-from ee.hogai.utils.helpers import convert_tool_messages_to_dict
+from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
+from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -418,7 +418,7 @@ class AgentNode(BaseAgentNode):
 
     def _process_output_message(self, message: LangchainAIMessage) -> AssistantMessage:
         """Process the output message."""
-        return normalize_ai_anthropic_message(message)
+        return normalize_ai_message(message)
 
     def _get_updated_agent_mode(
         self, generated_message: AssistantMessage, current_mode: AgentMode | None

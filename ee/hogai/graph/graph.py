@@ -1,7 +1,7 @@
 from collections.abc import Callable
-from typing import cast
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.agent_executor import AgentExecutorGraph
 from ee.hogai.graph.base import BaseAssistantGraph
 from ee.hogai.graph.title_generator.nodes import TitleGeneratorNode
 from ee.hogai.utils.types.base import AssistantGraphName, AssistantNodeName, AssistantState, PartialAssistantState
@@ -16,7 +16,6 @@ from .memory.nodes import (
     MemoryOnboardingFinalizeNode,
     MemoryOnboardingNode,
 )
-from .root.nodes import RootNode, RootNodeTools
 
 
 class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
@@ -37,19 +36,16 @@ class AssistantGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
         self._graph.add_edge(AssistantNodeName.TITLE_GENERATOR, end_node)
         return self
 
-    def add_root(self, router: Callable[[AssistantState], AssistantNodeName] | None = None):
-        root_node = RootNode(self._team, self._user)
-        self.add_node(AssistantNodeName.ROOT, root_node)
-        root_node_tools = RootNodeTools(self._team, self._user)
-        self.add_node(AssistantNodeName.ROOT_TOOLS, root_node_tools)
-        self._graph.add_conditional_edges(
-            AssistantNodeName.ROOT, router or cast(Callable[[AssistantState], AssistantNodeName], root_node.router)
+    def add_root(
+        self,
+        router: Callable[[AssistantState], AssistantNodeName],
+        tools_router: Callable[[AssistantState], AssistantNodeName],
+    ):
+        agent_executor = AgentExecutorGraph(self._team, self._user).compile_full_graph(
+            agent_node_router=router, agent_tools_node_router=tools_router
         )
-        self._graph.add_conditional_edges(
-            AssistantNodeName.ROOT_TOOLS,
-            root_node_tools.router,
-            path_map={"root": AssistantNodeName.ROOT, "end": AssistantNodeName.END},
-        )
+        self.add_node(AssistantNodeName.ROOT, agent_executor)
+        self.add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
         return self
 
     def add_memory_onboarding(
