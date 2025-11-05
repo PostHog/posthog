@@ -10,13 +10,14 @@ from ..llm.call import call_summarization_llm
 from ..utils import load_summarization_template
 
 
-async def summarize_event(event: dict[str, Any], text_repr: str) -> str:
+async def summarize_event(event: dict[str, Any], text_repr: str, mode: str = "detailed") -> str:
     """
     Generate a summary of an event using LLM.
 
     Args:
         event: Event dictionary with properties
         text_repr: Full line-numbered text representation of the event
+        mode: Summary detail level ('minimal' or 'detailed')
 
     Returns:
         Summary text with line references
@@ -25,9 +26,12 @@ async def summarize_event(event: dict[str, Any], text_repr: str) -> str:
     event_type = event.get("event", "unknown")
     event_name = event.get("properties", {}).get("$ai_span_name", event_type)
 
+    # Choose template based on mode
+    template_prefix = "minimal" if mode == "minimal" else "detailed"
+
     # Load prompt templates
     system_prompt = load_summarization_template(
-        "event/templates/system-prompt.djt",
+        f"event/templates/{template_prefix}-system-prompt.djt",
         {},
     )
 

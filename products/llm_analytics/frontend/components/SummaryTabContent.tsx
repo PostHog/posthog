@@ -7,14 +7,14 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { summaryTabLogic } from './summaryTabLogic'
+import { SummaryMode, summaryTabLogic } from './summaryTabLogic'
 
 export interface SummaryTabContentProps {
     trace?: LLMTrace
@@ -27,6 +27,7 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
     const { summaryData, summaryDataLoading } = useValues(logic)
     const { generateSummary } = useActions(logic)
     const [isRenderingMarkdown, setIsRenderingMarkdown] = useState(true)
+    const [summaryMode, setSummaryMode] = useState<SummaryMode>('detailed')
 
     const isSummarizable = trace || (event && (event.event === '$ai_generation' || event.event === '$ai_span'))
 
@@ -53,9 +54,32 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
                             The summary will include key insights and line references to the text representation.
                         </p>
                     </div>
-                    <LemonButton type="primary" onClick={generateSummary} data-attr="llm-analytics-generate-summary">
-                        Generate Summary
-                    </LemonButton>
+                    <div className="flex items-center gap-3">
+                        <LemonSegmentedButton
+                            value={summaryMode}
+                            onChange={setSummaryMode}
+                            options={[
+                                {
+                                    value: 'minimal',
+                                    label: 'Minimal',
+                                    tooltip: 'Quick 3-5 bullet point summary with key highlights',
+                                },
+                                {
+                                    value: 'detailed',
+                                    label: 'Detailed',
+                                    tooltip: 'Comprehensive 5-10 point summary with full context',
+                                },
+                            ]}
+                            size="small"
+                        />
+                        <LemonButton
+                            type="primary"
+                            onClick={() => generateSummary(summaryMode)}
+                            data-attr="llm-analytics-generate-summary"
+                        >
+                            Generate Summary
+                        </LemonButton>
+                    </div>
                 </div>
             )}
 
@@ -70,7 +94,12 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
                 <div className="bg-danger-highlight border border-danger rounded p-4">
                     <div className="font-semibold text-danger">Failed to generate summary</div>
                     <div className="text-sm mt-2">{errorMessage}</div>
-                    <LemonButton type="secondary" size="small" onClick={generateSummary} className="mt-4">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => generateSummary(summaryMode)}
+                        className="mt-4"
+                    >
                         Try Again
                     </LemonButton>
                 </div>
@@ -80,6 +109,23 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
                 <>
                     <div className="relative group flex-none">
                         <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 z-10 bg-bg-light p-1 rounded shadow-md">
+                            <LemonSegmentedButton
+                                value={summaryMode}
+                                onChange={setSummaryMode}
+                                options={[
+                                    {
+                                        value: 'minimal',
+                                        label: 'Minimal',
+                                        tooltip: 'Quick 3-5 bullet point summary with key highlights',
+                                    },
+                                    {
+                                        value: 'detailed',
+                                        label: 'Detailed',
+                                        tooltip: 'Comprehensive 5-10 point summary with full context',
+                                    },
+                                ]}
+                                size="xsmall"
+                            />
                             <LemonButton
                                 size="small"
                                 noPadding
@@ -90,7 +136,7 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                onClick={generateSummary}
+                                onClick={() => generateSummary(summaryMode)}
                                 data-attr="llm-analytics-regenerate-summary"
                             >
                                 Regenerate

@@ -35,6 +35,11 @@ class SummarizeRequestSerializer(serializers.Serializer):
         choices=["trace", "event"],
         help_text="Type of entity to summarize",
     )
+    mode = serializers.ChoiceField(
+        choices=["minimal", "detailed"],
+        default="detailed",
+        help_text="Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points",
+    )
     data = serializers.JSONField(
         help_text="Data to summarize. For traces: {trace, hierarchy}. For events: {event}.",
     )
@@ -197,6 +202,7 @@ The response includes the summary text and optional metadata.
 
         try:
             summarize_type = serializer.validated_data["summarize_type"]
+            mode = serializer.validated_data.get("mode", "detailed")
             data = serializer.validated_data["data"]
 
             # Generate line-numbered text representation
@@ -218,11 +224,12 @@ The response includes the summary text and optional metadata.
                 # Generate text representation
                 text_repr = format_trace_text_repr(trace=trace, hierarchy=hierarchy, options=options)
 
-                # Call summarization
+                # Call summarization with mode
                 summary = async_to_sync(summarize_trace)(
                     trace=trace,
                     hierarchy=hierarchy,
                     text_repr=text_repr,
+                    mode=mode,
                 )
 
             elif summarize_type == "event":
@@ -235,10 +242,11 @@ The response includes the summary text and optional metadata.
                 # Generate text representation
                 text_repr = format_event_text_repr(event=event, options=options)
 
-                # Call summarization
+                # Call summarization with mode
                 summary = async_to_sync(summarize_event)(
                     event=event,
                     text_repr=text_repr,
+                    mode=mode,
                 )
 
             else:

@@ -10,6 +10,8 @@ import { getCookie } from 'lib/api'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
+export type SummaryMode = 'minimal' | 'detailed'
+
 export interface SummaryTabLogicProps {
     trace?: LLMTrace
     event?: LLMTraceEvent
@@ -32,7 +34,7 @@ export const summaryTabLogic = kea([
     loaders(({ props }) => ({
         summaryData: {
             __default: null as { summary: string; text_repr: string } | null,
-            generateSummary: async () => {
+            generateSummary: async (mode: SummaryMode = 'detailed') => {
                 // Determine if we're summarizing a trace or an event
                 const isTrace = !!props.trace
 
@@ -40,6 +42,7 @@ export const summaryTabLogic = kea([
                 const payload = isTrace
                     ? {
                           summarize_type: 'trace',
+                          mode,
                           data: {
                               trace: props.trace,
                               hierarchy: props.tree || [],
@@ -47,6 +50,7 @@ export const summaryTabLogic = kea([
                       }
                     : {
                           summarize_type: 'event',
+                          mode,
                           data: {
                               event: props.event,
                           },

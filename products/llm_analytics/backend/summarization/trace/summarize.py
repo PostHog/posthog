@@ -10,7 +10,9 @@ from ..llm.call import call_summarization_llm
 from ..utils import load_summarization_template
 
 
-async def summarize_trace(trace: dict[str, Any], hierarchy: list[dict[str, Any]], text_repr: str) -> str:
+async def summarize_trace(
+    trace: dict[str, Any], hierarchy: list[dict[str, Any]], text_repr: str, mode: str = "detailed"
+) -> str:
     """
     Generate a summary of a trace using LLM.
 
@@ -18,13 +20,17 @@ async def summarize_trace(trace: dict[str, Any], hierarchy: list[dict[str, Any]]
         trace: Trace metadata dictionary
         hierarchy: Hierarchical event structure
         text_repr: Full line-numbered text representation of the trace
+        mode: Summary detail level ('minimal' or 'detailed')
 
     Returns:
         Summary text with line references
     """
+    # Choose template based on mode
+    template_prefix = "minimal" if mode == "minimal" else "detailed"
+
     # Load prompt templates
     system_prompt = load_summarization_template(
-        "trace/templates/system-prompt.djt",
+        f"trace/templates/{template_prefix}-system-prompt.djt",
         {},
     )
 
