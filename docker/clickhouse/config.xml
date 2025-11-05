@@ -417,4 +417,9 @@
             <replace>\1(???)</replace>
         </rule>
     </query_masking_rules>
+
+    <merge_tree>
+        <background_pool_size>1</background_pool_size>
+        <max_bytes_to_merge_at_max_space_in_pool>1073741824</max_bytes_to_merge_at_max_space_in_pool>
+    </merge_tree>
 </clickhouse>
