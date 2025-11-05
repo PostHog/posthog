@@ -27,17 +27,14 @@ export function SessionEventDetails({ event }: SessionEventDetailsProps): JSX.El
                 tabContentComponentFn={({ event, properties, promotedKeys, tabKey }) => {
                     switch (tabKey) {
                         case 'error_display':
-                            // Exception display with stack traces
                             return <ErrorDisplay eventProperties={properties} eventId={idFrom(event)} />
                         case 'raw':
-                            // Raw JSON view
                             return (
                                 <pre className="text-xs text-secondary whitespace-pre-wrap">
                                     {JSON.stringify(event, null, 2)}
                                 </pre>
                             )
                         default:
-                            // Standard properties view
                             return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
                     }
                 }}

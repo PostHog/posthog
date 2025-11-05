@@ -139,7 +139,6 @@ export function SessionEventItem({
                 zIndex: isExpanded ? 1 : 0,
             }}
         >
-            {/* Event Header */}
             <div
                 ref={hoverRef}
                 className={clsx(
@@ -179,7 +178,6 @@ export function SessionEventItem({
                 />
             </div>
 
-            {/* Event Details (when expanded) */}
             {isExpanded && (
                 <div
                     className={clsx(

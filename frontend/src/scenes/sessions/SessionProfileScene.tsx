@@ -72,7 +72,6 @@ export function SessionProfileScene(): JSX.Element {
                     </div>
                 )}
 
-                {/* Metrics Cards */}
                 <SessionMetricsCard
                     duration={sessionDuration}
                     uniqueUrlCount={uniqueUrlCount}
@@ -83,13 +82,10 @@ export function SessionProfileScene(): JSX.Element {
                     isLoading={isLoading}
                 />
 
-                {/* Session Details */}
                 <SessionDetailsCard sessionData={sessionData} isLoading={isLoading} />
 
-                {/* Events List */}
                 <SessionEventsList events={sessionEvents} isLoading={isLoading} onLoadEventDetails={loadEventDetails} />
 
-                {/* Actions */}
                 <div className="flex gap-2">
                     <LemonButton type="secondary" onClick={() => loadSessionData()}>
                         Refresh
