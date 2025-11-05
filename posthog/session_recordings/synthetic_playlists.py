@@ -337,11 +337,11 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
         try:
             parsed = urlparse(url)
             path = parsed.path
-            netloc = parsed.netloc
+            domain = parsed.netloc
 
             # Normalize country-code subdomains (e.g., us.example.com -> {country}.example.com)
             # Common 2-letter country codes as subdomains
-            domain_parts = netloc.split(".")
+            domain_parts = domain.split(".")
             if len(domain_parts) >= 3:  # Has subdomain
                 # Check if first part is a 2-letter country code
                 subdomain = domain_parts[0].lower()
@@ -349,7 +349,7 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
                 if len(subdomain) == 2 and subdomain.isalpha():
                     # Replace country subdomain with placeholder
                     domain_parts[0] = "{country}"
-                    netloc = ".".join(domain_parts)
+                    domain = ".".join(domain_parts)
 
             # Split path into segments
             segments = path.split("/")
@@ -373,7 +373,7 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
                     normalized_segments.append(segment)
 
             normalized_path = "/".join(normalized_segments)
-            normalized = f"{parsed.scheme}://{netloc}{normalized_path}"
+            normalized = f"{parsed.scheme}://{domain}{normalized_path}"
 
             # Remove trailing slash for consistency (except for root path)
             if normalized.endswith("/") and len(normalized_path) > 1:
