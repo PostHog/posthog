@@ -118,6 +118,8 @@ export enum Scene {
     Survey = 'Survey',
     SurveyTemplates = 'SurveyTemplates',
     Surveys = 'Surveys',
+    SyntheticMonitoring = 'SyntheticMonitoring',
+    SyntheticMonitor = 'SyntheticMonitor',
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
     Unsubscribe = 'Unsubscribe',

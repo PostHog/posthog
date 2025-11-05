@@ -1012,6 +1012,14 @@ export class ApiRequest {
         return this.surveys(teamId).addPathComponent(id)
     }
 
+    public syntheticMonitors(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('synthetic_monitors')
+    }
+
+    public syntheticMonitor(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.syntheticMonitors(teamId).addPathComponent(id)
+    }
+
     public surveyActivity(id: Survey['id'] | undefined, teamId?: TeamType['id']): ApiRequest {
         if (id) {
             return this.survey(id, teamId).addPathComponent('activity')
@@ -4653,6 +4661,33 @@ const api = {
             kind: DataWarehouseManagedViewsetKind
         ): Promise<{ views: DataWarehouseManagedViewsetSavedQuery[]; count: number }> {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
+        },
+    },
+
+    syntheticMonitoring: {
+        async list(): Promise<CountedPaginatedResponse<any>> {
+            return await new ApiRequest().syntheticMonitors().get()
+        },
+        async get(id: string): Promise<any> {
+            return await new ApiRequest().syntheticMonitor(id).get()
+        },
+        async create(data: Partial<any>): Promise<any> {
+            return await new ApiRequest().syntheticMonitors().create({ data })
+        },
+        async update(id: string, data: Partial<any>): Promise<any> {
+            return await new ApiRequest().syntheticMonitor(id).update({ data })
+        },
+        async delete(id: string): Promise<void> {
+            await new ApiRequest().syntheticMonitor(id).delete()
+        },
+        async pause(id: string): Promise<any> {
+            return await new ApiRequest().syntheticMonitor(id).withAction('pause').create()
+        },
+        async resume(id: string): Promise<any> {
+            return await new ApiRequest().syntheticMonitor(id).withAction('resume').create()
+        },
+        async test(id: string): Promise<any> {
+            return await new ApiRequest().syntheticMonitor(id).withAction('test').create()
         },
     },
 }

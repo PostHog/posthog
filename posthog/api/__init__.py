@@ -100,6 +100,7 @@ from . import (
     search,
     sharing,
     survey,
+    synthetic_monitor,
     tagged_item,
     team,
     uploaded_media,
@@ -243,6 +244,12 @@ projects_router.register(r"agents", tasks.AgentDefinitionViewSet, "project_agent
 projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
+projects_router.register(
+    r"synthetic_monitors",
+    synthetic_monitor.SyntheticMonitorViewSet,
+    "project_synthetic_monitors",
+    ["team_id"],
+)
 projects_router.register(
     r"dashboard_templates",
     dashboard_templates.DashboardTemplateViewSet,

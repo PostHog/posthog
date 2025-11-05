@@ -14,6 +14,7 @@ from posthog.tasks.alerts.checks import (
     checks_cleanup_task,
     reset_stuck_alerts_task,
 )
+from posthog.tasks.alerts.synthetic_monitoring import schedule_synthetic_checks
 from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.integrations import refresh_integrations
 from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
@@ -378,4 +379,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="0", minute=str(randrange(0, 40))),
         sync_all_remote_configs.s(),
         name="sync all remote configs",
+    )
+
+    # Synthetic monitoring tasks
+    # Schedule checks every minute to trigger due monitors
+    add_periodic_task_with_expiry(
+        sender,
+        60,  # Every minute
+        schedule_synthetic_checks.s(),
+        name="schedule synthetic monitoring checks",
     )

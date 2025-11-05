@@ -1,0 +1,38 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+    <p>Hi {{ user_name }},</p>
+    <p>
+        Your synthetic monitor <strong>{{ monitor_name }}</strong> is experiencing failures and has triggered an alert.
+    </p>
+    <div style="background-color: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; margin: 16px 0;">
+        <h3 style="margin-top: 0; color: #991b1b;">Monitor Details</h3>
+        <ul style="margin-bottom: 0;">
+            <li><strong>URL:</strong> {{ monitor_url }}</li>
+            <li><strong>Type:</strong> {{ monitor_type }}</li>
+            <li><strong>Region:</strong> {{ region }}</li>
+            <li><strong>Consecutive Failures:</strong> {{ consecutive_failures }} / {{ threshold }}</li>
+        </ul>
+    </div>
+
+    {% if error_message %}
+    <div style="background-color: #f9fafb; padding: 12px; margin: 16px 0; border-radius: 4px;">
+        <p style="margin: 0;"><strong>Error:</strong> {{ error_message }}</p>
+    </div>
+    {% endif %}
+
+    {% if status_code %}
+    <p><strong>Status Code:</strong> {{ status_code }}</p>
+    {% endif %}
+
+    {% if response_time_ms %}
+    <p><strong>Response Time:</strong> {{ response_time_ms }}ms</p>
+    {% endif %}
+
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri app_url %}">View Monitor</a>
+    </div>
+
+    <p style="color: #6b7280; font-size: 14px; margin-top: 24px;">
+        This alert was triggered because your monitor has failed {{ consecutive_failures }} consecutive times,
+        exceeding the threshold of {{ threshold }} failures.
+    </p>
+{% endblock %}
