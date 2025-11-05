@@ -143,10 +143,6 @@ const getPersistedPinnedState = (): PersistedPinnedState | null => {
             } else if (parsed && typeof parsed === 'object') {
                 if (Array.isArray(parsed.tabs)) {
                     tabs = parsed.tabs
-                } else {
-                    const personal = Array.isArray(parsed.personal) ? parsed.personal : []
-                    const project = Array.isArray(parsed.project) ? parsed.project : []
-                    tabs = [...personal, ...project]
                 }
 
                 homepage = normalizeStoredHomepage(parsed.homepage)
