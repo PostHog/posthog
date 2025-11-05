@@ -55,8 +55,7 @@ function ExportHeatmap(): JSX.Element {
 
 export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
-    const { exportedData } = useValues(exporterViewLogic(props))
-    const { type, dashboard, insight, recording, themes, accessToken, exportToken, ...exportOptions } = exportedData
+    const { type, dashboard, insight, recording, themes, accessToken, exportToken, ...exportOptions } = props
     const { whitelabel, showInspector = false } = exportOptions
 
     const { currentTeam } = useValues(teamLogic)
@@ -129,10 +128,10 @@ export function Exporter(props: ExportedData): JSX.Element {
                     <SessionRecordingPlayer
                         playerKey="exporter"
                         sessionRecordingId={recording.id}
-                        mode={exportedData.mode ?? SessionRecordingPlayerMode.Sharing}
-                        autoPlay={exportedData.autoplay ?? false}
+                        mode={props.mode ?? SessionRecordingPlayerMode.Sharing}
+                        autoPlay={props.autoplay ?? false}
                         noInspector={!showInspector}
-                        noBorder={exportedData.noBorder ?? false}
+                        noBorder={props.noBorder ?? false}
                         accessToken={exportToken}
                     />
                 ) : type === ExportType.Heatmap ? (
