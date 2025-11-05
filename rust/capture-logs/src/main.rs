@@ -2,16 +2,18 @@ use std::time::Duration;
 
 use axum::{routing::get, routing::post, Router};
 use capture::metrics_middleware::track_metrics;
+use capture_logs::config::Config;
+use capture_logs::kafka::KafkaSink;
+use capture_logs::service::export_logs_http;
+use capture_logs::service::Service;
 use common_metrics::{serve, setup_metrics_routes};
-use log_capture::config::Config;
-use log_capture::kafka::KafkaSink;
-use log_capture::service::export_logs_http;
-use log_capture::service::Service;
 use std::future::ready;
 
 use health::HealthRegistry;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+
+use limiters::token_dropper::TokenDropper;
 
 common_alloc::used!();
 
@@ -61,7 +63,8 @@ async fn main() {
     let management_bind = format!("{}:{}", config.management_host, config.management_port);
     info!("Healthcheck and metrics listening on {}", management_bind);
 
-    let logs_service = match Service::new(kafka_sink).await {
+    let token_dropper = TokenDropper::new(&config.drop_events_by_token.unwrap_or_default());
+    let logs_service = match Service::new(kafka_sink, token_dropper).await {
         Ok(service) => service,
         Err(e) => {
             error!("Failed to initialize log service: {}", e);
@@ -73,6 +76,7 @@ async fn main() {
 
     let http_router = Router::new()
         .route("/v1/logs", post(export_logs_http))
+        .route("/i/v1/logs", post(export_logs_http))
         .with_state(logs_service)
         .layer(axum::middleware::from_fn(track_metrics));
 

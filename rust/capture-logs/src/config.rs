@@ -19,6 +19,8 @@ pub struct Config {
 
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
+
+    pub drop_events_by_token: Option<String>, // "<token>,<token>..."
 }
 
 impl Config {

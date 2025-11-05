@@ -90,6 +90,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         toggleImplementOptInInstructionsModal,
         showGAPromotionConfirmation,
         saveEarlyAccessFeature,
+        setEarlyAccessFeatureValue,
     } = useActions(earlyAccessFeatureLogic)
     const { currentTeamId } = useValues(teamLogic)
 
@@ -149,12 +150,20 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         type: 'early_access_feature',
                     }}
                     canEdit
-                    renameDebounceMs={1000}
+                    renameDebounceMs={isNewEarlyAccessFeature ? undefined : 1000}
                     onNameChange={(name) => {
-                        saveEarlyAccessFeature({ ...earlyAccessFeature, name })
+                        if (isNewEarlyAccessFeature) {
+                            setEarlyAccessFeatureValue('name', name)
+                        } else {
+                            saveEarlyAccessFeature({ ...earlyAccessFeature, name })
+                        }
                     }}
                     onDescriptionChange={(description) => {
-                        saveEarlyAccessFeature({ ...earlyAccessFeature, description })
+                        if (isNewEarlyAccessFeature) {
+                            setEarlyAccessFeatureValue('description', description)
+                        } else {
+                            saveEarlyAccessFeature({ ...earlyAccessFeature, description })
+                        }
                     }}
                     forceEdit={isEditingFeature || isNewEarlyAccessFeature}
                     actions={

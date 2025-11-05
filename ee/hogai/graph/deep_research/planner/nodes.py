@@ -40,8 +40,8 @@ from ee.hogai.graph.deep_research.types import (
     DeepResearchNodeName,
     DeepResearchState,
     PartialDeepResearchState,
+    TodoItem,
 )
-from ee.hogai.graph.root.tools.todo_write import TodoItem
 from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.utils.helpers import normalize_ai_message
 from ee.hogai.utils.types import WithCommentary

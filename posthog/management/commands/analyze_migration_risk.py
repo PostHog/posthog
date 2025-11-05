@@ -143,7 +143,7 @@ class Command(BaseCommand):
                         return ""
 
                     # Prepend Summary for CI workflow, wrap Django's output in code block
-                    return f"**Summary:** ⚠️ Missing migrations detected\n\n```\n{filtered_output}```\n\nRun `python manage.py makemigrations` to create them.\n"
+                    return f"**Summary:** ⚠️ Missing migrations detected\n\n```\n{filtered_output}\n```\n\nRun `python manage.py makemigrations` to create them.\n"
                 return ""
         except Exception:
             # Ignore other errors (e.g., can't connect to DB)
