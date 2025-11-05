@@ -6,7 +6,7 @@ from typing import Any, Optional
 from django.db import models
 
 from posthog.management.migration_analysis.models import OperationRisk
-from posthog.management.migration_analysis.utils import VolatileFunctionDetector, check_drop_table_properly_staged
+from posthog.management.migration_analysis.utils import VolatileFunctionDetector, check_drop_properly_staged
 
 # Base URL for migration safety documentation
 SAFE_MIGRATIONS_DOCS_URL = "https://github.com/PostHog/posthog/blob/master/docs/safe-django-migrations.md"
@@ -355,8 +355,36 @@ class RunSQLAnalyzer(OperationAnalyzer):
     operation_type = "RunSQL"
     default_score = 2
 
+    def _parse_override_comment(self, op) -> str | None:
+        """
+        Parse migration-analyzer override comments from SQL.
+
+        Expected format:
+        -- migration-analyzer: safe reason=justification here
+        or
+        # migration-analyzer: safe reason=justification here
+
+        Returns the reason string if valid override found, None otherwise.
+        """
+        sql = str(op.sql)
+
+        # Look for override comment (-- or # style)
+        override_pattern = r"(?:--|#)\s*migration-analyzer:\s*safe\s+reason=(.+?)(?:\n|$)"
+        match = re.search(override_pattern, sql, re.IGNORECASE)
+
+        if match:
+            return match.group(1).strip()
+        return None
+
     def analyze(self, op, migration: Optional[Any] = None, loader: Optional[Any] = None) -> OperationRisk:
-        sql = str(op.sql).upper()
+        # Parse override from original SQL (before stripping comments)
+        override = self._parse_override_comment(op)
+
+        # Strip comments before detecting SQL keywords to avoid false matches
+        sql_original = str(op.sql)
+        sql_without_comments = re.sub(r"--[^\n]*", "", sql_original)  # Remove -- comments
+        sql_without_comments = re.sub(r"#[^\n]*", "", sql_without_comments)  # Remove # comments
+        sql = sql_without_comments.upper()
 
         # Check for CONCURRENTLY operations first (these are safe)
         # This must come before DROP check to avoid flagging DROP INDEX CONCURRENTLY as dangerous
@@ -400,6 +428,15 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 )
 
         # Check for constraint operations (before general ALTER/DROP checks)
+        if "ADD" in sql and "CONSTRAINT" in sql and "USING INDEX" in sql:
+            return OperationRisk(
+                type=self.operation_type,
+                score=0,
+                reason="ADD CONSTRAINT ... USING INDEX is instant (just renames existing index to constraint)",
+                details={"sql": sql},
+                guidance="This operation only updates metadata - the index already exists and enforces uniqueness.",
+            )
+
         if "ADD" in sql and "CONSTRAINT" in sql and "NOT VALID" in sql:
             return OperationRisk(
                 type=self.operation_type,
@@ -429,9 +466,23 @@ class RunSQLAnalyzer(OperationAnalyzer):
                 )
             return OperationRisk(
                 type=self.operation_type,
-                score=1,
-                reason="DROP CONSTRAINT is fast (just removes metadata)",
+                score=2,
+                reason="DROP CONSTRAINT is fast but needs deployment safety review",
                 details={"sql": sql},
+                guidance=f"""⚠️ **Deployment Safety:** While `DROP CONSTRAINT` is instant (no table lock), dropping constraints can break running code during rolling deployments.
+
+**Safe pattern:**
+1. Ensure no running code relies on the constraint (uniqueness checks, foreign key validation, etc.)
+2. If replacing with a new constraint, deploy the new one first
+3. Wait at least one full deployment cycle before dropping the old constraint
+4. Consider keeping unused constraints if removal risk outweighs benefits
+
+**Common scenarios:**
+- Dropping UNIQUE constraints: Ensure code handles potential duplicates
+- Dropping FOREIGN KEY constraints: Ensure code doesn't assume referential integrity
+- Replacing constraints: Add new → deploy → wait → drop old
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL})""",
             )
 
         # Check for metadata-only operations (safe and instant)
@@ -452,6 +503,52 @@ class RunSQLAnalyzer(OperationAnalyzer):
             )
 
         if "DROP" in sql:
+            # Check for DROP COLUMN first (before DROP TABLE check)
+            # ALTER TABLE ... DROP COLUMN can contain both "TABLE" and "DROP" keywords
+            # Use regex to verify it's actually ALTER TABLE ... DROP COLUMN (not just "COLUMN" in table name)
+            column_match = re.search(
+                r"ALTER\s+TABLE\s+([a-zA-Z0-9_]+)\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?([a-zA-Z0-9_]+)", sql
+            )
+
+            if column_match:
+                if migration and loader:
+                    table_name = column_match.group(1).lower()
+                    column_name = column_match.group(2).lower()
+
+                    # Check if properly staged (field removed from state in prior migration)
+                    if check_drop_properly_staged("column", table_name, migration, loader, field_name=column_name):
+                        return OperationRisk(
+                            type=self.operation_type,
+                            score=2,
+                            reason="DROP COLUMN IF EXISTS - properly staged (prior state removal found)",
+                            details={"sql": sql, "table": table_name, "column": column_name},
+                            guidance=f"""✅ **Validated staged drop:** Found prior SeparateDatabaseAndState that removed field from state.
+
+Remaining checklist:
+- Ensure all code references removed (models, serializers, API)
+- Waited at least one full deployment cycle since state removal
+- Verify column is not used in queries or indexes
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+                        )
+
+                # Not properly staged or can't validate
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=5,
+                    reason="DROP COLUMN - no prior state removal found",
+                    details={"sql": sql},
+                    guidance=f"""❌ **Missing state removal:** Could not find prior SeparateDatabaseAndState that removed this field.
+
+Safe pattern requires:
+1. Prior migration with SeparateDatabaseAndState removes field from Django state
+2. All code references removed (models, serializers, API)
+3. Wait at least one full deployment cycle
+4. Then DROP COLUMN in later migration with RunSQL
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+                )
+
             # Special case: DROP TABLE IF EXISTS may be safe if following proper staging pattern
             if "TABLE" in sql and "IF EXISTS" in sql:
                 # Extract table name from the DROP statement
@@ -460,7 +557,7 @@ class RunSQLAnalyzer(OperationAnalyzer):
                     table_name = table_name_match.group(1).lower()
 
                     # Check if properly staged (model removed from state in prior migration)
-                    if check_drop_table_properly_staged(table_name, migration, loader):
+                    if check_drop_properly_staged("table", table_name, migration, loader):
                         return OperationRisk(
                             type=self.operation_type,
                             score=2,
@@ -509,6 +606,34 @@ Safe pattern requires:
                 details={"sql": sql},
             )
         elif "UPDATE" in sql or "DELETE" in sql:
+            # Check for developer override for small tables
+            if override:
+                return OperationRisk(
+                    type=self.operation_type,
+                    score=2,
+                    reason=f"RunSQL with UPDATE/DELETE - developer override applied for small table",
+                    details={
+                        "sql": sql,
+                        "override_reason": override,
+                    },
+                    guidance=f"""✅ **Developer override applied:**
+Justification: {override}
+
+Reviewer checklist:
+- Verify table is actually small (<1000 rows typical)
+- Confirm justification is valid
+- Check no indexes will cause lock contention
+- Ensure WHERE clause limits scope appropriately
+
+If this override is incorrect, request batching:
+- Batch size: 1,000-10,000 rows per batch
+- Add pauses between batches
+- Use WHERE clauses to limit scope
+- Consider background jobs for very large updates (millions of rows)
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#running-data-migrations)""",
+                )
+
             return OperationRisk(
                 type=self.operation_type,
                 score=4,

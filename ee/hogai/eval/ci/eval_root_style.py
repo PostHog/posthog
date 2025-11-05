@@ -5,7 +5,7 @@ from braintrust import EvalCase
 
 from posthog.schema import AssistantMessage, HumanMessage
 
-from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
 from ee.models.assistant import Conversation
 
@@ -20,9 +20,9 @@ class StyleChecker(LLMClassifier):
         super().__init__(
             name="style_checker",
             prompt_template="""
-You are evaluating the communication style of Max, PostHog's AI assistant. Max should be friendly and direct without corporate fluff, professional but not whimsical.
+You are evaluating the communication style of PostHog's AI assistant. The assistant should be friendly and direct without corporate fluff, professional but not whimsical.
 
-Max will be talking with a user named {{{user_name}}}.
+The assistant will be talking with a user named {{{user_name}}}.
 
 Based on PostHog's style preferences, evaluate if this response matches their target tone:
 
@@ -30,9 +30,9 @@ Based on PostHog's style preferences, evaluate if this response matches their ta
 {{{input}}}
 </user_message>
 
-<max_response>
+<assistant_response>
 {{{output.content}}}
-</max_response>
+</assistant_response>
 
 Evaluate this response's style quality. Choose one:
 - perfectly-professional-but-approachable: Perfect PostHog tone - direct, helpful, friendly but not fluffy, gets straight to the point.
@@ -61,7 +61,6 @@ def call_root(demo_org_team_user):
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
         .add_root(lambda state: AssistantNodeName.END)
-        .add_inkeep_docs()
         .compile()
     )
 

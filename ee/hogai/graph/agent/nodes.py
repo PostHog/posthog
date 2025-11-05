@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Awaitable, Mapping, Sequence
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeVar
 from uuid import uuid4
 
 import structlog
@@ -46,6 +46,7 @@ from ee.hogai.utils.types import (
     PartialAssistantState,
     ReplaceMessages,
 )
+from ee.hogai.utils.types.base import NodePath
 
 from .compaction_manager import AnthropicConversationCompactionManager
 from .prompts import (
@@ -116,7 +117,13 @@ class AgentToolkit:
 
         # Initialize the static toolkit
         dynamic_tools = (
-            tool_class.create_tool_class(team=self._team, user=self._user, state=state, config=config)
+            tool_class.create_tool_class(
+                team=self._team,
+                user=self._user,
+                state=state,
+                config=config,
+                context_manager=self._context_manager,
+            )
             for tool_class in tool_classes
         )
         available_tools.extend(await asyncio.gather(*dynamic_tools))
@@ -129,7 +136,13 @@ class AgentToolkit:
             if ContextualMaxToolClass is None:
                 continue  # Ignoring a tool that the backend doesn't know about - might be a deployment mismatch
             awaited_contextual_tools.append(
-                ContextualMaxToolClass.create_tool_class(team=self._team, user=self._user, state=state, config=config)
+                ContextualMaxToolClass.create_tool_class(
+                    team=self._team,
+                    user=self._user,
+                    state=state,
+                    config=config,
+                    context_manager=self._context_manager,
+                )
             )
 
         available_tools.extend(await asyncio.gather(*awaited_contextual_tools))
@@ -156,10 +169,6 @@ class AgentNode(BaseAgentNode):
     def __init__(self, team: Team, user: User, toolkit_class: type[AgentToolkit]):
         super().__init__(team, user, toolkit_class)
         self._window_manager = AnthropicConversationCompactionManager()
-
-    @property
-    def node_name(self):
-        return None  # TODO:
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit = self._toolkit_class(self._team, self._user, self.context_manager)
@@ -421,10 +430,6 @@ class AgentNode(BaseAgentNode):
 
 
 class AgentToolsNode(BaseAgentNode):
-    @property
-    def node_name(self):
-        return None  # TODO:
-
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
 
@@ -460,7 +465,18 @@ class AgentToolsNode(BaseAgentNode):
             )
 
         # Initialize the tool and process it
-        tool_class = await ToolClass.create_tool_class(team=self._team, user=self._user, state=state, config=config)
+        tool_class = await ToolClass.create_tool_class(
+            team=self._team,
+            user=self._user,
+            # Tricky: set the node path to associated with the tool call
+            node_path=(
+                *self.node_path[:-1],
+                NodePath(name=AssistantNodeName.ROOT_TOOLS, message_id=last_message.id, tool_call_id=tool_call.id),
+            ),
+            state=state,
+            config=config,
+            context_manager=self.context_manager,
+        )
         try:
             result = await tool_class.ainvoke(
                 ToolCall(type="tool_call", name=tool_call.name, args=tool_call.args, id=tool_call.id), config=config
@@ -480,7 +496,6 @@ class AgentToolsNode(BaseAgentNode):
                         content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,
-                        visible=False,
                     )
                 ],
             )
@@ -498,7 +513,6 @@ class AgentToolsNode(BaseAgentNode):
                 ui_payload={tool_call.name: result.artifact},
                 id=str(uuid4()),
                 tool_call_id=tool_call.id,
-                visible=True,
             )
             # Raising a `NodeInterrupt` ensures the assistant graph stops here and
             # surfaces the navigation confirmation to the client. The next user
@@ -511,9 +525,15 @@ class AgentToolsNode(BaseAgentNode):
             ui_payload={tool_call.name: result.artifact},
             id=str(uuid4()),
             tool_call_id=tool_call.id,
-            visible=tool_class.show_tool_call_message,
         )
 
         return PartialAssistantState(
             messages=[tool_message],
         )
+
+    # This is only for the Inkeep node. Remove when inkeep_docs is removed.
+    def router(self, state: AssistantState) -> Literal["root", "end"]:
+        last_message = state.messages[-1]
+        if isinstance(last_message, AssistantToolCallMessage):
+            return "root"  # Let the root either proceed or finish, since it now can see the tool call result
+        return "end"

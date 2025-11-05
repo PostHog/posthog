@@ -246,16 +246,17 @@ class LoginSerializer(serializers.Serializer):
                 # TOTP flow
                 raise TwoFactorRequired()
             else:
-                # Email MFA flow
-                email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
-                if email_mfa_sent:
-                    # Increment the resend throttle counter so the initial send counts towards the limit
-                    resend_throttle = EmailMFAResendThrottle()
-                    resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
-                    raise EmailMFARequired(user.email)
-                else:
-                    # if we failed to send the email, we should fall through to allow login without MFA
-                    pass
+                # Email MFA flow - skip if this is a reauth (user already authenticated)
+                if not was_authenticated_before_login_attempt:
+                    email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
+                    if email_mfa_sent:
+                        # Increment the resend throttle counter so the initial send counts towards the limit
+                        resend_throttle = EmailMFAResendThrottle()
+                        resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
+                        raise EmailMFARequired(user.email)
+                    else:
+                        # if we failed to send the email, we should fall through to allow login without MFA
+                        pass
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
@@ -266,8 +267,9 @@ class LoginSerializer(serializers.Serializer):
         if not was_authenticated_before_login_attempt:
             short_user_agent = get_short_user_agent(request)
             ip_address = get_ip_address(request)
+            backend_name = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
             login_from_new_device_notification.delay(
-                user.id, timezone.now(), short_user_agent, ip_address, "email_password"
+                user.id, timezone.now(), short_user_agent, ip_address, backend_name
             )
 
         report_user_logged_in(user, social_provider="")

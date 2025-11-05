@@ -5,14 +5,12 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database, serialize_database
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
-
-from posthog.warehouse.models import Database
 
 from ee.hogai.graph.schema_generator.parsers import PydanticOutputParserException, parse_pydantic_structured_output
 from ee.hogai.graph.schema_generator.utils import SchemaGeneratorOutput
@@ -123,7 +121,7 @@ Below is the current HogQL query and the error message
 
 
 def _get_schema_description(ai_context: dict[Any, Any], hogql_context: HogQLContext, database: Database) -> str:
-    serialized_database = serialize_database(hogql_context)
+    serialized_database = database.serialize(hogql_context)
     schema_description = ""
 
     try:
@@ -156,8 +154,8 @@ def _get_schema_description(ai_context: dict[Any, Any], hogql_context: HogQLCont
                 for table_name, table in serialized_database.items()
                 # Only the most important core tables, plus all warehouse tables
                 if table_name in ["events", "groups", "persons"]
-                or table_name in database.get_warehouse_tables()
-                or table_name in database.get_views()
+                or table_name in database.get_warehouse_table_names()
+                or table_name in database.get_view_names()
             )
         )
 
@@ -183,21 +181,20 @@ def _get_user_prompt(schema_description: str) -> str:
 class HogQLQueryFixerTool(MaxTool):
     name: str = "fix_hogql_query"
     description: str = "Fixes any error in the current HogQL query"
-    thinking_message: str = "Fixing errors in the SQL query"
     context_prompt_template: str = SQL_ASSISTANT_ROOT_SYSTEM_PROMPT
 
     def _run_impl(self) -> tuple[str, str | None]:
-        database = create_hogql_database(team=self._team)
+        database = Database.create_for(team=self._team)
         hogql_context = HogQLContext(team=self._team, enable_select_queries=True, database=database)
 
-        all_tables = database.get_all_tables()
+        all_table_names = database.get_all_table_names()
         schema_description = _get_schema_description(self.context, hogql_context, database)
 
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    _get_system_prompt(all_tables),
+                    _get_system_prompt(all_table_names),
                 ),
                 (
                     "user",

@@ -9,7 +9,7 @@ from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import AssistantState
+from ee.hogai.utils.types.base import AssistantState, NodePath
 
 from .read_billing_tool.tool import ReadBillingTool
 
@@ -55,10 +55,8 @@ class ReadDataAdminAccessToolArgs(BaseModel):
 class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     name: Literal["read_data"] = "read_data"
     description: str = READ_DATA_PROMPT
-    thinking_message: str = "Reading your PostHog data"
     context_prompt_template: str = "Reads user data created in PostHog (data warehouse schema, billing information)"
     args_schema: type[BaseModel] = ReadDataToolArgs
-    show_tool_call_message: bool = False
 
     @classmethod
     async def create_tool_class(
@@ -66,8 +64,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         *,
         team: Team,
         user: User,
+        node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
     ) -> Self:
         """
         Factory that creates a ReadDataTool with a dynamic args schema.
@@ -75,13 +75,23 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         Override this factory to add additional args schemas or descriptions.
         """
         args: type[BaseModel] = ReadDataToolArgs
-        context_manager = AssistantContextManager(team, user, config)
+        if not context_manager:
+            context_manager = AssistantContextManager(team, user, config)
         billing_prompt = ""
         if await context_manager.check_user_has_billing_access():
             args = ReadDataAdminAccessToolArgs
             billing_prompt = READ_DATA_BILLING_PROMPT
         description = format_prompt_string(READ_DATA_PROMPT, billing_prompt=billing_prompt)
-        return cls(team=team, user=user, state=state, config=config, args_schema=args, description=description)
+        return cls(
+            team=team,
+            user=user,
+            state=state,
+            node_path=node_path,
+            config=config,
+            args_schema=args,
+            description=description,
+            context_manager=context_manager,
+        )
 
     async def _arun_impl(self, kind: ReadDataAdminAccessKind | ReadDataKind) -> tuple[str, None]:
         match kind:
@@ -90,7 +100,13 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 if not has_access:
                     return BILLING_INSUFFICIENT_ACCESS_PROMPT, None
                 # used for routing
-                billing_tool = ReadBillingTool(self._team, self._user, self._state, self._context_manager)
+                billing_tool = ReadBillingTool(
+                    team=self._team,
+                    user=self._user,
+                    state=self._state,
+                    config=self._config,
+                    context_manager=self._context_manager,
+                )
                 result = await billing_tool.execute()
                 return result, None
             case "datawarehouse_schema":

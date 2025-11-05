@@ -31,7 +31,7 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
         )
 
     def to_query(self) -> ast.SelectQuery:
-        view_names = self.database.get_views()
+        view_names = self.database.get_view_names()
         all_views = [self.database.get_table(view_name) for view_name in view_names]
         views = [
             view

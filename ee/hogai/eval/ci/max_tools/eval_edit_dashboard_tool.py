@@ -1,5 +1,4 @@
 import pytest
-from unittest.mock import MagicMock, patch
 
 from braintrust import EvalCase
 from langchain_core.runnables import RunnableConfig
@@ -13,9 +12,7 @@ from ee.hogai.eval.scorers import SemanticSimilarity
 from ee.models.assistant import Conversation
 
 
-@pytest.mark.django_db
-@patch("ee.hogai.graph.base.node.get_stream_writer", return_value=MagicMock())
-async def eval_insights_addition(patch_get_stream_writer, pytestconfig, demo_org_team_user):
+async def eval_insights_addition(pytestconfig, demo_org_team_user):
     """Test that adding insights to dashboard executes correctly."""
 
     dashboard = await Dashboard.objects.acreate(

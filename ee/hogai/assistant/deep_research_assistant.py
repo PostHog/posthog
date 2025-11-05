@@ -1,27 +1,32 @@
 from collections.abc import AsyncGenerator
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-from pydantic import BaseModel
-
-from posthog.schema import (
-    AssistantMessage,
-    HumanMessage,
-    MaxBillingContext,
-    ReasoningMessage,
-    TaskExecutionMessage,
-    VisualizationMessage,
-)
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
 
 from posthog.models import Team, User
 
 from ee.hogai.assistant.base import BaseAssistant
-from ee.hogai.graph import DeepResearchAssistantGraph
-from ee.hogai.graph.base import BaseAssistantNode
+from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
+from ee.hogai.utils.stream_processor import AssistantStreamProcessor
 from ee.hogai.utils.types import AssistantMode, AssistantOutput
-from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
+
+if TYPE_CHECKING:
+    from ee.hogai.utils.types.composed import MaxNodeName
+
+
+STREAMING_NODES: set["MaxNodeName"] = {
+    DeepResearchNodeName.ONBOARDING,
+    DeepResearchNodeName.PLANNER,
+    DeepResearchNodeName.TASK_EXECUTOR,
+}
+
+VERBOSE_NODES: set["MaxNodeName"] = STREAMING_NODES | {
+    DeepResearchNodeName.PLANNER_TOOLS,
+    DeepResearchNodeName.TASK_EXECUTOR,
+}
 
 
 class DeepResearchAssistant(BaseAssistant):
@@ -57,57 +62,12 @@ class DeepResearchAssistant(BaseAssistant):
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
+            stream_processor=AssistantStreamProcessor(
+                verbose_nodes=VERBOSE_NODES,
+                streaming_nodes=STREAMING_NODES,
+                state_type=DeepResearchState,
+            ),
         )
-
-    @property
-    def VISUALIZATION_NODES(self) -> dict[MaxNodeName, type[BaseAssistantNode]]:
-        return {}
-
-    @property
-    def STREAMING_NODES(self) -> set[MaxNodeName]:
-        return {
-            DeepResearchNodeName.ONBOARDING,
-            DeepResearchNodeName.PLANNER,
-            DeepResearchNodeName.TASK_EXECUTOR,
-        }
-
-    @property
-    def VERBOSE_NODES(self) -> set[MaxNodeName]:
-        return self.STREAMING_NODES | {
-            DeepResearchNodeName.PLANNER_TOOLS,
-            DeepResearchNodeName.TASK_EXECUTOR,
-        }
-
-    @property
-    def THINKING_NODES(self) -> set[MaxNodeName]:
-        return {
-            DeepResearchNodeName.ONBOARDING,
-            DeepResearchNodeName.NOTEBOOK_PLANNING,
-            DeepResearchNodeName.PLANNER,
-            DeepResearchNodeName.REPORT,
-        }
-
-    def _should_persist_stream_message(self, message: BaseModel, node_name: MaxNodeName) -> bool:
-        """
-        Only persist discrete, low-frequency stream events.
-        Avoid persisting chunked AssistantMessage text to reduce DB write volume.
-        Persisting reasoning and task execution messages from deep research.
-        """
-        if isinstance(node_name, DeepResearchNodeName):
-            if isinstance(message, ReasoningMessage):
-                return True
-            if isinstance(message, TaskExecutionMessage):
-                return True
-        return False
-
-    def _should_persist_commentary_message(self, node_name: MaxNodeName) -> bool:
-        """Persist complete commentary lines emitted by planner/task executor tools."""
-        if isinstance(node_name, DeepResearchNodeName):
-            return node_name in {
-                DeepResearchNodeName.PLANNER,
-                DeepResearchNodeName.TASK_EXECUTOR,
-            }
-        return False
 
     def get_initial_state(self) -> DeepResearchState:
         if self._latest_message:
@@ -115,7 +75,8 @@ class DeepResearchAssistant(BaseAssistant):
                 messages=[self._latest_message],
                 start_id=self._latest_message.id,
                 graph_status=None,
-                notebook_short_id=None,
+                conversation_notebooks=[],
+                current_run_notebooks=None,
             )
         else:
             return DeepResearchState(messages=[])

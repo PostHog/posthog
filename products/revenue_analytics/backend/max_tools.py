@@ -183,10 +183,8 @@ class FilterRevenueAnalyticsTool(MaxTool):
       * When the user asks to search for revenue analytics or revenue
         - "search for" synonyms: "find", "look up", and similar
     """
-    thinking_message: str = "Coming up with filters"
     context_prompt_template: str = "Current revenue analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterRevenueAnalyticsArgs
-    show_tool_call_message: bool = False
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         """

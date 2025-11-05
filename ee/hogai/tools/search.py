@@ -99,27 +99,43 @@ class InkeepResponse(BaseModel):
 
 class SearchTool(MaxTool):
     name: Literal["search"] = "search"
-    thinking_message: str = "Searching for information"
     description: str = SEARCH_TOOL_PROMPT
     context_prompt_template: str = "Searches documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, and surveys in PostHog"
     args_schema: type[BaseModel] = SearchToolArgs
-    show_tool_call_message: bool = False
 
     async def _arun_impl(self, kind: str, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
         if kind == "docs":
             if not settings.INKEEP_API_KEY:
                 return "This tool is not available in this environment.", None
-            docs_tool = InkeepDocsSearchTool(self._team, self._user, self._state, self._context_manager)
+            docs_tool = InkeepDocsSearchTool(
+                team=self._team,
+                user=self._user,
+                state=self._state,
+                config=self._config,
+                context_manager=self._context_manager,
+            )
             return await docs_tool.execute(query, tool_call_id)
 
         if kind == "insights" and not self._has_insights_fts_search_feature_flag():
-            insights_tool = InsightSearchTool(self._team, self._user, self._state, self._context_manager)
+            insights_tool = InsightSearchTool(
+                team=self._team,
+                user=self._user,
+                state=self._state,
+                config=self._config,
+                context_manager=self._context_manager,
+            )
             return await insights_tool.execute(query, tool_call_id)
 
         if kind not in self._fts_entities:
             return format_prompt_string(INVALID_ENTITY_KIND_PROMPT, kind=kind), None
 
-        entity_search_toolkit = EntitySearchTool(self._team, self._user, self._state, self._context_manager)
+        entity_search_toolkit = EntitySearchTool(
+            team=self._team,
+            user=self._user,
+            state=self._state,
+            config=self._config,
+            context_manager=self._context_manager,
+        )
         response = await entity_search_toolkit.execute(query, FTSKind(kind))
         return response, None
 

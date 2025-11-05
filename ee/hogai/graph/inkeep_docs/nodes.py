@@ -34,6 +34,8 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""
+        self.dispatcher.update("Checking PostHog documentation...")
+
         messages = self._construct_messages(
             state.messages, state.root_conversation_start_id, state.root_tool_calls_count
         )
@@ -45,17 +47,11 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         if should_continue:
             tool_prompt = "The documentation search results are provided in the next Assistant message.\n<system_reminder>Continue with the user's data request.</system_reminder>"
 
-        new_messages = [
-            AssistantToolCallMessage(content=tool_prompt, tool_call_id=state.root_tool_call_id, id=str(uuid4())),
-            AssistantMessage(content=message.content, id=str(uuid4())),
-        ]
-        # TRICKY: If the node generates a continuation phrase, we swap the order.
-        # This way the root node will continue the generation.
-        if should_continue:
-            new_messages.reverse()
-
         return PartialAssistantState(
-            messages=new_messages,
+            messages=[
+                AssistantToolCallMessage(content=tool_prompt, tool_call_id=state.root_tool_call_id, id=str(uuid4())),
+                AssistantMessage(content=message.content, id=str(uuid4())),
+            ],
             root_tool_call_id=None,
         )
 

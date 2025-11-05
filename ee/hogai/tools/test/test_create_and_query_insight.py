@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
-    AssistantContextualTool,
     AssistantMessage,
+    AssistantTool,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     VisualizationMessage,
@@ -150,7 +150,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_editing_mode_adds_ui_payload(self):
         """Test that in editing mode, UI payload is added to tool call message."""
         # Create tool with contextual tool available
-        tool = self._create_tool(contextual_tools={AssistantContextualTool.CREATE_AND_QUERY_INSIGHT.value: {}})
+        tool = self._create_tool(contextual_tools={AssistantTool.CREATE_AND_QUERY_INSIGHT.value: {}})
 
         query = AssistantTrendsQuery(series=[])
         viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
@@ -179,8 +179,6 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(
             returned_tool_call_message.ui_payload["create_and_query_insight"], query.model_dump(exclude_none=True)
         )
-        # Visible defaults to True (show_tool_call_message is True by default)
-        self.assertTrue(returned_tool_call_message.visible)
 
     async def test_non_editing_mode_no_ui_payload(self):
         """Test that in non-editing mode, no UI payload is added to tool call message."""
@@ -250,7 +248,7 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         """Test the is_editing_mode class method correctly detects editing mode."""
         # Test with editing mode enabled
         config_editing: RunnableConfig = RunnableConfig(
-            configurable={"contextual_tools": {AssistantContextualTool.CREATE_AND_QUERY_INSIGHT.value: {}}}
+            configurable={"contextual_tools": {AssistantTool.CREATE_AND_QUERY_INSIGHT.value: {}}}
         )
         context_manager_editing = AssistantContextManager(team=self.team, user=self.user, config=config_editing)
         self.assertTrue(CreateAndQueryInsightTool.is_editing_mode(context_manager_editing))

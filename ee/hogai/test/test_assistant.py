@@ -9,7 +9,7 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
@@ -18,7 +18,7 @@ from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
 from langchain_core import messages
-from langchain_core.messages import AIMessageChunk, BaseMessage
+from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
@@ -40,6 +40,7 @@ from posthog.schema import (
     AssistantToolCall,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    AssistantUpdateEvent,
     ContextMessage,
     DashboardFilter,
     FailureMessage,
@@ -52,10 +53,6 @@ from posthog.schema import (
     MaxInsightContext,
     MaxProductInfo,
     MaxUIContext,
-    ReasoningMessage,
-    TaskExecutionItem,
-    TaskExecutionMessage,
-    TaskExecutionStatus,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -64,15 +61,13 @@ from posthog.models import Action
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph.base import AssistantCompiledStateGraph
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.graph.memory import prompts as memory_prompts
 from ee.hogai.graph.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.utils.state import GraphMessageUpdateTuple, GraphValueUpdateTuple, LangGraphState
 from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import (
     AssistantMode,
@@ -85,11 +80,15 @@ from ee.hogai.utils.types.base import ReplaceMessages
 from ee.models.assistant import Conversation, CoreMemory
 
 from ..assistant import Assistant
-from ..graph import AssistantGraph
+from ..graph.graph import AssistantGraph
 
 title_generator_mock = patch(
     "ee.hogai.graph.title_generator.nodes.TitleGeneratorNode._model",
     return_value=FakeChatOpenAI(responses=[messages.AIMessage(content="Title")]),
+)
+
+query_executor_mock = patch(
+    "ee.hogai.graph.query_executor.nodes.QueryExecutorNode._format_query_result", new=MagicMock(return_value="Result")
 )
 
 
@@ -177,13 +176,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Override the graph if a test graph is provided
         if test_graph:
-            # Wrap the test graph if needed
-            if isinstance(test_graph, AssistantCompiledStateGraph):
-                assistant._graph = test_graph
-            else:
-                # Try to get the reasoning message mapping from the original graph if available
-                reasoning_mapping = getattr(test_graph, "aget_reasoning_message_by_node_name", {})
-                assistant._graph = AssistantCompiledStateGraph(test_graph, reasoning_mapping)
+            assistant._graph = test_graph
 
         # Capture and parse output of assistant.astream()
         output: list[AssistantOutput] = []
@@ -210,13 +203,18 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 and expected_msg_type == AssistantEventType.CONVERSATION
             ):
                 self.assertEqual(output_msg, expected_msg)
-            elif output_msg_type == AssistantEventType.MESSAGE and expected_msg_type == AssistantEventType.MESSAGE:
+            elif (
+                output_msg_type == AssistantEventType.MESSAGE and expected_msg_type == AssistantEventType.MESSAGE
+            ) or (output_msg_type == AssistantEventType.UPDATE and expected_msg_type == AssistantEventType.UPDATE):
                 msg_dict = (
                     expected_msg.model_dump(exclude_none=True) if isinstance(expected_msg, BaseModel) else expected_msg
                 )
+                msg_dict.pop("id", None)
+                output_msg_dict = cast(BaseModel, output_msg).model_dump(exclude_none=True)
+                output_msg_dict.pop("id", None)
                 self.assertLessEqual(
                     msg_dict.items(),
-                    cast(BaseModel, output_msg).model_dump(exclude_none=True).items(),
+                    output_msg_dict.items(),
                     f"Message content mismatch at index {i}",
                 )
             else:
@@ -230,298 +228,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 if isinstance(expected_message, BaseModel)
                 else expected_message
             )
+            expected_msg_dict.pop("id", None)
             msg_dict = message.model_dump(exclude_none=True) if isinstance(message, BaseModel) else message
+            msg_dict.pop("id", None)
             self.assertLessEqual(expected_msg_dict.items(), msg_dict.items(), f"Message content mismatch at index {i}")
-
-    @patch(
-        "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
-        return_value=FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "final_answer",
-                            "args": {"query_kind": "trends", "plan": "Plan"},
-                        }
-                    ],
-                )
-            ]
-        ),
-    )
-    @patch(
-        "ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun",
-        return_value=PartialAssistantState(
-            messages=[AssistantMessage(content="Foobar")],
-        ),
-    )
-    async def test_reasoning_messages_added(self, _mock_query_executor_run, _mock_query_planner_run):
-        output, _ = await self._run_assistant_graph(
-            InsightsGraph(self.team, self.user)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
-            .add_query_planner(
-                {
-                    "continue": AssistantNodeName.QUERY_PLANNER,
-                    "trends": AssistantNodeName.END,
-                    "funnel": AssistantNodeName.END,
-                    "retention": AssistantNodeName.END,
-                    "sql": AssistantNodeName.END,
-                    "end": AssistantNodeName.END,
-                }
-            )
-            .compile(),
-            conversation=self.conversation,
-            mode=AssistantMode.INSIGHTS_TOOL,
-        )
-
-        # Assert that ReasoningMessages are added
-        # Note: InsightsAssistant doesn't stream the first HumanMessage
-        expected_output = [
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [],
-                },
-            ),
-        ]
-        self.assertConversationEqual(output, expected_output)
-
-    @patch(
-        "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
-        return_value=FakeChatOpenAI(
-            responses=[
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_1",
-                            "name": "retrieve_entity_properties",
-                            "args": {"entity": "session"},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_2",
-                            "name": "retrieve_event_properties",
-                            "args": {"event_name": "$pageview"},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_3",
-                            "name": "retrieve_event_property_values",
-                            "args": {"event_name": "purchase", "property_name": "currency"},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_4",
-                            "name": "retrieve_entity_property_values",
-                            "args": {"entity": "person", "property_name": "country_of_birth"},
-                        }
-                    ],
-                ),
-                messages.AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "id": "call_6",
-                            "name": "final_answer",
-                            "args": {"query_kind": "trends", "plan": "Plan"},
-                        }
-                    ],
-                ),
-            ]
-        ),
-    )
-    async def test_reasoning_messages_with_substeps_added(self, _mock_query_planner_run):
-        output, _ = await self._run_assistant_graph(
-            InsightsGraph(self.team, self.user)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
-            .add_query_planner(
-                {
-                    "continue": AssistantNodeName.QUERY_PLANNER,
-                    "trends": AssistantNodeName.END,
-                    "funnel": AssistantNodeName.END,
-                    "retention": AssistantNodeName.END,
-                    "sql": AssistantNodeName.END,
-                    "end": AssistantNodeName.END,
-                }
-            )
-            .compile(),
-            conversation=self.conversation,
-            tool_call_partial_state=AssistantState(root_tool_call_id="foo"),
-            mode=AssistantMode.INSIGHTS_TOOL,
-        )
-
-        # Assert that ReasoningMessages are added
-        # Note: InsightsAssistant doesn't stream the first HumanMessage
-        expected_output = [
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [
-                        "Exploring session properties",
-                    ],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [
-                        "Exploring session properties",
-                        "Exploring `$pageview` event's properties",
-                    ],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [
-                        "Exploring session properties",
-                        "Exploring `$pageview` event's properties",
-                        "Analyzing `purchase` event's property `currency`",
-                    ],
-                },
-            ),
-            (
-                "message",
-                {
-                    "type": "ai/reasoning",
-                    "content": "Picking relevant events and properties",
-                    "substeps": [
-                        "Exploring session properties",
-                        "Exploring `$pageview` event's properties",
-                        "Analyzing `purchase` event's property `currency`",
-                        "Analyzing person property `country_of_birth`",
-                    ],
-                },
-            ),
-        ]
-        self.assertConversationEqual(output, expected_output)
-
-    async def test_action_reasoning_messages_added(self):
-        action = await Action.objects.acreate(team=self.team, name="Marius Tech Tips")
-
-        with patch(
-            "ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model",
-            return_value=FakeChatOpenAI(
-                responses=[
-                    messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "call_1",
-                                "name": "retrieve_action_properties",
-                                "args": {"action_id": action.id},
-                            }
-                        ],
-                    ),
-                    messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "call_2",
-                                "name": "retrieve_action_property_values",
-                                "args": {"action_id": action.id, "property_name": "video_name"},
-                            }
-                        ],
-                    ),
-                    messages.AIMessage(
-                        content="",
-                        tool_calls=[
-                            {
-                                "id": "call_3",
-                                "name": "final_answer",
-                                "args": {"query_kind": "trends", "plan": "Plan"},
-                            }
-                        ],
-                    ),
-                ]
-            ),
-        ):
-            test_graph = (
-                InsightsGraph(self.team, self.user)
-                .add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
-                .add_query_planner(
-                    {
-                        "continue": AssistantNodeName.QUERY_PLANNER,
-                        "trends": AssistantNodeName.END,
-                        "funnel": AssistantNodeName.END,
-                        "retention": AssistantNodeName.END,
-                        "sql": AssistantNodeName.END,
-                        "end": AssistantNodeName.END,
-                    }
-                )
-                .compile()
-            )
-            output, assistant = await self._run_assistant_graph(
-                test_graph,
-                tool_call_partial_state=AssistantState(root_tool_call_id="foo"),
-                conversation=self.conversation,
-                mode=AssistantMode.INSIGHTS_TOOL,
-            )
-
-            # Assert that ReasoningMessages are added
-            # Note: InsightsAssistant doesn't stream the first HumanMessage
-            expected_output = [
-                (
-                    "message",
-                    {
-                        "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",
-                        "substeps": [],
-                    },
-                ),
-                (
-                    "message",
-                    {
-                        "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",
-                        "substeps": [
-                            "Exploring `Marius Tech Tips` action properties",
-                        ],
-                    },
-                ),
-                (
-                    "message",
-                    {
-                        "type": "ai/reasoning",
-                        "content": "Picking relevant events and properties",
-                        "substeps": [
-                            "Exploring `Marius Tech Tips` action properties",
-                            "Analyzing `video_name` action property of `Marius Tech Tips`",
-                        ],
-                    },
-                ),
-            ]
-            self.assertConversationEqual(output, expected_output)
 
     async def _test_human_in_the_loop(self, insight_type: Literal["trends", "funnel", "retention"]):
         graph = (
@@ -582,21 +292,45 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             output, _ = await self._run_assistant_graph(graph, conversation=self.conversation)
             expected_output = [
                 ("message", HumanMessage(content="Hello")),
-                ("message", AssistantMessage(content="Okay")),
-                ("message", ReasoningMessage(content="Coming up with an insight")),
-                ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
+                (
+                    "message",
+                    AssistantMessage(
+                        content="Okay",
+                        tool_calls=[
+                            AssistantToolCall(
+                                id="1",
+                                name="create_and_query_insight",
+                                args={"query_description": "Foobar"},
+                            )
+                        ],
+                    ),
+                ),
+                (
+                    "update",
+                    AssistantUpdateEvent(
+                        id="message_1",
+                        content="Picking relevant events and properties",
+                        tool_call_id="1",
+                    ),
+                ),
+                (
+                    "message",
+                    AssistantToolCallMessage(
+                        content="The agent has requested help:\nrequest='Need help with this query'", tool_call_id="1"
+                    ),
+                ),
                 ("message", AssistantMessage(content="Agent needs help with this query")),
             ]
             self.assertConversationEqual(output, expected_output)
             snapshot: StateSnapshot = await graph.aget_state(config)
             self.assertFalse(snapshot.next)
             self.assertFalse(snapshot.values.get("intermediate_steps"))
-            self.assertFalse(snapshot.values["plan"])
-            self.assertFalse(snapshot.values["graph_status"])
-            self.assertFalse(snapshot.values["root_tool_call_id"])
-            self.assertFalse(snapshot.values["root_tool_insight_plan"])
-            self.assertFalse(snapshot.values["root_tool_insight_type"])
-            self.assertFalse(snapshot.values["root_tool_calls_count"])
+            self.assertFalse(snapshot.values.get("plan"))
+            self.assertFalse(snapshot.values.get("graph_status"))
+            self.assertFalse(snapshot.values.get("root_tool_call_id"))
+            self.assertFalse(snapshot.values.get("root_tool_insight_plan"))
+            self.assertFalse(snapshot.values.get("root_tool_insight_type"))
+            self.assertFalse(snapshot.values.get("root_tool_calls_count"))
 
     async def test_trends_interrupt_when_asking_for_help(self):
         await self._test_human_in_the_loop("trends")
@@ -705,9 +439,18 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             self.assertIsInstance(output[1][1], FailureMessage)
 
     async def test_new_conversation_handles_serialized_conversation(self):
+        class TestNode(AssistantNode):
+            @property
+            def node_name(self):
+                return AssistantNodeName.ROOT
+
+            async def arun(self, state, config):
+                return PartialAssistantState(messages=[AssistantMessage(content="Hello", id=str(uuid4()))])
+
+        test_node = TestNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, lambda _: {"messages": [AssistantMessage(content="Hello")]})
+            .add_node(AssistantNodeName.ROOT, test_node)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
@@ -730,9 +473,18 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertNotEqual(output[0][0], "conversation")
 
     async def test_async_stream(self):
+        class TestNode(AssistantNode):
+            @property
+            def node_name(self):
+                return AssistantNodeName.ROOT
+
+            async def arun(self, state, config):
+                return PartialAssistantState(messages=[AssistantMessage(content="bar", id=str(uuid4()))])
+
+        test_node = TestNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, lambda _: {"messages": [AssistantMessage(content="bar")]})
+            .add_node(AssistantNodeName.ROOT, test_node)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
@@ -746,16 +498,24 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", HumanMessage(content="foo")),
             ("message", AssistantMessage(content="bar")),
         ]
-        actual_output = [message async for message in assistant.astream()]
+        actual_output = [
+            event
+            async for event in assistant.astream()
+            if not (
+                isinstance(event[1], AssistantGenerationStatusEvent)
+                and event[1].type == AssistantGenerationStatusType.ACK
+            )
+        ]
         self.assertConversationEqual(actual_output, expected_output)
 
     async def test_async_stream_handles_exceptions(self):
-        def node_handler(state):
-            raise ValueError()
+        class NodeHandler(AssistantNode):
+            async def arun(self, state, config):
+                raise ValueError
 
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, node_handler)
+            .add_node(AssistantNodeName.ROOT, NodeHandler(self.team, self.user))
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
@@ -769,12 +529,11 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ("message", HumanMessage(content="foo")),
             ("message", FailureMessage()),
         ]
-        actual_output = []
-        async for event in assistant.astream():
-            actual_output.append(event)
+        actual_output, _ = await self._run_assistant_graph(graph, message="foo")
         self.assertConversationEqual(actual_output, expected_output)
 
     @title_generator_mock
+    @query_executor_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
@@ -821,10 +580,30 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
-            ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating trends query")),
+            (
+                "message",
+                AssistantMessage(
+                    content="",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="xyz",
+                            name="create_and_query_insight",
+                            args={"query_description": "Foobar"},
+                        )
+                    ],
+                ),
+            ),
+            (
+                "update",
+                AssistantUpdateEvent(
+                    id="message_1",
+                    tool_call_id="xyz",
+                    content="Picking relevant events and properties",
+                ),
+            ),
+            ("update", AssistantUpdateEvent(id="message_2", tool_call_id="xyz", content="Creating trends query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
+            ("message", AssistantToolCallMessage(tool_call_id="xyz", content="Result")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
@@ -847,6 +626,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
     @title_generator_mock
+    @query_executor_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
@@ -898,10 +678,30 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
-            ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating funnel query")),
+            (
+                "message",
+                AssistantMessage(
+                    content="",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="xyz",
+                            name="create_and_query_insight",
+                            args={"query_description": "Foobar"},
+                        )
+                    ],
+                ),
+            ),
+            (
+                "update",
+                AssistantUpdateEvent(
+                    id="message_1",
+                    tool_call_id="xyz",
+                    content="Picking relevant events and properties",
+                ),
+            ),
+            ("update", AssistantUpdateEvent(id="message_2", tool_call_id="xyz", content="Creating funnel query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
+            ("message", AssistantToolCallMessage(tool_call_id="xyz", content="Result")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
@@ -924,6 +724,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
     @title_generator_mock
+    @query_executor_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
@@ -977,10 +778,30 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
-            ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating retention query")),
+            (
+                "message",
+                AssistantMessage(
+                    content="",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="xyz",
+                            name="create_and_query_insight",
+                            args={"query_description": "Foobar"},
+                        )
+                    ],
+                ),
+            ),
+            (
+                "update",
+                AssistantUpdateEvent(
+                    id="message_1",
+                    tool_call_id="xyz",
+                    content="Picking relevant events and properties",
+                ),
+            ),
+            ("update", AssistantUpdateEvent(id="message_2", tool_call_id="xyz", content="Creating retention query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
+            ("message", AssistantToolCallMessage(tool_call_id="xyz", content="Result")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
@@ -1003,6 +824,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
     @title_generator_mock
+    @query_executor_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
@@ -1048,15 +870,35 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
-            ("message", ReasoningMessage(content="Coming up with an insight")),
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating SQL query")),
+            (
+                "message",
+                AssistantMessage(
+                    content="",
+                    tool_calls=[
+                        AssistantToolCall(
+                            id="xyz",
+                            name="create_and_query_insight",
+                            args={"query_description": "Foobar"},
+                        )
+                    ],
+                ),
+            ),
+            (
+                "update",
+                AssistantUpdateEvent(
+                    id="message_1",
+                    tool_call_id="xyz",
+                    content="Picking relevant events and properties",
+                ),
+            ),
+            ("update", AssistantUpdateEvent(id="message_2", tool_call_id="xyz", content="Creating SQL query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
+            ("message", AssistantToolCallMessage(tool_call_id="xyz", content="Result")),
             ("message", AssistantMessage(content="The results indicate a great future for you.")),
         ]
         self.assertConversationEqual(actual_output, expected_output)
         self.assertEqual(
-            cast(AssistantMessage, actual_output[1][1]).id, cast(VisualizationMessage, actual_output[5][1]).initiator
+            cast(HumanMessage, actual_output[1][1]).id, cast(VisualizationMessage, actual_output[5][1]).initiator
         )  # viz message must have this id
 
     @patch("ee.hogai.graph.memory.nodes.MemoryOnboardingEnquiryNode._model")
@@ -1382,18 +1224,37 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             output,
             [
                 ("message", HumanMessage(content="How do I use feature flags?")),
-                ("message", ReasoningMessage(content="Searching for information")),
-                ("message", AssistantMessage(content="Here's what I found in the docs...")),
+                (
+                    "message",
+                    AssistantMessage(
+                        content="",
+                        tool_calls=[
+                            AssistantToolCall(
+                                args={"kind": "docs", "query": "test"}, id="1", name="search", type="tool_call"
+                            )
+                        ],
+                    ),
+                ),
+                (
+                    "update",
+                    AssistantUpdateEvent(content="Checking PostHog documentation...", id="1", tool_call_id="1"),
+                ),
+                (
+                    "message",
+                    AssistantToolCallMessage(content="Checking PostHog documentation...", tool_call_id="1"),
+                ),
+                (
+                    "message",
+                    AssistantMessage(content="Here's what I found in the docs...", id=str(uuid4())),
+                ),
             ],
         )
 
     @title_generator_mock
+    @query_executor_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun")
-    async def test_insights_tool_mode_flow(
-        self, query_executor_mock, planner_mock, generator_mock, title_generator_mock
-    ):
+    async def test_insights_tool_mode_flow(self, planner_mock, generator_mock, title_generator_mock):
         """Test that the insights tool mode works correctly."""
         query = AssistantTrendsQuery(series=[])
         tool_call_id = str(uuid4())
@@ -1419,15 +1280,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             ]
         )
         generator_mock.return_value = RunnableLambda(lambda _: TrendsSchemaGeneratorOutput(query=query))
-        query_executor_mock.return_value = RunnableLambda(
-            lambda _: PartialAssistantState(
-                messages=[
-                    AssistantToolCallMessage(
-                        content="The results indicate a great future for you.", tool_call_id=tool_call_id
-                    )
-                ]
-            )
-        )
+
         # Run in insights tool mode
         output, _ = await self._run_assistant_graph(
             conversation=self.conversation,
@@ -1438,14 +1291,10 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         expected_output = [
-            ("message", ReasoningMessage(content="Picking relevant events and properties", substeps=[])),
-            ("message", ReasoningMessage(content="Creating trends query")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             (
                 "message",
-                AssistantToolCallMessage(
-                    content="The results indicate a great future for you.", tool_call_id=tool_call_id
-                ),
+                AssistantToolCallMessage(content="Result", tool_call_id=tool_call_id),
             ),
         ]
         self.assertConversationEqual(output, expected_output)
@@ -1483,22 +1332,29 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_merges_messages_with_same_id(self):
         """Test that messages with the same ID are merged into one."""
+
         message_ids = [str(uuid4()), str(uuid4())]
 
         # Create a simple graph that will return messages with the same ID but different content
         first_content = "First version of message"
         updated_content = "Updated version of message"
 
-        class MessageUpdatingNode:
-            def __init__(self):
+        class MessageUpdatingNode(AssistantNode):
+            def __init__(self, team, user):
+                super().__init__(team, user)
                 self.call_count = 0
 
-            def __call__(self, state):
+            @property
+            def node_name(self):
+                return AssistantNodeName.ROOT
+
+            async def arun(self, state, config):
                 self.call_count += 1
                 content = first_content if self.call_count == 1 else updated_content
-                return {"messages": [AssistantMessage(id=message_ids[self.call_count - 1], content=content)]}
+                msg = AssistantMessage(id=message_ids[self.call_count - 1], content=content)
+                return PartialAssistantState(messages=[msg])
 
-        updater = MessageUpdatingNode()
+        updater = MessageUpdatingNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, updater)
@@ -1506,7 +1362,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
         )
-        config = {"configurable": {"thread_id": self.conversation.id}}
+        config = RunnableConfig(configurable={"thread_id": self.conversation.id})
 
         # First run should add the message with initial content
         output, _ = await self._run_assistant_graph(graph, conversation=self.conversation)
@@ -1548,24 +1404,29 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ),
                 True,
             ),
-            # Should be filtered out (no UI payload)
-            (AssistantToolCallMessage(content="Tool result", tool_call_id="456", id="4", ui_payload=None), False),
+            # Should be output (tool call messages are not filtered by ui_payload)
+            (AssistantToolCallMessage(content="Tool result", tool_call_id="456", id="4", ui_payload=None), True),
         ]
 
         for test_message, expected_in_output in output_messages:
             # Create a simple graph that produces different message types to test filtering
-            class MessageFilteringNode:
-                def __init__(self, message_to_return):
+            class MessageFilteringNode(AssistantNode):
+                def __init__(self, team, user, message_to_return):
+                    super().__init__(team, user)
                     self.message_to_return = message_to_return
 
-                def __call__(self, *args, **kwargs):
-                    # Return a set of messages that should be filtered differently
+                @property
+                def node_name(self):
+                    return AssistantNodeName.ROOT
+
+                async def arun(self, state, config):
                     return PartialAssistantState(messages=[self.message_to_return])
 
             # Create a graph with our test node
+            node = MessageFilteringNode(self.team, self.user, test_message)
             graph = (
                 AssistantGraph(self.team, self.user)
-                .add_node(AssistantNodeName.ROOT, MessageFilteringNode(test_message))
+                .add_node(AssistantNodeName.ROOT, node)
                 .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
                 .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
                 .compile()
@@ -1586,12 +1447,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         """Test that ui_context persists when retrieving conversation state across multiple runs."""
 
         # Create a simple graph that just returns the initial state
-        def return_initial_state(state):
-            return {"messages": [AssistantMessage(content="Response from assistant")]}
+        class ReturnInitialStateNode(AssistantNode):
+            async def arun(self, state, config):
+                return PartialAssistantState(messages=[AssistantMessage(content="Response from assistant")])
 
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, return_initial_state)
+            .add_node(AssistantNodeName.ROOT, ReturnInitialStateNode(self.team, self.user))
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
@@ -1715,7 +1577,26 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_output = [
             ("conversation", self.conversation),
             ("message", HumanMessage(content="Hello")),
-            ("message", ReasoningMessage(content="Coming up with an insight")),
+            (
+                "message",
+                AssistantMessage(
+                    content="",
+                    id="56076433-5d90-4248-9a46-df3fda42bd0a",
+                    tool_calls=[
+                        AssistantToolCall(
+                            args={"query_description": "Foobar"},
+                            id="xyz",
+                            name="create_and_query_insight",
+                            type="tool_call",
+                        )
+                    ],
+                ),
+            ),
+            (
+                "update",
+                AssistantUpdateEvent(content="Picking relevant events and properties", tool_call_id="xyz", id=""),
+            ),
+            ("update", AssistantUpdateEvent(content="Creating trends query", tool_call_id="xyz", id="")),
             ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
             (
                 "message",
@@ -1723,7 +1604,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     content="The results indicate a great future for you.",
                     tool_call_id="xyz",
                     ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
-                    visible=True,
                 ),
             ),
             ("message", AssistantMessage(content="Everything is fine")),
@@ -1752,7 +1632,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 content="The results indicate a great future for you.",
                 tool_call_id="xyz",
                 ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
-                visible=True,
             ),
             AssistantMessage(content="Everything is fine"),
         ]
@@ -1821,9 +1700,19 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     # Tests for ainvoke method
     async def test_ainvoke_basic_functionality(self):
         """Test ainvoke returns all messages at once without streaming."""
+
+        class TestNode(AssistantNode):
+            @property
+            def node_name(self):
+                return AssistantNodeName.ROOT
+
+            async def arun(self, state, config):
+                return PartialAssistantState(messages=[AssistantMessage(content="Response", id=str(uuid4()))])
+
+        test_node = TestNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, lambda _: {"messages": [AssistantMessage(content="Response")]})
+            .add_node(AssistantNodeName.ROOT, test_node)
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
@@ -1849,144 +1738,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(item[0], AssistantEventType.MESSAGE)
         self.assertIsInstance(item[1], AssistantMessage)
         self.assertEqual(cast(AssistantMessage, item[1]).content, "Response")
-
-    def test_chunk_reasoning_headline(self):
-        """Test _chunk_reasoning_headline method with various scenarios."""
-        assistant = Assistant.create(
-            self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user
-        )
-
-        # Test 1: Start of headline - should return None and start chunking
-        reasoning = {"summary": [{"text": "**Analyzing user data"}]}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertIsNone(result)
-        self.assertEqual(assistant._reasoning_headline_chunk, "Analyzing user data")
-        self.assertIsNone(assistant._last_reasoning_headline)
-
-        # Test 2: Continue headline - should return None and continue chunking
-        reasoning = {"summary": [{"text": " to find patterns"}]}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertIsNone(result)
-        self.assertEqual(assistant._reasoning_headline_chunk, "Analyzing user data to find patterns")
-        self.assertIsNone(assistant._last_reasoning_headline)
-
-        # Test 3: End of headline - should return complete headline and reset
-        reasoning = {"summary": [{"text": " and insights**"}]}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertEqual(result, "Analyzing user data to find patterns and insights")
-        self.assertIsNone(assistant._reasoning_headline_chunk)
-        self.assertEqual(assistant._last_reasoning_headline, "Analyzing user data to find patterns and insights")
-
-        # Test 4: Complete headline in one chunk - should return complete headline immediately
-        assistant._reasoning_headline_chunk = None
-        assistant._last_reasoning_headline = None
-        reasoning = {"summary": [{"text": "**Complete headline in one chunk**"}]}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertEqual(result, "Complete headline in one chunk")
-        self.assertIsNone(assistant._reasoning_headline_chunk)
-        self.assertEqual(assistant._last_reasoning_headline, "Complete headline in one chunk")
-
-        # Test 5: Malformed reasoning - missing summary key
-        assistant._reasoning_headline_chunk = "Some partial text"
-        reasoning = {}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertIsNone(result)
-        self.assertIsNone(assistant._reasoning_headline_chunk)  # Should reset on error
-
-        # Test 6: Malformed reasoning - empty summary array
-        assistant._reasoning_headline_chunk = "Some partial text"
-        reasoning = {"summary": []}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertIsNone(result)
-        self.assertIsNone(assistant._reasoning_headline_chunk)  # Should reset on error
-
-        # Test 7: Malformed reasoning - missing text key
-        assistant._reasoning_headline_chunk = "Some partial text"
-        reasoning = {"summary": [{}]}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertIsNone(result)
-        self.assertIsNone(assistant._reasoning_headline_chunk)  # Should reset on error
-
-        # Test 8: No bold markers in text - should return None
-        assistant._reasoning_headline_chunk = None
-        reasoning = {"summary": [{"text": "Regular text without bold markers"}]}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertIsNone(result)
-        self.assertIsNone(assistant._reasoning_headline_chunk)
-
-        # Test 9: Empty text content
-        assistant._reasoning_headline_chunk = None
-        reasoning = {"summary": [{"text": ""}]}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertIsNone(result)
-        self.assertIsNone(assistant._reasoning_headline_chunk)
-
-        # Test 10: Only bold markers, no content
-        assistant._reasoning_headline_chunk = None
-        reasoning = {"summary": [{"text": "****"}]}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertEqual(result, "")  # Should return empty string
-        self.assertIsNone(assistant._reasoning_headline_chunk)
-        self.assertEqual(assistant._last_reasoning_headline, "")
-
-        # Test 11: Multiple bold sections - should capture everything between first and last markers, filtering internal markers
-        assistant._reasoning_headline_chunk = None
-        assistant._last_reasoning_headline = None
-        reasoning = {"summary": [{"text": "**I'm** analyzing data and **considering multiple options**"}]}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertEqual(result, "I'm analyzing data and considering multiple options")
-        self.assertIsNone(assistant._reasoning_headline_chunk)
-        self.assertEqual(assistant._last_reasoning_headline, "I'm analyzing data and considering multiple options")
-
-        # Test 12: Simple headline
-        assistant._reasoning_headline_chunk = None
-        assistant._last_reasoning_headline = None
-        reasoning = {"summary": [{"text": "**OK**"}]}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertEqual(result, "OK")
-        self.assertIsNone(assistant._reasoning_headline_chunk)
-
-        # Test 13: Headline with exactly 3 words
-        assistant._reasoning_headline_chunk = None
-        assistant._last_reasoning_headline = None
-        reasoning = {"summary": [{"text": "**Three word headline**"}]}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertEqual(result, "Three word headline")
-        self.assertEqual(assistant._last_reasoning_headline, "Three word headline")
-
-        # Test 14: Text with nested bold for emphasis - captures everything between outermost markers, filters internal markers
-        assistant._reasoning_headline_chunk = None
-        assistant._last_reasoning_headline = None
-        reasoning = {"summary": [{"text": "**I'm considering **multiple** important options**"}]}
-        result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertEqual(result, "I'm considering multiple important options")
-        self.assertEqual(assistant._last_reasoning_headline, "I'm considering multiple important options")
-
-    def test_process_value_update_returns_ack_event(self):
-        """Test that _process_value_update returns an ACK event for state updates."""
-
-        assistant = Assistant.create(
-            self.team, self.conversation, new_message=HumanMessage(content="Hello"), user=self.user
-        )
-
-        # Create a value update tuple that doesn't match special nodes
-        update = cast(
-            GraphValueUpdateTuple,
-            (
-                AssistantNodeName.ROOT,
-                {"root": {"messages": []}},  # Empty update that doesn't match visualization or verbose nodes
-            ),
-        )
-
-        # Process the update
-        result = assistant._process_value_update(update)
-        result = cast(list[BaseModel], result)
-
-        # Should receive a list with an ACK event
-        self.assertIsNotNone(result)
-        self.assertEqual(len(result), 1)
-        self.assertIsInstance(result[0], AssistantGenerationStatusEvent)
-        self.assertEqual(cast(AssistantGenerationStatusEvent, result[0]).type, AssistantGenerationStatusType.ACK)
 
     def test_billing_context_in_config(self):
         billing_context = MaxBillingContext(
@@ -2025,8 +1776,9 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         config = assistant._get_config()
         self.assertEqual(config["configurable"]["billing_context"], billing_context)
 
+    @patch("ee.hogai.context.context.AssistantContextManager.check_user_has_billing_access", return_value=True)
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model")
-    async def test_billing_tool_execution(self, root_mock):
+    async def test_billing_tool_execution(self, root_mock, access_mock):
         """Test that the billing tool can be called and returns formatted billing information."""
         billing_context = MaxBillingContext(
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
@@ -2093,7 +1845,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             new_message=HumanMessage(content="What's my current billing status?"),
             billing_context=billing_context,
         )
-        assistant._graph = AssistantCompiledStateGraph(test_graph, {})
+        assistant._graph = test_graph
 
         output: list[AssistantOutput] = []
         async for event in assistant.astream():
@@ -2112,131 +1864,23 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("billing", final_message.content.lower())
         self.assertIn("startup", final_message.content.lower())
 
-    def test_handles_mixed_content_types_in_chunks(self):
-        """Test that assistant correctly handles switching between string and list content formats."""
-        assistant = Assistant.create(
-            team=self.team,
-            conversation=self.conversation,
-            user=self.user,
-        )
-
-        # Test string to list transition
-        assistant._chunks = AIMessageChunk(content="initial string content")
-
-        # Simulate a chunk from OpenAI Responses API (list format)
-        list_chunk = AIMessageChunk(content=[{"type": "text", "text": "new content from o3"}])
-        langgraph_state: LangGraphState = {"langgraph_node": AssistantNodeName.ROOT}
-
-        update: GraphMessageUpdateTuple = ("messages", (list_chunk, langgraph_state))
-        async_to_sync(assistant._aprocess_message_update)(update)
-
-        # Verify the chunks were reset to list format
-        assert isinstance(assistant._chunks.content, list)
-        assert len(assistant._chunks.content) == 1
-        assert assistant._chunks.content[0]["text"] == "new content from o3"
-
-        # Test list to string transition
-        string_chunk = AIMessageChunk(content="back to string format")
-        langgraph_state = {"langgraph_node": AssistantNodeName.ROOT}
-
-        update = ("messages", (string_chunk, langgraph_state))
-        async_to_sync(assistant._aprocess_message_update)(update)
-
-        # Verify the chunks were reset to string format
-        assert isinstance(assistant._chunks.content, str)  # type: ignore
-        assert assistant._chunks.content == "back to string format"
-
-    def test_handles_multiple_list_chunks(self):
-        """Test that multiple list-format chunks are properly concatenated."""
-        assistant = Assistant.create(
-            team=self.team,
-            conversation=self.conversation,
-            user=self.user,
-        )
-
-        # Start with empty chunks
-        assistant._chunks = AIMessageChunk(content="")
-
-        # Add first list chunk
-        chunk1 = AIMessageChunk(content=[{"type": "text", "text": "First part"}])
-        langgraph_state: LangGraphState = {"langgraph_node": AssistantNodeName.ROOT}
-        update: GraphMessageUpdateTuple = ("messages", (chunk1, langgraph_state))
-        async_to_sync(assistant._aprocess_message_update)(update)
-
-        # Add second list chunk
-        chunk2 = AIMessageChunk(content=[{"type": "text", "text": " second part"}])
-        update = ("messages", (chunk2, langgraph_state))
-        result = async_to_sync(assistant._aprocess_message_update)(update)
-        result = cast(AssistantMessage, result)
-
-        # Verify the content was extracted correctly
-        assert result is not None
-        assert result.content == "First part second part"
-
-    def test_deep_research_persists_reasoning_messages(self):
-        assistant = Assistant.create(
-            team=self.team,
-            conversation=self.conversation,
-            user=self.user,
-            mode=AssistantMode.DEEP_RESEARCH,
-        )
-
-        reasoning_message = ReasoningMessage(content="streamed reasoning")
-        langgraph_state: LangGraphState = {"langgraph_node": DeepResearchNodeName.PLANNER}
-        update: GraphMessageUpdateTuple = ("messages", (reasoning_message, langgraph_state))
-
-        with patch.object(assistant, "_persist_stream_message", new_callable=AsyncMock) as mock_persist:
-            result = async_to_sync(assistant._aprocess_message_update)(update)
-
-        assert result is reasoning_message
-        mock_persist.assert_awaited_once_with(DeepResearchNodeName.PLANNER, reasoning_message)
-
-    def test_deep_research_persists_task_execution_messages(self):
-        assistant = Assistant.create(
-            team=self.team,
-            conversation=self.conversation,
-            user=self.user,
-            mode=AssistantMode.DEEP_RESEARCH,
-        )
-
-        task_message = TaskExecutionMessage(
-            tasks=[
-                TaskExecutionItem(
-                    description="Write summary",
-                    id="t1",
-                    prompt="Write a summary",
-                    status=TaskExecutionStatus.IN_PROGRESS,
-                    task_type="summary",
-                )
-            ]
-        )
-        langgraph_state: LangGraphState = {"langgraph_node": DeepResearchNodeName.TASK_EXECUTOR}
-        update: GraphMessageUpdateTuple = ("messages", (task_message, langgraph_state))
-
-        with patch.object(assistant, "_persist_stream_message", new_callable=AsyncMock) as mock_persist:
-            result = async_to_sync(assistant._aprocess_message_update)(update)
-
-        assert result is task_message
-        mock_persist.assert_awaited_once_with(DeepResearchNodeName.TASK_EXECUTOR, task_message)
-
     async def test_messages_without_id_are_yielded(self):
         """Test that messages without ID are always yielded."""
 
-        class MessageWithoutIdNode:
-            def __init__(self):
-                self.call_count = 0
+        class MessageWithoutIdNode(AssistantNode):
+            call_count = 0
 
-            def __call__(self, state):
+            async def arun(self, state, config):
                 self.call_count += 1
                 # Return message without ID - should always be yielded
-                return {
-                    "messages": [
+                return PartialAssistantState(
+                    messages=[
                         AssistantMessage(content=f"Message {self.call_count} without ID"),
                         AssistantMessage(content=f"Message {self.call_count} without ID"),
                     ]
-                }
+                )
 
-        node = MessageWithoutIdNode()
+        node = MessageWithoutIdNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, node)
@@ -2257,21 +1901,20 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         """Test that messages with ID are deduplicated during streaming."""
         message_id = str(uuid4())
 
-        class DuplicateMessageNode:
-            def __init__(self):
-                self.call_count = 0
+        class DuplicateMessageNode(AssistantNode):
+            call_count = 0
 
-            def __call__(self, state):
+            async def arun(self, state, config):
                 self.call_count += 1
                 # Always return the same message with same ID
-                return {
-                    "messages": [
+                return PartialAssistantState(
+                    messages=[
                         AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
                         AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
                     ]
-                }
+                )
 
-        node = DuplicateMessageNode()
+        node = DuplicateMessageNode(self.team, self.user)
         graph = (
             AssistantGraph(self.team, self.user)
             .add_node(AssistantNodeName.ROOT, node)
@@ -2288,7 +1931,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             user=self.user,
             is_new_conversation=False,
         )
-        assistant._graph = AssistantCompiledStateGraph(graph, {})
+        assistant._graph = graph
 
         # Collect all streamed messages
         streamed_messages = []
@@ -2302,40 +1945,38 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ]
         self.assertEqual(len(assistant_messages), 1, "Message with same ID should only be yielded once")
 
-        # Verify the message ID is in the streamed_update_ids set
-        self.assertIn(message_id, assistant._streamed_update_ids)
-
-    async def test_init_or_update_state_adds_existing_message_ids_to_streamed_set(self):
-        """Test that _init_or_update_state adds existing message IDs to _streamed_update_ids."""
+    async def test_replaced_messaged_are_not_double_streamed(self):
+        """Test that existing messages are not streamed again"""
         # Create messages with IDs that should be tracked
         message_id_1 = str(uuid4())
         message_id_2 = str(uuid4())
         call_count = [0]
 
         # Create a simple graph that returns messages with IDs
-        def create_messages_with_ids(_):
-            result = None
-            if call_count[0] == 0:
-                result = PartialAssistantState(
-                    messages=[
-                        AssistantMessage(id=message_id_1, content="Message 1"),
-                    ]
-                )
-            else:
-                result = PartialAssistantState(
-                    messages=ReplaceMessages(
-                        [
+        class TestNode(AssistantNode):
+            async def arun(self, state, config):
+                result = None
+                if call_count[0] == 0:
+                    result = PartialAssistantState(
+                        messages=[
                             AssistantMessage(id=message_id_1, content="Message 1"),
-                            AssistantMessage(id=message_id_2, content="Message 2"),
                         ]
                     )
-                )
-            call_count[0] += 1
-            return result
+                else:
+                    result = PartialAssistantState(
+                        messages=ReplaceMessages(
+                            [
+                                AssistantMessage(id=message_id_1, content="Message 1"),
+                                AssistantMessage(id=message_id_2, content="Message 2"),
+                            ]
+                        )
+                    )
+                call_count[0] += 1
+                return result
 
         graph = (
             AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, create_messages_with_ids)
+            .add_node(AssistantNodeName.ROOT, TestNode(self.team, self.user))
             .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
             .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
             .compile()
@@ -2394,7 +2035,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     tool_calls=[{"id": "1", "name": "read_taxonomy", "args": {"query": {"kind": "events"}}}],
                 ),
             ),
-            ("message", ReasoningMessage(content="Searching the taxonomy")),
             ("message", AssistantToolCallMessage(tool_call_id="1", content="Event list" * 128000)),
             ("message", HumanMessage(content="First")),  # Should copy this message
             ("message", AssistantMessage(content="After summary")),
@@ -2406,7 +2046,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         snapshot = await graph.aget_state({"configurable": {"thread_id": str(self.conversation.id)}})
         state = AssistantState.model_validate(snapshot.values)
         # should be equal to the copied human message
-        new_human_message = cast(HumanMessage, output[4][1])
+        new_human_message = cast(HumanMessage, output[3][1])
         self.assertEqual(state.start_id, new_human_message.id)
         # should be equal to the summary message, minus reasoning message
         self.assertEqual(state.root_conversation_start_id, state.messages[3].id)
@@ -2478,8 +2118,6 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     ],
                 ),
             ),
-            (AssistantEventType.MESSAGE, ReasoningMessage(content="Searching for information")),
-            (AssistantEventType.MESSAGE, ReasoningMessage(content="Searching for information")),
             (
                 AssistantEventType.MESSAGE,
                 AssistantToolCallMessage(content="Docs doubt it", tool_call_id=tool_call_id1),

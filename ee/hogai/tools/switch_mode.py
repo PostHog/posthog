@@ -9,7 +9,7 @@ from posthog.models import Team, User
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import AssistantState
+from ee.hogai.utils.types.base import AssistantState, NodePath
 
 SWITCH_MODE_PROMPT = """
 Use this tool to switch yourself to a different mode (implementation) that provides different specialized capabilities and tools.
@@ -97,7 +97,14 @@ class SwitchModeTool(MaxTool):
 
     @classmethod
     async def create_tool_class(
-        cls, *, team: Team, user: User, state: AssistantState | None = None, config: RunnableConfig | None = None
+        cls,
+        *,
+        team: Team,
+        user: User,
+        node_path: tuple[NodePath, ...] | None = None,
+        state: AssistantState | None = None,
+        config: RunnableConfig | None = None,
+        context_manager: AssistantContextManager | None = None,
     ) -> Self:
         from ee.hogai.mode_registry import MODE_REGISTRY
 
@@ -121,5 +128,10 @@ class SwitchModeTool(MaxTool):
         )
 
         return cls(
-            team=team, user=user, state=state, config=config, description=description_prompt, args_schema=args_schema
+            team=team,
+            user=user,
+            state=state,
+            config=config,
+            description=description_prompt,
+            args_schema=args_schema,
         )

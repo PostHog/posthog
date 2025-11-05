@@ -5,9 +5,12 @@ from enum import StrEnum
 from typing import Annotated, Any, Generic, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
-from langchain_core.messages import BaseMessage as LangchainBaseMessage
+from langchain_core.messages import (
+    AIMessageChunk,
+    BaseMessage as LangchainBaseMessage,
+)
 from langgraph.graph import END, START
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import (
     AgentMode,
@@ -19,6 +22,7 @@ from posthog.schema import (
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    AssistantUpdateEvent,
     ContextMessage,
     FailureMessage,
     FunnelsQuery,
@@ -46,18 +50,20 @@ AIMessageUnion = Union[
     AssistantMessage,
     VisualizationMessage,
     FailureMessage,
-    ReasoningMessage,
     AssistantToolCallMessage,
+    MultiVisualizationMessage,
+    ReasoningMessage,
     PlanningMessage,
     TaskExecutionMessage,
-    MultiVisualizationMessage,
 ]
 AssistantMessageUnion = Union[HumanMessage, AIMessageUnion, NotebookUpdateMessage, ContextMessage]
-AssistantMessageOrStatusUnion = Union[AssistantMessageUnion, AssistantGenerationStatusEvent]
+AssistantResultUnion = Union[AssistantMessageUnion, AssistantUpdateEvent, AssistantGenerationStatusEvent]
 
 AssistantOutput = (
     tuple[Literal[AssistantEventType.CONVERSATION], Conversation]
-    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageOrStatusUnion]
+    | tuple[Literal[AssistantEventType.MESSAGE], AssistantMessageUnion]
+    | tuple[Literal[AssistantEventType.STATUS], AssistantGenerationStatusEvent]
+    | tuple[Literal[AssistantEventType.UPDATE], AssistantUpdateEvent]
 )
 
 AnyAssistantGeneratedQuery = (
@@ -80,12 +86,12 @@ ASSISTANT_MESSAGE_TYPES = (
     AssistantMessage,
     VisualizationMessage,
     FailureMessage,
-    ReasoningMessage,
     AssistantToolCallMessage,
-    PlanningMessage,
-    TaskExecutionMessage,
     MultiVisualizationMessage,
     ContextMessage,
+    ReasoningMessage,
+    PlanningMessage,
+    TaskExecutionMessage,
 )
 
 
@@ -194,8 +200,9 @@ class TaskResult(BaseModel):
     The result of an individual task.
     """
 
+    model_config = ConfigDict(extra="ignore")
+
     id: str
-    description: str
     result: str
     artifacts: Sequence[TaskArtifact] = Field(default=[])
     status: TaskExecutionStatus
@@ -250,7 +257,7 @@ class BaseStateWithMessages(BaseState):
 class BaseStateWithTasks(BaseState):
     tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
     """
-    The current tasks.
+    Deprecated.
     """
     task_results: Annotated[list[TaskResult], append] = Field(default=[])  # pyright: ignore[reportUndefinedVariable]
     """
@@ -410,6 +417,13 @@ class AssistantNodeName(StrEnum):
     REVENUE_ANALYTICS_FILTER_OPTIONS_TOOLS = "revenue_analytics_filter_options_tools"
 
 
+class AssistantGraphName(StrEnum):
+    ASSISTANT = "assistant_graph"
+    INSIGHTS = "insights_graph"
+    TAXONOMY = "taxonomy_graph"
+    DEEP_RESEARCH = "deep_research_graph"
+
+
 class AssistantMode(StrEnum):
     ASSISTANT = "assistant"
     INSIGHTS_TOOL = "insights_tool"
@@ -424,3 +438,54 @@ class WithCommentary(BaseModel):
     commentary: str = Field(
         description="A commentary on what you are doing, using the first person: 'I am doing this because...'"
     )
+
+
+class MessageAction(BaseModel):
+    type: Literal["MESSAGE"] = "MESSAGE"
+    message: AssistantMessageUnion
+
+
+class MessageChunkAction(BaseModel):
+    type: Literal["MESSAGE_CHUNK"] = "MESSAGE_CHUNK"
+    message: AIMessageChunk
+
+
+class NodeStartAction(BaseModel):
+    type: Literal["NODE_START"] = "NODE_START"
+
+
+class NodeEndAction(BaseModel, Generic[PartialStateType]):
+    type: Literal["NODE_END"] = "NODE_END"
+    state: PartialStateType | None = None
+
+
+class UpdateAction(BaseModel):
+    type: Literal["UPDATE"] = "UPDATE"
+    content: str
+
+
+AssistantActionUnion = MessageAction | MessageChunkAction | NodeStartAction | NodeEndAction | UpdateAction
+
+
+class NodePath(BaseModel):
+    name: str
+    message_id: str | None = None
+    tool_call_id: str | None = None
+
+
+class AssistantDispatcherEvent(BaseModel):
+    action: AssistantActionUnion = Field(discriminator="type")
+    node_path: tuple[NodePath, ...] | None = None
+    node_name: str
+    node_run_id: str
+
+
+class LangGraphUpdateEvent(BaseModel):
+    update: Any
+
+
+class TodoItem(BaseModel):
+    content: str = Field(..., min_length=1)
+    status: Literal["pending", "in_progress", "completed"]
+    id: str
+    priority: Literal["low", "medium", "high"]

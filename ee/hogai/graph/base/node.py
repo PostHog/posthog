@@ -1,66 +1,67 @@
-from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
-from typing import Any, Generic, Literal, Union
+from abc import ABC
+from typing import Generic
 from uuid import UUID
 
 from django.conf import settings
 
 from langchain_core.runnables import RunnableConfig
-from langgraph.config import get_stream_writer
-from langgraph.types import StreamWriter
-
-from posthog.schema import AssistantMessage, AssistantToolCall, ReasoningMessage
 
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.graph.mixins import AssistantContextMixin, ReasoningNodeMixin
+from ee.hogai.graph.base.context import get_node_path, set_node_path
+from ee.hogai.graph.mixins import AssistantContextMixin, AssistantDispatcherMixin
 from ee.hogai.utils.exceptions import GenerationCanceled
-from ee.hogai.utils.state import LangGraphState
-from ee.hogai.utils.types import (
-    AssistantMessageUnion,
+from ee.hogai.utils.types.base import (
     AssistantState,
+    NodeEndAction,
+    NodePath,
+    NodeStartAction,
     PartialAssistantState,
     PartialStateType,
     StateType,
 )
-from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
 
 
-class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, ReasoningNodeMixin, ABC):
-    _writer: StreamWriter | None = None
+class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, AssistantDispatcherMixin, ABC):
     _config: RunnableConfig | None = None
     _context_manager: AssistantContextManager | None = None
+    _node_path: tuple[NodePath, ...]
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, node_path: tuple[NodePath, ...] | None = None):
         self._team = team
         self._user = user
-
-    @property
-    @abstractmethod
-    def node_name(self) -> MaxNodeName:
-        raise NotImplementedError
+        if node_path is None:
+            self._node_path = (*(get_node_path() or ()), NodePath(name=self.node_name))
+        else:
+            self._node_path = node_path
 
     async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """
         Run the assistant node and handle cancelled conversation before the node is run.
         """
-        # Reset the context manager on a new run
+        # Reset the context manager and dispatcher on a new run
         self._context_manager = None
+        self._dispatcher = None
         self._config = config
+
+        self.dispatcher.dispatch(NodeStartAction())
 
         thread_id = (config.get("configurable") or {}).get("thread_id")
         if thread_id and await self._is_conversation_cancelled(thread_id):
             raise GenerationCanceled
-        try:
-            return await self.arun(state, config)
-        except NotImplementedError:
-            pass
-        return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
 
-    # DEPRECATED: Use `arun` instead
+        try:
+            new_state = await self._arun_with_context(state, config)
+        except NotImplementedError:
+            new_state = await database_sync_to_async(self._run_with_context, thread_sensitive=False)(state, config)
+
+        self.dispatcher.dispatch(NodeEndAction(state=new_state))
+
+        return new_state
+
     def run(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """DEPRECATED. Use `arun` instead."""
         raise NotImplementedError
@@ -68,19 +69,13 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
     async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         raise NotImplementedError
 
-    @property
-    def writer(self) -> StreamWriter | Callable[[Any], None]:
-        if self._writer:
-            return self._writer
-        try:
-            self._writer = get_stream_writer()
-        except RuntimeError:
-            # Not in a LangGraph context (e.g., during testing)
-            def noop(*args, **kwargs):
-                pass
+    def _run_with_context(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
+        with set_node_path(self.node_path):
+            return self.run(state, config)
 
-            return noop
-        return self._writer
+    async def _arun_with_context(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
+        with set_node_path(self.node_path):
+            return await self.arun(state, config)
 
     @property
     def context_manager(self) -> AssistantContextManager:
@@ -96,41 +91,20 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
             self._context_manager = AssistantContextManager(self._team, self._user, config)
         return self._context_manager
 
+    @property
+    def node_name(self) -> str:
+        config_name: str | None = None
+        if self._config:
+            config_name = self._config["metadata"].get("langgraph_node")
+            if config_name is not None:
+                config_name = str(config_name)
+        return config_name or self.__class__.__name__
+
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)
         if not conversation:
             raise ValueError(f"Conversation {conversation_id} not found")
         return conversation.status == Conversation.Status.CANCELING
-
-    def _get_tool_call(self, messages: Sequence[AssistantMessageUnion], tool_call_id: str) -> AssistantToolCall:
-        for message in reversed(messages):
-            if not isinstance(message, AssistantMessage) or not message.tool_calls:
-                continue
-            for tool_call in message.tool_calls:
-                if tool_call.id == tool_call_id:
-                    return tool_call
-        raise ValueError(f"Tool call {tool_call_id} not found in state")
-
-    def _message_to_langgraph_update(
-        self, message: AssistantMessageUnion, node_name: MaxNodeName
-    ) -> tuple[tuple[()], Literal["messages"], tuple[Union[AssistantMessageUnion, Any], LangGraphState]]:
-        """
-        Converts an assistant message to a custom message langgraph update.
-        """
-        return ((), "messages", (message, {"langgraph_node": node_name}))
-
-    async def _write_message(self, message: AssistantMessageUnion):
-        """
-        Writes a message to the stream writer.
-        """
-        if self.node_name:
-            self.writer(self._message_to_langgraph_update(message, self.node_name))
-
-    async def _write_reasoning(self, content: str, substeps: list[str] | None = None):
-        """
-        Streams a reasoning message to the stream writer.
-        """
-        await self._write_message(ReasoningMessage(content=content, substeps=substeps))
 
 
 AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]

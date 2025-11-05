@@ -6,6 +6,7 @@ members = [
     "batch-import-worker",
     "capture",
     "common/alloc",
+    "common/cache",
     "common/cookieless",
     "common/database",
     "common/dns",
@@ -118,6 +119,7 @@ aws-sdk-s3 = "1.58.0"
 mockall = "0.13.0"
 moka = { version = "0.12.8", features = ["sync", "future"] }
 posthog-rs = { version = "0.3.5", features = ["async-client"] }
+redis = { version = "0.32.7", features = ["tokio-comp", "cluster", "cluster-async"] }
 regex = "1.11.1"
 lz-str = "0.2.1"
 opentelemetry-proto = "0.29.0"

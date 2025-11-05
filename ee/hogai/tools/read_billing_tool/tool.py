@@ -1,6 +1,7 @@
 from typing import Any
 
 from langchain_core.prompts import PromptTemplate
+from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import MaxBillingContext, SpendHistoryItem, UsageHistoryItem
 
@@ -26,6 +27,7 @@ USAGE_TYPES = [
     {"label": "Survey Responses", "value": "survey_responses_count_in_period"},
     {"label": "LLM Events", "value": "ai_event_count_in_period"},
     {"label": "Synced Rows", "value": "rows_synced_in_period"},
+    {"label": "Free Synced Rows", "value": "free_historical_rows_synced_in_period"},
     {"label": "Data Pipelines (deprecated)", "value": "data_pipelines"},
     {"label": "Destinations Trigger Events", "value": "cdp_billable_invocations_in_period"},
     {"label": "Rows Exported", "value": "rows_exported_in_period"},
@@ -33,8 +35,16 @@ USAGE_TYPES = [
 
 
 class ReadBillingTool(MaxSubtool):
-    def __init__(self, team: Team, user: User, state: AssistantState, context_manager: AssistantContextManager):
-        super().__init__(team, user, state, context_manager)
+    def __init__(
+        self,
+        *,
+        team: Team,
+        user: User,
+        state: AssistantState,
+        config: RunnableConfig,
+        context_manager: AssistantContextManager,
+    ):
+        super().__init__(team=team, user=user, state=state, config=config, context_manager=context_manager)
         self._teams_map: dict[int, str] = {}
 
     async def execute(self) -> str:

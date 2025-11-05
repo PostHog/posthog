@@ -1,3 +1,5 @@
+from typing import Literal
+
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.graph.agent.mode_manager import AgentModeManager
@@ -31,3 +33,7 @@ class RootNodeTools(AssistantNode):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         manager = AgentModeManager(self._team, self._user, state.agent_mode)
         return await manager.tools_node(state, config)
+
+    def router(self, state: AssistantState) -> Literal["root", "end"]:
+        manager = AgentModeManager(self._team, self._user, state.agent_mode)
+        return manager.tools_node.router(state)
