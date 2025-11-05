@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { IconCheck, IconGear, IconPlusSmall } from '@posthog/icons'
 
+import { draggableLinkLogic } from 'lib/components/DraggableLink/draggableLinkLogic'
 import { ItemSelectModalButton } from 'lib/components/FileSystem/ItemSelectModal/ItemSelectModal'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -21,10 +22,9 @@ import { shortcutDropLogic } from '~/layout/panel-layout/PinnedFolder/shortcutDr
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { formatUrlAsName } from '~/layout/panel-layout/ProjectTree/utils'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { notebookPanelLogic } from '~/scenes/notebooks/NotebookPanel/notebookPanelLogic'
 
 function ShortcutDropZone({ children }: { children: React.ReactNode }): JSX.Element {
-    const { dropMode } = useValues(notebookPanelLogic)
+    const { dropMode } = useValues(draggableLinkLogic)
     const { handleShortcutDrop } = useActions(shortcutDropLogic)
     const [isDragOver, setIsDragOver] = useState(false)
 

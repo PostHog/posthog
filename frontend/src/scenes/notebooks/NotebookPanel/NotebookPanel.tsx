@@ -6,6 +6,7 @@ import { useMemo } from 'react'
 import { IconExternal } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { draggableLinkLogic } from 'lib/components/DraggableLink/draggableLinkLogic'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { urls } from 'scenes/urls'
 
@@ -21,7 +22,8 @@ import { NotebookPanelDropzone } from './NotebookPanelDropzone'
 import { notebookPanelLogic } from './notebookPanelLogic'
 
 export function NotebookPanel(): JSX.Element | null {
-    const { selectedNotebook, initialAutofocus, droppedResource, dropProperties } = useValues(notebookPanelLogic)
+    const { selectedNotebook, initialAutofocus } = useValues(notebookPanelLogic)
+    const { droppedResource, dropProperties } = useValues(draggableLinkLogic)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook, target: NotebookTarget.Popover }))
     const editable = !notebook?.is_template

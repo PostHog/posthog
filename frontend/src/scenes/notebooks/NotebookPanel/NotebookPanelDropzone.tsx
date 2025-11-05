@@ -4,16 +4,20 @@ import { DragEventHandler, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { draggableLinkLogic } from 'lib/components/DraggableLink/draggableLinkLogic'
+
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import { NotebookSelectList } from '../NotebookSelectButton/NotebookSelectButton'
-import { NotebookNodeType } from '../types'
+import { NotebookNodeResource, NotebookNodeType } from '../types'
 import { notebookPanelLogic } from './notebookPanelLogic'
 
 export function NotebookPanelDropzone(): JSX.Element | null {
     const [isDragActive, setIsDragActive] = useState(false)
 
-    const { dropMode, droppedResource } = useValues(notebookPanelLogic)
-    const { setDroppedResource } = useActions(notebookPanelLogic)
+    const { dropMode } = useValues(draggableLinkLogic)
+    const { notebookDroppedResource } = useValues(notebookPanelLogic)
+    const { setDroppedResource } = useActions(draggableLinkLogic)
+    const { setNotebookDroppedResource } = useActions(notebookPanelLogic)
 
     const onDrop: DragEventHandler<HTMLDivElement> = (event) => {
         event.preventDefault()
@@ -27,26 +31,28 @@ export function NotebookPanelDropzone(): JSX.Element | null {
         const node = event.dataTransfer.getData('node')
         const properties = event.dataTransfer.getData('properties')
 
-        setDroppedResource(
-            node
-                ? {
-                      type: node as NotebookNodeType,
-                      attrs: properties ? JSON.parse(properties) : {},
-                  }
-                : text
-        )
+        const resource: NotebookNodeResource | string = node
+            ? {
+                  type: node as NotebookNodeType,
+                  attrs: properties ? JSON.parse(properties) : {},
+              }
+            : text
+
+        setDroppedResource(typeof resource === 'string' ? resource : null)
+        setNotebookDroppedResource(resource)
     }
 
     const onNotebookOpened = (notebookLogic: notebookLogicType): void => {
         setDroppedResource(null)
-        if (droppedResource) {
-            typeof droppedResource !== 'string'
-                ? notebookLogic.actions.insertAfterLastNode(droppedResource)
-                : notebookLogic.actions.pasteAfterLastNode(droppedResource)
+        setNotebookDroppedResource(null)
+        if (notebookDroppedResource) {
+            typeof notebookDroppedResource !== 'string'
+                ? notebookLogic.actions.insertAfterLastNode(notebookDroppedResource)
+                : notebookLogic.actions.pasteAfterLastNode(notebookDroppedResource)
         }
     }
 
-    if (!dropMode && !droppedResource) {
+    if (!dropMode && !notebookDroppedResource) {
         return null
     }
 
@@ -54,14 +60,14 @@ export function NotebookPanelDropzone(): JSX.Element | null {
         <div
             className={clsx('NotebookPanelDropzone', {
                 'NotebookPanelDropzone--active': isDragActive,
-                'NotebookPanelDropzone--dropped': !!droppedResource,
+                'NotebookPanelDropzone--dropped': !!notebookDroppedResource,
             })}
             onDragEnter={() => setIsDragActive(true)}
             onDragLeave={() => setIsDragActive(false)}
             onDragOver={(e) => e.preventDefault()}
             onDrop={onDrop}
         >
-            {droppedResource ? (
+            {notebookDroppedResource ? (
                 <div className="NotebookPanelDropzone__dropped">
                     <div className="flex items-start justify-between">
                         <h2>Add dropped resource to...</h2>
