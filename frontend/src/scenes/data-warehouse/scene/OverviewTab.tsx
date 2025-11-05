@@ -24,6 +24,8 @@ export function OverviewTab(): JSX.Element {
         tablesLoading,
         jobStats,
         jobStatsLoading,
+        runningActivityResponse,
+        completedActivityResponse,
     } = useValues(dataWarehouseSceneLogic)
     const { setActivityRunningCurrentPage, setActivityCompletedCurrentPage, loadJobStats } =
         useActions(dataWarehouseSceneLogic)
@@ -186,15 +188,13 @@ export function OverviewTab(): JSX.Element {
             <LemonCard className="hover:transform-none mt-4">
                 <div className="flex items-center gap-2 pb-2">
                     <span className="font-semibold text-xl">Currently running</span>
-                    {tablesLoading && activityRunningPagination.dataSourcePage.length !== 0 && (
-                        <Spinner className="text-muted" />
-                    )}
+                    {tablesLoading && runningActivityResponse !== null && <Spinner className="text-muted" />}
                 </div>
                 <LemonTable
                     dataSource={activityRunningPagination.dataSourcePage as DataWarehouseActivityRecord[]}
                     columns={activityColumns}
                     rowKey={(r) => `${r.type}-${r.name}-${r.created_at}`}
-                    loading={tablesLoading && activityRunningPagination.dataSourcePage.length === 0}
+                    loading={tablesLoading && runningActivityResponse === null}
                     loadingSkeletonRows={3}
                     emptyState="No currently running activities"
                 />
@@ -208,15 +208,13 @@ export function OverviewTab(): JSX.Element {
             <LemonCard className="hover:transform-none mt-4">
                 <div className="flex items-center gap-2 pb-2">
                     <span className="font-semibold text-xl">Recently completed</span>
-                    {tablesLoading && activityCompletedPagination.dataSourcePage.length !== 0 && (
-                        <Spinner className="text-muted" />
-                    )}
+                    {tablesLoading && completedActivityResponse !== null && <Spinner className="text-muted" />}
                 </div>
                 <LemonTable
                     dataSource={activityCompletedPagination.dataSourcePage as DataWarehouseActivityRecord[]}
                     columns={activityColumns}
                     rowKey={(r) => `${r.type}-${r.name}-${r.created_at}`}
-                    loading={tablesLoading && activityCompletedPagination.dataSourcePage.length === 0}
+                    loading={tablesLoading && completedActivityResponse === null}
                     loadingSkeletonRows={3}
                     emptyState="No recently completed activities"
                 />
