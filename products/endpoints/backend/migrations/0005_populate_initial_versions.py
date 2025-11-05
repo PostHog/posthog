@@ -19,7 +19,6 @@ def create_initial_versions(apps, schema_editor):
                 query=endpoint.query,
                 created_at=endpoint.created_at,
                 created_by=endpoint.created_by,
-                change_summary="Initial version (migrated from existing endpoint)",
             )
         )
 

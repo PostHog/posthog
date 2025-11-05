@@ -39,7 +39,6 @@ class EndpointVersion(models.Model):
     query = models.JSONField(help_text="Immutable query snapshot")
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="endpoint_versions_created")
-    change_summary = models.TextField(blank=True, help_text="Description of what changed in this version")
 
     class Meta:
         db_table = "endpoints_endpointversion"
@@ -203,7 +202,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         new_normalized = json.loads(json.dumps(new_query, sort_keys=True))
         return current_normalized != new_normalized
 
-    def create_new_version(self, query: dict[str, Any], user: User, change_summary: str = "") -> "EndpointVersion":
+    def create_new_version(self, query: dict[str, Any], user: User) -> "EndpointVersion":
         """Create a new version with the given query.
 
         This increments current_version and creates an EndpointVersion record.
@@ -218,18 +217,18 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             version=self.current_version,
             query=query,
             created_by=user,
-            change_summary=change_summary,
         )
 
         return version
 
-    def get_version(self, version: int | None = None) -> "EndpointVersion":
+    def get_version(self, version: int | None = None) -> EndpointVersion | None:
         """Get a specific version, or the latest if version is None.
 
         Raises:
             EndpointVersion.DoesNotExist: If the version doesn't exist
         """
-        if version is None:
-            return self.versions.first()  # Latest (ordered by -version)
+        if version is not None:
+            return EndpointVersion.objects.get(endpoint=self, version=version)
 
-        return EndpointVersion.objects.get(endpoint=self, version=version)
+        version_instance = self.versions.first()
+        return version_instance
