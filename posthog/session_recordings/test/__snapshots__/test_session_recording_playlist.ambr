@@ -129,6 +129,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."web_analytics_pre_aggregated_tables_version",
          "posthog_team"."flags_persistence_default",
@@ -367,6 +368,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."web_analytics_pre_aggregated_tables_version",
          "posthog_team"."flags_persistence_default",
@@ -643,6 +645,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."web_analytics_pre_aggregated_tables_version",
          "posthog_team"."flags_persistence_default",
@@ -898,6 +901,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."web_analytics_pre_aggregated_tables_version",
          "posthog_team"."flags_persistence_default",
@@ -967,6 +971,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -988,14 +993,21 @@
          "posthog_datawarehousecredential"."id",
          "posthog_datawarehousecredential"."access_key",
          "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousecredential"."team_id",
+         "posthog_datawarehousemanagedviewset"."created_by_id",
+         "posthog_datawarehousemanagedviewset"."created_at",
+         "posthog_datawarehousemanagedviewset"."updated_at",
+         "posthog_datawarehousemanagedviewset"."id",
+         "posthog_datawarehousemanagedviewset"."team_id",
+         "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
+         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.31
@@ -1282,6 +1294,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."web_analytics_pre_aggregated_tables_version",
          "posthog_team"."flags_persistence_default",
@@ -1532,6 +1545,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."web_analytics_pre_aggregated_tables_version",
          "posthog_team"."flags_persistence_default",
@@ -1773,6 +1787,7 @@
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
          "posthog_datawarehousesavedquery"."managed_viewset_id",
+         "posthog_datawarehousesavedquery"."origin",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",
@@ -1794,14 +1809,21 @@
          "posthog_datawarehousecredential"."id",
          "posthog_datawarehousecredential"."access_key",
          "posthog_datawarehousecredential"."access_secret",
-         "posthog_datawarehousecredential"."team_id"
+         "posthog_datawarehousecredential"."team_id",
+         "posthog_datawarehousemanagedviewset"."created_by_id",
+         "posthog_datawarehousemanagedviewset"."created_at",
+         "posthog_datawarehousemanagedviewset"."updated_at",
+         "posthog_datawarehousemanagedviewset"."id",
+         "posthog_datawarehousemanagedviewset"."team_id",
+         "posthog_datawarehousemanagedviewset"."kind"
   FROM "posthog_datawarehousesavedquery"
+  LEFT OUTER JOIN "posthog_datawarehousemanagedviewset" ON ("posthog_datawarehousesavedquery"."managed_viewset_id" = "posthog_datawarehousemanagedviewset"."id")
   LEFT OUTER JOIN "posthog_datawarehousetable" ON ("posthog_datawarehousesavedquery"."table_id" = "posthog_datawarehousetable"."id")
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
   WHERE ("posthog_datawarehousesavedquery"."team_id" = 99999
-         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL
          AND NOT ("posthog_datawarehousesavedquery"."deleted"
-                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL))
+                  AND "posthog_datawarehousesavedquery"."deleted" IS NOT NULL)
+         AND "posthog_datawarehousesavedquery"."managed_viewset_id" IS NULL)
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.55
@@ -1963,6 +1985,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."heatmaps_opt_in",
+         "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
          "posthog_team"."web_analytics_pre_aggregated_tables_version",
          "posthog_team"."flags_persistence_default",

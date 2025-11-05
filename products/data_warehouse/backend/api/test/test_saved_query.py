@@ -8,6 +8,8 @@ from unittest.mock import patch
 from posthog.models import ActivityLog
 
 from products.data_warehouse.backend.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable
+from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
 
 class TestSavedQuery(APIBaseTest):
@@ -1029,3 +1031,84 @@ class TestSavedQuery(APIBaseTest):
         )
         assert response.status_code == 400
         assert response.json()["detail"] == "A table with this name already exists."
+
+    def test_update_saved_query_with_managed_viewset_fails(self):
+        """Test that updating a saved query with managed viewset fails with correct error message"""
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="managed_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            managed_viewset=managed_viewset,
+            created_by=self.user,
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
+                {
+                    "name": "updated_managed_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 200",
+                    },
+                },
+            )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json()["detail"], "Cannot update a query from a managed viewset")
+
+    def test_delete_saved_query_with_managed_viewset_fails(self):
+        """Test that deleting a saved query with managed viewset fails with correct error message"""
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="managed_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            managed_viewset=managed_viewset,
+            created_by=self.user,
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.delete(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}",
+            )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(
+                response.json()["detail"],
+                "Cannot delete a query from a managed viewset directly. Disable the managed viewset instead.",
+            )
+
+    def test_revert_materialization_saved_query_with_managed_viewset_fails(self):
+        """Test that reverting materialization of a saved query with managed viewset fails with correct error message"""
+        managed_viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
+        )
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="managed_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            managed_viewset=managed_viewset,
+            created_by=self.user,
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/revert_materialization",
+            )
+
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(
+                response.json()["detail"], "Cannot revert materialization of a query from a managed viewset."
+            )

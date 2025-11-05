@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-11-03 10:03:50 UTC
+// Generated at: 2025-11-05 10:03:44 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -25,7 +25,6 @@ export type CanonicalProvider =
     | 'cloudflare'
     | 'cloudflare-fp8'
     | 'cohere'
-    | 'crusoe'
     | 'crusoe-bf16'
     | 'crusoe-fp8'
     | 'deepinfra-base'
@@ -58,7 +57,6 @@ export type CanonicalProvider =
     | 'inference-net-fp8'
     | 'infermatic'
     | 'infermatic-bf16'
-    | 'infermatic-fp8'
     | 'inflection'
     | 'liquid'
     | 'mancer-fp16'

@@ -3,7 +3,7 @@ import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconEllipsis } from '@posthog/icons'
+import { IconEllipsis, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -21,7 +21,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconRefresh } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'

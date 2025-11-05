@@ -247,12 +247,12 @@ services:
             REDIS_URL: 'redis://redis:6379/'
             CAPTURE_MODE: recordings
 
-    log-capture:
-        image: ghcr.io/posthog/posthog/log-capture:master
+    capture-logs:
+        image: ghcr.io/posthog/posthog/capture-logs:master
         build:
             context: rust/
             args:
-                BIN: log-capture
+                BIN: capture-logs
         restart: on-failure
         environment:
             BIND_HOST: '0.0.0.0'

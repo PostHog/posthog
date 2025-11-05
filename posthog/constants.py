@@ -347,8 +347,9 @@ DEFAULT_SURVEY_APPEARANCE = {
     "surveyPopupDelaySeconds": None,
 }
 
-# Mapping of social_django backend names
-SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES = {
+# Mapping of auth backend names to login method display names
+AUTH_BACKEND_DISPLAY_NAMES = {
+    "django.contrib.auth.backends.ModelBackend": "Email/password",
     "google-oauth2": "Google OAuth",
     "github": "GitHub",
     "gitlab": "GitLab",

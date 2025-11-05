@@ -66,7 +66,7 @@ import {
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery } from '~/queries/utils'
+import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 import { ContextSummary } from './Context'
@@ -294,7 +294,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                         })()
 
                         return (
-                            <div key={key} className="flex flex-col gap-1.5">
+                            <div key={key} className="flex flex-col gap-1.5 w-full">
                                 {thinkingElement}
                                 {textElement}
                                 {toolCallElements}
@@ -1005,6 +1005,12 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
     }, [isEditingInsight])
 
     const query = useMemo(() => visualizationTypeToQuery(message), [message])
+    const queryWithShowHeader = useMemo(() => {
+        if (query && isInsightVizNode(query)) {
+            return { ...query, showHeader: true }
+        }
+        return query
+    }, [query])
 
     return status !== 'completed'
         ? null
@@ -1014,9 +1020,13 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                       type="ai"
                       className="w-full"
                       wrapperClassName="w-full"
-                      boxClassName={clsx('flex flex-col w-full', isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96')}
+                      boxClassName="flex flex-col w-full"
                   >
-                      {!isCollapsed && <Query query={query} readOnly embedded />}
+                      {!isCollapsed && (
+                          <div className={clsx('overflow-auto', isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96')}>
+                              <Query query={query} readOnly embedded />
+                          </div>
+                      )}
                       <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
                           <div className="flex items-center gap-1.5">
                               <LemonButton
@@ -1040,7 +1050,11 @@ const VisualizationAnswer = React.memo(function VisualizationAnswer({
                                       to={
                                           message.short_id
                                               ? urls.insightView(message.short_id as InsightShortId)
-                                              : urls.insightNew({ query })
+                                              : urls.insightNew({
+                                                    query: queryWithShowHeader as
+                                                        | InsightVizNode
+                                                        | DataVisualizationNode,
+                                                })
                                       }
                                       icon={<IconOpenInNew />}
                                       size="xsmall"

@@ -34,6 +34,7 @@ class PartitionSettings(typing.NamedTuple):
 
 
 class ExternalDataSourceType(models.TextChoices):
+    CUSTOMERIO = "CustomerIO", "CustomerIO"
     GITHUB = "Github", "Github"
     STRIPE = "Stripe", "Stripe"
     HUBSPOT = "Hubspot", "Hubspot"
@@ -63,3 +64,7 @@ class ExternalDataSourceType(models.TextChoices):
     REDDITADS = "RedditAds", "RedditAds"
     TIKTOKADS = "TikTokAds", "TikTokAds"
     SHOPIFY = "Shopify", "Shopify"
+
+
+class DataWarehouseManagedViewSetKind(models.TextChoices):
+    REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"

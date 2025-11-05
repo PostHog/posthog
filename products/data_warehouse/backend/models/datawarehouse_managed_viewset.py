@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from django.db import models, transaction
 
@@ -22,6 +22,8 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTMode
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.modeling import DataWarehouseModelPath
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 
 logger = structlog.get_logger(__name__)
 
@@ -34,11 +36,8 @@ class ExpectedView:
 
 
 class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
-    class Kind(models.TextChoices):
-        REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
-
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    kind = models.CharField(max_length=64, choices=Kind.choices)
+    kind = models.CharField(max_length=64, choices=DataWarehouseManagedViewSetKind.choices)
 
     class Meta:
         constraints = [
@@ -48,6 +47,13 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             )
         ]
         db_table = "posthog_datawarehousemanagedviewset"
+
+    class UnsupportedViewsetKind(ValueError):
+        kind: DataWarehouseManagedViewSetKind
+
+        def __init__(self, kind: DataWarehouseManagedViewSetKind):
+            self.kind = kind
+            super().__init__(f"Unsupported viewset kind: {self.kind}")
 
     def __str__(self) -> str:
         return f"DataWarehouseManagedViewSet({self.kind}) for Team {self.team.id}"
@@ -65,10 +71,10 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         from products.data_warehouse.backend.data_load.saved_query_service import sync_saved_query_workflow
 
         expected_views: list[ExpectedView] = []
-        if self.kind == self.Kind.REVENUE_ANALYTICS:
+        if self.kind == DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
             expected_views = self._get_expected_views_for_revenue_analytics()
         else:
-            raise ValueError(f"Unsupported viewset kind: {self.kind}")
+            raise DataWarehouseManagedViewSet.UnsupportedViewsetKind(cast(DataWarehouseManagedViewSetKind, self.kind))
 
         # NOTE: Views that depend on other views MUST be placed AFTER the views they depend on
         # or else we'll fail to build the paths properly.
@@ -187,6 +193,22 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             self.delete()
         return views_deleted
 
+    def to_saved_query_metadata(self, name: str):
+        if self.kind != DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS:
+            raise DataWarehouseManagedViewSet.UnsupportedViewsetKind(cast(DataWarehouseManagedViewSetKind, self.kind))
+
+        return {
+            "managed_viewset_kind": self.kind,
+            "revenue_analytics_kind": next(
+                (
+                    schema.kind
+                    for schema in REVENUE_ANALYTICS_SCHEMAS.values()
+                    if name.endswith(schema.events_suffix) or name.endswith(schema.source_suffix)
+                ),
+                None,
+            ),
+        }
+
     def _get_expected_views_for_revenue_analytics(self) -> list[ExpectedView]:
         """
         Reuses build_all_revenue_analytics_views() from Database.create_for logic.
@@ -229,8 +251,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         #
         # If the types here prove to be wrong, we can easily run the following script to update the types:
         # ```python
-        # from posthog.warehouse.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-        # for viewset in DataWarehouseManagedViewSet.objects.():
+        # from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+        # for viewset in DataWarehouseManagedViewSet.objects.iterator():
         #     viewset.sync_views()
         # ```
 
