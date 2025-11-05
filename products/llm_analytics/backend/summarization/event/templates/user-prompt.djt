@@ -1,0 +1,6 @@
+Please summarize the following LLM event: {{ event_name }} (type: {{ event_type }})
+
+EVENT TEXT REPRESENTATION:
+{{ text_repr|safe }}
+
+Generate a focused summary following the guidelines provided in the system prompt.

@@ -49,6 +49,7 @@ from products.llm_analytics.backend.api import (
     DatasetViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
+    LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
     LLMProxyViewSet,
 )
@@ -939,6 +940,13 @@ register_grandfathered_environment_nested_viewset(
     r"llm_analytics/text_repr",
     LLMAnalyticsTextReprViewSet,
     "environment_llm_analytics_text_repr",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"llm_analytics/summarize",
+    LLMAnalyticsSummarizationViewSet,
+    "environment_llm_analytics_summarize",
     ["team_id"],
 )
 
