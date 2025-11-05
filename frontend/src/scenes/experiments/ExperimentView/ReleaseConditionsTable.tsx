@@ -7,13 +7,14 @@ import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagRe
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { Experiment, FeatureFlagGroupType } from '~/types'
+import { FeatureFlagGroupType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 
-export function ReleaseConditionsModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment } = useValues(experimentLogic({ experimentId }))
+export function ReleaseConditionsModal(): JSX.Element {
+    const { experiment } = useValues(experimentLogic)
+    const { setExperiment } = useActions(experimentLogic)
     const { closeReleaseConditionsModal } = useActions(modalsLogic)
     const { isReleaseConditionsModalOpen } = useValues(modalsLogic)
 
@@ -33,8 +34,21 @@ export function ReleaseConditionsModal({ experimentId }: { experimentId: Experim
                         Cancel
                     </LemonButton>
                     <LemonButton
-                        onClick={() => {
-                            saveSidebarExperimentFeatureFlag(featureFlag)
+                        onClick={async () => {
+                            await saveSidebarExperimentFeatureFlag(featureFlag)
+
+                            const currentFlag = experiment.feature_flag
+                            if (currentFlag && featureFlag) {
+                                setExperiment({
+                                    feature_flag: {
+                                        ...currentFlag,
+                                        ...featureFlag,
+                                        id: currentFlag.id, // keep existing non-null id
+                                        team_id: currentFlag.team_id,
+                                    },
+                                })
+                            }
+
                             closeReleaseConditionsModal()
                         }}
                         type="primary"
