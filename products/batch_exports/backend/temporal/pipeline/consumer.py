@@ -127,7 +127,7 @@ class Consumer:
                     await asyncio.sleep(0)
                     continue
 
-            self.logger.info(f"Consuming batch number {self.total_record_batches_count}")
+            self.logger.debug(f"Consuming batch number {self.total_record_batches_count}")
 
             record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
 
@@ -139,7 +139,7 @@ class Consumer:
             self.total_record_batch_bytes_count += num_bytes_in_batch
             self.rows_exported_counter.add(num_records_in_batch)
 
-            self.logger.info(
+            self.logger.debug(
                 f"Consumed batch number {self.total_record_batches_count} with "
                 f"{num_records_in_batch:,} records, {num_bytes_in_batch / 1024**2:.2f} "
                 f"MiB. Total records consumed so far: {self.total_records_count:,}, "
