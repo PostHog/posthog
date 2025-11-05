@@ -1421,6 +1421,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             consumer=consumer,
             producer_task=producer_task,
             transformer=transformer,
+            json_columns=table_schemas.super_columns,
         )
 
         if result.error is not None:

@@ -1126,6 +1126,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         consumer=consumer,
                         producer_task=producer_task,
                         transformer=transformer,
+                        json_columns=() if can_perform_merge else table_schemas.json_columns,
                     )
 
                     if can_perform_merge:

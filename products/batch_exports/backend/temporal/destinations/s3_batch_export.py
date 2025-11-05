@@ -445,6 +445,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
             max_concurrent_uploads=settings.BATCH_EXPORT_S3_MAX_CONCURRENT_UPLOADS,
         )
 
+        json_columns = ("properties", "person_properties", "set", "set_once")
         if inputs.file_format.lower() == "jsonlines":
             transformer = get_json_stream_transformer(
                 compression=inputs.compression,
@@ -463,6 +464,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
             consumer=consumer,
             producer_task=producer_task,
             transformer=transformer,
+            json_columns=json_columns,
         )
 
 

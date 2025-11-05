@@ -1169,6 +1169,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     consumer=consumer,
                     producer_task=producer_task,
                     transformer=transformer,
+                    json_columns=known_variant_columns,
                 )
 
                 # TODO - maybe move this into the consumer finalize method?

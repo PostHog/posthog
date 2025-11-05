@@ -1,5 +1,6 @@
 import abc
 import asyncio
+import collections.abc
 
 import temporalio.common
 
@@ -9,6 +10,7 @@ from products.batch_exports.backend.temporal.metrics import get_bytes_exported_m
 from products.batch_exports.backend.temporal.pipeline.transformer import ChunkTransformerProtocol
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, raise_on_task_failure
+from products.batch_exports.backend.temporal.utils import cast_record_batch_json_columns
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -52,6 +54,7 @@ class Consumer:
         queue: RecordBatchQueue,
         producer_task: asyncio.Task,
         transformer: ChunkTransformerProtocol,
+        json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
     ) -> BatchExportResult:
         """Start consuming record batches from queue.
 
@@ -79,7 +82,7 @@ class Consumer:
 
         try:
             async for chunk, is_eof in transformer.iter(
-                self.generate_record_batches_from_queue(queue, producer_task),
+                self.generate_record_batches_from_queue(queue, producer_task, json_columns),
             ):
                 chunk_size = len(chunk)
                 self.total_file_bytes_count += chunk_size
@@ -107,6 +110,7 @@ class Consumer:
         self,
         queue: RecordBatchQueue,
         producer_task: asyncio.Task,
+        json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
     ):
         """Yield record batches from provided `queue` until `producer_task` is done."""
 
@@ -124,6 +128,8 @@ class Consumer:
                     continue
 
             self.logger.info(f"Consuming batch number {self.total_record_batches_count}")
+
+            record_batch = cast_record_batch_json_columns(record_batch, json_columns=json_columns)
 
             yield record_batch
 
@@ -167,6 +173,7 @@ async def run_consumer_from_stage(
     consumer: Consumer,
     producer_task: asyncio.Task[None],
     transformer: ChunkTransformerProtocol,
+    json_columns: collections.abc.Iterable[str] = ("properties", "person_properties", "set", "set_once"),
 ) -> BatchExportResult:
     """Run a record batch consumer to batch export to a destination.
 
@@ -190,6 +197,7 @@ async def run_consumer_from_stage(
         queue=queue,
         producer_task=producer_task,
         transformer=transformer,
+        json_columns=json_columns,
     )
 
     await raise_on_task_failure(producer_task)

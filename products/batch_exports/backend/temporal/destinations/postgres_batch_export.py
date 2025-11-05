@@ -1206,6 +1206,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                         consumer=consumer,
                         producer_task=producer_task,
                         transformer=transformer,
+                        json_columns=(),
                     )
                 finally:
                     if merge_settings.requires_merge:
