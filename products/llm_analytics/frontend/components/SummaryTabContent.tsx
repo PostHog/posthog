@@ -4,9 +4,12 @@
  * Provides AI-powered summarization of LLM traces and events with line references.
  */
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
+import { IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { LLMTrace, LLMTraceEvent } from '../types'
@@ -22,6 +25,7 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
     const logic = summaryTabLogic({ trace, event, tree })
     const { summary, summaryLoading, summaryError } = useValues(logic)
     const { generateSummary } = useActions(logic)
+    const [isRenderingMarkdown, setIsRenderingMarkdown] = useState(true)
 
     const isSummarizable = trace || (event && (event.event === '$ai_generation' || event.event === '$ai_span'))
 
@@ -66,17 +70,26 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
                 <div>
                     <div className="flex justify-between items-center mb-4">
                         <h3 className="font-semibold">Summary</h3>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={generateSummary}
-                            data-attr="llm-analytics-regenerate-summary"
-                        >
-                            Regenerate
-                        </LemonButton>
+                        <div className="flex items-center gap-1">
+                            <LemonButton
+                                size="small"
+                                noPadding
+                                icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                                tooltip="Toggle markdown rendering"
+                                onClick={() => setIsRenderingMarkdown(!isRenderingMarkdown)}
+                            />
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={generateSummary}
+                                data-attr="llm-analytics-regenerate-summary"
+                            >
+                                Regenerate
+                            </LemonButton>
+                        </div>
                     </div>
                     <div className="prose prose-sm max-w-none">
-                        <SummaryRenderer summary={summary} />
+                        <SummaryRenderer summary={summary} isRenderingMarkdown={isRenderingMarkdown} />
                     </div>
                 </div>
             )}
@@ -87,8 +100,18 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
 /**
  * Renders summary text with interactive line references
  */
-function SummaryRenderer({ summary }: { summary: string }): JSX.Element {
+function SummaryRenderer({
+    summary,
+    isRenderingMarkdown,
+}: {
+    summary: string
+    isRenderingMarkdown: boolean
+}): JSX.Element {
     // TODO: Parse line references like [L45] or [L45-52] and make them clickable with tooltips
-    // For now, just render the markdown summary as-is
-    return <div className="whitespace-pre-wrap">{summary}</div>
+
+    if (isRenderingMarkdown) {
+        return <LemonMarkdown className="whitespace-pre-wrap">{summary}</LemonMarkdown>
+    }
+
+    return <div className="whitespace-pre-wrap font-mono">{summary}</div>
 }
