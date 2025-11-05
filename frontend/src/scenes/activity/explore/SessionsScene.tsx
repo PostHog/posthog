@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -9,9 +10,10 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
+import { DataTableNode } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
-import { getSessionsColumns } from './sessionsColumns'
+import { createSessionsRowTransformer, getSessionsColumns } from './sessionsColumns'
 import { sessionsSceneLogic } from './sessionsSceneLogic'
 import { useActivityTabs } from './utils'
 
@@ -19,6 +21,9 @@ export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { query } = useValues(sessionsSceneLogic)
     const { setQuery } = useActions(sessionsSceneLogic)
     const tabs = useActivityTabs()
+
+    // Create the row transformer based on the current query
+    const dataTableRowsTransformer = useMemo(() => createSessionsRowTransformer(query as DataTableNode), [query])
 
     return (
         <SceneContent>
@@ -41,6 +46,7 @@ export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     showOpenEditorButton: true,
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
                     dataTableMaxPaginationLimit: 200,
+                    dataTableRowsTransformer,
                 }}
             />
         </SceneContent>
