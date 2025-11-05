@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
+import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -21,12 +21,13 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, isEmptyObject, isObject } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -190,12 +191,6 @@ export function InsightMeta({
               ? 'Refreshing...'
               : undefined
 
-    const dashboardOverridesExist =
-        (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
-        (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
-
-    const overrideType = isObject(filtersOverride) ? 'filters' : 'variables'
-
     return (
         <CardMeta
             ribbonColor={ribbonColor}
@@ -243,13 +238,8 @@ export function InsightMeta({
                                         ? urls.sqlEditor(undefined, undefined, short_id)
                                         : urls.insightEdit(short_id)
                                 }
-                                icon={dashboardOverridesExist ? <IconWarning /> : undefined}
-                                tooltip={
-                                    dashboardOverridesExist
-                                        ? `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`
-                                        : undefined
-                                }
                                 fullWidth
+                                {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
                             >
                                 Edit
                             </LemonButton>

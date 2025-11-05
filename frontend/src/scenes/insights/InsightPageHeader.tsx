@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCode2, IconInfo, IconPencil, IconPeople, IconShare, IconTrash } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
@@ -41,7 +41,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { isEmptyObject, isObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -81,7 +80,7 @@ import {
 
 import { EndpointModal } from 'products/endpoints/frontend/EndpointModal'
 
-import { getInsightIconTypeFromQuery } from './utils'
+import { getInsightIconTypeFromQuery, getOverrideWarningPropsForButton } from './utils'
 
 const RESOURCE_TYPE = 'insight'
 
@@ -139,12 +138,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     const [addToDashboardModalOpen, setAddToDashboardModalOpenModal] = useState<boolean>(false)
     const [endpointModalOpen, setEndpointModalOpen] = useState<boolean>(false)
-
-    const dashboardOverridesExist =
-        (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
-        (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
-
-    const overrideType = isObject(filtersOverride) ? 'filters' : 'variables'
 
     const showCohortButton =
         isDataTableNode(query) || isDataVisualizationNode(query) || isHogQLQuery(query) || isEventsQuery(query)
@@ -542,12 +535,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     <LemonButton
                                         type="primary"
                                         size="small"
-                                        icon={dashboardOverridesExist ? <IconWarning /> : undefined}
-                                        tooltip={
-                                            dashboardOverridesExist
-                                                ? `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`
-                                                : undefined
-                                        }
                                         tooltipPlacement="bottom"
                                         onClick={() => {
                                             if (isDataVisualizationNode(query) && insight.short_id) {
@@ -560,6 +547,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 setInsightMode(ItemMode.Edit, null)
                                             }
                                         }}
+                                        {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
                                         data-attr="insight-edit-button"
                                     >
                                         Edit

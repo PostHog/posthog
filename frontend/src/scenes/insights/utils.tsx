@@ -1,10 +1,13 @@
 import isEqual from 'lodash.isequal'
 import { ReactNode } from 'react'
 
+import { IconWarning } from '@posthog/icons'
+import { LemonButtonProps } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { ensureStringIsNotBlank, humanFriendlyNumber, objectsEqual } from 'lib/utils'
+import { ensureStringIsNotBlank, humanFriendlyNumber, isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
@@ -16,10 +19,12 @@ import { examples } from '~/queries/examples'
 import {
     ActionsNode,
     BreakdownFilter,
+    DashboardFilter,
     DataWarehouseNode,
     EventsNode,
     FileSystemIconType,
     HogQLQuery,
+    HogQLVariable,
     InsightVizNode,
     Node,
     NodeKind,
@@ -737,4 +742,22 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
     const mappedIconType: FileSystemIconType = nodeKindToColor[nodeKind] || 'product_analytics'
 
     return mappedIconType
+}
+
+export const getOverrideWarningPropsForButton = (
+    filtersOverride: DashboardFilter | null | undefined,
+    variablesOverride: Record<string, HogQLVariable> | null | undefined
+): Pick<LemonButtonProps, 'icon' | 'tooltip'> => {
+    const filterOverridesExist = isObject(filtersOverride) && !isEmptyObject(filtersOverride)
+    const variableOverridesExist = isObject(variablesOverride) && !isEmptyObject(variablesOverride)
+
+    const overrideType =
+        filterOverridesExist && variableOverridesExist ? 'overrides' : filterOverridesExist ? 'filters' : 'variables'
+
+    return filterOverridesExist || variableOverridesExist
+        ? {
+              icon: <IconWarning />,
+              tooltip: `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`,
+          }
+        : {}
 }
