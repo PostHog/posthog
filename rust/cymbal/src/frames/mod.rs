@@ -181,6 +181,8 @@ pub struct Frame {
     pub context: Option<Context>,
     #[serde(skip)]
     pub release: Option<ReleaseRecord>,
+    #[serde(skip)]
+    pub exception_type: Option<String>, // Used for java exceptions, where we have to demangle the exception type, and do so alongside the frame
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

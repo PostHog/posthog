@@ -42,6 +42,7 @@ impl From<&RawGoFrame> for Frame {
             release: None,
             suspicious: false,
             module: None,
+            exception_type: None,
         }
     }
 }

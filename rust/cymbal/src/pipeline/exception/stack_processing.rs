@@ -26,6 +26,13 @@ pub async fn do_stack_processing(
 
         for exception in props.exception_list.iter_mut() {
             exception.exception_id = Some(Uuid::now_v7().to_string());
+
+            // Lexical lifetimes goes crazy, I was fully sure this would be impossible
+            exception
+                .stack
+                .as_mut()
+                .map(|r| r.push_exception_type(exception.exception_type.clone()));
+
             let frames = match exception.stack.take() {
                 Some(Stacktrace::Raw { frames }) => {
                     if frames.is_empty() {
@@ -105,7 +112,16 @@ pub async fn do_stack_processing(
                         ))
                 })
                 .transpose()
-                .map_err(|e| (index, e))?
+                .map_err(|e| (index, e))?;
+
+            if let Some(t) = exception
+                .stack
+                .as_mut()
+                .map(|s| s.pop_exception_type())
+                .flatten()
+            {
+                exception.exception_type = t;
+            }
         }
 
         let team_id = events[index]

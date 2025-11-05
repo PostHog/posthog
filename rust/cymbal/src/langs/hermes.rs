@@ -129,6 +129,7 @@ impl From<(&RawHermesFrame, HermesError)> for Frame {
             release: None,
             suspicious: false,
             module: None,
+            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, frame);
@@ -162,6 +163,7 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
             release: None,
             suspicious: false,
             module: None,
+            exception_type: None,
         };
 
         add_raw_to_junk(&mut res, frame);

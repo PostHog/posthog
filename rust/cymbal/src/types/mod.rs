@@ -440,6 +440,30 @@ impl Stacktrace {
             _ => &[],
         }
     }
+
+    // These two fn's are used for java, which mangles top level exception types. When
+    // we receive an exception, we push it's type into the top frame, so when that frames
+    // resolved, we can pop it
+    pub fn push_exception_type(&mut self, exception_type: String) {
+        let Self::Raw { frames } = self else {
+            return;
+        };
+        let Some(RawFrame::Java(f)) = frames.first_mut() else {
+            return;
+        };
+        f.exception_type = Some(exception_type);
+    }
+
+    pub fn pop_exception_type(&mut self) -> Option<String> {
+        let Self::Resolved { frames } = self else {
+            return None;
+        };
+        frames
+            .iter_mut()
+            .filter(|f| f.exception_type.is_some())
+            .next()
+            .and_then(|f| f.exception_type.take())
+    }
 }
 
 #[cfg(test)]
