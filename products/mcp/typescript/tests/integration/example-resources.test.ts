@@ -56,8 +56,9 @@ describe('Example Resources - Markdown Artifact Loading', () => {
         for (const framework of frameworks) {
             const filename =
                 FRAMEWORK_MARKDOWN_FILES[framework as keyof typeof FRAMEWORK_MARKDOWN_FILES]
-            expect(unzipped[filename]).toBeDefined()
-            expect(unzipped[filename].length).toBeGreaterThan(0)
+            const fileData = unzipped[filename]
+            expect(fileData).toBeDefined()
+            expect(fileData!.length).toBeGreaterThan(0)
         }
     }, 30000)
 
@@ -75,7 +76,7 @@ describe('Example Resources - Markdown Artifact Loading', () => {
             const markdownData = unzipped[filename]
             expect(markdownData).toBeDefined()
 
-            const markdown = strFromU8(markdownData)
+            const markdown = strFromU8(markdownData!)
             expect(markdown).toBeTruthy()
             expect(markdown.length).toBeGreaterThan(0)
 
