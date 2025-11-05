@@ -397,6 +397,7 @@ class RootNodeTools(AssistantNode):
                 # Safety net in case the argument is missing to avoid raising exceptions internally
                 should_use_current_filters=tool_call.args.get("should_use_current_filters", False),
                 summary_title=tool_call.args.get("summary_title"),
+                session_summarization_limit=tool_call.args.get("session_summarization_limit", -1),
                 root_tool_calls_count=tool_call_count + 1,
             )
         if tool_call.name == "create_dashboard":

@@ -115,6 +115,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                         "session_summarization_query": "summarize sessions from yesterday",
                         "should_use_current_filters": False,  # Specific time frame differs from current filters
                         "summary_title": "Sessions from yesterday",
+                        "session_summarization_limit": -1,
                     },
                 ),
             ),
@@ -127,6 +128,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                         "session_summarization_query": "watch sessions of the user 09081 in the last 30 days",
                         "should_use_current_filters": False,  # Specific user and timeframe
                         "summary_title": "User 09081 sessions (last 30 days)",
+                        "session_summarization_limit": -1,
                     },
                 ),
             ),
@@ -139,6 +141,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                         "session_summarization_query": "analyze mobile user sessions from last week",
                         "should_use_current_filters": False,  # Specific device type and timeframe
                         "summary_title": "Mobile user sessions (last week)",
+                        "session_summarization_limit": -1,
                     },
                 ),
             ),
@@ -151,6 +154,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                         "session_summarization_query": "summarize sessions from the last 30 days with test accounts included",
                         "should_use_current_filters": False,  # Different time frame/conditions
                         "summary_title": "All sessions with test accounts (last 30 days)",
+                        "session_summarization_limit": -1,
                     },
                 ),
             ),
@@ -164,6 +168,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                         "session_summarization_query": "summarize these sessions",
                         "should_use_current_filters": True,  # "these" refers to current filters
                         "summary_title": "All sessions (last 7 days)",
+                        "session_summarization_limit": -1,
                     },
                 ),
             ),
@@ -176,6 +181,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                         "session_summarization_query": "summarize all sessions",
                         "should_use_current_filters": True,  # "all" in context of filtered view
                         "summary_title": "All sessions (last 7 days)",
+                        "session_summarization_limit": -1,
                     },
                 ),
             ),
@@ -188,6 +194,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                         "session_summarization_query": "summarize sessions from the last 7 days with test accounts filtered out",
                         "should_use_current_filters": True,  # Matches current filters exactly
                         "summary_title": "All sessions, no test accounts (last 7 days)",
+                        "session_summarization_limit": -1,
                     },
                 ),
             ),
@@ -201,6 +208,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                         "session_summarization_query": "show me what users did with our app",
                         "should_use_current_filters": True,  # Analyzing user behavior, use current context
                         "summary_title": "All sessions (last 7 days)",
+                        "session_summarization_limit": -1,
                     },
                 ),
             ),
@@ -240,6 +248,7 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                         "session_summarization_query": "summarize sessions from yesterday",
                         "should_use_current_filters": False,  # No context, always false
                         "summary_title": "Sessions from yesterday",
+                        "session_summarization_limit": -1,
                     },
                 ),
             ),
@@ -252,6 +261,7 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                         "session_summarization_query": "analyze the current recordings from today",
                         "should_use_current_filters": False,  # Even with "current", no context means false
                         "summary_title": "Sessions from today",
+                        "session_summarization_limit": -1,
                     },
                 ),
             ),
@@ -264,6 +274,173 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                         "session_summarization_query": "watch all session recordings",
                         "should_use_current_filters": False,  # Even with "all", no context means false
                         "summary_title": "All session recordings",
+                        "session_summarization_limit": -1,
+                    },
+                ),
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.mark.django_db
+@patch("posthoganalytics.feature_enabled", return_value=True)
+async def eval_session_summarization_limit(patch_feature_enabled, call_root_for_replay_sessions, pytestconfig):
+    """Test that session_summarization_limit is correctly extracted from user queries."""
+
+    async def task_with_context(messages):
+        return await call_root_for_replay_sessions(messages, include_search_session_recordings_context=True)
+
+    async def task_without_context(messages):
+        return await call_root_for_replay_sessions(messages, include_search_session_recordings_context=False)
+
+    # Current Replay filters are in the context
+    await MaxPublicEval(
+        experiment_name="session_summarization_limit_with_context",
+        task=task_with_context,
+        scores=[ToolRelevance(semantic_similarity_args={"session_summarization_query", "summary_title"})],
+        data=[
+            # Explicit numeric limits with different phrasing
+            EvalCase(
+                input="summarize 50 sessions",
+                expected=AssistantToolCall(
+                    id="1",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "summarize 50 sessions",
+                        "should_use_current_filters": True,  # Assuming 50 sessions from the applied filters
+                        "summary_title": "Last 50 sessions",
+                        "session_summarization_limit": 50,
+                    },
+                ),
+            ),
+            EvalCase(
+                input="watch the first 10 sessions from yesterday",
+                expected=AssistantToolCall(
+                    id="2",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "watch the first 10 sessions from yesterday",
+                        "should_use_current_filters": False,  # Ask for specific timeframe
+                        "summary_title": "First 10 sessions from yesterday",
+                        "session_summarization_limit": 10,
+                    },
+                ),
+            ),
+            EvalCase(
+                input="analyze top 200 sessions",
+                expected=AssistantToolCall(
+                    id="3",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "analyze top 200 sessions",
+                        "should_use_current_filters": True,  # No specific timeframe, uses current filters
+                        "summary_title": "Top 200 sessions",
+                        "session_summarization_limit": 200,
+                    },
+                ),
+            ),
+            # Edge cases where numbers appear but are NOT limits
+            EvalCase(
+                input="summarize sessions with at least 10 events",
+                expected=AssistantToolCall(
+                    id="6",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "summarize sessions with at least 10 events",
+                        "should_use_current_filters": False,  # New explicit filter condition
+                        "summary_title": "Sessions with at least 10 events",
+                        "session_summarization_limit": -1,  # This is a filter condition, not a limit
+                    },
+                ),
+            ),
+            EvalCase(
+                input="watch sessions longer than 5 minutes from Chrome users",
+                expected=AssistantToolCall(
+                    id="7",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "watch sessions longer than 5 minutes from Chrome users",
+                        "should_use_current_filters": False,  # Explicit requirement for Chrome users and duration
+                        "summary_title": "Sessions longer than 5 minutes from Chrome users",
+                        "session_summarization_limit": -1,  # Duration is a filter, not a count limit
+                    },
+                ),
+            ),
+            # Using "first X of these" with current context
+            EvalCase(
+                input="summarize first 15 of these sessions",
+                expected=AssistantToolCall(
+                    id="9",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "summarize first 15 of these sessions",
+                        "should_use_current_filters": True,  # "these" refers to current filters
+                        "summary_title": "First 15 sessions",
+                        "session_summarization_limit": 15,
+                    },
+                ),
+            ),
+            # Superlative phrasing
+            EvalCase(
+                input="watch the 20 longest sessions from yesterday",
+                expected=AssistantToolCall(
+                    id="10",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "watch the 20 longest sessions from yesterday",
+                        "should_use_current_filters": False,  # Ask for specific timeframe and condition
+                        "summary_title": "20 longest sessions from yesterday",
+                        "session_summarization_limit": 20,
+                    },
+                ),
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+    # No Replay filters in the context
+    await MaxPublicEval(
+        experiment_name="session_summarization_limit_without_context",
+        task=task_without_context,
+        scores=[ToolRelevance(semantic_similarity_args={"session_summarization_query", "summary_title"})],
+        data=[
+            EvalCase(
+                input="summarize last 100 sessions",
+                expected=AssistantToolCall(
+                    id="1",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "summarize last 100 sessions",
+                        "should_use_current_filters": False,
+                        "summary_title": "Last 100 sessions",
+                        "session_summarization_limit": 100,
+                    },
+                ),
+            ),
+            EvalCase(
+                input="analyze 3 sessions from each country",
+                expected=AssistantToolCall(
+                    id="2",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "analyze 3 sessions from each country",
+                        "should_use_current_filters": False,
+                        "summary_title": "3 sessions from each country",
+                        "session_summarization_limit": 3,
+                    },
+                ),
+            ),
+            EvalCase(
+                input="watch first 7 recordings with checkout events",
+                expected=AssistantToolCall(
+                    id="3",
+                    name="session_summarization",
+                    args={
+                        "session_summarization_query": "watch first 7 recordings with checkout events",
+                        "should_use_current_filters": False,
+                        "summary_title": "First 7 recordings with checkout events",
+                        "session_summarization_limit": 7,
                     },
                 ),
             ),
