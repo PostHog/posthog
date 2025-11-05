@@ -84,7 +84,7 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> created the {objectNoun}:{' '}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the {objectNoun}:{' '}
                     {nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
@@ -95,7 +95,8 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
         return {
             description: (
                 <>
-                    <strong>{userNameForLogItem(logItem)}</strong> deleted the {objectNoun}: {logItem.detail.name}
+                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the {objectNoun}:{' '}
+                    {logItem.detail.name}
                 </>
             ),
         }
@@ -222,11 +223,12 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
             description:
                 changes.length == 1 ? (
                     <>
-                        <strong>{name}</strong> {changes[0].inline} the {objectNoun}: {functionName}
+                        <strong className="ph-no-capture">{name}</strong> {changes[0].inline} the {objectNoun}:{' '}
+                        {functionName}
                     </>
                 ) : (
                     <div>
-                        <strong>{name}</strong> updated the {objectNoun}: {functionName}
+                        <strong className="ph-no-capture">{name}</strong> updated the {objectNoun}: {functionName}
                         <ul className="ml-5 list-disc">
                             {changes.map((c, i) => (
                                 <li key={i}>{c.inlist}</li>
