@@ -11,6 +11,7 @@ import { Query } from '~/queries/Query/Query'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { ActivityTab } from '~/types'
 
+import { getSessionsColumns } from './sessionsColumns'
 import { sessionsSceneLogic } from './sessionsSceneLogic'
 import { useActivityTabs } from './utils'
 
@@ -36,6 +37,7 @@ export function SessionsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                 query={query}
                 setQuery={setQuery}
                 context={{
+                    columns: getSessionsColumns(),
                     showOpenEditorButton: true,
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
                     dataTableMaxPaginationLimit: 200,
