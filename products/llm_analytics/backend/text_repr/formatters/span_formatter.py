@@ -8,7 +8,13 @@ Displays span metadata, input/output state, and timing information with truncati
 import json
 from typing import Any
 
-from .message_formatter import FormatterOptions, add_line_numbers, format_messages_array, truncate_content
+from .message_formatter import (
+    FormatterOptions,
+    add_line_numbers,
+    format_messages_array,
+    format_single_tool_call,
+    truncate_content,
+)
 
 
 def _format_state(state: Any, label: str, options: FormatterOptions | None = None) -> list[str]:
@@ -35,6 +41,34 @@ def _format_state(state: Any, label: str, options: FormatterOptions | None = Non
                 # Format as messages using shared formatter
                 lines.extend(format_messages_array(state, options))
                 return lines
+
+        # Handle tool_call_with_context structure
+        if isinstance(state, dict) and state.get("__type") == "tool_call_with_context":
+            # Extract nested state and tool_call
+            nested_state = state.get("state", {})
+            tool_call = state.get("tool_call", {})
+
+            # Format messages from nested state
+            if isinstance(nested_state, dict):
+                messages = nested_state.get("messages", [])
+                if isinstance(messages, list) and len(messages) > 0:
+                    lines.extend(format_messages_array(messages, options))
+
+                # Show remaining steps if present
+                remaining_steps = nested_state.get("remaining_steps")
+                if remaining_steps is not None:
+                    lines.append("")
+                    lines.append(f"Remaining steps: {remaining_steps}")
+
+            # Format tool call
+            if isinstance(tool_call, dict) and tool_call:
+                lines.append("")
+                lines.append("Tool Call:")
+                tool_name = tool_call.get("name", "unknown")
+                tool_args = tool_call.get("args", {})
+                lines.append(f"  {format_single_tool_call(tool_name, tool_args)}")
+
+            return lines
 
         # Check if state is a dict containing a messages array
         if isinstance(state, dict) and "messages" in state:
