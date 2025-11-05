@@ -273,6 +273,10 @@ export function SessionRecordingCollections(): JSX.Element {
                                         label: 'Automatic',
                                         value: 'synthetic',
                                     },
+                                    {
+                                        label: 'New URLs',
+                                        value: 'new-urls',
+                                    },
                                 ]}
                             />
                         </div>
