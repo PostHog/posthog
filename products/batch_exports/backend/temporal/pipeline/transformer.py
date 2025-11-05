@@ -453,7 +453,7 @@ class ParquetStreamTransformer:
     def schema(self, schema: pa.Schema) -> None:
         if not self.include_inserted_at:
             if (index := schema.get_field_index("_inserted_at")) >= 0:
-                schema.remove(index)
+                schema = schema.remove(index)
 
         self._schema = schema
 
