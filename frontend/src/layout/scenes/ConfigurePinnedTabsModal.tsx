@@ -137,8 +137,8 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
         <LemonModal isOpen={isOpen} onClose={onClose} title="Configure tabs & home" width="48rem">
             <div className="space-y-6">
                 {renderSection(
-                    'Your personal pinned tabs',
-                    'Pinned tabs are visible only to you and stay available when you come back.',
+                    'Pinned tabs',
+                    'Pinned tabs are visible only to you and persist between sessions and devices.',
                     personalPinnedTabs,
                     (tab) => [homepageAction(tab), { label: 'Unpin', onClick: () => unpinTab(tab.id) }],
                     'No personal pinned tabs yet.',
@@ -146,7 +146,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                 )}
                 {renderSection(
                     'Regular tabs (unpinned)',
-                    'Regular tabs are discarded when you close your browser session.',
+                    'Regular tabs are discarded when you close your browser.',
                     regularTabs,
                     (tab) => [homepageAction(tab), { label: 'Pin', onClick: () => pinTab(tab.id) }],
                     'No regular tabs available to pin.',
@@ -174,7 +174,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                                 onClick={() => setHomepage(null)}
                                 disabled={isUsingProjectDefault}
                             >
-                                Use project default
+                                Use default dashboard
                             </LemonButton>
                             <LemonButton
                                 size="small"
