@@ -725,6 +725,9 @@
                     "$ref": "#/definitions/EventsQueryResponse"
                 },
                 {
+                    "$ref": "#/definitions/SessionsQueryResponse"
+                },
+                {
                     "$ref": "#/definitions/ErrorTrackingQueryResponse"
                 },
                 {
@@ -5604,6 +5607,104 @@
                     "description": "List of session IDs that had no matching events",
                     "items": {
                         "type": "string"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "columns",
+                "hogql",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone",
+                "types"
+            ],
+            "type": "object"
+        },
+        "CachedSessionsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "items": {},
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -18074,6 +18175,7 @@
                 "ActionsNode",
                 "DataWarehouseNode",
                 "EventsQuery",
+                "SessionsQuery",
                 "PersonsNode",
                 "HogQuery",
                 "HogQLQuery",
@@ -18938,6 +19040,66 @@
         "QueryResponseAlternative": {
             "anyOf": [
                 {
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {},
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "items": {},
+                                "type": "array"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["columns", "hogql", "results", "types"],
                     "type": "object"
                 },
                 {
@@ -22725,6 +22887,9 @@
                     "$ref": "#/definitions/EventsQuery"
                 },
                 {
+                    "$ref": "#/definitions/SessionsQuery"
+                },
+                {
                     "$ref": "#/definitions/ActorsQuery"
                 },
                 {
@@ -25230,6 +25395,150 @@
                 }
             },
             "required": ["id", "viewed", "viewers", "recording_duration", "start_time", "end_time", "snapshot_source"],
+            "type": "object"
+        },
+        "SessionsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "after": {
+                    "description": "Only fetch sessions that started after this timestamp",
+                    "type": "string"
+                },
+                "before": {
+                    "description": "Only fetch sessions that started before this timestamp",
+                    "type": "string"
+                },
+                "filterTestAccounts": {
+                    "description": "Filter test accounts",
+                    "type": "boolean"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyFilterLike"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "SessionsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to return"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to skip before returning rows"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "personId": {
+                    "description": "Show sessions for a given person",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/SessionsQueryResponse"
+                },
+                "select": {
+                    "description": "Return a limited set of data. Required.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                },
+                "where": {
+                    "description": "HogQL filters to apply on returned data",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "select"],
+            "type": "object"
+        },
+        "SessionsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "items": {},
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["columns", "hogql", "results", "types"],
             "type": "object"
         },
         "SessionsTimelineQuery": {

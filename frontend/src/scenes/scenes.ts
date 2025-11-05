@@ -216,7 +216,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Explore sessions',
         defaultDocsPath: '/docs/data/sessions',
         description: 'A catalog of all user sessions with your app or website.',
-        iconType: 'session_recording',
+        iconType: 'session_replay',
     },
     [Scene.FeatureFlag]: {
         projectBased: true,

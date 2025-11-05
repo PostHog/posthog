@@ -115,19 +115,19 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 columnsInQuery,
                 columnsInResponse
             ): DataTableRow[] | null => {
-                if (response && sourceKind === NodeKind.EventsQuery) {
-                    const eventsQueryResponse = response as AnyResponseType
-                    if (eventsQueryResponse) {
+                if (response && (sourceKind === NodeKind.EventsQuery || sourceKind === NodeKind.SessionsQuery)) {
+                    const queryResponse = response as AnyResponseType
+                    if (queryResponse) {
                         // must be loading
                         if (!equal(columnsInQuery, columnsInResponse)) {
                             return []
                         }
 
                         let results: any[] | null = []
-                        if ('results' in eventsQueryResponse) {
-                            results = eventsQueryResponse.results
-                        } else if ('result' in eventsQueryResponse) {
-                            results = eventsQueryResponse.result
+                        if ('results' in queryResponse) {
+                            results = queryResponse.results
+                        } else if ('result' in queryResponse) {
+                            results = queryResponse.result
                         }
 
                         if (!results) {
@@ -144,8 +144,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                     removeExpressionComment(column) === `-${orderKey}`
                             ) ?? -1
 
-                        // Add a label between results if the day changed
-                        if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
+                        // Add a label between results if the day changed (for events with timestamp, or sessions with $start_timestamp)
+                        if ((orderKey === 'timestamp' || orderKey === '$start_timestamp') && orderKeyIndex !== -1) {
                             let lastResult: any = null
                             const newResults: DataTableRow[] = []
                             for (const result of results) {
