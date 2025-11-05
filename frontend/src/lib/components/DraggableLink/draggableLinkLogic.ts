@@ -66,6 +66,7 @@ export const draggableLinkLogic = kea<draggableLinkLogicType>([
         startDropMode: () => {
             cache.dragEntercount = 0
             cache.dragStart = null
+            cache.lastPanelAction = null
 
             cache.initialPanelState = {
                 sidePanelOpen: values.sidePanelOpen,
@@ -86,9 +87,18 @@ export const draggableLinkLogic = kea<draggableLinkLogicType>([
                     // If we have dragged a little bit to the right, or we are dragging close to the side panel
                     const shouldBeOpen = distanceFromDragStart > 50 || distanceFromRightEdge < 200
 
-                    if (shouldBeOpen && (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Notebooks)) {
+                    // Track the last action to prevent excessive calls to the same action
+                    const currentState = values.sidePanelOpen && values.selectedTab === SidePanelTab.Notebooks
+
+                    if (shouldBeOpen && !currentState && cache.lastPanelAction !== 'open') {
+                        cache.lastPanelAction = 'open'
                         actions.openSidePanel(SidePanelTab.Notebooks)
-                    } else if (!cache.initialPanelState.sidePanelOpen && !shouldBeOpen) {
+                    } else if (
+                        !cache.initialPanelState.sidePanelOpen &&
+                        !shouldBeOpen &&
+                        cache.lastPanelAction !== 'close'
+                    ) {
+                        cache.lastPanelAction = 'close'
                         actions.closeSidePanel()
                     }
                 }

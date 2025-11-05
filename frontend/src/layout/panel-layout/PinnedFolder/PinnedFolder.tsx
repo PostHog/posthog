@@ -24,24 +24,29 @@ import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { formatUrlAsName } from '~/layout/panel-layout/ProjectTree/utils'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-function ShortcutDropZone({ children }: { children: React.ReactNode }): JSX.Element {
+function ShortcutDropzone({ children }: { children: React.ReactNode }): JSX.Element {
     const { dropMode } = useValues(draggableLinkLogic)
     const { handleShortcutDrop } = useActions(shortcutDropLogic)
-    const [isDragOver, setIsDragOver] = useState(false)
+    const [dragDepth, setDragDepth] = useState(0)
+
+    const handleDragEnter = (e: React.DragEvent): void => {
+        e.preventDefault()
+        setDragDepth((prev) => prev + 1)
+    }
 
     const handleDragOver = (e: React.DragEvent): void => {
         e.preventDefault()
-        setIsDragOver(true)
+        // Don't update state here to prevent excessive re-renders
     }
 
     const handleDragLeave = (e: React.DragEvent): void => {
         e.preventDefault()
-        setIsDragOver(false)
+        setDragDepth((prev) => prev - 1)
     }
 
     const handleDrop = (e: React.DragEvent): void => {
         e.preventDefault()
-        setIsDragOver(false)
+        setDragDepth(0)
 
         const href = e.dataTransfer.getData('text/href')
         const title = e.dataTransfer.getData('text/title')
@@ -52,13 +57,14 @@ function ShortcutDropZone({ children }: { children: React.ReactNode }): JSX.Elem
         }
     }
 
-    const showDropZone = dropMode && isDragOver
+    const showDropZone = dropMode && dragDepth > 0
 
     return (
         <div
             className={cn('relative h-full flex-1', {
                 'bg-accent/10 outline-2 outline-dashed -outline-offset-2 outline-accent': showDropZone,
             })}
+            onDragEnter={handleDragEnter}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
@@ -160,5 +166,5 @@ export function PinnedFolder(): JSX.Element {
         </>
     )
 
-    return pinnedFolder === 'shortcuts://' ? <ShortcutDropZone>{content}</ShortcutDropZone> : content
+    return pinnedFolder === 'shortcuts://' ? <ShortcutDropzone>{content}</ShortcutDropzone> : content
 }
