@@ -11,6 +11,7 @@ use crate::{
 use common_database::PostgresReader;
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
+use common_types::ProjectId;
 use std::sync::Arc;
 
 /// Result of fetching feature flags, including cache hit status and deserialization errors status
@@ -142,7 +143,7 @@ impl FlagService {
     /// Also tracks cache hits and misses for a given project_id.
     pub async fn get_flags_from_cache_or_pg(
         &self,
-        project_id: i64,
+        project_id: ProjectId,
     ) -> Result<FlagResult, FlagError> {
         let flag_result = match FeatureFlagList::from_redis(self.redis_reader.clone(), project_id)
             .await
@@ -397,7 +398,7 @@ mod tests {
 
         FeatureFlagList::update_flags_in_redis(
             redis_client.clone(),
-            team.project_id,
+            team.project_id(),
             &mock_flags,
             None,
         )
@@ -414,7 +415,7 @@ mod tests {
 
         // Test fetching from Redis
         let result = flag_service
-            .get_flags_from_cache_or_pg(team.project_id)
+            .get_flags_from_cache_or_pg(team.project_id())
             .await;
         assert!(result.is_ok());
         let flag_result = result.unwrap();
@@ -474,11 +475,12 @@ mod tests {
             .expect("Failed to remove flags from Redis");
 
         let result = flag_service
-            .get_flags_from_cache_or_pg(team.project_id)
+            .get_flags_from_cache_or_pg(team.project_id())
             .await;
         assert!(result.is_ok());
         // Verify that the flags were re-added to Redis
-        let redis_flags = FeatureFlagList::from_redis(redis_client.clone(), team.project_id).await;
+        let redis_flags =
+            FeatureFlagList::from_redis(redis_client.clone(), team.project_id()).await;
         assert!(redis_flags.is_ok());
         assert_eq!(redis_flags.unwrap().flags.len(), mock_flags.flags.len());
     }
@@ -496,7 +498,7 @@ mod tests {
         // Set up mock redis_reader to return Timeout
         let mut mock_reader = MockRedisClient::new();
         mock_reader.get_ret(
-            &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id),
+            &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id()),
             Err(CustomRedisError::Timeout),
         );
 
@@ -515,7 +517,7 @@ mod tests {
         );
 
         let result = flag_service
-            .get_flags_from_cache_or_pg(team.project_id)
+            .get_flags_from_cache_or_pg(team.project_id())
             .await;
 
         // Should succeed despite Redis timeout
@@ -544,7 +546,7 @@ mod tests {
         // Set up mock redis_reader to return Other error (maps to RedisUnavailable)
         let mut mock_reader = MockRedisClient::new();
         mock_reader.get_ret(
-            &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id),
+            &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id()),
             Err(CustomRedisError::Other("Connection refused".to_string())),
         );
 
@@ -563,7 +565,7 @@ mod tests {
         );
 
         let result = flag_service
-            .get_flags_from_cache_or_pg(team.project_id)
+            .get_flags_from_cache_or_pg(team.project_id())
             .await;
 
         // Should succeed despite Redis being unavailable

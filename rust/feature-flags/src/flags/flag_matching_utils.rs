@@ -1375,7 +1375,7 @@ mod tests {
             &router,
             team.id,
             vec![distinct_id.clone()],
-            team.project_id,
+            team.project_id(),
             "hash_key_2".to_string(),
         )
         .await
@@ -1488,7 +1488,7 @@ mod tests {
             &router,
             team.id,
             distinct_ids.clone(),
-            team.project_id,
+            team.project_id(),
             hash_key.clone(),
         )
         .await
@@ -1624,7 +1624,7 @@ mod tests {
             &router,
             team.id,
             distinct_ids.clone(),
-            team.project_id,
+            team.project_id(),
             new_hash.clone(),
         )
         .await
@@ -1771,7 +1771,7 @@ mod tests {
             &router,
             team.id,
             vec!["filter_test_user".to_string()],
-            team.project_id,
+            team.project_id(),
             "filter_hash".to_string(),
         )
         .await
@@ -1850,7 +1850,7 @@ mod tests {
             &router,
             team.id,
             "should_write_user".to_string(),
-            team.project_id,
+            team.project_id(),
             "hash_key_1".to_string(),
         )
         .await
@@ -1864,7 +1864,7 @@ mod tests {
             &router,
             team.id,
             vec!["should_write_user".to_string()],
-            team.project_id,
+            team.project_id(),
             "hash_key_1".to_string(),
         )
         .await
@@ -1876,7 +1876,7 @@ mod tests {
             &router,
             team.id,
             "should_write_user".to_string(),
-            team.project_id,
+            team.project_id(),
             "hash_key_1".to_string(),
         )
         .await
@@ -1893,7 +1893,7 @@ mod tests {
             &router,
             team.id,
             "non_existent_user".to_string(),
-            team.project_id,
+            team.project_id(),
             "hash_key_2".to_string(),
         )
         .await
@@ -1938,7 +1938,7 @@ mod tests {
                 "nonexistent_user1".to_string(),
                 "nonexistent_user2".to_string(),
             ],
-            team.project_id,
+            team.project_id(),
             "some_hash".to_string(),
         )
         .await
