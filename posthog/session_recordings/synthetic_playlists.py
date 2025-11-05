@@ -324,10 +324,12 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
         """
         Normalize a URL by:
         1. Removing query parameters and fragments
-        2. Replacing path segments that look like IDs with placeholders
+        2. Replacing country-code subdomains with {country} placeholder
+        3. Replacing path segments that look like IDs with placeholders
 
         This groups:
         - /billing?id=1 and /billing?id=2 -> /billing
+        - us.example.com and uk.example.com -> {country}.example.com
         - /project/1/settings and /project/2/settings -> /project/{id}/settings
         - /user/abc-123-def/profile -> /user/{uuid}/profile
         - /item/xYz123AbC456DeF789 -> /item/{hash}
@@ -335,6 +337,19 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
         try:
             parsed = urlparse(url)
             path = parsed.path
+            domain = parsed.netloc
+
+            # Normalize country-code subdomains (e.g., us.example.com -> {country}.example.com)
+            # Common 2-letter country codes as subdomains
+            domain_parts = domain.split(".")
+            if len(domain_parts) >= 3:  # Has subdomain
+                # Check if first part is a 2-letter country code
+                subdomain = domain_parts[0].lower()
+                # Common country codes used as subdomains
+                if len(subdomain) == 2 and subdomain.isalpha():
+                    # Replace country subdomain with placeholder
+                    domain_parts[0] = "{country}"
+                    domain = ".".join(domain_parts)
 
             # Split path into segments
             segments = path.split("/")
@@ -358,7 +373,7 @@ class NewUrlsSyntheticPlaylistSource(SyntheticPlaylistSource):
                     normalized_segments.append(segment)
 
             normalized_path = "/".join(normalized_segments)
-            normalized = f"{parsed.scheme}://{parsed.netloc}{normalized_path}"
+            normalized = f"{parsed.scheme}://{domain}{normalized_path}"
 
             # Remove trailing slash for consistency (except for root path)
             if normalized.endswith("/") and len(normalized_path) > 1:
