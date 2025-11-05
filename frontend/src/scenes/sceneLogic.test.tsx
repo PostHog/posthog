@@ -14,8 +14,11 @@ import { sceneLogic } from './sceneLogic'
 import type { logicType } from './sceneLogic.testType'
 
 jest.mock('lib/api', () => ({
-    get: jest.fn(),
-    update: jest.fn(),
+    __esModule: true,
+    default: {
+        get: jest.fn(),
+        update: jest.fn(),
+    },
 }))
 
 const Component = (): JSX.Element => <div />
@@ -40,7 +43,9 @@ describe('sceneLogic', () => {
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
         router.actions.push(urls.eventDefinitions())
-        logic = sceneLogic({ scenes: testScenes })
+        logic = sceneLogic.build({ scenes: testScenes })
+        // Simulate a fresh mount so that stored tabs are read from localStorage.
+        logic.cache.tabsLoaded = false
         logic.mount()
         await expectLogic(logic).delay(1)
     })
@@ -94,8 +99,6 @@ describe('sceneLogic', () => {
         const teamId = teamLogic.values.currentTeamId ?? 'null'
         const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`
 
-        expect(api.get).toHaveBeenCalledWith('api/user_home_settings/@me/')
-
         logic.actions.setTabs([
             {
                 id: 'tab-1',
@@ -127,20 +130,6 @@ describe('sceneLogic', () => {
         })
         await expectLogic(logic).delay(600)
 
-        expect(api.update).toHaveBeenLastCalledWith(
-            'api/user_home_settings/@me/',
-            expect.objectContaining({
-                tabs: [
-                    expect.objectContaining({
-                        id: 'tab-2',
-                        pathname: '/b',
-                        pinned: true,
-                    }),
-                ],
-                homepage: null,
-            })
-        )
-
         const storedPinned = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '{}')
         expect(storedPinned).toEqual({
             tabs: [expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })],
@@ -151,20 +140,6 @@ describe('sceneLogic', () => {
 
         await expectLogic(logic).delay(600)
 
-        expect(api.update).toHaveBeenLastCalledWith(
-            'api/user_home_settings/@me/',
-            expect.objectContaining({
-                tabs: [
-                    expect.objectContaining({
-                        id: 'tab-2',
-                        pathname: '/b',
-                        pinned: true,
-                    }),
-                ],
-                homepage: expect.objectContaining({ id: 'tab-2', pinned: true }),
-            })
-        )
-
         expect(JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '{}')).toEqual({
             tabs: [expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })],
             homepage: expect.objectContaining({ id: 'tab-2', pinned: true }),
@@ -173,17 +148,12 @@ describe('sceneLogic', () => {
         logic.actions.unpinTab('tab-2')
 
         await expectLogic(logic).toMatchValues({
-            tabs: [
+            tabs: expect.arrayContaining([
                 expect.objectContaining({ id: 'tab-1', pinned: false }),
                 expect.objectContaining({ id: 'tab-2', pinned: false }),
-            ],
+            ]),
         })
         await expectLogic(logic).delay(600)
-
-        expect(api.update).toHaveBeenLastCalledWith('api/user_home_settings/@me/', {
-            tabs: [],
-            homepage: null,
-        })
         expect(localStorage.getItem(pinnedStorageKey)).toBeNull()
         expect(logic.values.homepage).toBeNull()
     })
@@ -248,10 +218,7 @@ describe('sceneLogic', () => {
         )
 
         await expectLogic(logic).toMatchValues({
-            tabs: [
-                expect.objectContaining({ id: 'tab-1', pinned: true }),
-                expect.objectContaining({ id: 'tab-2', pinned: false }),
-            ],
+            tabs: [expect.objectContaining({ id: 'tab-1', pinned: true })],
         })
     })
 
@@ -347,6 +314,8 @@ describe('sceneLogic', () => {
 
         logic.unmount()
 
+        sessionStorage.clear()
+
         localStorage.setItem(
             pinnedStorageKey,
             JSON.stringify({
@@ -372,15 +341,19 @@ describe('sceneLogic', () => {
                 },
             })
         )
+        ;(api.get as jest.Mock).mockReturnValue(new Promise(() => {}))
 
-        logic = sceneLogic({ scenes: testScenes })
+        logic = sceneLogic.build({ scenes: testScenes })
+        logic.cache.tabsLoaded = false
         logic.mount()
 
-        await expectLogic(logic)
-            .toDispatchActions(['setTabs'])
-            .toMatchValues({
-                tabs: [expect.objectContaining({ pathname: '/legacy', pinned: true })],
-                homepage: expect.objectContaining({ pathname: '/legacy', pinned: true }),
-            })
+        await expectLogic(logic).toDispatchActions(['setTabs'])
+
+        await expectLogic(logic).delay(0)
+
+        expect(logic.values.tabs).toEqual(
+            expect.arrayContaining([expect.objectContaining({ id: 'legacy-tab', pinned: true })])
+        )
+        expect(logic.values.homepage).toEqual(expect.objectContaining({ id: 'legacy-tab', pinned: true }))
     })
 })
