@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from django.template import Engine
+from django.template import Context, Engine
 
 
 def load_summarization_template(template_path: str, context: dict) -> str:
@@ -19,4 +19,4 @@ def load_summarization_template(template_path: str, context: dict) -> str:
     templates_dir = Path(__file__).parent
     engine = Engine(dirs=[str(templates_dir)])
     template = engine.get_template(template_path)
-    return template.render(context)
+    return template.render(Context(context))
