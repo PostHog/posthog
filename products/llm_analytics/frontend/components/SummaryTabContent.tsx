@@ -32,6 +32,26 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
         return <div className="p-4 text-muted">Summary is only available for traces, generations, and spans.</div>
     }
 
+    // Get friendly event type name
+    const getEventTypeName = (): string => {
+        if (trace) {
+            return 'trace'
+        }
+        if (event) {
+            switch (event.event) {
+                case '$ai_generation':
+                    return 'generation'
+                case '$ai_span':
+                    return 'span'
+                case '$ai_embedding':
+                    return 'embedding'
+                default:
+                    return 'event'
+            }
+        }
+        return 'event'
+    }
+
     // Extract error message from loader failure if any
     const errorMessage = (logic.values as any).summaryDataFailure
         ? (logic.values as any).summaryDataFailure instanceof Error
@@ -46,7 +66,7 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
             {!summaryData && !summaryDataLoading && !errorMessage && (
                 <div className="flex flex-col items-center gap-4 py-8">
                     <div className="text-muted text-center">
-                        <p>Generate an AI-powered summary of this {trace ? 'trace' : 'event'}.</p>
+                        <p>Generate an AI-powered summary of this {getEventTypeName()}.</p>
                     </div>
                     <div className="flex items-center gap-3">
                         <LemonSegmentedButton
