@@ -665,7 +665,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
     @property
     def exact_timerange(self):
-        return (self.query.trendsFilter and self.query.trendsFilter.exactTimeRange) or (
+        return (self.query.dateRange and self.query.dateRange.explicitDate) or (
             self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
         )
 

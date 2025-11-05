@@ -9,6 +9,7 @@ from dateutil.relativedelta import relativedelta
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
+    ChartDisplayType,
     Compare,
     CompareFilter,
     DataWarehouseNode,
@@ -91,23 +92,20 @@ class TrendsActorsQueryBuilder:
         self.compare_value = compare_value
         self.include_recordings = include_recordings
 
+    @property
+    def exact_timerange(self):
+        return (self.trends_query.dateRange and self.trends_query.dateRange.explicitDate) or (
+            self.trends_query.trendsFilter and self.trends_query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
+        )
+
     @cached_property
     def trends_date_range(self) -> QueryDateRange:
-        exact_time_range = False
-        if self.trends_query.trendsFilter and self.trends_query.trendsFilter.exactTimeRange:
-            exact_time_range = True
-
-        # Force explicitDate=True when exactTimeRange is True
-        date_range = self.trends_query.dateRange
-        if exact_time_range and date_range:
-            date_range = date_range.model_copy(update={"explicitDate": True})
-
         return QueryDateRange(
-            date_range=date_range,
+            date_range=self.trends_query.dateRange,
             team=self.team,
             interval=self.trends_query.interval,
             now=datetime.now(),
-            exact_timerange=exact_time_range,
+            exact_timerange=self.exact_timerange,
         )
 
     @cached_property
@@ -119,12 +117,14 @@ class TrendsActorsQueryBuilder:
                 interval=self.trends_query.interval,
                 now=datetime.now(),
                 compare_to=typing.cast(str, typing.cast(CompareFilter, self.trends_query.compareFilter).compare_to),
+                exact_timerange=self.exact_timerange,
             )
         return QueryPreviousPeriodDateRange(
             date_range=self.trends_query.dateRange,
             team=self.team,
             interval=self.trends_query.interval,
             now=datetime.now(),
+            exact_timerange=self.exact_timerange,
         )
 
     @cached_property

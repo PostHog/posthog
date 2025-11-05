@@ -5423,13 +5423,6 @@ class TrendsFilter(BaseModel):
         default=None, description="detailed results table"
     )
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
-    exactTimeRange: Optional[bool] = Field(
-        default=False,
-        description=(
-            "Use exact time range filtering without adjusting to interval boundaries. When enabled, filters events"
-            " strictly within the specified date range, even if the grouping interval is larger than the date range."
-        ),
-    )
     formula: Optional[str] = None
     formulaNodes: Optional[list[TrendsFormulaNode]] = Field(
         default=None,

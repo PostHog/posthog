@@ -70,8 +70,9 @@ export function InsightDisplayConfig(): JSX.Element {
         isNonTimeSeriesDisplay,
         compareFilter,
         supportsCompare,
+        dateRange,
     } = useValues(insightVizDataLogic(insightProps))
-    const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
+    const { updateQuerySource, updateCompareFilter, setExplicitDate } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
         funnelDataLogic(insightProps)
     )
@@ -231,7 +232,7 @@ export function InsightDisplayConfig(): JSX.Element {
                   },
               ]
             : []),
-        ...(isTrends && display !== ChartDisplayType.CalendarHeatmap
+        ...((isTrends || isStickiness || isLifecycle) && display !== ChartDisplayType.CalendarHeatmap
             ? [
                   {
                       title: 'Date range',
@@ -242,20 +243,9 @@ export function InsightDisplayConfig(): JSX.Element {
                                       label="Use exact time range"
                                       className="pb-2"
                                       fullWidth
-                                      checked={
-                                          isTrendsQuery(querySource)
-                                              ? !!querySource.trendsFilter?.exactTimeRange
-                                              : false
-                                      }
+                                      checked={dateRange?.explicitDate ?? false}
                                       onChange={(checked) => {
-                                          if (isTrendsQuery(querySource)) {
-                                              const newQuery = { ...querySource }
-                                              newQuery.trendsFilter = {
-                                                  ...trendsFilter,
-                                                  exactTimeRange: checked,
-                                              }
-                                              updateQuerySource(newQuery)
-                                          }
+                                          setExplicitDate(checked)
                                       }}
                                   />
                               ),

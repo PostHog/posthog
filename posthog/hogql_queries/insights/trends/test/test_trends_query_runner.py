@@ -5810,7 +5810,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_exact_time_range_with_larger_interval(self):
         """
         When filtering by a date range smaller than the grouping interval,
-        exactTimeRange controls whether to use exact filtering or expand to interval boundaries.
+        explicitDate controls whether to use exact filtering or expand to interval boundaries.
         """
         # Create events spanning a month (Jan 1 - Jan 31, 2020)
         for day in range(1, 32):
@@ -5822,14 +5822,13 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        # Test 1: Without exactTimeRange or explicitDate, filtering last 7 days with monthly interval includes entire month
+        # Test 1: Without explicitDate, filtering last 7 days with monthly interval includes entire month
         with freeze_time("2020-01-31 23:59:59"):
             response_default = TrendsQueryRunner(
                 query=TrendsQuery(
                     series=[EventsNode(event="$pageview")],
                     dateRange=DateRange(date_from="-7d", date_to=None, explicitDate=False),
                     interval=IntervalType.MONTH,
-                    trendsFilter=TrendsFilter(exactTimeRange=False),
                 ),
                 team=self.team,
             ).calculate()
@@ -5838,7 +5837,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             31,
             response_default.results[0]["count"],
-            "Without exactTimeRange or explicitDate, includes entire month due to interval boundary adjustment",
+            "Without explicitDate, includes entire month due to interval boundary adjustment",
         )
 
         # Test 2: With explicitDate=True and explicit dates, STILL has issues (gets 6 instead of 7)
@@ -5848,7 +5847,6 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     series=[EventsNode(event="$pageview")],
                     dateRange=DateRange(date_from="2020-01-25", date_to="2020-01-31", explicitDate=True),
                     interval=IntervalType.MONTH,
-                    trendsFilter=TrendsFilter(exactTimeRange=False),
                 ),
                 team=self.team,
             ).calculate()
@@ -5861,14 +5859,13 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "explicitDate=True still has issues, doesn't fully solve the problem",
         )
 
-        # Test 3: With exactTimeRange=True and relative dates, should only include events within the 7-day filter
+        # Test 3: With explicitDate=True and relative dates, should only include events within the 7-day filter
         with freeze_time("2020-01-31 23:59:59"):
             response_exact = TrendsQueryRunner(
                 query=TrendsQuery(
                     series=[EventsNode(event="$pageview")],
-                    dateRange=DateRange(date_from="-7d", date_to=None, explicitDate=False),
+                    dateRange=DateRange(date_from="-7d", date_to=None, explicitDate=True),
                     interval=IntervalType.MONTH,
-                    trendsFilter=TrendsFilter(exactTimeRange=True),
                 ),
                 team=self.team,
             ).calculate()
@@ -5877,5 +5874,5 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             7,
             response_exact.results[0]["count"],
-            "With exactTimeRange=True, only includes events within the 7-day filter even with relative dates",
+            "With explicitDate=True, only includes events within the 7-day filter even with relative dates",
         )

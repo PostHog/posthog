@@ -1162,13 +1162,6 @@ export type TrendsFilter = {
     movingAverageIntervals?: number
     /** detailed results table */
     detailedResultsAggregationType?: 'total' | 'average' | 'median'
-    /**
-     * Use exact time range filtering without adjusting to interval boundaries.
-     * When enabled, filters events strictly within the specified date range,
-     * even if the grouping interval is larger than the date range.
-     * @default false
-     */
-    exactTimeRange?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1191,7 +1184,6 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'showPercentStackView',
     'yAxisScaleType',
     'hiddenLegendIndexes',
-    'exactTimeRange',
 ])
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
