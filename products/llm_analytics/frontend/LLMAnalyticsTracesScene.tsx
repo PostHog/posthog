@@ -103,8 +103,8 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
         <strong>
             <Tooltip title={row.id}>
                 <Link
-                    className="ph-no-capture"
                     to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                    data-attr="trace-id-link"
                 >
                     {row.id.slice(0, 4)}...{row.id.slice(-4)}
                 </Link>
@@ -118,8 +118,8 @@ const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     return (
         <strong>
             <Link
-                className="ph-no-capture"
                 to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                data-attr="trace-name-link"
             >
                 {row.traceName || '–'}
             </Link>
