@@ -12,4 +12,4 @@ posthog/hogql/** @PostHog/hogql
 
 rust/feature-flags/ @PostHog/team-feature-flags
 posthog/api/decide.py @PostHog/team-feature-flags
-posthog/models/flag_matching.py @PostHog/team-feature-flags
+posthog/models/feature_flag/flag_matching.py @PostHog/team-feature-flags
