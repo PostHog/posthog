@@ -10,11 +10,9 @@ pub struct Team {
     pub id: TeamId,
     pub name: String,
     pub api_token: String,
-    /// Project ID. This field is not present in Redis cache before Dec 2025, but this is not a problem at all,
-    /// because we know all Teams created before Dec 2025 have `project_id` = `id`. To handle this case gracefully,
-    /// we use 0 as a fallback value in deserialization here, and handle this in `Team::from_redis`.
-    /// Thanks to this default-base approach, we avoid invalidating the whole cache needlessly.
-    pub project_id: ProjectId,
+    /// Project ID. This field may be None in Redis cache for teams created before Dec 2024.
+    /// For such teams, project_id equals the team id. Use Team::project_id() to get the resolved value.
+    pub project_id: Option<ProjectId>,
     pub uuid: Uuid,
     pub organization_id: Option<Uuid>,
     pub autocapture_opt_out: Option<bool>,

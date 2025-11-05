@@ -32,6 +32,7 @@ import {
     ItemAnyCommentDetail,
 } from 'scenes/session-recordings/player/inspector/components/ItemAnyComment'
 import { ItemInactivity } from 'scenes/session-recordings/player/inspector/components/ItemInactivity'
+import { ItemSessionChange } from 'scenes/session-recordings/player/inspector/components/ItemSessionChange'
 import { ItemSummary } from 'scenes/session-recordings/player/inspector/components/ItemSummary'
 
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -181,6 +182,8 @@ function RowItemTitle({
                 <ItemSummary item={item} />
             ) : item.type === 'inactivity' ? (
                 <ItemInactivity item={item} />
+            ) : item.type === 'session-change' ? (
+                <ItemSessionChange item={item} />
             ) : null}
         </div>
     )

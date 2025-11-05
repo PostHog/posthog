@@ -745,9 +745,25 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 featureFlag.deleted ? 'restore-feature-flag' : 'delete-feature-flag'
                                             }
                                             onClick={() => {
-                                                featureFlag.deleted
-                                                    ? restoreFeatureFlag(featureFlag)
-                                                    : deleteFeatureFlag(featureFlag)
+                                                if (featureFlag.deleted) {
+                                                    restoreFeatureFlag(featureFlag)
+                                                } else {
+                                                    LemonDialog.open({
+                                                        title: 'Delete feature flag?',
+                                                        description: `Are you sure you want to delete "${featureFlag.key}"?`,
+                                                        primaryButton: {
+                                                            children: 'Delete',
+                                                            status: 'danger',
+                                                            onClick: () => deleteFeatureFlag(featureFlag),
+                                                            size: 'small',
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                            type: 'tertiary',
+                                                            size: 'small',
+                                                        },
+                                                    })
+                                                }
                                             }}
                                             disabledReasons={{
                                                 "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":

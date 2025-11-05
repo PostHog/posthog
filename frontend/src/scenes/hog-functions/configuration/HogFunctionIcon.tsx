@@ -3,9 +3,8 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 
+import { IconUpload } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSkeleton, Popover, Spinner, lemonToast } from '@posthog/lemon-ui'
-
-import { IconUploadFile } from 'lib/lemon-ui/icons'
 
 import { HogFunctionIconLogicProps, hogFunctionIconLogic } from './hogFunctionIconLogic'
 
@@ -83,7 +82,7 @@ export function HogFunctionIconEditable({
                                     })
                             }}
                             callToAction={
-                                <LemonButton size="small" type="secondary" icon={<IconUploadFile />}>
+                                <LemonButton size="small" type="secondary" icon={<IconUpload />}>
                                     Upload image
                                 </LemonButton>
                             }

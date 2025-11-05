@@ -17,6 +17,7 @@ from posthog.test.base import (
 from unittest import mock
 from unittest.mock import patch
 
+from django.conf import settings
 from django.utils import timezone
 
 from flaky import flaky
@@ -25,7 +26,6 @@ from temporalio import common
 
 import posthog.models.person.deletion
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import SESSION_REPLAY_TASK_QUEUE
 from posthog.models import Cohort, Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
@@ -410,7 +410,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         team_id=self.team.id,
                     ),
                     id=f"delete-recordings-with-person-{person.uuid}-1234",
-                    task_queue=SESSION_REPLAY_TASK_QUEUE,
+                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                     retry_policy=common.RetryPolicy(
                         initial_interval=timedelta(seconds=60),
                         backoff_coefficient=2.0,
@@ -451,7 +451,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                         team_id=self.team.id,
                     ),
                     id=f"delete-recordings-with-person-{person.uuid}-1234",
-                    task_queue=SESSION_REPLAY_TASK_QUEUE,
+                    task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                     retry_policy=common.RetryPolicy(
                         initial_interval=timedelta(seconds=60),
                         backoff_coefficient=2.0,
