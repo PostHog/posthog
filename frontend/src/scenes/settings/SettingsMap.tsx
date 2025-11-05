@@ -68,6 +68,7 @@ import { SlackIntegration } from './environment/SlackIntegration'
 import { SurveySettings } from './environment/SurveySettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamDangerZone } from './environment/TeamDangerZone'
+import { TeamSecretKeys } from './environment/TeamSecretKeys'
 import {
     Bookmarklet,
     TeamAuthorizedURLs,
@@ -558,6 +559,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-ip-allowlist',
                 title: 'Static IP addresses',
                 component: <IPAllowListInfo />,
+            },
+            {
+                id: 'secret-keys',
+                title: 'Secret keys',
+                component: <TeamSecretKeys />,
             },
         ],
     },

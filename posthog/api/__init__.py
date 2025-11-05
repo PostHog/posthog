@@ -102,6 +102,7 @@ from . import (
     survey,
     tagged_item,
     team,
+    team_secret_key,
     uploaded_media,
     user,
     web_vitals,
@@ -830,6 +831,13 @@ register_grandfathered_environment_nested_viewset(
     r"alerts",
     alert.AlertViewSet,
     "environment_alerts",
+    ["team_id"],
+)
+
+register_grandfathered_environment_nested_viewset(
+    r"secret_keys",
+    team_secret_key.TeamSecretKeyViewSet,
+    "environment_secret_keys",
     ["team_id"],
 )
 
