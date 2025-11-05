@@ -1486,6 +1486,7 @@ class FileSystemIconType(StrEnum):
     DATA_WAREHOUSE = "data_warehouse"
     TASK = "task"
     LINK = "link"
+    ARROW_RIGHT = "arrow_right"
     LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
     WORKFLOWS = "workflows"
@@ -1513,6 +1514,8 @@ class FileSystemIconType(StrEnum):
     APPS = "apps"
     LIVE = "live"
     CHAT = "chat"
+    TOOLBAR = "toolbar"
+    GEAR = "gear"
 
 
 class FileSystemImport(BaseModel):

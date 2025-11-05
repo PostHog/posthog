@@ -13628,6 +13628,7 @@
                 "data_warehouse",
                 "task",
                 "link",
+                "arrow_right",
                 "live_debugger",
                 "logs",
                 "workflows",
@@ -13654,7 +13655,9 @@
                 "home",
                 "apps",
                 "live",
-                "chat"
+                "chat",
+                "toolbar",
+                "gear"
             ],
             "type": "string"
         },

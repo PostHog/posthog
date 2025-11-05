@@ -299,11 +299,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     <div className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-y-auto">
                         <ScrollableShadows
                             className={cn('flex-1', !isLayoutPanelVisible && 'rounded-tr-sm')}
-                            innerClassName="overflow-y-auto"
+                            innerClassName="overflow-y-auto h-full"
                             direction="vertical"
                             styledScrollbars
                         >
-                            <ListBox className="flex flex-col gap-px">
+                            <ListBox className="flex flex-col gap-px h-full">
                                 <div
                                     className={`px-1 flex flex-col gap-px ${
                                         isLayoutNavCollapsed ? 'items-center' : ''
@@ -393,7 +393,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                                 <div
                                     className={cn(
-                                        'relative flex flex-col gap-px h-full',
+                                        'relative flex flex-col gap-px h-full flex-1',
                                         !isLayoutNavCollapsed ? 'pt-1' : 'items-center'
                                     )}
                                 >

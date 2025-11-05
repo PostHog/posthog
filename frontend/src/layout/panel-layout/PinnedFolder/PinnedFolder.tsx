@@ -55,7 +55,7 @@ function ShortcutDropZone({ children }: { children: React.ReactNode }): JSX.Elem
 
     return (
         <div
-            className={`relative h-full ${showDropZone ? 'bg-accent/10 border-2 border-dashed border-accent' : ''}`}
+            className={`relative h-full flex-1 ${showDropZone ? 'bg-accent/10 outline-2 outline-dashed outline-accent' : ''}`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}

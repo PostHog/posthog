@@ -2,14 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, useEffect, useRef, useState } from 'react'
 
-import {
-    IconCheckbox,
-    IconChevronRight,
-    IconEllipsis,
-    IconFolderPlus,
-    IconPlusSmall,
-    IconShortcut,
-} from '@posthog/icons'
+import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusSmall } from '@posthog/icons'
 
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
@@ -115,10 +108,16 @@ export function ProjectTree({
             type: 'category',
             displayName: (
                 <div className="border border-primary text-xs mb-2 font-normal rounded-xs p-1 -mx-1">
-                    Shortcuts are added by pressing{' '}
-                    <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
-                    side-clicking a panel item, then "Add to shortcuts panel", or inside an app's resources file menu
-                    click <IconShortcut className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />
+                    Shortcuts are added by:
+                    <ul className="list-disc pl-4">
+                        <li>Dragging any link to this panel</li>
+                        <li>
+                            Pressing{' '}
+                            <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" />,
+                            side-clicking a panel item, then "Add to shortcuts panel"
+                        </li>
+                        <li>Inside an app's resources file menu</li>
+                    </ul>
                 </div>
             ),
         })
