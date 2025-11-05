@@ -483,8 +483,15 @@ jobs:
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             - name: Create snapshot patch
               id: create-patch
-              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.detect-snapshot-mode.outputs.mode == 'update' && success() && github.event.pull_request.head.repo.full_name == github.repository
               run: |
+                  # Verify we're in a git repository before running git commands
+                  if ! git rev-parse --git-dir > /dev/null 2>&1; then
+                    echo "Not in a git repository, skipping patch creation"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
                   # Check if there are any changes in the snapshot directory
                   if git diff --quiet frontend/__snapshots__/; then
                     echo "No snapshot changes"

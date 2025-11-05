@@ -381,8 +381,15 @@ jobs:
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             - name: Create screenshot patch
               id: create-patch
-              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.detect-snapshot-mode.outputs.mode == 'update' && success() && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               run: |
+                  # Verify we're in a git repository before running git commands
+                  if ! git rev-parse --git-dir > /dev/null 2>&1; then
+                    echo "Not in a git repository, skipping patch creation"
+                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    exit 0
+                  fi
+
                   # Check if there are any changes in the playwright directory
                   if git diff --quiet playwright/; then
                     echo "No screenshot changes"
