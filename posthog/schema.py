@@ -4500,14 +4500,6 @@ class MaxExperimentSummaryContext(BaseModel):
     variants: list[str]
 
 
-class NewExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBaseValidated
-    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
-
-
 class NotebookUpdateMessage(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
