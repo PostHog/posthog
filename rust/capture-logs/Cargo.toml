@@ -1,5 +1,5 @@
 [package]
-name = "log-capture"
+name = "capture-logs"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -13,6 +13,7 @@ health = { path = "../common/health" }
 axum = { workspace = true }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+limiters = { path = "../common/limiters" }
 capture = { path = "../capture" }
 opentelemetry-proto = { workspace = true }
 tonic = { workspace = true }
