@@ -396,7 +396,7 @@ class AssistantContextManager(AssistantContextMixin):
 
         contextual_tools_prompt = [
             f"<{tool_name}>\n"
-            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user, tool_call_id="").format_context_prompt_injection(tool_context)}\n"  # type: ignore
+            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_context_prompt_injection(tool_context)}\n"  # type: ignore
             f"</{tool_name}>"
             for tool_name, tool_context in self.get_contextual_tools().items()
             if get_contextual_tool_class(tool_name) is not None
