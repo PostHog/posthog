@@ -187,7 +187,11 @@ def _render_tree(
                 lines.append(f"{prefix}{current_prefix}{node_prefix} {summary}")
             else:
                 # Create expandable generation content
-                gen_content = format_event_text_repr(event, options)
+                # Disable line numbers for embedded content - they'll be added at trace level
+                event_options = (
+                    {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
+                )
+                gen_content = format_event_text_repr(event, event_options)
 
                 if include_markers:
                     # Encode content for frontend to expand
@@ -210,7 +214,11 @@ def _render_tree(
                 lines.append(f"{prefix}{current_prefix}{node_prefix} {summary}")
             else:
                 # Create expandable span content
-                span_content = format_event_text_repr(event, options)
+                # Disable line numbers for embedded content - they'll be added at trace level
+                event_options = (
+                    {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
+                )
+                span_content = format_event_text_repr(event, event_options)
 
                 if include_markers:
                     # Encode content for frontend to expand
@@ -233,7 +241,11 @@ def _render_tree(
                 lines.append(f"{prefix}{current_prefix}{node_prefix} {summary}")
             else:
                 # Create expandable embedding content
-                embedding_content = format_event_text_repr(event, options)
+                # Disable line numbers for embedded content - they'll be added at trace level
+                event_options = (
+                    {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
+                )
+                embedding_content = format_event_text_repr(event, event_options)
 
                 if include_markers:
                     # Encode content for frontend to expand
