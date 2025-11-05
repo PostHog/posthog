@@ -16,17 +16,17 @@ export const FRAMEWORK_DOCS: Record<SupportedFramework, string> = {
 }
 
 /**
- * URL to the PostHog examples monorepo
+ * URL to the PostHog examples markdown artifact (latest release)
  */
-export const EXAMPLES_MONOREPO_URL =
-    'https://github.com/PostHog/examples/archive/refs/heads/main.zip'
+export const EXAMPLES_MARKDOWN_URL =
+    'https://github.com/PostHog/examples/releases/latest/download/examples-mcp-resources.zip'
 
 /**
- * Maps framework identifiers to their subfolder paths in the examples monorepo
+ * Maps framework identifiers to their markdown filenames in the release artifact
  */
-export const FRAMEWORK_EXAMPLE_PATHS: Record<SupportedFramework, string> = {
-    [SupportedFramework.NextJSApp]: 'basics/next-app-router',
-    [SupportedFramework.NextJSPages]: 'basics/next-pages-router',
+export const FRAMEWORK_MARKDOWN_FILES: Record<SupportedFramework, string> = {
+    [SupportedFramework.NextJSApp]: 'nextjs-app-router.md',
+    [SupportedFramework.NextJSPages]: 'nextjs-pages-router.md',
 }
 
 /**
