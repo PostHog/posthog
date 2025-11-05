@@ -1,4 +1,4 @@
-from typing import Optional, Union, cast
+from typing import Optional, TypedDict, Union, cast
 
 from posthog.schema import (
     ActionsNode,
@@ -35,6 +35,15 @@ from posthog.models.team.team import Team
 
 # Constant for representing NULL breakdown values
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
+
+
+class TableConfig(TypedDict):
+    """Configuration for a table/source used in queries"""
+
+    table: str
+    entity_field: str
+    timestamp_field: str
+    is_dw: bool
 
 
 def get_exposure_config_params_for_builder(
@@ -124,9 +133,7 @@ class ExperimentQueryBuilder:
 
         return result
 
-    def _get_table_config(
-        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
-    ) -> dict[str, str | bool]:
+    def _get_table_config(self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode) -> TableConfig:
         """
         Get table configuration for a given source (events or data warehouse).
 
@@ -141,20 +148,20 @@ class ExperimentQueryBuilder:
                 - 'is_dw': Boolean indicating if this is a data warehouse source
         """
         if isinstance(source, ExperimentDataWarehouseNode):
-            return {
-                "table": source.table_name,
-                "entity_field": source.data_warehouse_join_key,
-                "timestamp_field": f"{source.table_name}.{source.timestamp_field}",
-                "is_dw": True,
-            }
+            return TableConfig(
+                table=source.table_name,
+                entity_field=source.data_warehouse_join_key,
+                timestamp_field=f"{source.table_name}.{source.timestamp_field}",
+                is_dw=True,
+            )
         else:
             # EventsNode or ActionsNode
-            return {
-                "table": "events",
-                "entity_field": self.entity_key,
-                "timestamp_field": "timestamp",
-                "is_dw": False,
-            }
+            return TableConfig(
+                table="events",
+                entity_field=self.entity_key,
+                timestamp_field="timestamp",
+                is_dw=False,
+            )
 
     def build_query(self) -> ast.SelectQuery:
         """
@@ -758,17 +765,20 @@ class ExperimentQueryBuilder:
                 if isinstance(entity_metrics_cte.expr.select_from, ast.JoinExpr):
                     join_expr = entity_metrics_cte.expr.select_from
                     # Navigate to find the denominator_aggregated join
-                    if join_expr.next_join and isinstance(join_expr.next_join.constraint, ast.CompareOperation):
-                        # Add breakdown join conditions
-                        for alias in aliases:
-                            new_condition = ast.CompareOperation(
+                    if join_expr.next_join and join_expr.next_join.constraint:
+                        # Build all breakdown join conditions
+                        breakdown_conditions: list[ast.Expr] = [
+                            ast.CompareOperation(
                                 op=ast.CompareOperationOp.Eq,
                                 left=ast.Field(chain=["numerator_aggregated", alias]),
                                 right=ast.Field(chain=["denominator_aggregated", alias]),
                             )
-                            # Combine with existing constraint using AND
-                            join_expr.next_join.constraint = ast.And(
-                                exprs=[join_expr.next_join.constraint, new_condition]
+                            for alias in aliases
+                        ]
+                        # Combine existing constraint expr with all breakdown conditions using AND
+                        if breakdown_conditions:
+                            join_expr.next_join.constraint.expr = ast.And(
+                                exprs=[join_expr.next_join.constraint.expr, *breakdown_conditions]
                             )
 
         # Inject into final SELECT - breakdown columns must come right after variant
