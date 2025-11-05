@@ -7,6 +7,8 @@ use crate::{
     app_context::AppContext,
     error::{PipelineResult, UnhandledError},
     fingerprinting::resolve_fingerprint,
+    frames::RawFrame,
+    langs::java::RawJavaFrame,
     metric_consts::{FINGERPRINT_BATCH_TIME, FRAME_BATCH_TIME, FRAME_RESOLUTION},
     types::{FingerprintedErrProps, RawErrProps, Stacktrace},
 };
@@ -70,6 +72,15 @@ pub async fn do_stack_processing(
             // Put the frames back on the exception, now that we're done mutating them until we've
             // gathered our lookup table.
             exception.stack = Some(Stacktrace::Raw { frames });
+
+            if let Some(RawFrame::Hermes(frame)) = frames.first() {
+                let remapped_exception_type =
+                    frame.remap_class(team_id, &exception.exception_type, &context.catalog.hmp);
+
+                if let Some(exception_type) = remapped_exception_type {
+                    exception.exception_type = exception_type.to_string()
+                }
+            }
         }
     }
 

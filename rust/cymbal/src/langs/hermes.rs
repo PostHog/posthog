@@ -13,7 +13,9 @@ use crate::{
         CommonFrameMetadata,
     },
     sanitize_string,
-    symbol_store::{chunk_id::OrChunkId, hermesmap::ParsedHermesMap, SymbolCatalog},
+    symbol_store::{
+        chunk_id::OrChunkId, hermesmap::ParsedHermesMap, proguard::FetchedMapping, SymbolCatalog,
+    },
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -90,6 +92,17 @@ impl RawHermesFrame {
 
     pub fn symbol_set_ref(&self) -> Option<String> {
         self.get_ref().ok().map(|r| r.to_string())
+    }
+
+    pub fn remap_class<C>(&self, team_id: i32, class: &str, catalog: &C) -> Option<&str>
+    where
+        C: SymbolCatalog<OrChunkId<HermesRef>, ParsedHermesMap>,
+    {
+        let r = self.get_ref().ok()?;
+        let map: Arc<FetchedMapping> = catalog.lookup(team_id, r.clone());
+        let mapper = map.get_mapper();
+
+        return mapper.remap_class(class);
     }
 
     fn get_ref(&self) -> Result<OrChunkId<HermesRef>, HermesError> {
