@@ -202,7 +202,7 @@ mod tests {
     use crate::{
         flags::{
             flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX},
-            test_helpers::get_flags_from_redis,
+            test_helpers::{get_flags_from_redis, update_flags_in_redis},
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
         utils::test_utils::{
@@ -398,14 +398,9 @@ mod tests {
             ],
         };
 
-        FeatureFlagList::update_flags_in_redis(
-            redis_client.clone(),
-            team.project_id(),
-            &mock_flags,
-            None,
-        )
-        .await
-        .expect("Failed to insert mock flags in Redis");
+        update_flags_in_redis(redis_client.clone(), team.project_id(), &mock_flags, None)
+            .await
+            .expect("Failed to insert mock flags in Redis");
 
         let flag_service = FlagService::new(
             redis_client.clone(),
