@@ -65,9 +65,8 @@ export function StacktraceGenericExceptionHeader({
     loading,
     truncate,
 }: StacktraceBaseExceptionHeaderProps): JSX.Element {
-    const type = exception.type
-    const value = exception.value
-    const isScriptError = value === 'Script error' && runtime === 'web' && type === 'Error'
+    const { type, value } = exception
+    const isScriptError = type === 'Error' && runtime === 'web' && value === 'Script error'
 
     return (
         <div className="pb-1">

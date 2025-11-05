@@ -5,7 +5,7 @@ export interface ErrorTrackingException {
     module?: string
     id: string
     type: string
-    value: string // defaults to empty
+    value: string // can be an empty string
     mechanism?: {
         synthetic?: boolean
         handled?: boolean
