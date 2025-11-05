@@ -303,8 +303,8 @@ function TextReprDisplay({ textRepr }: { textRepr: string }): JSX.Element {
     return (
         <div className="p-4 overflow-auto h-full font-mono text-sm whitespace-pre bg-bg-light">
             {lines.map((line, index) => {
-                // Extract line number from format "L  1:", "L 10:", "L100:"
-                const match = line.match(/^L\s*(\d+):/)
+                // Extract line number from zero-padded format "L001:", "L010:", "L100:"
+                const match = line.match(/^L(\d+):/)
                 const lineNumber = match ? match[1] : null
 
                 return (
