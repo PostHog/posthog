@@ -68,25 +68,22 @@ export function SummaryTabContent({ trace, event, tree }: SummaryTabContentProps
 
             {summary && !summaryLoading && (
                 <div>
-                    <div className="flex justify-between items-center mb-4">
-                        <h3 className="font-semibold">Summary</h3>
-                        <div className="flex items-center gap-1">
-                            <LemonButton
-                                size="small"
-                                noPadding
-                                icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
-                                tooltip="Toggle markdown rendering"
-                                onClick={() => setIsRenderingMarkdown(!isRenderingMarkdown)}
-                            />
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                onClick={generateSummary}
-                                data-attr="llm-analytics-regenerate-summary"
-                            >
-                                Regenerate
-                            </LemonButton>
-                        </div>
+                    <div className="flex justify-end items-center gap-1 mb-4">
+                        <LemonButton
+                            size="small"
+                            noPadding
+                            icon={isRenderingMarkdown ? <IconMarkdownFilled /> : <IconMarkdown />}
+                            tooltip="Toggle markdown rendering"
+                            onClick={() => setIsRenderingMarkdown(!isRenderingMarkdown)}
+                        />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={generateSummary}
+                            data-attr="llm-analytics-regenerate-summary"
+                        >
+                            Regenerate
+                        </LemonButton>
                     </div>
                     <div className="prose prose-sm max-w-none">
                         <SummaryRenderer summary={summary} isRenderingMarkdown={isRenderingMarkdown} />
