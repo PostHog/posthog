@@ -95,42 +95,9 @@ class TestFunnelStrictStepsBreakdown(
         )
 
         result = funnel.run()
-        assert_funnel_results_equal(
-            result[0],
-            [
-                {
-                    "action_id": "sign up",
-                    "name": "sign up",
-                    "custom_name": None,
-                    "order": 0,
-                    "people": [],
-                    "count": 1,
-                    "type": "events",
-                    "average_conversion_time": None,
-                    "median_conversion_time": None,
-                    "breakdown": ["Chrome"],
-                    "breakdown_value": ["Chrome"],
-                },
-                {
-                    "action_id": "play movie",
-                    "name": "play movie",
-                    "custom_name": None,
-                    "order": 1,
-                    "people": [],
-                    "count": 0,
-                    "type": "events",
-                    "average_conversion_time": None,
-                    "median_conversion_time": None,
-                    "breakdown": ["Chrome"],
-                    "breakdown_value": ["Chrome"],
-                },
-            ],
-        )
-        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome"]), [people["person1"].uuid])
-        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Chrome"]), [])
 
         assert_funnel_results_equal(
-            result[1],
+            result[0],
             [
                 {
                     "action_id": "sign up",
@@ -162,6 +129,40 @@ class TestFunnelStrictStepsBreakdown(
         )
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Safari"]), [people["person2"].uuid])
         self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Safari"]), [people["person2"].uuid])
+
+        assert_funnel_results_equal(
+            result[1],
+            [
+                {
+                    "action_id": "sign up",
+                    "name": "sign up",
+                    "custom_name": None,
+                    "order": 0,
+                    "people": [],
+                    "count": 1,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
+                },
+                {
+                    "action_id": "play movie",
+                    "name": "play movie",
+                    "custom_name": None,
+                    "order": 1,
+                    "people": [],
+                    "count": 0,
+                    "type": "events",
+                    "average_conversion_time": None,
+                    "median_conversion_time": None,
+                    "breakdown": ["Chrome"],
+                    "breakdown_value": ["Chrome"],
+                },
+            ],
+        )
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome"]), [people["person1"].uuid])
+        self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Chrome"]), [])
 
 
 class TestFunnelStrictStepsConversionTime(

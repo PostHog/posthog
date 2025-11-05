@@ -300,6 +300,7 @@ function TraceSidebar({
                     value={searchValue}
                     onChange={onSearchChange}
                     size="small"
+                    data-attr="trace-search-input"
                 />
                 {searchValue.trim() && (
                     <div className="text-xs text-muted ml-1 mt-1">
@@ -418,6 +419,7 @@ const TreeNode = React.memo(function TraceNode({
                     isSelected && '!bg-accent-highlight-secondary',
                     isCollapsedDueToFilter && 'min-h-4 min-w-0'
                 )}
+                data-attr="trace-event-link"
             >
                 <div className="flex flex-row items-center gap-1.5">
                     <EventTypeTag event={item} size="small" />
@@ -693,6 +695,7 @@ const EventContent = React.memo(
                                             icon={<IconChat />}
                                             onClick={handleTryInPlayground}
                                             tooltip="Try this prompt in the playground"
+                                            data-attr="try-in-playground-trace"
                                         >
                                             Try in Playground
                                         </LemonButton>
@@ -921,6 +924,7 @@ function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrace
             icon={<IconCopy />}
             onClick={handleCopyTrace}
             tooltip="Copy trace to clipboard"
+            data-attr="copy-trace-json"
         >
             Copy trace JSON
         </LemonButton>
