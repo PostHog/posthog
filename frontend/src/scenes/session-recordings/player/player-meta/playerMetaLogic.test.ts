@@ -13,8 +13,6 @@ import recordingEventsJson from '../../__mocks__/recording_events_query'
 import { recordingMetaJson } from '../../__mocks__/recording_meta'
 import { snapshotsAsJSONLines } from '../../__mocks__/recording_snapshots'
 
-jest.mock('../TestWorkerManager')
-
 const playerProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
 describe('playerMetaLogic', () => {
