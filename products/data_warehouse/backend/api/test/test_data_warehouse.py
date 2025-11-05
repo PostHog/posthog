@@ -312,8 +312,8 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertIn("Stripe", types)
         self.assertIn("Materialized view", types)
 
-    def test_completed_activity_returns_only_non_running_jobs(self):
-        """Test completed_activity endpoint returns only non-running jobs"""
+    def test_completed_activity_returns_only_completed_jobs(self):
+        """Test completed_activity endpoint returns only jobs with status 'Completed'"""
         endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
 
         source = ExternalDataSource.objects.create(
@@ -339,14 +339,14 @@ class TestDataWarehouseAPI(APIBaseTest):
         data = response.json()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(len(data["results"]), 4)
+        self.assertEqual(len(data["results"]), 2)
 
         statuses = [activity["status"] for activity in data["results"]]
-        self.assertTrue(all(status != "Running" for status in statuses))
+        self.assertTrue(all(status == "Completed" for status in statuses))
 
         types = [activity["type"] for activity in data["results"]]
-        self.assertEqual(types.count("Stripe"), 2)
-        self.assertEqual(types.count("Materialized view"), 2)
+        self.assertEqual(types.count("Stripe"), 1)
+        self.assertEqual(types.count("Materialized view"), 1)
 
     def test_running_activity_pagination(self):
         """Test running_activity endpoint pagination"""
@@ -384,8 +384,9 @@ class TestDataWarehouseAPI(APIBaseTest):
         )
         schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
 
-        for i in range(7):
-            status = "Completed" if i % 2 == 0 else "Failed"
+        # Create 7 completed jobs and 3 failed jobs to test filtering and pagination
+        for i in range(10):
+            status = "Completed" if i < 7 else "Failed"
             ExternalDataJob.objects.create(
                 pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=100 + i, status=status
             )
