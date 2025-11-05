@@ -27,11 +27,11 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     const homepageDisplayTitle = homepageTabForDisplay
         ? homepageTabForDisplay.customTitle || homepageTabForDisplay.title
         : 'Project homepage'
-    const homepageDescription = isUsingProjectDefault
-        ? 'Currently using the project default homepage.'
+    const homepageSubtitle = isUsingProjectDefault
+        ? 'Project default homepage'
         : isUsingNewTabHomepage
-          ? 'Currently set to the new tab page.'
-          : `Currently set to ${homepageDisplayTitle}.`
+          ? 'New tab page'
+          : null
 
     const homepageIcon = homepageTabForDisplay?.iconType
     const homepageIconElement = iconForType(
@@ -149,8 +149,10 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                         <div className="flex min-w-0 items-center gap-2">
                             <span className="shrink-0 text-lg text-muted-alt">{homepageIconElement}</span>
                             <div className="min-w-0">
-                                <div className="truncate font-medium text-primary">Homepage</div>
-                                <div className="truncate text-xs text-muted">{homepageDescription}</div>
+                                <div className="truncate font-medium text-primary">{homepageDisplayTitle}</div>
+                                {homepageSubtitle && (
+                                    <div className="truncate text-xs text-muted">{homepageSubtitle}</div>
+                                )}
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
