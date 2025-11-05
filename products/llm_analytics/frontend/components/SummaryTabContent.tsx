@@ -365,7 +365,7 @@ function TextReprDisplay({ textRepr }: { textRepr: string }): JSX.Element {
                     <div
                         key={index}
                         id={lineNumber ? `line-${lineNumber}` : undefined}
-                        className="hover:bg-accent transition-all duration-300 ease-in-out"
+                        className="transition-all duration-300 ease-in-out"
                     >
                         {line}
                     </div>
