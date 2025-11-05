@@ -7,7 +7,7 @@ from posthog.schema import AssistantTool, AssistantToolCallMessage, Visualizatio
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.graph.insights_graph.graph import InsightsGraph
 from ee.hogai.graph.schema_generator.nodes import SchemaGenerationException
-from ee.hogai.tool import MaxTool, MaxToolArgs, ToolMessagesArtifact
+from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState
 
@@ -136,7 +136,7 @@ The agent has encountered an unknown error while creating an insight.
 """.strip()
 
 
-class CreateAndQueryInsightToolArgs(MaxToolArgs):
+class CreateAndQueryInsightToolArgs(BaseModel):
     query_description: str = Field(
         description=(
             "A description of the query to generate, encapsulating the details of the user's request. "
@@ -155,11 +155,11 @@ class CreateAndQueryInsightTool(MaxTool):
     context_prompt_template: str = INSIGHT_TOOL_CONTEXT_PROMPT_TEMPLATE
     thinking_message: str = "Coming up with an insight"
 
-    async def _arun_impl(self, query_description: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
+    async def _arun_impl(self, query_description: str) -> tuple[str, ToolMessagesArtifact | None]:
         graph = InsightsGraph(self._team, self._user).compile_full_graph()
         new_state = self._state.model_copy(
             update={
-                "root_tool_call_id": tool_call_id,
+                "root_tool_call_id": self.tool_call_id,
                 "root_tool_insight_plan": query_description,
             },
             deep=True,
