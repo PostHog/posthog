@@ -1,12 +1,11 @@
 import json
 import hashlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
-from django.utils.timezone import now
 
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
@@ -321,7 +320,6 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                     "filename": filename,
                 },
                 created_by=request.user,
-                expires_after=now() + timedelta(days=7),
             )
 
             exporter.export_asset.delay(exported_asset.id)
