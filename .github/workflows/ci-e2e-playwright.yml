@@ -342,16 +342,15 @@ jobs:
               # we can run 10 workers because we have 16 CPU
               # we don't want to run 16 since we need to leave some for everything else
               run: |
-                  # Always run with --update-snapshots to generate changes on disk
-                  # We decide whether to commit based on mode in later jobs
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=10 --update-snapshots
+                  # In UPDATE mode: run with --update-snapshots to update snapshots on disk
+                  # In CHECK mode: run without flag to fail when snapshots differ
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=10 ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--update-snapshots' || '' }}
 
             # Create git patch for aggregation (handles A/M/D including binary files)
-            # Run even if tests fail to capture updated snapshots
-            # Run in both UPDATE and CHECK modes to detect snapshot changes
+            # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             - name: Create screenshot patch
               id: create-patch
-              if: (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   # Check if there are any changes in the playwright directory
                   if git diff --quiet playwright/; then
@@ -443,12 +442,32 @@ jobs:
                   event: 'posthog-ci-running-time'
                   properties: '{"runner": "depot", "duration_seconds": ${{ env.running_time_duration_seconds }}, "run_url": "${{ env.running_time_run_url }}", "run_attempt": "${{ env.running_time_run_attempt }}", "run_id": "${{ env.running_time_run_id }}", "run_started_at": "${{ env.running_time_run_started_at }}"}'
 
+    post-check-comment:
+        name: Post check mode comment
+        runs-on: ubuntu-latest
+        needs: [playwright, detect-snapshot-mode, changes]
+        if: always() && needs.changes.outputs.shouldRun == 'true' && needs.detect-snapshot-mode.outputs.mode == 'check' && needs.playwright.result == 'failure'
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Post check-failed comment
+              env:
+                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+              run: |
+                  .github/scripts/post-snapshot-comment.js \
+                    "playwright" \
+                    "check-failed" \
+                    "" \
+                    "${{ github.event.pull_request.number }}" \
+                    "${{ github.repository }}" \
+                    "${{ github.event.pull_request.head.sha }}"
+
     # Aggregate all screenshot artifacts and commit once
     handle-screenshots:
         name: Handle screenshot changes
         runs-on: ubuntu-latest
         needs: [playwright, detect-snapshot-mode, changes]
-        if: always() && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         steps:
             - uses: actions/checkout@v4
               with:
@@ -497,17 +516,3 @@ jobs:
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
                   github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-
-            # CHECK mode with failure: post warning if screenshots changed
-            - name: Post check-failed comment
-              if: steps.check-screenshots.outputs.has-changes == 'true' && needs.detect-snapshot-mode.outputs.mode == 'check' && needs.playwright.result == 'failure'
-              env:
-                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-              run: |
-                  .github/scripts/post-snapshot-comment.js \
-                    "playwright" \
-                    "check-failed" \
-                    "" \
-                    "${{ github.event.pull_request.number }}" \
-                    "${{ github.repository }}" \
-                    "${{ github.event.pull_request.head.sha }}"

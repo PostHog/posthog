@@ -436,9 +436,9 @@ jobs:
               run: |
                   for i in 1 2 3; do
                     echo "Attempt $i: Running @storybook/test-runner"
-                    # Always run in update mode to generate snapshot changes on disk
-                    # We decide whether to commit based on mode in later jobs
-                    pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} && break
+                    # In UPDATE mode: run with -u flag to update snapshots on disk
+                    # In CHECK mode: run with --ci flag to fail when snapshots differ
+                    pnpm --filter=@posthog/storybook test:visual:ci:${{ needs.detect-snapshot-mode.outputs.mode == 'update' && 'update' || 'verify' }} --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} && break
                     if [ $i -eq 3 ]; then
                       echo "Test runner failed after 3 attempts"
                       exit 1
@@ -456,11 +456,10 @@ jobs:
               run: git config --global --add safe.directory '*'
 
             # Create git patch for aggregation (handles A/M/D including binary files)
-            # Run even if tests fail to capture updated snapshots
-            # Run in both UPDATE and CHECK modes to detect snapshot changes
+            # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             - name: Create snapshot patch
               id: create-patch
-              if: (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   # Check if there are any changes in the snapshot directory
                   if git diff --quiet frontend/__snapshots__/; then
@@ -500,11 +499,31 @@ jobs:
                   fi
                   echo "All jobs in the visual-regression test matrix passed."
 
+    post-check-comment:
+        name: Post check mode comment
+        runs-on: ubuntu-latest
+        needs: [visual-regression, detect-snapshot-mode]
+        if: always() && needs.detect-snapshot-mode.outputs.mode == 'check' && needs.visual-regression.result == 'failure'
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Post check-failed comment
+              env:
+                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
+              run: |
+                  .github/scripts/post-snapshot-comment.js \
+                    "storybook" \
+                    "check-failed" \
+                    "" \
+                    "${{ github.event.pull_request.number }}" \
+                    "${{ github.repository }}" \
+                    "${{ github.event.pull_request.head.sha }}"
+
     handle-snapshots:
         name: Handle snapshot changes
         runs-on: ubuntu-latest
         needs: [visual-regression, detect-snapshot-mode, changes]
-        if: always() && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        if: always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         steps:
             - uses: actions/checkout@v4
               with:
@@ -555,20 +574,6 @@ jobs:
                   repository: ${{ github.repository }}
                   commit-sha: ${{ github.event.pull_request.head.sha }}
                   github-token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-
-            # CHECK mode with failure: post warning if snapshots changed
-            - name: Post check-failed comment
-              if: steps.check-snapshots.outputs.has-changes == 'true' && needs.detect-snapshot-mode.outputs.mode == 'check' && needs.visual-regression.result == 'failure'
-              env:
-                  GH_TOKEN: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
-              run: |
-                  .github/scripts/post-snapshot-comment.js \
-                    "storybook" \
-                    "check-failed" \
-                    "" \
-                    "${{ github.event.pull_request.number }}" \
-                    "${{ github.repository }}" \
-                    "${{ github.event.pull_request.head.sha }}"
 
     calculate-running-time:
         name: Calculate running time
