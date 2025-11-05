@@ -92,19 +92,6 @@ export function ChainedStackTraces({
             {exceptionList.map((exception, index) => {
                 const { stacktrace, value, id } = exception
                 const displayTrace = shouldDisplayTrace(stacktrace, showAllFrames)
-                // Conditional loop: print "Hello" if the first frame is a raw Java frame (unresolved Java frame)
-                if (
-                    stacktrace?.type === 'resolved' &&
-                    Array.isArray(stacktrace.frames) &&
-                    stacktrace.frames.length > 0 &&
-                    stacktrace.frames[0]?.lang === 'java' &&
-                    stacktrace.frames[0]?.resolved === false
-                ) {
-                    for (let i = 0; i < 1; i++) {
-                        // eslint-disable-next-line no-console
-                        console.log('Hello')
-                    }
-                }
                 const part = getExceptionFingerprint(id)
                 const traceHeaderProps = { id, type: formatType(exception), value, part, loading: false }
                 return (
