@@ -483,6 +483,9 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                         org_digest = OrganizationDigest.model_validate_json(raw_digest)
 
                         if org_digest.is_empty():
+                            logger.warning(
+                                f"Got empty digest for organization, skipping...", organization_id=organization.id
+                            )
                             empty_org_digest_count += 1
                             continue
 
@@ -504,13 +507,23 @@ async def send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             user_specific_digest: OrganizationDigest = org_digest.filter_for_user(user_notify_teams)
 
                             if user_specific_digest.is_empty():
+                                logger.warning(
+                                    f"Got empty digest for user, skipping...",
+                                    organization_id=organization.id,
+                                    user_id=user.id,
+                                )
                                 empty_user_digest_count += 1
                                 continue
 
                             if input.dry_run:
-                                logger.info("DRY RUN - would send digest", digest=user_specific_digest.render_payload())
+                                logger.info(
+                                    "DRY RUN - would send digest",
+                                    digest=user_specific_digest.render_payload(),
+                                    user_email=user.email,
+                                )
                             else:
                                 if user.email == "tue@posthog.com":
+                                    logger.info("Match - sending digest")
                                     partial = True
                                     capture_event(
                                         distinct_id=user.distinct_id,
