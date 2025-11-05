@@ -7,7 +7,7 @@ from base64 import b32encode
 from binascii import unhexlify
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, Optional, cast
+from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
@@ -420,7 +420,6 @@ class PinnedSceneTabSerializer(serializers.Serializer):
 class PinnedSceneTabsSerializer(serializers.Serializer):
     tabs = PinnedSceneTabSerializer(many=True, required=False)
     personal_tabs = PinnedSceneTabSerializer(many=True, required=False)
-    project_tabs = PinnedSceneTabSerializer(many=True, required=False)
 
 
 class UserViewSet(
@@ -566,55 +565,54 @@ class UserViewSet(
             raise serializers.ValidationError("Current team is required to manage pinned scene tabs.")
 
         pinned_tabs, _ = UserPinnedSceneTabs.objects.get_or_create(user=instance, team=team)
-        project_pinned_tabs, _ = UserPinnedSceneTabs.objects.get_or_create(user=None, team=team)
+        legacy_project_tabs = UserPinnedSceneTabs.objects.filter(user=None, team=team).first()
+
+        def sanitize_tabs(tabs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+            sanitized_tabs: list[dict[str, Any]] = []
+            for tab in tabs:
+                sanitized = {**tab}
+                sanitized.pop("active", None)
+                sanitized["pinned"] = True
+                sanitized["pinnedScope"] = "personal"
+                sanitized_tabs.append(sanitized)
+            return sanitized_tabs
 
         if request.method == "GET":
+            if legacy_project_tabs and legacy_project_tabs.tabs:
+                if not pinned_tabs.tabs:
+                    pinned_tabs.tabs = sanitize_tabs(legacy_project_tabs.tabs)
+                    pinned_tabs.save()
+                legacy_project_tabs.delete()
             personal_tabs = pinned_tabs.tabs or []
-            project_tabs = project_pinned_tabs.tabs or []
             return Response(
                 {
                     "tabs": personal_tabs,
                     "personal_tabs": personal_tabs,
-                    "project_tabs": project_tabs,
                 }
             )
 
         serializer = PinnedSceneTabsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         personal_tabs_payload = serializer.validated_data.get("personal_tabs")
-        project_tabs_payload = serializer.validated_data.get("project_tabs")
         tabs_payload = serializer.validated_data.get("tabs")
 
         # Backwards compatibility: if only `tabs` is provided, treat it as personal tabs.
-        if personal_tabs_payload is None and project_tabs_payload is None:
+        if personal_tabs_payload is None:
             personal_tabs_payload = tabs_payload or []
 
-        def sanitize_tabs(tabs: Iterable[dict[str, Any]], scope: Literal["personal", "project"]):
-            sanitized_tabs: list[dict[str, Any]] = []
-            for tab in tabs:
-                sanitized = {**tab}
-                sanitized.pop("active", None)
-                sanitized["pinned"] = True
-                sanitized["pinnedScope"] = scope
-                sanitized_tabs.append(sanitized)
-            return sanitized_tabs
-
         if personal_tabs_payload is not None:
-            pinned_tabs.tabs = sanitize_tabs(personal_tabs_payload, "personal")
+            pinned_tabs.tabs = sanitize_tabs(personal_tabs_payload)
             pinned_tabs.save()
 
-        if project_tabs_payload is not None:
-            project_pinned_tabs.tabs = sanitize_tabs(project_tabs_payload, "project")
-            project_pinned_tabs.save()
+        if legacy_project_tabs:
+            legacy_project_tabs.delete()
 
         personal_tabs = pinned_tabs.tabs or []
-        project_tabs = project_pinned_tabs.tabs or []
 
         return Response(
             {
                 "tabs": personal_tabs,
                 "personal_tabs": personal_tabs,
-                "project_tabs": project_tabs,
             }
         )
 

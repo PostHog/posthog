@@ -68,13 +68,6 @@ export function SceneTabContextMenu({ tab, children, onConfigurePinnedTabs }: Sc
                         {tab.pinned ? <IconPinFilled /> : <IconPin />} {tab.pinned ? 'Unpin tab' : 'Pin tab'}
                     </ButtonPrimitive>
                 </ContextMenuItem>
-                {tab.pinned && onConfigurePinnedTabs && (
-                    <ContextMenuItem asChild>
-                        <ButtonPrimitive menuItem onClick={onConfigurePinnedTabs}>
-                            <IconGear /> Configure pinned tabs
-                        </ButtonPrimitive>
-                    </ContextMenuItem>
-                )}
                 <ContextMenuItem asChild>
                     <ButtonPrimitive menuItem onClick={() => duplicateTab(tab)}>
                         <IconCopy /> Duplicate tab
@@ -107,6 +100,13 @@ export function SceneTabContextMenu({ tab, children, onConfigurePinnedTabs }: Sc
                         <IconExternal /> Open in new browser tab
                     </ButtonPrimitive>
                 </ContextMenuItem>
+                {tab.pinned && onConfigurePinnedTabs && (
+                    <ContextMenuItem asChild>
+                        <ButtonPrimitive menuItem onClick={onConfigurePinnedTabs}>
+                            <IconGear /> Configure tabs & home
+                        </ButtonPrimitive>
+                    </ContextMenuItem>
+                )}
                 <ContextMenuSeparator />
                 <ContextMenuItem asChild>
                     <ButtonPrimitive menuItem onClick={() => removeTab(tab)}>

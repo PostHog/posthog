@@ -14,7 +14,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { SceneTab, SceneTabPinnedScope } from 'scenes/sceneTypes'
+import { SceneTab } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -41,9 +41,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
 
-    const projectPinnedCount = tabs.filter((tab) => tab.pinned && tab.pinnedScope === 'project').length
-    const personalPinnedCount = tabs.filter((tab) => tab.pinned && tab.pinnedScope !== 'project').length
-    const pinnedCount = projectPinnedCount + personalPinnedCount
+    const pinnedCount = tabs.filter((tab) => tab.pinned).length
     const unpinnedCount = tabs.length - pinnedCount
     const pinnedColumns = pinnedCount > 0 ? `repeat(${pinnedCount}, 40px)` : ''
     let unpinnedColumns = ''
@@ -75,10 +73,6 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
         }
 
         if (!!activeTab.pinned !== !!overTab.pinned) {
-            return
-        }
-
-        if (activeTab.pinned && overTab.pinned && !isSamePinnedScope(activeTab.pinnedScope, overTab.pinnedScope)) {
             return
         }
 
@@ -122,14 +116,6 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                         >
                             {tabs.map((tab, index) => {
                                 const sortableId = getSortableId(tab, index)
-                                const containerClassName =
-                                    projectPinnedCount > 0 &&
-                                    personalPinnedCount > 0 &&
-                                    tab.pinned &&
-                                    tab.pinnedScope !== 'project' &&
-                                    index === projectPinnedCount
-                                        ? 'scene-tab-container--personal-divider'
-                                        : undefined
 
                                 return (
                                     <SortableSceneTab
@@ -137,7 +123,6 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                         tab={tab}
                                         index={index}
                                         sortableId={sortableId}
-                                        containerClassName={containerClassName}
                                         onConfigurePinnedTabs={() => setIsConfigurePinnedTabsOpen(true)}
                                     />
                                 )
@@ -174,11 +159,6 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             />
         </div>
     )
-}
-
-const isSamePinnedScope = (a: SceneTabPinnedScope | undefined, b: SceneTabPinnedScope | undefined): boolean => {
-    const resolve = (scope?: SceneTabPinnedScope): SceneTabPinnedScope => (scope === 'project' ? 'project' : 'personal')
-    return resolve(a) === resolve(b)
 }
 
 const getSortableId = (tab: SceneTab, index: number): string => `${tab.id}-${index}`

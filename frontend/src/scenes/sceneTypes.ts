@@ -179,7 +179,7 @@ export interface LoadedScene extends SceneExport<SceneProps> {
     sceneParams: SceneParams
 }
 
-export type SceneTabPinnedScope = 'project' | 'personal'
+export type SceneTabPinnedScope = 'personal'
 
 export interface SceneTab {
     id: string

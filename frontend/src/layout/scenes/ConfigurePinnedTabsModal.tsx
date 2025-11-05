@@ -18,8 +18,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     const { tabs } = useValues(sceneLogic)
     const { setTabPinnedScope } = useActions(sceneLogic)
 
-    const projectPinnedTabs = tabs.filter((tab) => tab.pinned && tab.pinnedScope === 'project')
-    const personalPinnedTabs = tabs.filter((tab) => tab.pinned && tab.pinnedScope !== 'project')
+    const personalPinnedTabs = tabs.filter((tab) => tab.pinned)
     const regularTabs = tabs.filter((tab) => !tab.pinned)
 
     const renderTabRow = (
@@ -78,36 +77,20 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     )
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title="Configure pinned tabs" width="48rem">
+        <LemonModal isOpen={isOpen} onClose={onClose} title="Configure tabs & home" width="48rem">
             <div className="space-y-6">
                 {renderSection(
-                    "This project's pinned tabs",
-                    'these tabs are shown to everyone in the project',
-                    projectPinnedTabs,
-                    () => [
-                        { label: 'Move to personal', scope: 'personal' },
-                        { label: 'Unpin', scope: null },
-                    ],
-                    'No project pinned tabs yet.'
-                )}
-                {renderSection(
                     'Your personal pinned tabs',
-                    'these are your personal pinned tabs, nobody else sees them, they will be here if you log out and come back',
+                    'Pinned tabs are visible only to you and stay available when you come back.',
                     personalPinnedTabs,
-                    () => [
-                        { label: 'Pin to project', scope: 'project' },
-                        { label: 'Unpin', scope: null },
-                    ],
+                    () => [{ label: 'Unpin', scope: null }],
                     'No personal pinned tabs yet.'
                 )}
                 {renderSection(
-                    'Regular (unpinned) tabs',
-                    'these tabs are ephemeral',
+                    'Regular tabs (unpinned)',
+                    'Regular tabs are discarded when you close your browser session.',
                     regularTabs,
-                    () => [
-                        { label: 'Pin to project', scope: 'project' },
-                        { label: 'Pin to personal', scope: 'personal' },
-                    ],
+                    () => [{ label: 'Pin', scope: 'personal' }],
                     'No regular tabs available to pin.'
                 )}
             </div>

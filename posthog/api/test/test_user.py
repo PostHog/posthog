@@ -148,7 +148,6 @@ class TestUserAPI(APIBaseTest):
             {
                 "tabs": [],
                 "personal_tabs": [],
-                "project_tabs": [],
             },
         )
 
@@ -165,16 +164,6 @@ class TestUserAPI(APIBaseTest):
                     "active": True,
                 }
             ],
-            "project_tabs": [
-                {
-                    "id": "tab-2",
-                    "pathname": "/b",
-                    "search": "",
-                    "hash": "",
-                    "title": "Tab B",
-                    "iconType": "notebook",
-                }
-            ],
         }
 
         response = self.client.patch(
@@ -187,15 +176,11 @@ class TestUserAPI(APIBaseTest):
         expected_personal_tab = {k: v for k, v in payload["personal_tabs"][0].items() if k != "active"}
         expected_personal_tab["pinned"] = True
         expected_personal_tab["pinnedScope"] = "personal"
-        expected_project_tab = dict(payload["project_tabs"][0].items())
-        expected_project_tab["pinned"] = True
-        expected_project_tab["pinnedScope"] = "project"
         self.assertEqual(
             response.json(),
             {
                 "tabs": [expected_personal_tab],
                 "personal_tabs": [expected_personal_tab],
-                "project_tabs": [expected_project_tab],
             },
         )
 
@@ -207,12 +192,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(stored_tab["pinnedScope"], "personal")
         self.assertNotIn("active", stored_tab)
 
-        project_stored = UserPinnedSceneTabs.objects.get(user=None, team=self.team)
-        self.assertEqual(len(project_stored.tabs), 1)
-        stored_project_tab = project_stored.tabs[0]
-        self.assertEqual(stored_project_tab["id"], "tab-2")
-        self.assertEqual(stored_project_tab["pinned"], True)
-        self.assertEqual(stored_project_tab["pinnedScope"], "project")
+        self.assertFalse(UserPinnedSceneTabs.objects.filter(user=None, team=self.team).exists())
 
     def test_can_only_list_yourself(self):
         """

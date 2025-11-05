@@ -35,8 +35,8 @@ describe('sceneLogic', () => {
         initKeaTests()
         localStorage.clear()
         sessionStorage.clear()
-        ;(api.get as jest.Mock).mockResolvedValue({ personal_tabs: [], project_tabs: [] })
-        ;(api.update as jest.Mock).mockResolvedValue({ personal_tabs: [], project_tabs: [] })
+        ;(api.get as jest.Mock).mockResolvedValue({ personal_tabs: [] })
+        ;(api.update as jest.Mock).mockResolvedValue({ personal_tabs: [] })
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
         router.actions.push(urls.eventDefinitions())
@@ -138,17 +138,11 @@ describe('sceneLogic', () => {
                         pinnedScope: 'personal',
                     }),
                 ],
-                project_tabs: [],
             })
         )
 
-        const storedPinned = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '{"project":[],"personal":[]}')
-        expect(storedPinned).toEqual(
-            expect.objectContaining({
-                project: [],
-                personal: [expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })],
-            })
-        )
+        const storedPinned = JSON.parse(localStorage.getItem(pinnedStorageKey) ?? '[]')
+        expect(storedPinned).toEqual([expect.objectContaining({ id: 'tab-2', pathname: '/b', pinned: true })])
 
         logic.actions.unpinTab('tab-2')
 
@@ -162,7 +156,6 @@ describe('sceneLogic', () => {
 
         expect(api.update).toHaveBeenLastCalledWith('api/users/@me/pinned_scene_tabs/', {
             personal_tabs: [],
-            project_tabs: [],
         })
         expect(localStorage.getItem(pinnedStorageKey)).toBeNull()
     })
