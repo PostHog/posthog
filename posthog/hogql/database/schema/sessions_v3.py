@@ -325,7 +325,7 @@ def select_from_sessions_table_v3(
                         name="or",
                         args=[
                             # if >= 2 pageviews/screens, not a bounce
-                            ast.Call(name="greater", args=[bounce_pageview_count, ast.Constant(value=1)]),
+                            ast.Call(name="greaterOrEquals", args=[bounce_pageview_count, ast.Constant(value=2)]),
                             # if there was an autocapture, not a bounce
                             aggregate_fields["$has_autocapture"],
                             # if session duration >= bounce_rate_duration_seconds, not a bounce
