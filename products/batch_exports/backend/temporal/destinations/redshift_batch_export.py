@@ -417,7 +417,7 @@ class RedshiftClient(PostgreSQLClient):
                     msg_detail = err.diag.message_detail
                     # This error is generic, and not well parsed by psycopg
                     # so we have to do some awkward substring check.
-                    if all(
+                    if msg_detail is not None and all(
                         s in msg_detail
                         for s in (
                             "Spectrum Scan Error",

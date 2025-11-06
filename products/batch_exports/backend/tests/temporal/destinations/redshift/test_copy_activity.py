@@ -677,7 +677,7 @@ async def test_copy_into_redshift_activity_handles_data_over_string_limit(
     bucket_name,
     bucket_region,
     exclude_events,
-    model: BatchExportSchema,
+    model: BatchExportModel,
     data_interval_start,
     data_interval_end,
     properties_data_type,
