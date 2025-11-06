@@ -9,6 +9,8 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { SessionDetailsModal } from './SessionDetailsModal'
+
 export const scene: SceneExport = {
     component: SessionSummariesScene,
 }
@@ -502,14 +504,20 @@ const samplePatternsData: PatternsData = {
 }
 
 // Session Example Card Component
-function SessionExampleCard({ event }: { event: SessionEvent }): JSX.Element {
+function SessionExampleCard({ event, onViewDetails }: { event: SessionEvent; onViewDetails: () => void }): JSX.Element {
     const { target_event, segment_outcome } = event
 
     return (
         <div className="flex flex-col gap-2 rounded border p-3 bg-bg-light">
             <div className="flex items-center justify-between gap-2">
                 <h4 className="mb-0">{target_event.description}</h4>
-                <Link to="#" className="text-sm font-medium whitespace-nowrap">
+                <Link
+                    onClick={(e) => {
+                        e.preventDefault()
+                        onViewDetails()
+                    }}
+                    className="text-sm font-medium whitespace-nowrap cursor-pointer"
+                >
                     View details
                 </Link>
             </div>
@@ -552,7 +560,13 @@ function FilterBar(): JSX.Element {
 }
 
 // Pattern Card Component
-function PatternCard({ pattern }: { pattern: Pattern }): JSX.Element {
+function PatternCard({
+    pattern,
+    onViewDetails,
+}: {
+    pattern: Pattern
+    onViewDetails: (event: SessionEvent) => void
+}): JSX.Element {
     const severityConfig = getSeverityConfig(pattern.severity)
 
     const header = (
@@ -582,7 +596,11 @@ function PatternCard({ pattern }: { pattern: Pattern }): JSX.Element {
             <p className="mb-3 text-sm font-medium">Examples from sessions:</p>
             <div className="flex flex-col gap-3">
                 {pattern.events.map((event, index) => (
-                    <SessionExampleCard key={`${pattern.pattern_id}-${index}`} event={event} />
+                    <SessionExampleCard
+                        key={`${pattern.pattern_id}-${index}`}
+                        event={event}
+                        onViewDetails={() => onViewDetails(event)}
+                    />
                 ))}
             </div>
             {pattern.events.length > 0 && (
@@ -611,7 +629,20 @@ function PatternCard({ pattern }: { pattern: Pattern }): JSX.Element {
 
 // Main Scene Component
 export function SessionSummariesScene(): JSX.Element {
+    const [selectedEvent, setSelectedEvent] = useState<SessionEvent | null>(null)
+    const [isModalOpen, setIsModalOpen] = useState(false)
+
     const totalSessions = samplePatternsData.patterns.reduce((sum, pattern) => sum + pattern.stats.sessions_affected, 0)
+
+    const handleViewDetails = (event: SessionEvent): void => {
+        setSelectedEvent(event)
+        setIsModalOpen(true)
+    }
+
+    const handleCloseModal = (): void => {
+        setIsModalOpen(false)
+        setSelectedEvent(null)
+    }
 
     return (
         <SceneContent>
@@ -639,10 +670,12 @@ export function SessionSummariesScene(): JSX.Element {
                 <FilterBar />
                 <div className="flex flex-col gap-2">
                     {samplePatternsData.patterns.map((pattern) => (
-                        <PatternCard key={pattern.pattern_id} pattern={pattern} />
+                        <PatternCard key={pattern.pattern_id} pattern={pattern} onViewDetails={handleViewDetails} />
                     ))}
                 </div>
             </div>
+
+            <SessionDetailsModal isOpen={isModalOpen} onClose={handleCloseModal} event={selectedEvent} />
         </SceneContent>
     )
 }
