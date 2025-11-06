@@ -40,6 +40,7 @@ import { NotebookNodePersonProperties } from '../Nodes/NotebookNodePersonPropert
 import { NotebookNodePlaylist } from '../Nodes/NotebookNodePlaylist'
 import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
+import { NotebookNodeRelatedGroups } from '../Nodes/NotebookNodeRelatedGroups'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
 import { NotebookNodeTaskCreate } from '../Nodes/NotebookNodeTaskCreate'
@@ -63,7 +64,6 @@ export function Editor(): JSX.Element {
     const { shortId, mode } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
         useActions(notebookLogic)
-    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const hasCollapsibleSections = useFeatureFlag('NOTEBOOKS_COLLAPSIBLE_SECTIONS')
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
@@ -143,6 +143,7 @@ export function Editor(): JSX.Element {
         NotebookNodeIssues,
         NotebookNodeUsageMetrics,
         NotebookNodeZendeskTickets,
+        NotebookNodeRelatedGroups,
     ]
 
     if (hasCollapsibleSections) {
@@ -170,7 +171,7 @@ export function Editor(): JSX.Element {
             <FloatingSuggestions />
             <InlineMenu
                 extra={(editor) =>
-                    hasDiscussions && !editor.isActive('comment') ? (
+                    !editor.isActive('comment') ? (
                         <>
                             <LemonDivider vertical />
                             <LemonButton

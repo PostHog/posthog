@@ -371,7 +371,7 @@ quality:
         cmd: ./bin/ruff.sh check --fix
         description: Fix Python code quality issues
     format:markdown:
-        cmd: pnpm prettier --write
+        cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
         description: Format Markdown files
 tools:
     tool:temporal-django-worker:
@@ -414,6 +414,10 @@ tools:
     clickhouse:logs:init:
         bin_script: clickhouse-logs-init
         description: 'TODO: add description for clickhouse-logs-init'
+        hidden: true
+    create:notebook:node:
+        bin_script: create-notebook-node.sh
+        description: 'Create a new NotebookNode file and update types and editor references'
         hidden: true
 utilities:
     utilities:posthog-worktree:

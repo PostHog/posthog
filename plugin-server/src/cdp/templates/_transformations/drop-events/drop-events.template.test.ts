@@ -41,6 +41,6 @@ describe('drop-events.template', () => {
 
         expect(response.finished).toBe(true)
         expect(response.error).toBeUndefined()
-        expect(response.execResult).toBeNull()
+        expect(response.execResult).toBeUndefined()
     })
 })

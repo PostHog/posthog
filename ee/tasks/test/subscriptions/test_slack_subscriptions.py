@@ -233,7 +233,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         MockSlackIntegration.return_value = mock_slack_integration
 
         mock_async_client = AsyncMock()
-        mock_slack_integration.async_client = mock_async_client
+        mock_slack_integration.async_client = MagicMock(return_value=mock_async_client)
         mock_async_client.chat_postMessage.return_value = {"ts": "1.234"}
 
         asset2 = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
@@ -263,7 +263,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         MockSlackIntegration.return_value = mock_slack_integration
 
         mock_async_client = AsyncMock()
-        mock_slack_integration.async_client = mock_async_client
+        mock_slack_integration.async_client = MagicMock(return_value=mock_async_client)
 
         mock_async_client.chat_postMessage.side_effect = [
             {"ts": "1.234"},  # Main message
@@ -301,7 +301,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         MockSlackIntegration.return_value = mock_slack_integration
 
         mock_async_client = AsyncMock()
-        mock_slack_integration.async_client = mock_async_client
+        mock_slack_integration.async_client = MagicMock(return_value=mock_async_client)
 
         mock_async_client.chat_postMessage.side_effect = [
             TimeoutError(),  # Attempt 1
@@ -329,7 +329,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         MockSlackIntegration.return_value = mock_slack_integration
 
         mock_async_client = AsyncMock()
-        mock_slack_integration.async_client = mock_async_client
+        mock_slack_integration.async_client = MagicMock(return_value=mock_async_client)
 
         # Main message times out once, then succeeds
         mock_async_client.chat_postMessage.side_effect = [

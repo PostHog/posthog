@@ -1,4 +1,7 @@
 from collections import defaultdict
+from typing import cast
+
+from posthog.schema import DatabaseSchemaManagedViewTableKind
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -9,10 +12,13 @@ from posthog.hogql.database.models import (
     LazyJoinToAdd,
     LazyTable,
     LazyTableToAdd,
+    SavedQuery,
     StringDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_expr
+
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
@@ -57,21 +63,54 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
 
     # Get all customer/revenue item pairs from the existing views making sure we ignore `all`
     # since the `group` join is in the child view
-    all_views: dict[str, dict[type[RevenueAnalyticsBaseView], RevenueAnalyticsBaseView]] = defaultdict(defaultdict)
-    for view_name in context.database.get_views():
-        view = context.database.get_table(view_name)
+    all_views = defaultdict[str, dict[DatabaseSchemaManagedViewTableKind, RevenueAnalyticsBaseView]](defaultdict)
+    for view_name in context.database.get_view_names():
+        view = cast(SavedQuery | RevenueAnalyticsBaseView, context.database.get_table(view_name))
+        prefix = ".".join(view_name.split(".")[:-1])
 
-        if isinstance(view, RevenueAnalyticsBaseView) and not view.union_all:
-            if isinstance(view, RevenueAnalyticsCustomerView):
-                all_views[view.prefix][RevenueAnalyticsCustomerView] = view
-            elif isinstance(view, RevenueAnalyticsRevenueItemView):
-                all_views[view.prefix][RevenueAnalyticsRevenueItemView] = view
+        customer_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER]
+        revenue_item_schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM]
+
+        # Might need to convert to RevenueAnalyticsBaseView from a SavedQuery if the FF is enabled
+        # Soon we'll be able to remove all of this and handle them all using the `SavedQuery` logic directly
+        if view_name.endswith(customer_schema.source_suffix) or view_name.endswith(customer_schema.events_suffix):
+            if not isinstance(view, RevenueAnalyticsBaseView):
+                view = RevenueAnalyticsCustomerView(
+                    id=view.id,
+                    query=view.query,
+                    name=view.name,
+                    fields=view.fields,
+                    metadata=view.metadata,
+                    # :KLUTCH: None of these properties below are great but it's all we can do to figure this one out for now
+                    # We'll be able to come up with a better solution we don't need to support the old managed views anymore
+                    prefix=".".join(view.name.split(".")[:-1]),
+                    source_id=None,  # Not used so just ignore it
+                    event_name=view.name.split(".")[2] if "revenue_analytics.events" in view.name else None,
+                )
+            all_views[prefix][DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER] = view
+        elif view_name.endswith(revenue_item_schema.source_suffix) or view_name.endswith(
+            revenue_item_schema.events_suffix
+        ):
+            if not isinstance(view, RevenueAnalyticsBaseView):
+                view = RevenueAnalyticsRevenueItemView(
+                    id=view.id,
+                    query=view.query,
+                    name=view.name,
+                    fields=view.fields,
+                    metadata=view.metadata,
+                    # :KLUTCH: None of these properties below are great but it's all we can do to figure this one out for now
+                    # We'll be able to come up with a better solution we don't need to support the old managed views anymore
+                    prefix=".".join(view.name.split(".")[:-1]),
+                    source_id=None,  # Not used so just ignore it
+                    event_name=view.name.split(".")[2] if "revenue_analytics.events" in view.name else None,
+                )
+            all_views[prefix][DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM] = view
 
     # Iterate over all possible view pairs and figure out which queries we can add to the set
     queries = []
     for views in all_views.values():
-        customer_view = views.get(RevenueAnalyticsCustomerView)
-        revenue_item_view = views.get(RevenueAnalyticsRevenueItemView)
+        customer_view = views.get(DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_CUSTOMER)
+        revenue_item_view = views.get(DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM)
 
         # Only proceed for those where we have customer/revenue_item pairs
         if customer_view is None or revenue_item_view is None:
@@ -79,7 +118,6 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
 
         # If we're working with event views, we can use the group_key field directly
         # but note that we're getting this from the `RevenueItemView` rather than `Customer`
-        # because we don't expose what group a person belongs to, only
         # Otherwise, we need to join with the groups table by checking whether it exists
         # connected to the virtual CustomerView
         group_key_chains: list[ast.Expr] = []
@@ -152,6 +190,7 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
             )
 
             # If it's a data warehouse view, we need to join with the customer view
+            # to get access to the group keys
             if not customer_view.is_event_view():
                 query.select_from.next_join = ast.JoinExpr(  # type: ignore
                     alias=RevenueAnalyticsCustomerView.get_generic_view_alias(),

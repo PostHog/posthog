@@ -6,22 +6,13 @@ from unittest.mock import Mock
 from parameterized import parameterized
 from pydantic import ValidationError
 
-from posthog.schema import (
-    AssistantMessage,
-    AssistantTrendsQuery,
-    DeepResearchNotebook,
-    DeepResearchType,
-    HumanMessage,
-    PlanningStepStatus,
-    TaskExecutionStatus,
-)
+from posthog.schema import AssistantMessage, AssistantTrendsQuery, DeepResearchNotebook, DeepResearchType, HumanMessage
 
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchState,
-    DeepResearchTask,
-    DeepResearchTodo,
     PartialDeepResearchState,
+    TodoItem,
     _SharedDeepResearchState,
 )
 from ee.hogai.utils.types.base import InsightArtifact, TaskResult
@@ -31,8 +22,8 @@ Test suite for type system consistency across multi-node deep research workflow.
 """
 
 
-class TestDeepResearchTodo(BaseTest):
-    """Test DeepResearchTodo class validation and initialization."""
+class TestTodoItem(BaseTest):
+    """Test TodoItem class validation and initialization."""
 
     @parameterized.expand(
         [
@@ -43,23 +34,23 @@ class TestDeepResearchTodo(BaseTest):
     )
     def test_valid_todo_creation(self, status, priority):
         """Should create valid todo with all required fields."""
-        todo = DeepResearchTodo(id=1, description="Test task", status=status, priority=priority)
+        todo = TodoItem(id="1", content="Test task", status=status, priority=priority)
 
-        self.assertEqual(todo.id, 1)
-        self.assertEqual(todo.description, "Test task")
+        self.assertEqual(todo.id, "1")
+        self.assertEqual(todo.content, "Test task")
         self.assertEqual(todo.status, status)
         self.assertEqual(todo.priority, priority)
 
     def test_todo_with_all_valid_statuses(self):
         """Should accept all valid PlanningStepStatus values."""
         for status in ["pending", "in_progress", "completed"]:
-            todo = DeepResearchTodo(id=1, description="Test", status=status, priority="medium")
+            todo = TodoItem(id="1", content="Test", status=status, priority="medium")
             self.assertEqual(todo.status, status)
 
     def test_todo_with_all_valid_priorities(self):
         """Should accept all valid priority values."""
         for priority in ["low", "medium", "high"]:
-            todo = DeepResearchTodo(id=1, description="Test", status="pending", priority=priority)
+            todo = TodoItem(id="1", content="Test", status="pending", priority=priority)
             self.assertEqual(todo.priority, priority)
 
     @parameterized.expand(
@@ -72,22 +63,22 @@ class TestDeepResearchTodo(BaseTest):
     def test_invalid_todo_fields(self, status, priority):
         """Should raise ValidationError for invalid status or priority."""
         with self.assertRaises(ValidationError):
-            DeepResearchTodo(id=1, description="Test", status=status, priority=priority)
+            TodoItem(id="1", content="Test", status=status, priority=priority)
 
     def test_todo_serialization(self):
         """Should serialize and deserialize correctly."""
-        original = DeepResearchTodo(
-            id=42,
-            description="Complex task with special chars: !@#$%",
-            status=PlanningStepStatus.IN_PROGRESS,
+        original = TodoItem(
+            id="42",
+            content="Complex task with special chars: !@#$%",
+            status="in_progress",
             priority="high",
         )
 
         serialized = original.model_dump()
-        deserialized = DeepResearchTodo.model_validate(serialized)
+        deserialized = TodoItem.model_validate(serialized)
 
         self.assertEqual(original.id, deserialized.id)
-        self.assertEqual(original.description, deserialized.description)
+        self.assertEqual(original.content, deserialized.content)
         self.assertEqual(original.status, deserialized.status)
         self.assertEqual(original.priority, deserialized.priority)
 
@@ -97,12 +88,9 @@ class TestTaskResult(BaseTest):
 
     def test_task_result_with_default_artifacts(self):
         """Should create task result with empty artifacts list by default."""
-        result = TaskResult(
-            id="task-1", description="Test task", result="Task completed successfully", status="completed"
-        )
+        result = TaskResult(id="task-1", result="Task completed successfully", status="completed")
 
         self.assertEqual(result.id, "task-1")
-        self.assertEqual(result.description, "Test task")
         self.assertEqual(result.result, "Task completed successfully")
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.artifacts, [])
@@ -114,9 +102,8 @@ class TestTaskResult(BaseTest):
 
         result = TaskResult(
             id="task-1",
-            description="Test task",
             result="Task completed",
-            status=TaskExecutionStatus.COMPLETED,
+            status="completed",
             artifacts=[artifact],
         )
 
@@ -125,27 +112,24 @@ class TestTaskResult(BaseTest):
 
     @parameterized.expand(
         [
-            ("pending",),
-            ("in_progress",),
             ("completed",),
             ("failed",),
         ]
     )
     def test_task_result_valid_statuses(self, status):
         """Should accept all valid TaskExecutionStatus values."""
-        result = TaskResult(id="task-1", description="Test", result="Result", status=status)
+        result = TaskResult(id="task-1", result="Result", status=status)
         self.assertEqual(result.status, status)
 
     def test_task_result_invalid_status(self):
         """Should raise ValidationError for invalid status."""
         with self.assertRaises(ValidationError):
-            TaskResult(id="task-1", description="Test", result="Result", status="invalid_status")
+            TaskResult(id="task-1", result="Result", status="invalid_status")
 
     def test_task_result_serialization(self):
         """Should serialize and deserialize correctly."""
         original = TaskResult(
             id="task-complex-123",
-            description="Complex task description",
             result="Multi-line\nresult with\nspecial chars: !@#$%",
             status="failed",
             artifacts=[],
@@ -155,7 +139,6 @@ class TestTaskResult(BaseTest):
         deserialized = TaskResult.model_validate(serialized)
 
         self.assertEqual(original.id, deserialized.id)
-        self.assertEqual(original.description, deserialized.description)
         self.assertEqual(original.result, deserialized.result)
         self.assertEqual(original.status, deserialized.status)
         self.assertEqual(original.artifacts, deserialized.artifacts)
@@ -205,7 +188,6 @@ class TestDeepResearchStates(BaseTest):
         state = _SharedDeepResearchState()
 
         self.assertIsNone(state.todos)
-        self.assertIsNone(state.tasks)
         self.assertEqual(state.task_results, [])
         self.assertEqual(state.intermediate_results, [])
         self.assertIsNone(state.previous_response_id)
@@ -218,7 +200,6 @@ class TestDeepResearchStates(BaseTest):
 
         self.assertEqual(state.messages, [])
         self.assertIsNone(state.todos)
-        self.assertIsNone(state.tasks)
 
     def test_partial_deep_research_state_initialization(self):
         """Should initialize PartialDeepResearchState with default messages."""
@@ -227,28 +208,15 @@ class TestDeepResearchStates(BaseTest):
         self.assertEqual(state.messages, [])
         # Should inherit all shared state defaults
         self.assertIsNone(state.todos)
-        self.assertIsNone(state.tasks)
 
     def test_state_with_all_fields_populated(self):
         """Should create state with all fields populated."""
         todos = [
-            DeepResearchTodo(id=1, description="Task 1", status="pending", priority="high"),
-            DeepResearchTodo(id=2, description="Task 2", status="completed", priority="medium"),
+            TodoItem(id="1", content="Task 1", status="pending", priority="high"),
+            TodoItem(id="2", content="Task 2", status="completed", priority="medium"),
         ]
 
-        tasks = [
-            DeepResearchTask(
-                id="task-1",
-                description="Execute analysis",
-                prompt="Analyze the data and generate insights",
-                status="pending",
-                task_type="create_insight",
-            )
-        ]
-
-        task_results = [
-            TaskResult(id="result-1", description="Analysis result", result="Analysis completed", status="completed")
-        ]
+        task_results = [TaskResult(id="result-1", result="Analysis completed", status="completed")]
 
         intermediate_results = [DeepResearchIntermediateResult(content="Intermediate findings", artifact_ids=["art-1"])]
 
@@ -259,7 +227,6 @@ class TestDeepResearchStates(BaseTest):
         )
         state = DeepResearchState(
             todos=todos,
-            tasks=tasks,
             task_results=task_results,
             intermediate_results=intermediate_results,
             messages=messages,
@@ -270,8 +237,7 @@ class TestDeepResearchStates(BaseTest):
             graph_status="resumed",
         )
 
-        self.assertEqual(len(cast(list[DeepResearchTodo], state.todos)), 2)
-        self.assertEqual(len(cast(list[DeepResearchTask], state.tasks)), 1)
+        self.assertEqual(len(cast(list[TodoItem], state.todos)), 2)
         self.assertEqual(len(state.task_results), 1)
         self.assertEqual(len(state.intermediate_results), 1)
         self.assertEqual(len(state.messages), 2)
@@ -313,8 +279,8 @@ class TestDeepResearchStates(BaseTest):
             notebook_id="nb-123", notebook_type=DeepResearchType.PLANNING, title="Test Notebook"
         )
         original_state = DeepResearchState(
-            todos=[DeepResearchTodo(id=1, description="Test todo", status="pending", priority="high")],
-            task_results=[TaskResult(id="task-1", description="Test result", result="Success", status="completed")],
+            todos=[TodoItem(id="1", content="Test todo", status="pending", priority="high")],
+            task_results=[TaskResult(id="task-1", result="Success", status="completed")],
             intermediate_results=[
                 DeepResearchIntermediateResult(content="Test content", artifact_ids=["art-1", "art-2"])
             ],
@@ -326,9 +292,9 @@ class TestDeepResearchStates(BaseTest):
         serialized = original_state.model_dump()
         deserialized = DeepResearchState.model_validate(serialized)
 
-        todos = cast(list[DeepResearchTodo], deserialized.todos)
+        todos = cast(list[TodoItem], deserialized.todos)
         self.assertEqual(len(todos), 1)
-        self.assertEqual(todos[0].description, "Test todo")
+        self.assertEqual(todos[0].content, "Test todo")
         self.assertEqual(len(deserialized.task_results), 1)
         self.assertEqual(deserialized.task_results[0].id, "task-1")
         self.assertEqual(len(deserialized.intermediate_results), 1)

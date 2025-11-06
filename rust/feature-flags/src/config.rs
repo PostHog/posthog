@@ -294,6 +294,42 @@ pub struct Config {
     #[envconfig(from = "CACHE_TTL_SECONDS", default = "300")]
     pub cache_ttl_seconds: u64,
 
+    /// Redis TTL for team cache entries in seconds
+    ///
+    /// Controls how long team data is cached in Redis before expiring.
+    /// This prevents indefinite cache growth and ensures stale data is refreshed.
+    ///
+    /// Default: 432000 seconds (5 days) - matches Django's FIVE_DAYS constant
+    /// Environment variable: TEAM_CACHE_TTL_SECONDS
+    ///
+    /// Common values:
+    /// - 3600 (1 hour) - For frequently changing team data
+    /// - 86400 (1 day) - For moderate refresh rate
+    /// - 432000 (5 days) - Default, balances performance and freshness
+    ///
+    /// Minimum value: 1 second (Redis setex does not accept 0 or negative values)
+    #[envconfig(from = "TEAM_CACHE_TTL_SECONDS", default = "432000")]
+    pub team_cache_ttl_seconds: u64,
+
+    /// Redis TTL for feature flags cache entries in seconds
+    ///
+    /// Controls how long feature flag data is cached in Redis before expiring.
+    /// This prevents indefinite cache growth and ensures flag changes are visible
+    /// within a reasonable time.
+    ///
+    /// Default: 432000 seconds (5 days) - matches Django's FIVE_DAYS constant
+    /// Environment variable: FLAGS_CACHE_TTL_SECONDS
+    ///
+    /// Common values:
+    /// - 300 (5 minutes) - For rapid flag development/testing
+    /// - 3600 (1 hour) - For frequently changing flags
+    /// - 86400 (1 day) - For stable flag deployments
+    /// - 432000 (5 days) - Default, balances performance and freshness
+    ///
+    /// Minimum value: 1 second (Redis setex does not accept 0 or negative values)
+    #[envconfig(from = "FLAGS_CACHE_TTL_SECONDS", default = "432000")]
+    pub flags_cache_ttl_seconds: u64,
+
     // cookieless, should match the values in plugin-server/src/types.ts, except we don't use sessions here
     #[envconfig(from = "COOKIELESS_DISABLED", default = "false")]
     pub cookieless_disabled: bool,
@@ -388,6 +424,16 @@ pub struct Config {
     // Set higher than token bucket rate to account for multiple users behind same IP
     #[envconfig(from = "FLAGS_IP_REPLENISH_RATE", default = "50.0")]
     pub flags_ip_replenish_rate: f64,
+
+    // Log-only mode for rate limiting (defaults to true for safe rollout)
+    // When true, rate limits are checked and violations logged, but requests are not blocked
+    // This allows gathering metrics to tune limits before enforcing them
+    #[envconfig(from = "FLAGS_RATE_LIMIT_LOG_ONLY", default = "true")]
+    pub flags_rate_limit_log_only: FlexBool,
+
+    // Log-only mode for IP-based rate limiting (defaults to true for safe rollout)
+    #[envconfig(from = "FLAGS_IP_RATE_LIMIT_LOG_ONLY", default = "true")]
+    pub flags_ip_rate_limit_log_only: FlexBool,
 }
 
 impl Config {
@@ -426,6 +472,8 @@ impl Config {
             team_ids_to_track: TeamIdCollection::All,
             cache_max_cohort_entries: 100_000,
             cache_ttl_seconds: 300,
+            team_cache_ttl_seconds: 432000,
+            flags_cache_ttl_seconds: 432000,
             cookieless_disabled: false,
             cookieless_force_stateless: false,
             cookieless_identifies_ttl_seconds: 7200,
@@ -454,6 +502,8 @@ impl Config {
             flags_ip_rate_limit_enabled: FlexBool(false),
             flags_ip_burst_size: 500,
             flags_ip_replenish_rate: 100.0,
+            flags_rate_limit_log_only: FlexBool(true),
+            flags_ip_rate_limit_log_only: FlexBool(true),
         }
     }
 
