@@ -95,7 +95,7 @@ export type InspectorListItemBase = {
     timestamp: Dayjs
     timeInRecording: number
     search: string
-    highlightColor?: 'danger' | 'warning' | 'primary'
+    highlightColor?: 'danger' | 'warning' | 'primary' | 'info'
     windowId?: string
     windowNumber?: number | '?' | undefined
     type: InspectorListItemType
@@ -939,7 +939,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             ? 'primary'
                             : event.event === '$exception'
                               ? 'danger'
-                              : undefined,
+                              : event.event === '$user_feedback_recording_started' ||
+                                  event.event === '$user_feedback_recording_stopped'
+                                ? 'info'
+                                : undefined,
                         windowId: event.properties?.$window_id,
                         windowNumber: windowNumberForID(event.properties?.$window_id),
                         key: `event-${event.id}`,
