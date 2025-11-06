@@ -1,7 +1,7 @@
 import time
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import connection
+from django.db import connection, connections
 
 
 class Command(BaseCommand):
@@ -34,7 +34,8 @@ class Command(BaseCommand):
 
 
 def delete_persons_without_distinct_ids_raw_sql(team_id, max_delete):
-    with connection.cursor() as cursor:
+    conn = connections["persons_db_writer"] if "persons_db_writer" in connections else connection
+    with conn.cursor() as cursor:
         cursor.execute(
             """
             WITH persons_to_delete AS (
@@ -59,7 +60,8 @@ def delete_persons_without_distinct_ids_raw_sql(team_id, max_delete):
 
 
 def delete_persons_without_distinct_ids_raw_sql_dry_run(team_id, max_delete):
-    with connection.cursor() as cursor:
+    conn = connections["persons_db_writer"] if "persons_db_writer" in connections else connection
+    with conn.cursor() as cursor:
         cursor.execute(
             """
             WITH persons_to_delete AS (
