@@ -115,9 +115,15 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         ):
             raise exceptions.PermissionDenied("LLM trace summarization is not enabled for this team")
 
-    def _get_cache_key(self, trace_id: str, mode: str) -> str:
-        """Generate cache key for summary results."""
-        return f"llm_trace_summary:{self.team_id}:{trace_id}:{mode}"
+    def _get_cache_key(self, summarize_type: str, entity_id: str, mode: str) -> str:
+        """Generate cache key for summary results.
+
+        Args:
+            summarize_type: 'trace' or 'event'
+            entity_id: Unique identifier for the entity being summarized
+            mode: Summary detail level ('minimal' or 'detailed')
+        """
+        return f"llm_summary:{self.team_id}:{summarize_type}:{entity_id}:{mode}"
 
     @extend_schema(
         request=SummarizeRequestSerializer,
@@ -235,28 +241,35 @@ The response includes the summary text and optional metadata.
             data = serializer.validated_data["data"]
             force_refresh = serializer.validated_data.get("force_refresh", False)
 
-            # Extract trace_id early for cache key generation
+            # Extract entity_id for cache key generation
             if summarize_type == "trace":
                 if not data.get("trace") or not isinstance(data.get("hierarchy"), list):
                     raise exceptions.ValidationError("Trace summarization requires 'trace' and 'hierarchy' fields")
                 trace = data["trace"]
-                trace_id = trace.get("properties", {}).get("$ai_trace_id") or trace.get("id")
+                # For traces, use the trace ID
+                entity_id = trace.get("properties", {}).get("$ai_trace_id") or trace.get("id")
+                if not entity_id:
+                    raise exceptions.ValidationError("Trace must have either '$ai_trace_id' or 'id'")
             elif summarize_type == "event":
                 if not data.get("event"):
                     raise exceptions.ValidationError("Event summarization requires 'event' field")
                 event = data["event"]
-                trace_id = event.get("properties", {}).get("$ai_trace_id") or event.get("id")
+                # For events, use the event's unique ID (NOT $ai_trace_id to avoid cache collisions)
+                entity_id = event.get("id")
+                if not entity_id:
+                    raise exceptions.ValidationError("Event must have an 'id' field")
             else:
                 raise exceptions.ValidationError(f"Invalid summarize_type: {summarize_type}")
 
             # Check cache unless force_refresh is requested
-            cache_key = self._get_cache_key(trace_id, mode)
+            cache_key = self._get_cache_key(summarize_type, entity_id, mode)
             if not force_refresh:
                 cached_result = cache.get(cache_key)
                 if cached_result is not None:
                     logger.info(
                         "Returning cached summary",
-                        trace_id=trace_id,
+                        summarize_type=summarize_type,
+                        entity_id=entity_id,
                         mode=mode,
                         team_id=self.team_id,
                     )
@@ -281,7 +294,7 @@ The response includes the summary text and optional metadata.
             summary = async_to_sync(summarize)(
                 text_repr=text_repr,
                 team_id=self.team_id,
-                trace_id=trace_id,
+                trace_id=entity_id,  # Pass entity_id as trace_id for now (interface compatibility)
                 mode=mode,
             )
 
@@ -299,7 +312,8 @@ The response includes the summary text and optional metadata.
             cache.set(cache_key, result, timeout=3600)
             logger.info(
                 "Generated and cached new summary",
-                trace_id=trace_id,
+                summarize_type=summarize_type,
+                entity_id=entity_id,
                 mode=mode,
                 team_id=self.team_id,
                 force_refresh=force_refresh,

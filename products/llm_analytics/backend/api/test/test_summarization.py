@@ -180,3 +180,82 @@ class TestSummarizationAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.llm_analytics.backend.api.summarization.async_to_sync")
+    def test_events_in_same_trace_have_separate_cache(self, mock_async_to_sync, mock_feature_enabled):
+        """Should cache event summaries by event ID, not trace ID, to avoid collisions."""
+
+        # Mock the summarize function to return different summaries
+        def mock_summarize(*args, **kwargs):
+            # Return different title based on which event we're summarizing
+            text = args[0] if args else kwargs.get("text_repr", "")
+            if "Event A" in text:
+                return SummarizationResponse(
+                    title="Event A Summary",
+                    flow_diagram="A Flow",
+                    summary_bullets=[SummaryBullet(text="Event A action", line_refs="L1")],
+                    interesting_notes=[],
+                )
+            else:
+                return SummarizationResponse(
+                    title="Event B Summary",
+                    flow_diagram="B Flow",
+                    summary_bullets=[SummaryBullet(text="Event B action", line_refs="L1")],
+                    interesting_notes=[],
+                )
+
+        mock_async_to_sync.return_value = mock_summarize
+
+        # Create two events in the same trace with different IDs
+        trace_id = "trace_123"
+        event_a_request = {
+            "summarize_type": "event",
+            "mode": "minimal",
+            "data": {
+                "event": {
+                    "id": "event_a",
+                    "event": "$ai_generation",
+                    "properties": {
+                        "$ai_trace_id": trace_id,
+                        "$ai_input": [{"role": "user", "content": "Event A"}],
+                    },
+                }
+            },
+        }
+
+        event_b_request = {
+            "summarize_type": "event",
+            "mode": "minimal",
+            "data": {
+                "event": {
+                    "id": "event_b",
+                    "event": "$ai_generation",
+                    "properties": {
+                        "$ai_trace_id": trace_id,  # Same trace ID
+                        "$ai_input": [{"role": "user", "content": "Event B"}],
+                    },
+                }
+            },
+        }
+
+        # Summarize event A
+        response_a = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            event_a_request,
+            format="json",
+        )
+        self.assertEqual(response_a.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_a.data["summary"]["title"], "Event A Summary")
+
+        # Summarize event B - should get a different summary, not event A's cached result
+        response_b = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            event_b_request,
+            format="json",
+        )
+        self.assertEqual(response_b.status_code, status.HTTP_200_OK)
+        self.assertEqual(response_b.data["summary"]["title"], "Event B Summary")
+
+        # Verify they're different
+        self.assertNotEqual(response_a.data["summary"]["title"], response_b.data["summary"]["title"])
