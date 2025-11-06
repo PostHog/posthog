@@ -45,8 +45,7 @@ def get_indexes(connection_string: str, collection_name: str) -> list[str]:
 
             index_cursor = collection.list_indexes()
         return [field for index in index_cursor for field in index["key"].keys()]
-    except Exception as e:
-        capture_exception(e)
+    except Exception:
         return []
 
 

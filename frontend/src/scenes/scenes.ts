@@ -204,6 +204,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.',
         iconType: 'experiment',
     },
+    [Scene.Activity]: {
+        projectBased: true,
+        name: 'Activity',
+        defaultDocsPath: '/docs/data/events',
+        description: 'Explore your events or see real-time events from your app or website.',
+        iconType: 'event',
+    },
     [Scene.ExploreEvents]: {
         projectBased: true,
         name: 'Explore events',
@@ -344,7 +351,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ProjectHomepage]: {
         projectBased: true,
         name: 'Homepage',
-        layout: 'app-raw',
     },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,

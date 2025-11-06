@@ -18,6 +18,7 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { actionActivityDescriber } from 'scenes/actions/actionActivityDescriber'
 import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescriptions'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
+import { userActivityDescriber } from 'scenes/authentication/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
 import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
@@ -158,6 +159,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
         case ActivityScope.EXTERNAL_DATA_SOURCE:
         case ActivityScope.EXTERNAL_DATA_SCHEMA:
             return externalDataSourceActivityDescriber
+        case ActivityScope.USER:
+            return userActivityDescriber
         case ActivityScope.ENDPOINT:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
         default:

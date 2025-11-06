@@ -77,7 +77,6 @@ const ExperimentFormFields = (): JSX.Element => {
                 }}
                 forceEdit={formMode === 'create'}
             />
-            <SceneDivider />
 
             {hasPrimaryMetricSet && formMode !== 'duplicate' && (
                 <LemonBanner type="info" className="my-4">
