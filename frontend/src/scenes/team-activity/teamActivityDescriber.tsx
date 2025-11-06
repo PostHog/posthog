@@ -435,6 +435,22 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     person_on_events_querying_enabled: createBooleanToggleHandler('querying person on events'),
     human_friendly_comparison_periods: createBooleanToggleHandler('human friendly comparison periods'),
     receive_org_level_activity_logs: createBooleanToggleHandler('organization-level activity logs'),
+    verify_events: (change) => {
+        const modeLabels = {
+            accept_all: 'Accept all events',
+            reject_invalid: 'Reject events with invalid JWT',
+            reject_unverified: 'Reject unverified events',
+        }
+        const before = modeLabels[change.before as keyof typeof modeLabels] || change.before
+        const after = modeLabels[change.after as keyof typeof modeLabels] || change.after
+        return {
+            description: [
+                <>
+                    Changed event verification mode from <strong>{before}</strong> to <strong>{after}</strong>
+                </>,
+            ],
+        }
+    },
     test_account_filters: (change) => {
         // change.after is an array of property filters
         // change.before is an array o property filters

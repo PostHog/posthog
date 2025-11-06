@@ -694,6 +694,7 @@ export interface TeamType extends TeamBasicType {
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
     receive_org_level_activity_logs: boolean | null
+    verify_events?: 'accept_all' | 'reject_invalid' | 'reject_unverified'
 }
 
 export interface ProductIntentType {

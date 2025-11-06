@@ -229,6 +229,12 @@ class SessionRecordingRetentionPeriod(models.TextChoices):
     FIVE_YEARS = "5y", "5 Years"
 
 
+class EventVerificationMode(models.TextChoices):
+    ACCEPT_ALL = "accept_all", "Accept all events"
+    REJECT_INVALID = "reject_invalid", "Reject events with invalid JWT"
+    REJECT_UNVERIFIED = "reject_unverified", "Reject unverified events"
+
+
 class Team(UUIDTClassicModel):
     """Team means "environment" (historically it meant "project", but now we have the parent Project model for that)."""
 
@@ -296,6 +302,11 @@ class Team(UUIDTClassicModel):
         max_length=200,
         null=True,
         blank=True,
+    )
+    verify_events = models.CharField(
+        max_length=20,
+        choices=EventVerificationMode.choices,
+        default=EventVerificationMode.ACCEPT_ALL,
     )
 
     # Session recording

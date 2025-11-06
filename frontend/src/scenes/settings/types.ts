@@ -156,6 +156,7 @@ export type SettingId =
     | 'activity-log-org-level-settings'
     | 'activity-log-notifications'
     | 'secret-keys'
+    | 'verify-events'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 

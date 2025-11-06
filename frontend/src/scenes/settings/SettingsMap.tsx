@@ -79,6 +79,7 @@ import {
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
+import { VerifyEventsSettings } from './environment/VerifyEventsSettings'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
 import { Invites } from './organization/Invites'
@@ -564,6 +565,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'secret-keys',
                 title: 'Secret keys',
                 component: <TeamSecretKeys />,
+            },
+            {
+                id: 'verify-events',
+                title: 'Event verification',
+                component: <VerifyEventsSettings />,
             },
         ],
     },
