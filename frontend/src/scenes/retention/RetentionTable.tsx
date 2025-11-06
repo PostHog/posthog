@@ -30,8 +30,13 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
         retentionMeans,
         breakdownDisplayNames,
     } = useValues(retentionTableLogic(insightProps))
-    const { toggleBreakdown } = useActions(retentionTableLogic(insightProps))
+    const { toggleBreakdown, setSelectedInterval, setHoveredColumn } = useActions(retentionTableLogic(insightProps))
+    const { hoveredColumn } = useValues(retentionTableLogic(insightProps))
     const { openModal } = useActions(retentionModalLogic(insightProps))
+
+    const selectedInterval = retentionFilter?.selectedInterval ?? null
+    const allowSelectingColumns = !insightProps.dashboardId
+
     const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
     const backgroundColorMean = theme?.['preset-2'] || '#000000' // Default to black if no color found
     const { isDarkModeOn } = useValues(themeLogic)
@@ -42,7 +47,10 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
 
     return (
         <table
-            className={clsx('RetentionTable', { 'RetentionTable--small-layout': retentionVizOptions?.useSmallLayout })}
+            className={clsx('RetentionTable', {
+                'RetentionTable--small-layout': retentionVizOptions?.useSmallLayout,
+                'RetentionTable--allow-selecting-columns': allowSelectingColumns,
+            })}
             data-attr="retention-table"
             // eslint-disable-next-line react/forbid-dom-props
             style={
@@ -56,7 +64,25 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                     <th className="bg whitespace-nowrap">Cohort</th>
                     {!hideSizeColumn && <th className="bg">Size</th>}
                     {range(0, totalIntervals).map((interval) => (
-                        <th key={interval}>{`${retentionFilter?.period} ${interval}`}</th>
+                        <th
+                            key={interval}
+                            className={clsx('bg', {
+                                'cursor-pointer': allowSelectingColumns,
+                                'RetentionTable__SelectedColumn--header': interval === selectedInterval,
+                                'RetentionTable__HoveredColumn--header': interval === hoveredColumn,
+                            })}
+                            onClick={() => {
+                                if (!allowSelectingColumns) {
+                                    return
+                                }
+                                const newInterval = selectedInterval === interval ? null : interval
+                                setSelectedInterval(newInterval)
+                            }}
+                            onMouseEnter={() => setHoveredColumn(interval)}
+                            onMouseLeave={() => setHoveredColumn(null)}
+                        >
+                            {`${retentionFilter?.period} ${interval}`}
+                        </th>
                     ))}
                 </tr>
 
@@ -103,7 +129,13 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                 )}
 
                                 {range(0, totalIntervals).map((interval) => (
-                                    <td key={interval}>
+                                    <td
+                                        key={interval}
+                                        className={clsx({
+                                            'RetentionTable__SelectedColumn--cell': interval === selectedInterval,
+                                            'RetentionTable__HoveredColumn--cell': interval === hoveredColumn,
+                                        })}
+                                    >
                                         <CohortDay
                                             percentage={meanData?.meanPercentages?.[interval] ?? 0}
                                             clickable={false}
@@ -138,16 +170,29 @@ export function RetentionTable({ inSharedMode = false }: { inSharedMode?: boolea
                                                 <span className="RetentionTable__TextTab">{row.cohortSize}</span>
                                             </td>
                                         )}
-                                        {row.values.map((column, columnIndex) => (
-                                            <td key={columnIndex}>
-                                                <CohortDay
-                                                    percentage={column.percentage}
-                                                    clickable={true}
-                                                    isCurrentPeriod={column.isCurrentPeriod}
-                                                    backgroundColor={backgroundColor}
-                                                />
-                                            </td>
-                                        ))}
+                                        {range(0, totalIntervals).map((columnIndex) => {
+                                            const column = row.values[columnIndex]
+                                            return (
+                                                <td
+                                                    key={columnIndex}
+                                                    className={clsx({
+                                                        'RetentionTable__SelectedColumn--cell':
+                                                            columnIndex === selectedInterval,
+                                                        'RetentionTable__HoveredColumn--cell':
+                                                            columnIndex === hoveredColumn,
+                                                    })}
+                                                >
+                                                    {column && (
+                                                        <CohortDay
+                                                            percentage={column.percentage}
+                                                            clickable={true}
+                                                            isCurrentPeriod={column.isCurrentPeriod}
+                                                            backgroundColor={backgroundColor}
+                                                        />
+                                                    )}
+                                                </td>
+                                            )
+                                        })}
                                     </tr>
                                 ))}
                         </React.Fragment>

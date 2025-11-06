@@ -4,7 +4,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { QuerySourceUpdate, insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL, formatBreakdownLabel } from 'scenes/insights/utils'
 import { ProcessedRetentionPayload } from 'scenes/retention/types'
@@ -50,12 +50,21 @@ export const retentionLogic = kea<retentionLogicType>([
     })),
     actions({
         setSelectedBreakdownValue: (value: string | number | boolean | null) => ({ value }),
+        setSelectedInterval: (interval: number | null) => ({ interval }),
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         updateBreakdownFilter: () => {
             // Reset selected breakdown value when breakdown filter changes
             // This prevents the dropdown from showing invalid cohort IDs
             actions.setSelectedBreakdownValue(null)
+        },
+        setSelectedInterval: ({ interval }) => {
+            actions.updateQuerySource({
+                retentionFilter: {
+                    ...values.retentionFilter,
+                    selectedInterval: interval,
+                },
+            } as QuerySourceUpdate)
         },
     })),
     reducers({
