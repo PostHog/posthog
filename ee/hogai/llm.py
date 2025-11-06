@@ -1,4 +1,5 @@
 import datetime
+from collections.abc import Mapping
 from typing import Any
 
 from django.conf import settings
@@ -95,13 +96,18 @@ class MaxChatMixin(BaseModel):
                     break
         return messages
 
-    def _with_billing_metadata(self, kwargs: dict | None) -> dict:
-        """Return a copy of kwargs with posthog_ai_billable injected into metadata."""
+    def _with_billing_metadata(
+        self,
+        kwargs: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return a shallow copy of kwargs with posthog_ai_billable injected into metadata."""
         new_kwargs = dict(kwargs or {})
-        metadata = dict(new_kwargs.get("metadata") or {})
+        metadata = new_kwargs.get("metadata", {})
+        if not isinstance(metadata, dict):
+            raise TypeError("Expected 'metadata' to be a dict if provided")
+        metadata = dict(metadata)
         metadata["posthog_ai_billable"] = self.billable
-        new_kwargs["metadata"] = metadata
-        return new_kwargs
+        return {**new_kwargs, "metadata": metadata}
 
 
 class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
