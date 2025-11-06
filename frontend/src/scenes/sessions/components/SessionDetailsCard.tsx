@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { SessionData } from '../sessionProfileLogic'
 
@@ -67,7 +67,11 @@ export function SessionDetailsCard({ sessionData, isLoading }: SessionDetailsCar
         sessionData.entry_utm_medium ||
         sessionData.entry_referring_domain
 
-    const hasUrls = sessionData.entry_current_url || sessionData.end_current_url || sessionData.last_external_click_url
+    const hasUrls =
+        sessionData.entry_current_url ||
+        sessionData.end_current_url ||
+        sessionData.last_external_click_url ||
+        (sessionData.urls && sessionData.urls.length > 0)
 
     return (
         <LemonCard className="overflow-hidden">
@@ -109,20 +113,52 @@ export function SessionDetailsCard({ sessionData, isLoading }: SessionDetailsCar
                     {sessionData.entry_current_url && (
                         <DetailRow
                             label="Entry URL"
-                            value={<span className="truncate">{sessionData.entry_current_url}</span>}
+                            value={
+                                <Link to={sessionData.entry_current_url} target="_blank" className="truncate block">
+                                    {sessionData.entry_current_url}
+                                </Link>
+                            }
                         />
                     )}
                     {sessionData.end_current_url && (
                         <DetailRow
                             label="Exit URL"
-                            value={<span className="truncate">{sessionData.end_current_url}</span>}
+                            value={
+                                <Link to={sessionData.end_current_url} target="_blank" className="truncate block">
+                                    {sessionData.end_current_url}
+                                </Link>
+                            }
                         />
                     )}
                     {sessionData.last_external_click_url && (
                         <DetailRow
                             label="Last external click"
-                            value={<span className="truncate">{sessionData.last_external_click_url}</span>}
+                            value={
+                                <Link
+                                    to={sessionData.last_external_click_url}
+                                    target="_blank"
+                                    className="truncate block"
+                                >
+                                    {sessionData.last_external_click_url}
+                                </Link>
+                            }
                         />
+                    )}
+                    {sessionData.urls && sessionData.urls.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                            <div className="flex gap-2">
+                                <span className="text-secondary min-w-32">All URLs ({sessionData.urls.length}):</span>
+                            </div>
+                            <div className="ml-32 space-y-1 max-h-60 overflow-y-auto">
+                                {sessionData.urls.map((url, index) => (
+                                    <div key={index} className="text-xs truncate">
+                                        <Link to={url} target="_blank">
+                                            {index + 1}. {url}
+                                        </Link>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     )}
                 </DetailSection>
             )}
