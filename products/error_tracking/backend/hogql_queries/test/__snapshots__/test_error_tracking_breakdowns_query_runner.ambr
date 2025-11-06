@@ -16,7 +16,7 @@
        (SELECT breakdown_property AS breakdown_property,
                breakdown_value AS breakdown_value,
                count() AS count,
-               sum(count) OVER (PARTITION BY breakdown_property) AS total_count
+               sum()(count) OVER (PARTITION BY breakdown_property) AS total_count
         FROM
           (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
                   tupleElement(breakdown_tuple, 2) AS breakdown_value
@@ -65,7 +65,7 @@
        (SELECT breakdown_property AS breakdown_property,
                breakdown_value AS breakdown_value,
                count() AS count,
-               sum(count) OVER (PARTITION BY breakdown_property) AS total_count
+               sum()(count) OVER (PARTITION BY breakdown_property) AS total_count
         FROM
           (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
                   tupleElement(breakdown_tuple, 2) AS breakdown_value
@@ -114,7 +114,7 @@
        (SELECT breakdown_property AS breakdown_property,
                breakdown_value AS breakdown_value,
                count() AS count,
-               sum(count) OVER (PARTITION BY breakdown_property) AS total_count
+               sum()(count) OVER (PARTITION BY breakdown_property) AS total_count
         FROM
           (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
                   tupleElement(breakdown_tuple, 2) AS breakdown_value
@@ -163,7 +163,7 @@
        (SELECT breakdown_property AS breakdown_property,
                breakdown_value AS breakdown_value,
                count() AS count,
-               sum(count) OVER (PARTITION BY breakdown_property) AS total_count
+               sum()(count) OVER (PARTITION BY breakdown_property) AS total_count
         FROM
           (SELECT tupleElement(breakdown_tuple, 1) AS breakdown_property,
                   tupleElement(breakdown_tuple, 2) AS breakdown_value

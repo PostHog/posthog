@@ -98,7 +98,7 @@ class ErrorTrackingBreakdownsQueryRunner(AnalyticsQueryRunner[ErrorTrackingBreak
                     alias="total_count",
                     expr=ast.WindowFunction(
                         name="sum",
-                        exprs=[ast.Field(chain=["count"])],
+                        args=[ast.Field(chain=["count"])],
                         over_expr=ast.WindowExpr(
                             partition_by=[ast.Field(chain=["breakdown_property"])],
                         ),
@@ -119,7 +119,7 @@ class ErrorTrackingBreakdownsQueryRunner(AnalyticsQueryRunner[ErrorTrackingBreak
                     alias="row_number",
                     expr=ast.WindowFunction(
                         name="row_number",
-                        exprs=[],
+                        args=[],
                         over_expr=ast.WindowExpr(
                             partition_by=[ast.Field(chain=["breakdown_property"])],
                             order_by=[ast.OrderExpr(expr=ast.Field(chain=["count"]), order="DESC")],
