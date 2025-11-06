@@ -376,6 +376,17 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "used_for_debug": True,
         },
+        "$sess_rec_flush_size": {
+            "label": "Estimated bytes flushed",
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$session_recording_remote_config": {
+            "label": "Session recording remote config received",
+            "description": "The remote config for session recording received from the server (or loaded from storage).",
+            "used_for_debug": True,
+        },
         "$initialization_time": {
             "label": "initialization time",
             "description": "The iso formatted timestamp of SDK initialization.",
@@ -1795,13 +1806,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The number of tokens in the input prompt that was sent to the LLM API.",
             "examples": [23],
         },
-        "$ai_output": {
-            "label": "AI output (LLM)",
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                '{"choices": [{"text": "Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data."}]}',
-            ],
-        },
         "$ai_output_choices": {
             "label": "AI output (LLM)",
             "description": "The output message choices JSON that was received from the LLM API.",
@@ -1893,6 +1897,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI Trace ID (LLM)",
             "description": "The trace ID of the request made to the LLM API. Used to group together multiple generations into a single trace.",
             "examples": ["c9222e05-8708-41b8-98ea-d4a21849e761"],
+        },
+        "$ai_session_id": {
+            "label": "AI Session ID (LLM)",
+            "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
+            "examples": ["session-abc-123", "conv-user-456"],
         },
         "$ai_request_url": {
             "label": "AI Request URL (LLM)",

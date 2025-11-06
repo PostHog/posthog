@@ -17,7 +17,7 @@ from products.batch_exports.backend.temporal.destinations.redshift_batch_export 
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue
 from products.batch_exports.backend.temporal.temporary_file import remove_escaped_whitespace_recursive
-from products.batch_exports.backend.tests.temporal.utils import (
+from products.batch_exports.backend.tests.temporal.utils.records import (
     get_record_batch_from_queue,
     remove_duplicates_from_records,
 )
@@ -75,6 +75,7 @@ async def assert_clickhouse_records_in_redshift(
     expected_fields: list[str] | None = None,
     primary_key: collections.abc.Sequence[str] | None = None,
     copy: bool = False,
+    extra_fields: list[str] | None = None,
 ):
     """Assert expected records are written to a given Redshift table.
 
@@ -102,6 +103,7 @@ async def assert_clickhouse_records_in_redshift(
         expected_fields: The expected fields to be exported.
         copy: Whether using Redshift's COPY or not. This impacts handling of special
             characters as Parquet+COPY can handle a lot more than JSON.
+        extra_fields: Additional fields present in the Redshift table.
     """
     super_columns = ["properties", "set", "set_once", "person_properties"]
     array_super_columns = ["urls"]
@@ -138,6 +140,10 @@ async def assert_clickhouse_records_in_redshift(
                         event[column] = list(value)
                     else:
                         event[column] = load_result
+
+            if extra_fields:
+                for column in extra_fields:
+                    event.pop(column)
 
             inserted_records.append(event)
 
@@ -220,6 +226,7 @@ async def assert_clickhouse_records_in_redshift(
 
     inserted_column_names = list(inserted_records[0].keys())
     expected_column_names = list(expected_records[0].keys())
+
     inserted_column_names.sort()
     expected_column_names.sort()
 
@@ -250,13 +257,3 @@ def has_valid_credentials() -> bool:
     """Synchronous wrapper around check_valid_credentials."""
     loop = asyncio.get_event_loop()
     return loop.run_until_complete(check_valid_credentials())
-
-
-async def delete_all_from_s3_prefix(s3_client, bucket_name: str, key_prefix: str):
-    """Delete all objects in bucket_name under key_prefix."""
-    response = await s3_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
-
-    if "Contents" in response:
-        for obj in response["Contents"]:
-            if "Key" in obj:
-                await s3_client.delete_object(Bucket=bucket_name, Key=obj["Key"])

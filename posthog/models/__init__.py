@@ -7,7 +7,7 @@ from ..batch_exports.models import BatchExport, BatchExportBackfill, BatchExport
 from ..session_recordings.models.session_recording import SessionRecording
 from ..session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from ..session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
-from ..warehouse.models import DataWarehouseTable
+from products.data_warehouse.backend.models import DataWarehouseTable
 from ._deprecated_prompts import Prompt, PromptSequence, UserPromptState
 from .action import Action
 from .action.action_step import ActionStep
@@ -36,10 +36,12 @@ from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
 from .surveys.survey import Survey
 from .file_system.file_system import FileSystem
+from .file_system.file_system_view_log import FileSystemViewLog
 from .filters import Filter, RetentionFilter
 from .group import Group
 from .group_usage_metric import GroupUsageMetric
 from .group_type_mapping import GroupTypeMapping
+from .heatmap_saved import SavedHeatmap, HeatmapSnapshot
 from .host_definition import HostDefinition
 from .hog_flow import HogFlow
 from .hog_functions import HogFunction
@@ -68,6 +70,7 @@ from .property_definition import PropertyDefinition
 from .proxy_record import ProxyRecord
 from .remote_config import RemoteConfig
 from .scheduled_change import ScheduledChange
+from .schema import EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
 from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
 from .subscription import Subscription
@@ -79,6 +82,7 @@ from .uploaded_media import UploadedMedia
 from .user import User, UserManager
 from .user_group import UserGroup, UserGroupMembership
 from .user_scene_personalisation import UserScenePersonalisation
+from .user_home_settings import UserHomeSettings
 from .web_experiment import WebExperiment
 
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
@@ -119,10 +123,12 @@ __all__ = [
     "ExportedAsset",
     "FeatureFlag",
     "FileSystem",
+    "FileSystemViewLog",
     "Filter",
     "Group",
     "GroupUsageMetric",
     "GroupTypeMapping",
+    "HeatmapSnapshot",
     "HogFlow",
     "HogFunction",
     "HogFunctionTemplate",
@@ -169,6 +175,10 @@ __all__ = [
     "ProxyRecord",
     "RetentionFilter",
     "RemoteConfig",
+    "EventSchema",
+    "SavedHeatmap",
+    "SchemaPropertyGroup",
+    "SchemaPropertyGroupProperty",
     "SessionRecording",
     "SessionRecordingPlaylist",
     "SessionRecordingPlaylistItem",
@@ -186,6 +196,7 @@ __all__ = [
     "UploadedMedia",
     "User",
     "UserScenePersonalisation",
+    "UserHomeSettings",
     "UserManager",
     "UserGroup",
     "UserGroupMembership",

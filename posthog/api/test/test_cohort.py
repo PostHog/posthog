@@ -2491,6 +2491,37 @@ email@example.org,
         self.assertEqual(new_cohort.errors_calculating, 0)
         self.assertEqual(new_cohort.count, 2)
 
+    def test_duplicating_static_cohort_as_static(self):
+        p1 = _create_person(distinct_ids=["p1"], team_id=self.team.pk)
+        p2 = _create_person(distinct_ids=["p2"], team_id=self.team.pk)
+
+        flush_persons_and_events()
+
+        # Create static cohort
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort A",
+            is_static=True,
+        )
+        cohort.insert_users_list_by_uuid([str(p1.uuid), str(p2.uuid)], team_id=self.team.pk)
+
+        # Verify original cohort has people
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.count, 2, "Original cohort should have 2 people")
+
+        # Duplicate static cohort as static
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}/duplicate_as_static_cohort")
+        self.assertEqual(response.status_code, 200, response.content)
+
+        new_cohort_id = response.json()["id"]
+        new_cohort = Cohort.objects.get(pk=new_cohort_id)
+
+        # Verify the duplicated cohort
+        self.assertEqual(new_cohort.name, "static cohort A (static copy)")
+        self.assertEqual(new_cohort.is_static, True)
+        new_cohort.refresh_from_db()
+        self.assertEqual(new_cohort.count, 2)
+
     def test_duplicating_dynamic_cohort_as_dynamic(self):
         _create_person(
             distinct_ids=["p1"],
@@ -3318,6 +3349,143 @@ email@example.org,
         expected_cohort_ids = {response_a.json()["id"], response_b.json()["id"], response_c.json()["id"]}
         self.assertEqual(set(chain_cohort_ids), expected_cohort_ids)
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_active_feature_flag(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]},
+            name="Flag using cohort",
+            key="cohort-flag",
+            created_by=self.user,
+            active=True,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("This cohort is used in 1 active feature flag(s): Flag using cohort", response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_cannot_delete_cohort_used_in_multiple_active_feature_flags(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]},
+            name="First Flag",
+            key="first-flag",
+            created_by=self.user,
+            active=True,
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]},
+            name="Second Flag",
+            key="second-flag",
+            created_by=self.user,
+            active=True,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = response.json()["detail"]
+        self.assertIn("This cohort is used in 2 active feature flag(s):", detail)
+        self.assertIn("First Flag", detail)
+        self.assertIn("Second Flag", detail)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_can_delete_cohort_not_used_in_feature_flags(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort = Cohort.objects.get(id=cohort_id)
+        self.assertTrue(cohort.deleted)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_can_delete_cohort_used_in_inactive_feature_flag(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]},
+            name="Inactive Flag",
+            key="inactive-flag",
+            created_by=self.user,
+            active=False,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort = Cohort.objects.get(id=cohort_id)
+        self.assertTrue(cohort.deleted)
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_can_delete_cohort_used_in_deleted_feature_flag(self, patch_calculate_cohort, patch_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Test Cohort", "groups": [{"properties": {"team_id": 5}}]},
+        )
+        cohort_id = response.json()["id"]
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]},
+            name="Deleted Flag",
+            key="deleted-flag",
+            created_by=self.user,
+            active=True,
+            deleted=True,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"deleted": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort = Cohort.objects.get(id=cohort_id)
+        self.assertTrue(cohort.deleted)
+
 
 class TestCalculateCohortCommand(APIBaseTest):
     def test_calculate_cohort_command_success(self):
@@ -3443,9 +3611,9 @@ class TestCohortTypeIntegration(APIBaseTest):
 
         self.assertEqual(response.status_code, 201)
         cohort = Cohort.objects.get(id=response.data["id"])
-        # Should be None since no explicit type was provided
-        self.assertIsNone(cohort.cohort_type)
-        self.assertIsNone(response.data["cohort_type"])
+        # cohort_type is auto-computed for realtime-capable filters
+        self.assertEqual(cohort.cohort_type, "realtime")
+        self.assertEqual(response.data["cohort_type"], "realtime")
 
     def test_api_response_includes_cohort_type(self):
         """API responses should include the cohort_type field"""
@@ -3522,8 +3690,9 @@ class TestCohortTypeIntegration(APIBaseTest):
 
         self.assertEqual(response.status_code, 201)
         cohort = Cohort.objects.get(id=response.data["id"])
-        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)
-        self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+        # cohort_type is auto-computed and stored as 'realtime'
+        self.assertEqual(cohort.cohort_type, "realtime")
+        self.assertEqual(response.data["cohort_type"], "realtime")
 
     def test_explicit_cohort_type_validation_failure(self):
         """Should reject mismatched explicit cohort types"""
@@ -3615,7 +3784,8 @@ class TestCohortTypeIntegration(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
         cohort.refresh_from_db()
-        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)
+        # cohort_type is auto-computed and stored as 'realtime'
+        self.assertEqual(cohort.cohort_type, "realtime")
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
     def test_static_cohort_csv_upload_with_email_column_only(self, patch_calculate_cohort_from_list):

@@ -5,6 +5,7 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -17,8 +18,8 @@ import { llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { formatLLMCost, formatLLMLatency, formatLLMUsage, getTraceTimestamp, normalizeMessages } from './utils'
 
 export function LLMAnalyticsTraces(): JSX.Element {
-    const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(llmAnalyticsLogic)
-    const { tracesQuery } = useValues(llmAnalyticsLogic)
+    const { setDates, setShouldFilterTestAccounts, setPropertyFilters } = useActions(llmAnalyticsLogic)
+    const { tracesQuery, propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsLogic)
 
     return (
         <DataTable
@@ -32,8 +33,11 @@ export function LLMAnalyticsTraces(): JSX.Element {
                 }
                 setDates(query.source.dateRange?.date_from || null, query.source.dateRange?.date_to || null)
                 setShouldFilterTestAccounts(query.source.filterTestAccounts || false)
-                setPropertyFilters(query.source.properties || [])
-                setTracesQuery(query)
+
+                const newPropertyFilters = query.source.properties || []
+                if (!objectsEqual(newPropertyFilters, currentPropertyFilters)) {
+                    setPropertyFilters(newPropertyFilters)
+                }
             }}
             context={useTracesQueryContext()}
             uniqueKey="llm-analytics-traces"
@@ -69,16 +73,24 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
             person: {
                 title: 'Person',
             },
+            errors: {
+                renderTitle: () => <Tooltip title="Number of errors in this trace">Errors</Tooltip>,
+                render: ErrorsColumn,
+            },
             totalLatency: {
-                title: 'Latency',
+                renderTitle: () => <Tooltip title="Total latency of all operations in this trace">Latency</Tooltip>,
                 render: LatencyColumn,
             },
             usage: {
-                title: 'Token Usage',
+                renderTitle: () => (
+                    <Tooltip title="Total token usage (input + output) for this trace">Token Usage</Tooltip>
+                ),
                 render: UsageColumn,
             },
             totalCost: {
-                title: 'Total Cost',
+                renderTitle: () => (
+                    <Tooltip title="Total cost of all generations and embeddings in this trace">Cost</Tooltip>
+                ),
                 render: CostColumn,
             },
         },
@@ -91,8 +103,8 @@ const IDColumn: QueryContextColumnComponent = ({ record }) => {
         <strong>
             <Tooltip title={row.id}>
                 <Link
-                    className="ph-no-capture"
                     to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                    data-attr="trace-id-link"
                 >
                     {row.id.slice(0, 4)}...{row.id.slice(-4)}
                 </Link>
@@ -106,8 +118,8 @@ const TraceNameColumn: QueryContextColumnComponent = ({ record }) => {
     return (
         <strong>
             <Link
-                className="ph-no-capture"
                 to={urls.llmAnalyticsTrace(row.id, { timestamp: getTraceTimestamp(row.createdAt) })}
+                data-attr="trace-name-link"
             >
                 {row.traceName || '–'}
             </Link>
@@ -145,6 +157,15 @@ const CostColumn: QueryContextColumnComponent = ({ record }) => {
     return <>–</>
 }
 CostColumn.displayName = 'CostColumn'
+
+const ErrorsColumn: QueryContextColumnComponent = ({ record }) => {
+    const row = record as LLMTrace
+    if (typeof row.errorCount === 'number' && row.errorCount > 0) {
+        return <LemonTag type="danger">{row.errorCount}</LemonTag>
+    }
+    return <>–</>
+}
+ErrorsColumn.displayName = 'ErrorsColumn'
 
 const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace

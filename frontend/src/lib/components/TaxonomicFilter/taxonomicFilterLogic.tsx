@@ -33,7 +33,10 @@ import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWare
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from 'scenes/feature-flags/constants'
-import { getInternalEventFilterOptions } from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
+import {
+    getProductEventFilterOptions,
+    getProductEventPropertyFilterOptions,
+} from 'scenes/hog-functions/filters/HogFunctionFiltersInternal'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -285,7 +288,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.InternalEvents,
                         options: [
                             { name: 'All internal events', value: null },
-                            ...getInternalEventFilterOptions('standard').map((item) => ({
+                            ...getProductEventFilterOptions('activity-log').map((item) => ({
                                 name: item.label,
                                 value: item.value,
                             })),
@@ -294,6 +297,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (eventDefinition: Record<string, any>) =>
                             'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
                         ...eventTaxonomicGroupProps,
+                    },
+                    {
+                        name: 'Activity log properties',
+                        searchPlaceholder: 'activity log properties',
+                        type: TaxonomicFilterGroupType.ActivityLogProperties,
+                        options: getProductEventPropertyFilterOptions('activity-log').map((value) => ({
+                            name: value,
+                            value,
+                            group: TaxonomicFilterGroupType.EventProperties,
+                        })),
+                        getIcon: getPropertyDefinitionIcon,
+                        getPopoverHeader: () => 'Activity log properties',
                     },
                     {
                         name: 'Actions',
@@ -398,6 +413,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ...propertyTaxonomicGroupProps(),
                     },
                     {
+                        name: 'Internal event properties',
+                        searchPlaceholder: 'internal event properties',
+                        type: TaxonomicFilterGroupType.InternalEventProperties,
+                        options: getProductEventPropertyFilterOptions('activity-log').map((value) => ({
+                            name: value,
+                            value,
+                            group: TaxonomicFilterGroupType.EventProperties,
+                        })),
+                        getIcon: getPropertyDefinitionIcon,
+                        getPopoverHeader: () => 'Internal event properties',
+                    },
+                    {
                         name: 'Event metadata',
                         searchPlaceholder: 'event metadata',
                         type: TaxonomicFilterGroupType.EventMetadata,
@@ -471,12 +498,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'exceptions',
                         type: TaxonomicFilterGroupType.ErrorTrackingProperties,
                         options: [
-                            ...[
-                                '$exception_types',
-                                '$exception_values',
-                                '$exception_sources',
-                                '$exception_functions',
-                            ].map((value) => ({ name: value, value, group: TaxonomicFilterGroupType.EventProperties })),
+                            ...getProductEventPropertyFilterOptions('error-tracking').map((value) => ({
+                                name: value,
+                                value,
+                                group: TaxonomicFilterGroupType.EventProperties,
+                            })),
                             ...(currentTeam?.person_display_name_properties
                                 ? currentTeam.person_display_name_properties.map((property) => ({
                                       name: property,

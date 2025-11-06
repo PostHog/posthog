@@ -176,7 +176,7 @@ async fn test_evaluate_feature_flags() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
         persons_reader: reader.clone(),
@@ -265,7 +265,7 @@ async fn test_evaluate_feature_flags_with_errors() {
     // Set up evaluation context
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
         persons_reader: context.persons_reader.clone(),
@@ -666,7 +666,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: distinct_id.clone(),
         feature_flags: feature_flag_list,
         persons_reader: reader.clone(),
@@ -767,7 +767,7 @@ async fn test_evaluate_feature_flags_details() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: distinct_id.clone(),
         feature_flags: feature_flag_list,
         persons_reader: reader.clone(),
@@ -919,7 +919,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: "user123".to_string(),
         feature_flags: feature_flag_list,
         persons_reader: context.persons_reader.clone(),
@@ -1008,7 +1008,7 @@ async fn test_long_distinct_id() {
 
     let evaluation_context = FeatureFlagEvaluationContext {
         team_id: team.id,
-        project_id: team.project_id,
+        project_id: team.project_id(),
         distinct_id: long_id,
         feature_flags: feature_flag_list,
         persons_reader: context.persons_reader.clone(),
@@ -1152,6 +1152,8 @@ async fn test_fetch_and_filter_flags() {
         redis_reader_client.clone(),
         redis_writer_client.clone(),
         reader.clone(),
+        432000, // team_cache_ttl_seconds
+        432000, // flags_cache_ttl_seconds
     );
     let context = TestContext::new(None).await;
     let team = context.insert_new_team(None).await.unwrap();
@@ -1217,7 +1219,7 @@ async fn test_fetch_and_filter_flags() {
     insert_flags_for_team_in_redis(
         redis_reader_client.clone(),
         team.id,
-        team.project_id,
+        team.project_id(),
         Some(flags_json),
     )
     .await
@@ -1230,7 +1232,7 @@ async fn test_fetch_and_filter_flags() {
     };
     let (result, had_errors) = fetch_and_filter(
         &flag_service,
-        team.project_id,
+        team.project_id(),
         &query_params,
         &axum::http::HeaderMap::new(),
         None,
@@ -1252,7 +1254,7 @@ async fn test_fetch_and_filter_flags() {
     };
     let (result, had_errors) = fetch_and_filter(
         &flag_service,
-        team.project_id,
+        team.project_id(),
         &query_params,
         &axum::http::HeaderMap::new(),
         None,
@@ -1267,7 +1269,7 @@ async fn test_fetch_and_filter_flags() {
     let query_params = FlagsQueryParams::default();
     let (result, had_errors) = fetch_and_filter(
         &flag_service,
-        team.project_id,
+        team.project_id(),
         &query_params,
         &axum::http::HeaderMap::new(),
         None,
@@ -1290,7 +1292,7 @@ async fn test_fetch_and_filter_flags() {
 
     let (result, had_errors) = fetch_and_filter(
         &flag_service,
-        team.project_id,
+        team.project_id(),
         &query_params,
         &axum::http::HeaderMap::new(),
         None,

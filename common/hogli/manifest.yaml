@@ -1,0 +1,455 @@
+metadata:
+    categories:
+        - key: core
+          title: Core development commands
+        - key: start
+          title: Start services and background workers
+        - key: health_checks
+          title: Verify infrastructure readiness
+        - key: migrations
+          title: Database migrations
+        - key: tests
+          title: Run tests
+        - key: quality
+          title: Code quality and formatting
+        - key: build
+          title: Build and generate code
+        - key: docker
+          title: Docker-based service orchestration
+        - key: deploy
+          title: Deploy PostHog to remote instances
+        - key: tools
+          title: Developer tools and utilities
+        - key: utilities
+          title: Git worktrees and admin
+        - key: environment
+          title: Environment and shell
+    services:
+        flox:
+            name: Flox
+            about: Manages reproducible development environments. All developers get the
+                same exact versions of tools and dependencies.
+        docker:
+            name: Docker
+            about: Isolates services and dependencies in containers to match production
+                without requiring local installation. Orbstack strongly recommended over Docker
+                Desktop.
+        migration:
+            name: Database migrations
+            about: Schema updates and data migrations across PostgreSQL, ClickHouse, and
+                async systems.
+        clickhouse:
+            name: ClickHouse
+            about: Analytics database used for metrics, events, and funnel analysis throughout
+                PostHog.
+        postgresql:
+            name: PostgreSQL
+            about: Primary relational database for application data, authentication, and
+                feature flags.
+        redis:
+            name: Redis
+            about: In-memory cache and queue backend for fast data access and job processing.
+        kafka:
+            name: Kafka
+            about: Event streaming platform for reliable event processing and data pipelines.
+        temporal:
+            name: Temporal
+            about: Workflow orchestration engine for reliable, long-running background jobs
+                and retries.
+        testing:
+            name: Testing
+            about: Automated test suites (unit, integration, E2E) to ensure code quality
+                and prevent regressions.
+        celery:
+            name: Celery
+            about: Distributed task queue for running background jobs like async exports,
+                scheduled tasks, and email sending.
+        plugin-server:
+            name: Plugin server
+            about: Event ingestion pipeline that processes incoming events, runs plugins,
+                and writes to ClickHouse.
+        django:
+            name: Django
+            about: Python web framework powering PostHog's backend API, admin interface,
+                and business logic.
+        frontend:
+            name: Frontend
+            about: React-based web application providing PostHog's user interface. Built
+                with TypeScript, Vite, and Kea for state management.
+        mprocs:
+            name: mprocs
+            about: Process orchestrator that runs all dev services in parallel with live
+                output and easy process management.
+core:
+    categories:
+        description: Show all available commands grouped by category
+    dev:up:
+        description: Start full PostHog dev stack via mprocs
+        hidden: true
+    dev:setup:
+        cmd: python manage.py setup_dev
+        description: Initialize local development environment (one-time setup)
+        services:
+            - postgresql
+            - clickhouse
+    dev:demo-data:
+        cmd: python manage.py generate_demo_data
+        description: Generate demo data for local testing
+        services:
+            - postgresql
+            - clickhouse
+    dev:reset:
+        steps:
+            - docker:services:down
+            - docker:services:up
+            - check:postgres
+            - check:clickhouse
+            - migrations:run
+            - dev:demo-data
+            - migrations:sync-flags
+        description: Full reset - stop services, migrate, load demo data, sync flags
+health_checks:
+    check:clickhouse:
+        bin_script: check_clickhouse_up
+        description: Poll ClickHouse HTTP port until service is ready
+        services:
+            - clickhouse
+    check:dagster-graphql:
+        bin_script: check_dagster_graphql_up
+        description: Wait for Dagster UI to become available
+        hidden: true
+    check:hosts:
+        bin_script: check_hosts
+        description: Verify DNS resolution for required service hostnames (clickhouse,
+            kafka, etc)
+        hidden: true
+    check:kafka-clickhouse:
+        bin_script: check_kafka_clickhouse_up
+        description: Wait for both Kafka and ClickHouse services to be ready
+        services:
+            - kafka
+            - clickhouse
+    check:postgres:
+        bin_script: check_postgres_up
+        description: Poll PostgreSQL connection until database is available
+        services:
+            - postgresql
+    check:temporal:
+        bin_script: check_temporal_up
+        description: Wait for Temporal service port with 180s timeout
+        services:
+            - temporal
+    check:video-deps:
+        bin_script: check_video_deps
+        description: Install and verify Playwright browsers and FFmpeg dependencies
+        hidden: true
+    services:ready:
+        steps:
+            - check:clickhouse
+            - check:postgres
+            - check:temporal
+        description: Verify all core infrastructure services are ready
+start:
+    start:
+        bin_script: start
+        description: Main entry point that launches all dev services via mprocs orchestrator
+        services:
+            - mprocs
+            - docker
+            - django
+            - frontend
+            - celery
+            - plugin-server
+            - postgresql
+            - redis
+            - kafka
+            - clickhouse
+            - temporal
+    start:backend:
+        bin_script: start-backend
+        description: Run Django development server on port 8000 with auto-reload
+        services:
+            - django
+            - postgresql
+            - redis
+        hidden: true
+    start:celery:
+        bin_script: start-celery
+        description: Start Celery worker or beat scheduler with auto-reload
+        services:
+            - celery
+            - redis
+            - kafka
+        hidden: true
+    start:frontend:
+        bin_script: start-frontend
+        description: Install dependencies and start frontend with Vite dev server
+        services:
+            - frontend
+            - docker
+        hidden: true
+    start:frontend-vite:
+        bin_script: start-frontend-vite
+        description: Start Vite dev server for frontend (runs pnpm start-vite)
+        hidden: true
+    start:worker:
+        bin_script: start-worker
+        description: Launch all background workers (Celery worker, beat scheduler, plugin-server)
+        services:
+            - celery
+            - plugin-server
+            - kafka
+            - temporal
+            - redis
+        hidden: true
+    start:rust-service:
+        bin_script: start-rust-service
+        description: Build and run live Rust microservice with auto-restart on crash
+        hidden: true
+deploy:
+    deploy:hobby:
+        bin_script: deploy-hobby
+        description: Interactive installer for single-instance PostHog deployment on remote
+            server
+    deploy:upgrade-hobby:
+        bin_script: upgrade-hobby
+        description: Upgrade existing hobby deployment with data loss warnings and volume
+            checks
+build:
+    build:frontend:
+        cmd: pnpm --filter=@posthog/frontend build
+        description: Build frontend packages and run TypeScript compilation
+        services:
+            - frontend
+    build:schema-json:
+        cmd: pnpm --filter=@posthog/frontend run schema:build:json
+        description: Generate schema.json from frontend
+    build:schema-python:
+        bin_script: build-schema-python.sh
+        description: Generate Pydantic schema.py from schema.json with datamodel-codegen
+    build:schema-latest-versions:
+        bin_script: build-schema-latest-versions.py
+        description: Extract latest schema versions and generate frontend JSON config
+    build:taxonomy-json:
+        bin_script: build-taxonomy-json.py
+        description: Generate core filter definitions taxonomy JSON for frontend
+    build:schema:
+        steps:
+            - build:schema-json
+            - build:schema-python
+            - build:schema-latest-versions
+        description: Generate all schema definitions (frontend JSON, Python, latest versions)
+    build:grammar:
+        cmd: pnpm grammar:build
+        description: Generate HogQL grammar definitions (Python and C++)
+docker:
+    docker:services:up:
+        cmd: docker compose -f docker-compose.dev.yml up -d
+        description: Start Docker infrastructure services (Postgres, ClickHouse, Redis,
+            Kafka)
+        services:
+            - docker
+            - postgresql
+            - clickhouse
+            - redis
+            - kafka
+    docker:services:down:
+        cmd: docker compose -f docker-compose.dev.yml down
+        description: Stop Docker infrastructure services
+        services:
+            - docker
+    docker:deprecated:
+        bin_script: docker
+        description: '[DEPRECATED] Use `hogli start` instead'
+        hidden: true
+    docker:dev:
+        bin_script: docker-dev
+        description: '[DEPRECATED] Use `hogli start` instead'
+        hidden: true
+    docker:dev-web:
+        bin_script: docker-dev-web
+        description: '[DEPRECATED] Use `hogli start` instead'
+        hidden: true
+    docker:backend:
+        bin_script: docker-backend
+        description: '[DEPRECATED] Use `hogli start:backend` instead'
+        hidden: true
+    docker:frontend:
+        bin_script: docker-frontend
+        description: '[DEPRECATED] Use `hogli start:frontend` instead'
+        hidden: true
+    docker:migrate:
+        bin_script: docker-migrate
+        description: '[DEPRECATED] Use `hogli migrations:run` instead'
+        hidden: true
+    docker:worker:
+        bin_script: docker-worker
+        description: '[DEPRECATED] Use `hogli start:worker` instead'
+        hidden: true
+    docker:server:
+        bin_script: docker-server
+        description: Run gunicorn application server with Prometheus metrics support
+        hidden: true
+    docker:server-unit:
+        bin_script: docker-server-unit
+        description: Run NGINX Unit application server with configurable workers
+        hidden: true
+    docker:worker-beat:
+        bin_script: docker-worker-beat
+        description: Run Celery beat scheduler with RedBeat backend
+        hidden: true
+    docker:worker-celery:
+        bin_script: docker-worker-celery
+        description: Start Celery worker with optional scheduler, gossip, heartbeat, mingle
+        hidden: true
+    docker:ai-evals:
+        bin_script: docker-ai-evals
+        description: Set up Docker services and run evaluation scripts with cleanup
+        hidden: true
+migrations:
+    db:migrate:
+        bin_script: migrate
+        description: Apply database migrations (Django and ClickHouse)
+        hidden: true
+    migrations:run:
+        bin_script: migrate
+        description: Run all database migrations (ClickHouse, Postgres, async) in parallel
+    migrations:check:
+        bin_script: migrate-check
+        description: Verify all migrations are ready without applying them
+        services:
+            - postgresql
+            - clickhouse
+    migrations:kafka:
+        bin_script: migrate_kafka_data.py
+        description: Migrate data between Kafka clusters/topics with consumer group tracking
+    migrations:sync-flags:
+        cmd: python manage.py sync_feature_flags
+        description: Sync feature flags from configuration
+        services:
+            - postgresql
+tests:
+    test:python:
+        cmd: pytest
+        description: Run Python test suite
+    test:js:
+        cmd: pnpm --filter=@posthog/frontend test
+        description: Run JavaScript test suite
+    test:run:
+        bin_script: tests
+        description: Interactive test runner with watch mode and changed file detection
+    test:e2e:
+        bin_script: e2e-test-runner
+        description: Set up test databases and run Playwright E2E tests
+quality:
+    lint:
+        cmd: ./bin/ruff.sh check . && pnpm --filter=@posthog/frontend run lint
+        description: Run code quality checks for Python and JavaScript
+    format:
+        cmd: pnpm format
+        description: Format both backend and frontend code
+    format:yaml:
+        cmd: pnpm prettier --write
+        description: Format JSON, YAML files
+    format:css:
+        cmd: pnpm stylelint --fix --allow-empty-input && pnpm prettier --write
+        description: Format CSS/SCSS files
+    format:js:
+        cmd: pnpm oxlint --fix --fix-suggestions --quiet && pnpm prettier --write
+        description: Format JavaScript/TypeScript files (frontend)
+    format:plugin-server:
+        cmd: pnpm --dir plugin-server exec eslint --fix && pnpm --dir plugin-server exec
+            prettier --write
+        description: Format plugin-server JavaScript files
+    format:rust:
+        cmd: rustfmt
+        description: Format Rust files
+    format:python:
+        cmd: ./bin/ruff.sh format
+        description: Format Python files
+    lint:python:fix:
+        cmd: ./bin/ruff.sh check --fix
+        description: Fix Python code quality issues
+    format:markdown:
+        cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
+        description: Format Markdown files
+tools:
+    tool:temporal-django-worker:
+        bin_script: temporal-django-worker
+        description: Start Temporal worker with graceful shutdown handling
+    tool:plugin-server:
+        bin_script: plugin-server
+        description: Start plugin-server with optional restart loop
+    tool:download-mmdb:
+        bin_script: download-mmdb
+        description: Download and cache GeoLite2 MaxMind database with retry logic
+    tool:hog:
+        bin_script: hog
+        description: Run HogQL interpreter (TypeScript/Python) or compiled bytecode
+    tool:hoge:
+        bin_script: hoge
+        description: Compile HogQL source to bytecode or JavaScript
+    tool:ruff:
+        bin_script: ruff.sh
+        description: Python linter and formatter with virtualenv auto-activation
+    tool:ty:
+        bin_script: ty.py
+        description: Type checker with mypy-baseline filtering and sync
+        hidden: true
+    tool:turbo:
+        bin_script: turbo
+        description: Turborepo wrapper with automatic dependency installation
+    tool:unit-metrics:
+        bin_script: unit_metrics.py
+        description: WSGI app that aggregates Prometheus metrics from NGINX Unit status
+            endpoint
+        hidden: true
+    tool:create-ch-migration:
+        cmd: python manage.py create_ch_migration
+        description: Generate new ClickHouse migration scaffold
+    tool:print-hog-stl:
+        cmd: python manage.py print_hog_stl_table
+        description: Print HogSQL standard library definitions for reference
+        hidden: true
+    clickhouse:logs:init:
+        bin_script: clickhouse-logs-init
+        description: 'TODO: add description for clickhouse-logs-init'
+        hidden: true
+    create:notebook:node:
+        bin_script: create-notebook-node.sh
+        description: 'Create a new NotebookNode file and update types and editor references'
+        hidden: true
+utilities:
+    utilities:posthog-worktree:
+        bin_script: posthog-worktree
+        description: Manage isolated git worktrees for PostHog development
+        hidden: true
+    utilities:phw:
+        bin_script: phw
+        description: Shell function wrapper for worktree management with auto-cd
+        hidden: true
+    utilities:update-bots-list:
+        bin_script: update-bots-list
+        description: Download bot IP list from GoodBots GitHub and save locally
+        hidden: true
+    utilities:dump-hogvmrs-stl:
+        bin_script: dump_hogvmrs_stl
+        description: Generate Rust HogVM standard library definitions for error tracking
+        hidden: true
+    utilities:hobby-ci:
+        bin_script: hobby-ci.py
+        description: DigitalOcean CI automation for Hobby deployment testing
+        hidden: true
+    utilities:install-hogli-completion:
+        bin_script: install-hogli-completion
+        description: Install shell completion for hogli (bash/zsh)
+        hidden: true
+    utilities:check-uv-python-compat:
+        bin_script: check_uv_python_compatibility.py
+        description: CI validation for uv/Python version compatibility
+        hidden: true
+environment:
+    flox:activate:
+        cmd: flox activate
+        description: Enter Flox development environment shell.
+        hidden: true

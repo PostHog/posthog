@@ -173,11 +173,44 @@ function TraceMetadata({
     metricEvents: LLMTraceEvent[]
     feedbackEvents: LLMTraceEvent[]
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const getSessionUrl = (sessionId: string): string => {
+        if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
+            return urls.llmAnalyticsSession(sessionId)
+        }
+        // Fallback to filtering traces by session when feature flag is off
+        const filter = [
+            {
+                key: '$ai_session_id',
+                value: [sessionId],
+                operator: 'exact',
+                type: 'event',
+            },
+        ]
+        const params = new URLSearchParams()
+        params.set('filters', JSON.stringify(filter))
+        return `${urls.llmAnalyticsTraces()}?${params.toString()}`
+    }
+
     return (
         <header className="flex gap-1.5 flex-wrap">
             {'person' in trace && (
                 <Chip title="Person">
                     <PersonDisplay withIcon="sm" person={trace.person} />
+                </Chip>
+            )}
+            {trace.aiSessionId && (
+                <Chip
+                    title={
+                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]
+                            ? 'AI Session ID - Click to view session details'
+                            : 'AI Session ID - Click to filter traces by this session'
+                    }
+                >
+                    <Link to={getSessionUrl(trace.aiSessionId)} subtle>
+                        <span className="font-mono">{trace.aiSessionId.slice(0, 8)}...</span>
+                    </Link>
                 </Chip>
             )}
             <UsageChip event={trace} />
@@ -264,6 +297,7 @@ function TraceSidebar({
                     value={searchValue}
                     onChange={onSearchChange}
                     size="small"
+                    data-attr="trace-search-input"
                 />
                 {searchValue.trim() && (
                     <div className="text-xs text-muted ml-1 mt-1">
@@ -382,6 +416,7 @@ const TreeNode = React.memo(function TraceNode({
                     isSelected && '!bg-accent-highlight-secondary',
                     isCollapsedDueToFilter && 'min-h-4 min-w-0'
                 )}
+                data-attr="trace-event-link"
             >
                 <div className="flex flex-row items-center gap-1.5">
                     <EventTypeTag event={item} size="small" />
@@ -653,6 +688,7 @@ const EventContent = React.memo(
                                             icon={<IconChat />}
                                             onClick={handleTryInPlayground}
                                             tooltip="Try this prompt in the playground"
+                                            data-attr="try-in-playground-trace"
                                         >
                                             Try in Playground
                                         </LemonButton>
@@ -759,7 +795,12 @@ const EventContent = React.memo(
                                           {
                                               key: TraceViewMode.Evals,
                                               label: 'Evaluations',
-                                              content: <EvalsTabContent generationEventId={event.id} />,
+                                              content: (
+                                                  <EvalsTabContent
+                                                      generationEventId={event.id}
+                                                      timestamp={event.createdAt}
+                                                  />
+                                              ),
                                           },
                                       ]
                                     : []),
@@ -838,6 +879,7 @@ function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrace
             icon={<IconCopy />}
             onClick={handleCopyTrace}
             tooltip="Copy trace to clipboard"
+            data-attr="copy-trace-json"
         >
             Copy trace JSON
         </LemonButton>

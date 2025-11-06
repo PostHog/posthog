@@ -2,6 +2,7 @@ import threading
 from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
 from django.http import HttpResponse
 from django.utils.timezone import now
 
@@ -16,7 +17,6 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
 from posthog.event_usage import groups
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -34,7 +34,9 @@ FULL_VIDEO_EXPORTS_LIMIT_PER_TEAM = 10
 
 logger = structlog.get_logger(__name__)
 
-SIX_MONTHS = timedelta(weeks=26)
+SEVEN_DAYS = timedelta(days=7)
+SIX_MONTHS = timedelta(days=180)
+TWELVE_MONTHS = timedelta(days=365)
 
 
 class ExportedAssetSerializer(serializers.ModelSerializer):
@@ -129,7 +131,22 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     }
                 )
 
-        data["expires_after"] = data.get("expires_after", (now() + SIX_MONTHS).date())
+        # Set expiry based on export format
+        # NB if you change this you have to sync it with S3 expiry lifecycle
+        export_format = data.get("export_format")
+
+        if export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
+            expiry_delta = SEVEN_DAYS
+        elif export_format in (
+            ExportedAsset.ExportFormat.MP4,
+            ExportedAsset.ExportFormat.WEBM,
+            ExportedAsset.ExportFormat.GIF,
+        ):
+            expiry_delta = TWELVE_MONTHS
+        else:
+            expiry_delta = SIX_MONTHS
+
+        data["expires_after"] = (now() + expiry_delta).date()
 
         data["team_id"] = self.context["team_id"]
         return data
@@ -188,7 +205,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         VideoExportWorkflow.run,
                         VideoExportInputs(exported_asset_id=instance.id),
                         id=f"export-video-{instance.id}",
-                        task_queue=VIDEO_EXPORT_TASK_QUEUE,
+                        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
                     )

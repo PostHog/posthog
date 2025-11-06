@@ -11,6 +11,7 @@ use crate::{
 use common_database::PostgresReader;
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
+use common_types::ProjectId;
 use std::sync::Arc;
 
 /// Result of fetching feature flags, including cache hit status and deserialization errors status
@@ -26,6 +27,8 @@ pub struct FlagService {
     redis_reader: Arc<dyn RedisClient + Send + Sync>,
     redis_writer: Arc<dyn RedisClient + Send + Sync>,
     pg_client: PostgresReader,
+    team_cache_ttl_seconds: u64,
+    flags_cache_ttl_seconds: u64,
 }
 
 impl FlagService {
@@ -33,11 +36,15 @@ impl FlagService {
         redis_reader: Arc<dyn RedisClient + Send + Sync>,
         redis_writer: Arc<dyn RedisClient + Send + Sync>,
         pg_client: PostgresReader,
+        team_cache_ttl_seconds: u64,
+        flags_cache_ttl_seconds: u64,
     ) -> Self {
         Self {
             redis_reader,
             redis_writer,
             pg_client,
+            team_cache_ttl_seconds,
+            flags_cache_ttl_seconds,
         }
     }
 
@@ -46,14 +53,18 @@ impl FlagService {
     /// and the result will be cached in redis.
     pub async fn verify_token(&self, token: &str) -> Result<String, FlagError> {
         let (result, cache_hit) = match Team::from_redis(self.redis_reader.clone(), token).await {
-            Ok(_) => (Ok(token), true),
+            Ok(_) => (Ok(token.to_string()), true),
             Err(_) => {
                 match Team::from_pg(self.pg_client.clone(), token).await {
                     Ok(team) => {
                         inc(DB_TEAM_READS_COUNTER, &[], 1);
                         // Token found in PostgreSQL, update Redis cache so that we can verify it from Redis next time
-                        if let Err(e) =
-                            Team::update_redis_cache(self.redis_writer.clone(), &team).await
+                        if let Err(e) = Team::update_redis_cache(
+                            self.redis_writer.clone(),
+                            &team,
+                            Some(self.team_cache_ttl_seconds),
+                        )
+                        .await
                         {
                             tracing::warn!("Failed to update Redis cache: {}", e);
                             inc(
@@ -62,7 +73,7 @@ impl FlagService {
                                 1,
                             );
                         }
-                        (Ok(token), false)
+                        (Ok(token.to_string()), false)
                     }
                     Err(e) => {
                         tracing::warn!("Token validation failed for token '{}': {:?}", token, e);
@@ -83,7 +94,7 @@ impl FlagService {
             1,
         );
 
-        result.map(|token| token.to_string())
+        result
     }
 
     /// Fetches the team from the cache or the database.
@@ -97,9 +108,13 @@ impl FlagService {
                     Ok(team) => {
                         inc(DB_TEAM_READS_COUNTER, &[], 1);
                         // If we have the team in postgres, but not redis, update redis so we're faster next time
-                        if Team::update_redis_cache(self.redis_writer.clone(), &team)
-                            .await
-                            .is_err()
+                        if Team::update_redis_cache(
+                            self.redis_writer.clone(),
+                            &team,
+                            Some(self.team_cache_ttl_seconds),
+                        )
+                        .await
+                        .is_err()
                         {
                             inc(
                                 TEAM_CACHE_ERRORS_COUNTER,
@@ -128,7 +143,7 @@ impl FlagService {
     /// Also tracks cache hits and misses for a given project_id.
     pub async fn get_flags_from_cache_or_pg(
         &self,
-        project_id: i64,
+        project_id: ProjectId,
     ) -> Result<FlagResult, FlagError> {
         let flag_result = match FeatureFlagList::from_redis(self.redis_reader.clone(), project_id)
             .await
@@ -145,6 +160,7 @@ impl FlagService {
                         self.redis_writer.clone(),
                         project_id,
                         &flags_from_pg,
+                        Some(self.flags_cache_ttl_seconds),
                     )
                     .await)
                         .is_err()
@@ -187,7 +203,9 @@ mod tests {
             FeatureFlag, FlagFilters, FlagPropertyGroup, TEAM_FLAGS_CACHE_PREFIX,
         },
         properties::property_models::{OperatorType, PropertyFilter, PropertyType},
-        utils::test_utils::{insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client},
+        utils::test_utils::{
+            insert_new_team_in_redis, setup_pg_reader_client, setup_redis_client, TestContext,
+        },
     };
 
     use super::*;
@@ -204,6 +222,8 @@ mod tests {
             redis_client.clone(),
             redis_client.clone(),
             pg_client.clone(),
+            432000, // team_cache_ttl_seconds
+            432000, // flags_cache_ttl_seconds
         );
 
         // Test valid token in Redis
@@ -243,6 +263,8 @@ mod tests {
             redis_client.clone(),
             redis_client.clone(),
             pg_client.clone(),
+            432000, // team_cache_ttl_seconds
+            432000, // flags_cache_ttl_seconds
         );
 
         // Test fetching from Redis
@@ -263,6 +285,8 @@ mod tests {
             redis_client.clone(),
             redis_client.clone(),
             pg_client.clone(),
+            432000, // team_cache_ttl_seconds
+            432000, // flags_cache_ttl_seconds
         );
 
         let result = flag_service
@@ -372,19 +396,26 @@ mod tests {
             ],
         };
 
-        FeatureFlagList::update_flags_in_redis(redis_client.clone(), team.project_id, &mock_flags)
-            .await
-            .expect("Failed to insert mock flags in Redis");
+        FeatureFlagList::update_flags_in_redis(
+            redis_client.clone(),
+            team.project_id(),
+            &mock_flags,
+            None,
+        )
+        .await
+        .expect("Failed to insert mock flags in Redis");
 
         let flag_service = FlagService::new(
             redis_client.clone(),
             redis_client.clone(),
             pg_client.clone(),
+            432000, // team_cache_ttl_seconds
+            432000, // flags_cache_ttl_seconds
         );
 
         // Test fetching from Redis
         let result = flag_service
-            .get_flags_from_cache_or_pg(team.project_id)
+            .get_flags_from_cache_or_pg(team.project_id())
             .await;
         assert!(result.is_ok());
         let flag_result = result.unwrap();
@@ -444,12 +475,171 @@ mod tests {
             .expect("Failed to remove flags from Redis");
 
         let result = flag_service
-            .get_flags_from_cache_or_pg(team.project_id)
+            .get_flags_from_cache_or_pg(team.project_id())
             .await;
         assert!(result.is_ok());
         // Verify that the flags were re-added to Redis
-        let redis_flags = FeatureFlagList::from_redis(redis_client.clone(), team.project_id).await;
+        let redis_flags =
+            FeatureFlagList::from_redis(redis_client.clone(), team.project_id()).await;
         assert!(redis_flags.is_ok());
         assert_eq!(redis_flags.unwrap().flags.len(), mock_flags.flags.len());
+    }
+
+    #[tokio::test]
+    async fn test_get_flags_from_cache_or_pg_skips_cache_write_on_redis_timeout() {
+        use common_redis::{CustomRedisError, MockRedisClient};
+
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        // Set up mock redis_reader to return Timeout
+        let mut mock_reader = MockRedisClient::new();
+        mock_reader.get_ret(
+            &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id()),
+            Err(CustomRedisError::Timeout),
+        );
+
+        // Set up mock redis_writer to track SET calls
+        let mock_writer = MockRedisClient::new();
+
+        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
+        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+
+        let flag_service = FlagService::new(
+            reader,
+            writer,
+            context.non_persons_reader.clone(),
+            432000, // team_cache_ttl_seconds
+            432000, // flags_cache_ttl_seconds
+        );
+
+        let result = flag_service
+            .get_flags_from_cache_or_pg(team.project_id())
+            .await;
+
+        // Should succeed despite Redis timeout
+        assert!(result.is_ok());
+        let flag_result = result.unwrap();
+        assert!(!flag_result.was_cache_hit);
+
+        // Verify SET was NOT called (cache write was skipped)
+        let writer_calls = mock_writer.get_calls();
+        assert!(
+            !writer_calls.iter().any(|call| call.op == "set"),
+            "Expected SET to NOT be called for Timeout error, but it was"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_flags_from_cache_or_pg_skips_cache_write_on_redis_unavailable() {
+        use common_redis::{CustomRedisError, MockRedisClient};
+
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        // Set up mock redis_reader to return Other error (maps to RedisUnavailable)
+        let mut mock_reader = MockRedisClient::new();
+        mock_reader.get_ret(
+            &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id()),
+            Err(CustomRedisError::Other("Connection refused".to_string())),
+        );
+
+        // Set up mock redis_writer to track SET calls
+        let mock_writer = MockRedisClient::new();
+
+        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
+        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+
+        let flag_service = FlagService::new(
+            reader,
+            writer,
+            context.non_persons_reader.clone(),
+            432000, // team_cache_ttl_seconds
+            432000, // flags_cache_ttl_seconds
+        );
+
+        let result = flag_service
+            .get_flags_from_cache_or_pg(team.project_id())
+            .await;
+
+        // Should succeed despite Redis being unavailable
+        assert!(result.is_ok());
+        let flag_result = result.unwrap();
+        assert!(!flag_result.was_cache_hit);
+
+        // Verify SET was NOT called (cache write was skipped)
+        let writer_calls = mock_writer.get_calls();
+        assert!(
+            !writer_calls.iter().any(|call| call.op == "set"),
+            "Expected SET to NOT be called for RedisUnavailable error, but it was"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_config_ttl_values_are_used() {
+        use common_redis::{CustomRedisError, MockRedisClient, MockRedisValue};
+
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        // Set up mock redis_reader to return NotFound (cache miss)
+        let mut mock_reader = MockRedisClient::new();
+        mock_reader.get_ret(&team.api_token, Err(CustomRedisError::NotFound));
+
+        // Set up mock redis_writer to track setex calls
+        let mock_writer = MockRedisClient::new();
+
+        let reader: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_reader.clone());
+        let writer: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_writer.clone());
+
+        // Test with custom TTL values (different from default 432000)
+        let custom_team_ttl = 7200u64; // 2 hours
+        let custom_flags_ttl = 1800u64; // 30 minutes
+
+        let flag_service = FlagService::new(
+            reader,
+            writer,
+            context.non_persons_reader.clone(),
+            custom_team_ttl,
+            custom_flags_ttl,
+        );
+
+        // Trigger team cache operation
+        let _result = flag_service
+            .get_team_from_cache_or_pg(&team.api_token)
+            .await;
+
+        // Verify setex was called with the custom team TTL
+        let writer_calls = mock_writer.get_calls();
+        let setex_calls: Vec<_> = writer_calls
+            .iter()
+            .filter(|call| call.op == "setex")
+            .collect();
+
+        assert!(!setex_calls.is_empty(), "Expected setex to be called");
+
+        // Verify the TTL value used matches our custom config
+        let team_setex_call = setex_calls
+            .iter()
+            .find(|call| call.key.contains(&team.api_token))
+            .expect("Expected setex call for team token");
+
+        if let MockRedisValue::StringWithTTL(_, ttl) = &team_setex_call.value {
+            assert_eq!(
+                *ttl, custom_team_ttl,
+                "Expected team cache TTL to be {custom_team_ttl} but got {ttl}",
+            );
+        } else {
+            panic!("Expected setex call to have TTL value");
+        }
     }
 }

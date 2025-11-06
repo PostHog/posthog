@@ -33,6 +33,7 @@ export const HOGFUNCTION_METRICS_INFO: Record<string, { name: string; descriptio
 export function HogFunctionMetrics({ id }: { id: string }): JSX.Element {
     const logic = appMetricsLogic({
         logicKey: `hog-function-metrics-${id}`,
+        loadOnMount: true,
         loadOnChanges: true,
         forceParams: {
             appSource: 'hog_function',

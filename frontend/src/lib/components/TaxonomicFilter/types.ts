@@ -140,6 +140,7 @@ export enum TaxonomicFilterGroupType {
     Elements = 'elements',
     Events = 'events',
     InternalEvents = 'internal_events',
+    InternalEventProperties = 'internal_event_properties',
     EventProperties = 'event_properties',
     EventFeatureFlags = 'event_feature_flags',
     EventMetadata = 'event_metadata',
@@ -169,6 +170,7 @@ export enum TaxonomicFilterGroupType {
     RevenueAnalyticsProperties = 'revenue_analytics_properties',
     Resources = 'resources',
     ErrorTrackingProperties = 'error_tracking_properties',
+    ActivityLogProperties = 'activity_log_properties',
     // Max AI Context
     MaxAIContext = 'max_ai_context',
 }

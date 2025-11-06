@@ -182,13 +182,6 @@
             "examples": ["{\"temperature\": 0.5, \"max_tokens\": 50}"],
             "label": "AI model parameters (LLM)"
         },
-        "$ai_output": {
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                "{\"choices\": [{\"text\": \"Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data.\"}]}"
-            ],
-            "label": "AI output (LLM)"
-        },
         "$ai_output_choices": {
             "description": "The output message choices JSON that was received from the LLM API.",
             "examples": [
@@ -229,6 +222,11 @@
             "description": "The full URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/chat/completions"],
             "label": "AI Request URL (LLM)"
+        },
+        "$ai_session_id": {
+            "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
+            "examples": ["session-abc-123", "conv-user-456"],
+            "label": "AI Session ID (LLM)"
         },
         "$ai_span_id": {
             "description": "The unique identifier for a LLM trace, generation, or span.",
@@ -1261,6 +1259,12 @@
             "examples": ["https://sentry.io/..."],
             "label": "Sentry URL"
         },
+        "$sess_rec_flush_size": {
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "label": "Estimated bytes flushed",
+            "type": "Numeric",
+            "used_for_debug": true
+        },
         "$session_entry__kx": {
             "description": "Klaviyo Tracking ID Captured at the start of the session and remains constant for the duration of the session.",
             "ignored_in_assistant": true,
@@ -1455,6 +1459,11 @@
             "ignored_in_assistant": true,
             "label": "Session recording recorder version server-side",
             "system": true,
+            "used_for_debug": true
+        },
+        "$session_recording_remote_config": {
+            "description": "The remote config for session recording received from the server (or loaded from storage).",
+            "label": "Session recording remote config received",
             "used_for_debug": true
         },
         "$session_recording_start_reason": {
@@ -2124,13 +2133,6 @@
             "examples": ["{\"temperature\": 0.5, \"max_tokens\": 50}"],
             "label": "AI model parameters (LLM)"
         },
-        "$ai_output": {
-            "description": "The output JSON that was received from the LLM API.",
-            "examples": [
-                "{\"choices\": [{\"text\": \"Quantum computing is a type of computing that harnesses the power of quantum mechanics to perform operations on data.\"}]}"
-            ],
-            "label": "AI output (LLM)"
-        },
         "$ai_output_choices": {
             "description": "The output message choices JSON that was received from the LLM API.",
             "examples": [
@@ -2171,6 +2173,11 @@
             "description": "The full URL of the request made to the LLM API.",
             "examples": ["https://api.openai.com/v1/chat/completions"],
             "label": "AI Request URL (LLM)"
+        },
+        "$ai_session_id": {
+            "description": "Groups related traces together in a session (e.g., a conversation or workflow). One session can contain many traces.",
+            "examples": ["session-abc-123", "conv-user-456"],
+            "label": "AI Session ID (LLM)"
         },
         "$ai_span_id": {
             "description": "The unique identifier for a LLM trace, generation, or span.",
@@ -3495,6 +3502,12 @@
             "examples": ["https://sentry.io/..."],
             "label": "Sentry URL"
         },
+        "$sess_rec_flush_size": {
+            "description": "Estimated size in bytes of flushed recording data so far in this session. Added to events as a debug property.",
+            "label": "Estimated bytes flushed",
+            "type": "Numeric",
+            "used_for_debug": true
+        },
         "$session_entry__kx": {
             "description": "Klaviyo Tracking ID Captured at the start of the session and remains constant for the duration of the session.",
             "ignored_in_assistant": true,
@@ -3689,6 +3702,11 @@
             "ignored_in_assistant": true,
             "label": "Session recording recorder version server-side",
             "system": true,
+            "used_for_debug": true
+        },
+        "$session_recording_remote_config": {
+            "description": "The remote config for session recording received from the server (or loaded from storage).",
+            "label": "Session recording remote config received",
             "used_for_debug": true
         },
         "$session_recording_start_reason": {

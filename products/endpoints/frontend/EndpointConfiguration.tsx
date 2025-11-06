@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
 import { endpointLogic } from './endpointLogic'
 
@@ -10,41 +12,39 @@ interface EndpointConfigurationProps {
     tabId: string
 }
 
-type DataFreshnessOption = '5m' | '15m' | '30m' | '1h' | '3h' | '24h'
+type CacheAgeOption = number | null
 
-const DATA_FRESHNESS_OPTIONS: { value: DataFreshnessOption; label: string }[] = [
-    { value: '5m', label: '5 minutes' },
-    { value: '15m', label: '15 minutes' },
-    { value: '30m', label: '30 minutes' },
-    { value: '1h', label: '1 hour' },
-    { value: '3h', label: '3 hours' },
-    { value: '24h', label: 'Daily' },
+const CACHE_AGE_OPTIONS: { value: CacheAgeOption; label: string }[] = [
+    { value: null, label: 'Default caching behavior' },
+    { value: 300, label: '5 minutes' },
+    { value: 900, label: '15 minutes' },
+    { value: 1800, label: '30 minutes' },
+    { value: 3600, label: '1 hour' },
+    { value: 10800, label: '3 hours' },
+    { value: 86400, label: '1 day' },
+    { value: 259200, label: '3 days' },
 ]
 
 export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
-    const { endpoint } = useValues(endpointLogic({ tabId }))
-    const { updateEndpoint } = useActions(endpointLogic({ tabId }))
+    const { endpoint, cacheAge } = useValues(endpointLogic({ tabId }))
+    const { setCacheAge } = useActions(endpointLogic({ tabId }))
 
     if (!endpoint) {
         return <></>
     }
 
-    const handleDataFreshnessChange = (): void => {
-        updateEndpoint(endpoint.name, { ...endpoint.parameters })
-    }
-
     return (
-        <div className="flex flex-col gap-4 max-w-2xl">
-            <LemonField.Pure label="Data freshness">
-                <LemonSelect
-                    // value={}
-                    onChange={handleDataFreshnessChange}
-                    options={DATA_FRESHNESS_OPTIONS}
-                />
-            </LemonField.Pure>
-            <div className="text-xs text-secondary -mt-2">
-                We will refresh this query to be readily available at this frequency.
+        <SceneSection title="Configure this endpoint">
+            <div className="flex flex-col gap-4 max-w-2xl">
+                <LemonField.Pure
+                    label="Cache age"
+                    info="Cache age defines how long your endpoint will return cached results before running the query again
+                    and refreshing the results."
+                >
+                    <LemonSelect value={cacheAge} onChange={setCacheAge} options={CACHE_AGE_OPTIONS} />
+                </LemonField.Pure>
             </div>
-        </div>
+            <LemonDivider />
+        </SceneSection>
     )
 }
