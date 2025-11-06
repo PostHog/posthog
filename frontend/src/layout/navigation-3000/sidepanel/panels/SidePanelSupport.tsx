@@ -295,8 +295,9 @@ export function SidePanelSupport(): JSX.Element {
     }
 
     const handleStartFeedbackRecording = (): void => {
-        posthog.startUserFeedbackRecording((result: any) => {})
+        posthog.startUserFeedbackRecording(() => {})
     }
+
     const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
         const { featureFlags } = useValues(featureFlagLogic)
 
