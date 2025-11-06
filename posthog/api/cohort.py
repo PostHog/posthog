@@ -139,6 +139,21 @@ def generate_cohort_filter_bytecode(filter_data: dict, team: Team) -> tuple[list
                 condition_hash = hashlib.sha256(bytecode_str.encode()).hexdigest()[:16]
             return bytecode, None, condition_hash
 
+        # Check if it's a cohort filter referencing another cohort
+        if filter_data.get("type") == "cohort":
+            cohort_id = filter_data.get("value")
+            try:
+                referenced_cohort = Cohort.objects.get(team__project_id=team.project_id, id=cohort_id)
+                # Check if the referenced cohort is realtime
+                from posthog.models.cohort.cohort import CohortType
+
+                if referenced_cohort.cohort_type != CohortType.REALTIME:
+                    # Don't generate bytecode for non-realtime cohort references
+                    return None, None, None
+            except Cohort.DoesNotExist:
+                # If cohort doesn't exist, don't generate bytecode
+                return None, None, None
+
         property_obj = Property(**filter_data)
         expr = property_to_expr(property_obj, team)
         bytecode = create_bytecode(expr, cohort_membership_supported=True).bytecode
