@@ -768,7 +768,6 @@ describe('IngestionConsumer', () => {
             const ingester = await createIngestionConsumer(hub)
             await ingester.handleKafkaBatch(messages)
 
-            console.log(jest.mocked(logger.error).mock.calls)
             expect(jest.mocked(logger.error)).toHaveBeenCalledWith('🔥', 'Error processing message', expect.any(Object))
 
             expect(forSnapshot(mockProducerObserver.getProducedKafkaMessages())).toMatchSnapshot()
@@ -1280,6 +1279,8 @@ describe('IngestionConsumer', () => {
                     "headers": {
                       "distinct_id": "user-1",
                       "event": "$pageview",
+                      "redirect-step": "maybeRedirectToTestingTopicStep",
+                      "redirect-timestamp": "2025-01-01T00:00:00.000Z",
                       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
                       "uuid": "<REPLACED-UUID-0>",
                     },

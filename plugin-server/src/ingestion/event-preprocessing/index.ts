@@ -3,6 +3,7 @@ export { createApplyDropRestrictionsStep } from './apply-drop-events-restriction
 export { createApplyForceOverflowRestrictionsStep } from './apply-force-overflow-restrictions'
 export { createApplyPersonProcessingRestrictionsStep } from './apply-person-processing-restrictions'
 export { createDropExceptionEventsStep } from './drop-exception-events'
+export { createMaybeRedirectToTestingTopicStep } from './maybe-redirect-to-testing-topic-step'
 export { createParseHeadersStep } from './parse-headers'
 export { createParseKafkaMessageStep } from './parse-kafka-message'
 export { createResolveTeamStep } from './resolve-team'

@@ -36,6 +36,7 @@ import {
     createApplyForceOverflowRestrictionsStep,
     createApplyPersonProcessingRestrictionsStep,
     createDropExceptionEventsStep,
+    createMaybeRedirectToTestingTopicStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
     createResolveTeamStep,
@@ -252,6 +253,7 @@ export class IngestionConsumer {
                 builder.sequentially((b) =>
                     b
                         .pipe(createParseHeadersStep())
+                        .pipe(createMaybeRedirectToTestingTopicStep(this.testingTopic ?? null))
                         .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
                         .pipe(
                             createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
@@ -790,24 +792,6 @@ export class IngestionConsumer {
                     headers: parseKafkaHeaders(message.headers),
                 })
             })
-        )
-    }
-
-    private async emitToTestingTopic(kafkaMessages: Message[]): Promise<void> {
-        const testingTopic = this.testingTopic
-        if (!testingTopic) {
-            throw new Error('No testing topic configured')
-        }
-
-        await Promise.all(
-            kafkaMessages.map((message) =>
-                this.kafkaOverflowProducer!.produce({
-                    topic: this.testingTopic!,
-                    value: message.value,
-                    key: message.key ?? null,
-                    headers: parseKafkaHeaders(message.headers),
-                })
-            )
         )
     }
 }
