@@ -55,12 +55,11 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Re
         )
     })?;
 
-    info!("Processing directory: {}", directory.display());
+    info!("injecting directory: {}", directory.display());
     let mut pairs = read_pairs(&directory, ignore, matcher, public_path_prefix)?;
     if pairs.is_empty() {
-        bail!("No source files found");
+        bail!("no source files found");
     }
-    info!("Found {} pairs", pairs.len());
 
     let created_release_id = get_release_for_pairs(&directory, project, version, &pairs)?
         .as_ref()
@@ -72,7 +71,7 @@ pub fn inject_impl(args: &InjectArgs, matcher: impl Fn(&DirEntry) -> bool) -> Re
     for pair in &pairs {
         pair.save()?;
     }
-    info!("Finished processing directory");
+    info!("injecting done");
     Ok(())
 }
 

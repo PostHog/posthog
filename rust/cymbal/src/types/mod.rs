@@ -78,6 +78,10 @@ impl ExceptionList {
             .flat_map(Stacktrace::get_frames)
     }
 
+    fn get_in_app_frames(&self) -> impl Iterator<Item = &Frame> {
+        self.get_frames_iter().filter(|f| f.in_app)
+    }
+
     pub fn get_unique_messages(&self) -> Vec<String> {
         unique_by(self.iter(), |e| Some(e.exception_message.clone()))
     }
@@ -87,11 +91,11 @@ impl ExceptionList {
     }
 
     pub fn get_unique_sources(&self) -> Vec<String> {
-        unique_by(self.get_frames_iter(), |f| f.source.clone())
+        unique_by(self.get_in_app_frames(), |f| f.source.clone())
     }
 
     pub fn get_unique_functions(&self) -> Vec<String> {
-        unique_by(self.get_frames_iter(), |f| f.resolved_name.clone())
+        unique_by(self.get_in_app_frames(), |f| f.resolved_name.clone())
     }
 
     pub fn get_release_map(&self) -> HashMap<String, ReleaseInfo> {
