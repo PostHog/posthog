@@ -180,7 +180,7 @@ def stripe_source(
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
     return SourceResponse(
-        items=get_rows(),
+        items=get_rows,
         primary_keys=["id"],
         name=endpoint,
         column_hints=column_hints,

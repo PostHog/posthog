@@ -127,4 +127,4 @@ def doit_source(
 
         yield table_from_iterator((append_primary_key(dict(zip(column_names, row))) for row in rows), arrow_schema)
 
-    return SourceResponse(name=report_name, items=get_rows(report_id), primary_keys=["id"])
+    return SourceResponse(name=report_name, items=lambda: get_rows(report_id), primary_keys=["id"])

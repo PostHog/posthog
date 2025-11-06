@@ -19,6 +19,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from posthog.temporal.data_imports.row_tracking import setup_row_tracking
 from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.common.base import ResumableSource
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
@@ -230,7 +231,10 @@ def import_data_activity_sync(inputs: ImportDataActivityInputs):
             )
             new_source = SourceRegistry.get_source(source_type)
             config = new_source.parse_config(model.pipeline.job_inputs)
-            source = new_source.source_for_pipeline(config, source_inputs)
+            if isinstance(new_source, ResumableSource):
+                pass
+            else:
+                source = new_source.source_for_pipeline(config, source_inputs)
 
             return _run(
                 job_inputs=job_inputs,

@@ -98,7 +98,6 @@ class ResumableSourceProtocol(Protocol[ConfigType_contra, ResumableData]):
 class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
     """Base class for sources with standard pipeline creation."""
 
-    @abstractmethod
     def source_for_pipeline(self, config: ConfigType, inputs: SourceInputs) -> SourceResponse:
         raise NotImplementedError()
 
@@ -106,7 +105,6 @@ class SimpleSource(_BaseSource[ConfigType], Generic[ConfigType]):
 class ResumableSource(_BaseSource[ConfigType], Generic[ConfigType, ResumableData]):
     """Base class for sources that support resumable full-refresh imports."""
 
-    @abstractmethod
     def source_for_pipeline(
         self, config: ConfigType, resumable_source_manager: ResumableSourceManager[ResumableData], inputs: SourceInputs
     ) -> ResumableSourceResponse:

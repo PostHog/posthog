@@ -1,11 +1,9 @@
 import dataclasses
 from collections.abc import Callable, Iterable
-from typing import Any, ClassVar, Literal, Optional, Protocol, TypeVar
+from typing import Any, ClassVar, Generic, Literal, Optional, Protocol, TypeVar
 
 from dlt.common.data_types.typing import TDataType
 from structlog.types import FilteringBoundLogger
-
-from posthog.temporal.data_imports.sources.common.base import Generic
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 

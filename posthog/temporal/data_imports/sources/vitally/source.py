@@ -71,7 +71,7 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
 
         return SourceResponse(
             name=inputs.schema_name,
-            items=items,
+            items=lambda: items,
             primary_keys=["id"],
             partition_count=1,  # this enables partitioning
             partition_size=1,  # this enables partitioning
