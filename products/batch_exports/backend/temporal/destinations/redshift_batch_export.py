@@ -426,7 +426,7 @@ class RedshiftClient(PostgreSQLClient):
                         )
                     ):
                         try:
-                            column = msg_detail.split("length of data column ", 1)[1].split(" ")[0]
+                            column = msg_detail.split("length of the data column ", 1)[1].split(" ")[0]
                         except Exception:
                             column = "unknown"
 
