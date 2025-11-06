@@ -164,7 +164,6 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
 
         res = self.client.get("/api/projects/@current/resource_access_controls?resource=activity_log")
         assert res.status_code == status.HTTP_200_OK, res.json()
-        assert res.json()["available_access_levels"] == ["none", "viewer"]
         assert res.json()["minimum_access_level"] == "none"
         assert res.json()["maximum_access_level"] == "viewer"
         assert res.json()["default_access_level"] == "viewer"
@@ -209,6 +208,7 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
             "default_access_level": "editor",
             "user_can_edit_access_levels": True,
             "minimum_access_level": "none",
+            "maximum_access_level": "manager",
         }
 
     def test_change_rejected_if_not_org_admin(self):
