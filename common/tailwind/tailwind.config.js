@@ -263,6 +263,7 @@ const deprecatedColors = {
     'danger-lighter': 'var(--danger-lighter)',
     'danger-dark': 'var(--danger-dark)',
     'danger-highlight': 'var(--danger-highlight)',
+    'info-dark': 'var(--info-dark)',
     warning: 'var(--warning)',
     'warning-highlight': 'var(--warning-highlight)',
     'warning-dark': 'var(--warning-dark)',

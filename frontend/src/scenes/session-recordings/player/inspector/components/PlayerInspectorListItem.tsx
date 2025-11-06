@@ -301,7 +301,8 @@ const ListItemTitle = memo(function ListItemTitle({
                         'flex-1 overflow-hidden',
                         item.highlightColor === 'danger' && `bg-fill-error-highlight`,
                         item.highlightColor === 'warning' && `bg-fill-warning-highlight`,
-                        item.highlightColor === 'primary' && `bg-fill-success-highlight`
+                        item.highlightColor === 'primary' && `bg-fill-success-highlight`,
+                        item.highlightColor === 'info' && `bg-fill-info-highlight`
                     )}
                 >
                     <RowItemTitle item={item} finalTimestamp={end} />
