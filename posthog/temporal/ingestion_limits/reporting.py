@@ -10,7 +10,10 @@ from slack_sdk.web.async_client import AsyncWebClient
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_INGESTION_WARNINGS
 from posthog.models.event.util import format_clickhouse_timestamp
+from posthog.temporal.common.logger import get_logger
 from posthog.temporal.ingestion_limits.types import IngestionLimitsReport
+
+LOGGER = get_logger(__name__)
 
 
 def format_slack_message(report: IngestionLimitsReport) -> dict:
@@ -153,7 +156,11 @@ def send_to_kafka(topic: str | None, messages: list[dict]) -> None:
         topic: Kafka topic name (defaults to KAFKA_INGESTION_WARNINGS)
         messages: List of message dictionaries to send
     """
+
+    logger = LOGGER.bind(topic=topic, message_count=len(messages))
+
     if not messages:
+        logger.warning("No messages to send to Kafka")
         return
 
     kafka_topic = topic or KAFKA_INGESTION_WARNINGS
@@ -162,4 +169,8 @@ def send_to_kafka(topic: str | None, messages: list[dict]) -> None:
     # Send each message individually to match plugin-server behavior
     # KafkaProducer.produce() expects a dict and will serialize it with json_serializer
     for message in messages:
-        producer.produce(topic=kafka_topic, data=message)
+        try:
+            logger.info("Submitting ingestion warning to Kafka", message=message)
+            producer.produce(topic=kafka_topic, data=message)
+        except Exception as e:
+            logger.exception(f"Failed to submit ingestion warning to Kafka", error=str(e), message=message)

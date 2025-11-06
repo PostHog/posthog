@@ -154,7 +154,7 @@ async def report_ingestion_limits_activity(inputs: ReportIngestionLimitsInput) -
                     message_count=len(kafka_messages),
                 )
             except Exception as e:
-                logger.exception("Failed to send Kafka message", error=str(e), topic=inputs.workflow_inputs.kafka_topic)
+                logger.exception("Failed to send Kafka message", error=str(e), topic=kafka_topic)
                 # Don't raise - Slack may have succeeded
 
         logger.info("Completed reporting ingestion limits")

@@ -21,7 +21,7 @@ pytestmark = [pytest.mark.asyncio]
 @pytest.fixture
 async def workflow_environment():
     """Create a workflow test environment."""
-    async with WorkflowEnvironment() as env:
+    async with WorkflowEnvironment(client=AsyncMock()) as env:
         yield env
 
 
