@@ -184,6 +184,10 @@
             --tick-color: var(--color-accent);
         }
 
+        &--info {
+            --tick-color: var(--color-blue);
+        }
+
         .PlayerSeekbarTick__line {
             position: absolute;
             width: var(--tick-width);
