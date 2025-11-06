@@ -49,6 +49,32 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                 innerClassName="flex flex-col gap-2 p-3"
                 styledScrollbars
             >
+                <div className="flex flex-col gap-2">
+                    <LemonField.Pure label="Name">
+                        <LemonInput
+                            value={action.name || ''}
+                            onChange={(value) =>
+                                setWorkflowAction(action.id, {
+                                    ...action,
+                                    name: value,
+                                })
+                            }
+                            placeholder="Action name"
+                        />
+                    </LemonField.Pure>
+                    <LemonField.Pure label="Description">
+                        <LemonInput
+                            value={action.description || ''}
+                            onChange={(value) =>
+                                setWorkflowAction(action.id, {
+                                    ...action,
+                                    description: value,
+                                })
+                            }
+                            placeholder="Action description"
+                        />
+                    </LemonField.Pure>
+                </div>
                 {Step?.renderConfiguration(selectedNode)}
             </ScrollableShadows>
 
