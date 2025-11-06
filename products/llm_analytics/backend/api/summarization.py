@@ -202,7 +202,7 @@ representation, and uses an LLM to create a concise summary with line references
 - Line references in [L45] or [L45-52] format pointing to relevant sections
 
 **Feature Flag:**
-- Requires `ai-llm-trace-summary` feature flag enabled at team level
+- Requires `llm-analytics-summarization` feature flag enabled at team level
 
 **Use Cases:**
 - Quick understanding of complex traces
