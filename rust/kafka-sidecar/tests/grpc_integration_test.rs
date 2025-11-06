@@ -22,16 +22,7 @@ const TEST_TOPIC: &str = "kafka-sidecar-integration-test";
 
 /// Helper to start the gRPC server on a random available port
 async fn start_test_server() -> Result<(SocketAddr, tokio::task::JoinHandle<()>)> {
-    let config = Config {
-        grpc_port: 0, // Use port 0 to get a random available port
-        metrics_port: 0,
-        kafka_hosts: KAFKA_BROKERS.to_string(),
-        kafka_producer_linger_ms: 0,
-        kafka_producer_queue_mib: 256,
-        kafka_message_timeout_ms: 30000,
-        kafka_compression_codec: "snappy".to_string(),
-        kafka_tls: false,
-    };
+    let config = Config::from_env()?;
 
     // Set up health registry
     let health_registry = health::HealthRegistry::new("liveness");
