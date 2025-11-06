@@ -399,7 +399,7 @@ class AssistantContextManager(AssistantContextMixin):
         return self._deduplicate_context_messages(state, prompts)
 
     def _get_contextual_tools_prompt(self) -> str | None:
-        from ee.hogai.tool import get_contextual_tool_class
+        from ee.hogai.registry import get_contextual_tool_class
 
         contextual_tools_prompt = [
             f"<{tool_name}>\n"
