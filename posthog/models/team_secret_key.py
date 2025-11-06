@@ -1,5 +1,4 @@
 import re
-import hashlib
 import secrets
 from typing import TYPE_CHECKING, Optional
 
@@ -71,13 +70,13 @@ class TeamSecretKey(models.Model):
     # Masked value for display (e.g., "phs_...abcd")
     mask_value = models.CharField(max_length=20, editable=False)
 
-    # Hashed value for secure storage and lookup
+    # Plaintext value for JWT verification (relies on database encryption at rest)
     secure_value = models.CharField(
         unique=True,
         max_length=300,
         editable=False,
         db_index=True,
-        help_text="SHA256 hash of the secret key",
+        help_text="Secret key value for JWT verification",
     )
 
     last_used_at = models.DateTimeField(null=True, blank=True, help_text="When this key was last used")
@@ -105,11 +104,6 @@ class TeamSecretKey(models.Model):
     def __str__(self) -> str:
         return f"{self.name} ({self.mask_value})"
 
-    @staticmethod
-    def hash_key_value(value: str) -> str:
-        """Hash a key value using SHA256."""
-        return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
     @classmethod
     def create_key(cls, team: "Team", name: str, created_by: Optional["User"] = None) -> tuple["TeamSecretKey", str]:
         """
@@ -128,16 +122,13 @@ class TeamSecretKey(models.Model):
         # Create the masked version for display
         masked = mask_key_value(plaintext_key)
 
-        # Hash the key for secure storage
-        hashed = cls.hash_key_value(plaintext_key)
-
-        # Create the model instance
+        # Create the model instance (storing plaintext for JWT verification)
         secret_key = cls.objects.create(
             id=key_id,
             team=team,
             name=name,
             mask_value=masked,
-            secure_value=hashed,
+            secure_value=plaintext_key,
             created_by=created_by,
         )
 
@@ -154,9 +145,8 @@ class TeamSecretKey(models.Model):
         Returns:
             The TeamSecretKey instance if found, None otherwise
         """
-        hashed = cls.hash_key_value(key_value)
         try:
-            return cls.objects.select_related("team").get(secure_value=hashed)
+            return cls.objects.select_related("team").get(secure_value=key_value)
         except cls.DoesNotExist:
             return None
 
