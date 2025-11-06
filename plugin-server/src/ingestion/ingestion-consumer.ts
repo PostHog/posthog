@@ -39,6 +39,7 @@ import {
     createMaybeRedirectToTestingTopicStep,
     createParseHeadersStep,
     createParseKafkaMessageStep,
+    createRateLimitToOverflowStep,
     createResolveTeamStep,
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
@@ -303,6 +304,14 @@ export class IngestionConsumer {
                             // We want to call cookieless with the whole batch at once.
                             .gather()
                             .pipeBatch(createApplyCookielessProcessingStep(this.hub))
+                            .pipeBatch(
+                                createRateLimitToOverflowStep(
+                                    this.overflowRateLimiter,
+                                    this.overflowEnabled(),
+                                    this.overflowTopic || '',
+                                    this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY
+                                )
+                            )
                     )
                     .handleIngestionWarnings(this.kafkaProducer!)
             )
