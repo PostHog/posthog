@@ -1,5 +1,9 @@
 # posthog/person_db_router.py
 
+import os
+
+from django.conf import settings
+
 # Set of models (lowercase) that should live in the persons_db
 # Add other models from the plan here as needed.
 PERSONS_DB_MODELS = {
@@ -15,6 +19,18 @@ PERSONS_DB_MODELS = {
     "group",
     "grouptypemapping",
 }
+
+
+def get_persons_db_url() -> str:
+    """Get the database URL for person data writes.
+
+    Uses PERSONS_DB_WRITER_URL if available, otherwise falls back to DATABASE_URL.
+    This is useful for direct database connections (e.g., psycopg) outside of Django ORM.
+
+    Returns:
+        str: The database URL to use for person data operations
+    """
+    return os.getenv("PERSONS_DB_WRITER_URL") or settings.DATABASE_URL
 
 
 class PersonDBRouter:

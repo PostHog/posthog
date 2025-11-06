@@ -4,8 +4,6 @@ import asyncio
 import datetime as dt
 import dataclasses
 
-from django.conf import settings
-
 import psycopg
 import temporalio.common
 import temporalio.activity
@@ -13,10 +11,12 @@ import temporalio.workflow
 from structlog import get_logger
 
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.person_db_router import get_persons_db_url
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 
 LOGGER = get_logger(__name__)
+
 
 SELECT_QUERY = """
     SELECT id
@@ -81,7 +81,7 @@ async def mogrify_delete_queries_activity(inputs: MogrifyDeleteQueriesActivityIn
         delete_query_cohort_people = DELETE_QUERY_COHORT_PEOPLE.format(select_query=select_query)
         delete_query_person = DELETE_QUERY_PERSON.format(select_query=select_query)
 
-        conn = await psycopg.AsyncConnection.connect(settings.DATABASE_URL)
+        conn = await psycopg.AsyncConnection.connect(get_persons_db_url())
         conn.cursor_factory = psycopg.AsyncClientCursor
         async with conn:
             async with conn.cursor() as cursor:
@@ -144,7 +144,7 @@ async def delete_persons_activity(inputs: DeletePersonsActivityInputs) -> tuple[
         delete_query_cohort_people = DELETE_QUERY_COHORT_PEOPLE.format(select_query=select_query)
         delete_query_person = DELETE_QUERY_PERSON.format(select_query=select_query)
 
-        conn = await psycopg.AsyncConnection.connect(settings.DATABASE_URL)
+        conn = await psycopg.AsyncConnection.connect(get_persons_db_url())
         async with conn:
             async with conn.cursor() as cursor:
                 logger.info("Deleting batch %d of %d (%d rows)", inputs.batch_number, inputs.batches, inputs.batch_size)
