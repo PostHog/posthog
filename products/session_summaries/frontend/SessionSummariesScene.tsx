@@ -1,3 +1,8 @@
+import { useState } from 'react'
+
+import { IconDownload, IconSearch, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
+
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
@@ -8,7 +13,77 @@ export const scene: SceneExport = {
     component: SessionSummariesScene,
 }
 
-const samplePatternsData = {
+// Type definitions
+interface SessionKeyAction {
+    event_id: string
+    event_uuid: string
+    session_id: string
+    description: string
+    abandonment: boolean
+    confusion: boolean
+    exception: string | null
+    timestamp: string
+    milliseconds_since_start: number
+    window_id: string
+    current_url: string
+    event: string
+    event_type: string | null
+    event_index: number
+}
+
+interface SessionEvent {
+    segment_name: string
+    segment_outcome: string
+    segment_success: boolean
+    segment_index: number
+    previous_events_in_segment: SessionKeyAction[]
+    target_event: SessionKeyAction
+    next_events_in_segment: SessionKeyAction[]
+}
+
+interface PatternStats {
+    occurences: number
+    sessions_affected: number
+    sessions_affected_ratio: number
+    segments_success_ratio: number
+}
+
+interface Pattern {
+    pattern_id: number
+    pattern_name: string
+    pattern_description: string
+    severity: 'critical' | 'high' | 'medium' | 'low'
+    indicators: string[]
+    events: SessionEvent[]
+    stats: PatternStats
+}
+
+interface PatternsData {
+    patterns: Pattern[]
+}
+
+type SeverityConfig = {
+    type: 'danger' | 'warning' | 'success' | 'default'
+    color: string
+}
+
+// Helper function to map severity to tag type and color
+function getSeverityConfig(severity: Pattern['severity']): SeverityConfig {
+    const configs: Record<Pattern['severity'], SeverityConfig> = {
+        critical: { type: 'danger', color: 'bg-danger' },
+        high: { type: 'warning', color: 'bg-warning' },
+        medium: { type: 'success', color: 'bg-success' },
+        low: { type: 'default', color: 'bg-muted' },
+    }
+    return configs[severity]
+}
+
+// Helper function to capitalize first letter
+function capitalizeFirst(str: string): string {
+    return str.charAt(0).toUpperCase() + str.slice(1)
+}
+
+const samplePatternsData: PatternsData = {
     patterns: [
         {
             pattern_id: 1,
@@ -174,7 +249,7 @@ const samplePatternsData = {
                             event_id: '0ab80c47',
                             event_uuid: '0197e8e2-a2e9-7081-8e0f-37c961e74796',
                             session_id: '0197e8d5-5a41-7628-8954-ab652f7afed0',
-                            description: 'Rage-clicks on “AlloTools” list item indicating frustration',
+                            description: 'Rage-clicks on "AlloTools" list item indicating frustration',
                             abandonment: false,
                             confusion: true,
                             exception: null,
@@ -287,7 +362,7 @@ const samplePatternsData = {
                             event_id: 'ab81df96',
                             event_uuid: '0197e8d6-6ff4-7abf-861b-58ed46233c10',
                             session_id: '0197e8d5-6f25-7310-a1d9-00f7557f4b8f',
-                            description: 'Opened “explain event types” help section',
+                            description: 'Opened "explain event types" help section',
                             abandonment: false,
                             confusion: false,
                             exception: null,
@@ -311,7 +386,7 @@ const samplePatternsData = {
                         event_id: '6a28908e',
                         event_uuid: '0197e8e2-8626-796a-8711-41f657435816',
                         session_id: '0197e8d5-5a41-7628-8954-ab652f7afed0',
-                        description: 'Rage-clicks on “AlloTools” list item indicating frustration',
+                        description: 'Rage-clicks on "AlloTools" list item indicating frustration',
                         abandonment: false,
                         confusion: true,
                         exception: null,
@@ -368,7 +443,7 @@ const samplePatternsData = {
                             event_id: '47e65f6d',
                             event_uuid: '0197e8e3-b0eb-7a2b-be7d-d040d686ee19',
                             session_id: '0197e8d5-5a41-7628-8954-ab652f7afed0',
-                            description: 'Rage-clicks on “AlloTools” list item indicating frustration',
+                            description: 'Rage-clicks on "AlloTools" list item indicating frustration',
                             abandonment: false,
                             confusion: true,
                             exception: null,
@@ -426,18 +501,125 @@ const samplePatternsData = {
     ],
 }
 
+// Session Example Card Component
+function SessionExampleCard({ event }: { event: SessionEvent }): JSX.Element {
+    const { target_event, segment_outcome } = event
+
+    return (
+        <div className="flex flex-col gap-2 rounded border p-3 bg-bg-light">
+            <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold">{target_event.description}</p>
+                <Link to="#" className="text-sm font-medium whitespace-nowrap">
+                    View details
+                </Link>
+            </div>
+            <p className="text-xs text-muted">Session {target_event.session_id}</p>
+            <p className="text-sm text-muted-alt">{segment_outcome}</p>
+        </div>
+    )
+}
+
+// Filter Bar Component
+function FilterBar(): JSX.Element {
+    const [searchValue, setSearchValue] = useState('')
+
+    return (
+        <div className="flex flex-wrap items-center gap-4 mb-4">
+            <LemonInput
+                type="search"
+                placeholder="Filter patterns by name or keyword..."
+                value={searchValue}
+                onChange={setSearchValue}
+                prefix={<IconSearch />}
+                fullWidth
+            />
+            <LemonButton type="secondary" icon={<IconDownload />}>
+                Export
+            </LemonButton>
+        </div>
+    )
+}
+
+// Pattern Card Component
+function PatternCard({ pattern }: { pattern: Pattern }): JSX.Element {
+    const severityConfig = getSeverityConfig(pattern.severity)
+
+    const header = (
+        <div className="flex flex-1 flex-col gap-2 py-2">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-x-4 gap-y-2">
+                <h3 className="text-base font-medium flex-1">{pattern.pattern_name}</h3>
+                <div className="flex flex-wrap items-center gap-3 text-sm text-muted">
+                    <span>{pattern.stats.sessions_affected} sessions</span>
+                    <span className="hidden sm:inline">·</span>
+                    <div className="flex items-center gap-1.5">
+                        <div className={`size-2 rounded-full ${severityConfig.color}`} />
+                        <LemonTag type={severityConfig.type} size="small">
+                            {capitalizeFirst(pattern.severity)}
+                        </LemonTag>
+                    </div>
+                    <span className="hidden sm:inline">·</span>
+                    <div className="hidden sm:flex items-center gap-2">
+                        <LemonButton size="xsmall" type="tertiary" icon={<IconThumbsUp />} />
+                        <LemonButton size="xsmall" type="tertiary" icon={<IconThumbsDown />} />
+                    </div>
+                </div>
+            </div>
+            <p className="text-sm text-muted-alt">{pattern.pattern_description}</p>
+        </div>
+    )
+
+    const content = (
+        <div className="p-4 bg-bg-3000">
+            <p className="mb-3 text-sm font-medium">Top examples</p>
+            <div className="flex flex-col gap-3">
+                {pattern.events.map((event, index) => (
+                    <SessionExampleCard key={`${pattern.pattern_id}-${index}`} event={event} />
+                ))}
+            </div>
+            {pattern.events.length > 0 && (
+                <div className="mt-4 flex justify-center">
+                    <LemonButton type="secondary" size="small">
+                        Show more examples
+                    </LemonButton>
+                </div>
+            )}
+        </div>
+    )
+
+    return (
+        <LemonCollapse
+            panels={[
+                {
+                    key: pattern.pattern_id,
+                    header,
+                    content,
+                },
+            ]}
+            size="small"
+        />
+    )
+}
+
+// Main Scene Component
 export function SessionSummariesScene(): JSX.Element {
+    const totalSessions = samplePatternsData.patterns.reduce((sum, pattern) => sum + pattern.stats.sessions_affected, 0)
+
     return (
         <SceneContent>
             <SceneTitleSection
-                name={sceneConfigurations[Scene.SessionSummaries]?.name || 'Session summaries'}
-                description={sceneConfigurations[Scene.SessionSummaries]?.description}
+                name="Session summary report"
+                description={`${totalSessions} sessions analyzed`}
                 resourceType={{
                     type: sceneConfigurations[Scene.SessionSummaries]?.iconType || 'default_icon_type',
                 }}
             />
-            <div className="flex items-center justify-center p-8">
-                <p className="text-muted">Session summaries content coming soon... Hey?</p>
+            <div className="space-y-4">
+                <FilterBar />
+                <div className="flex flex-col gap-2">
+                    {samplePatternsData.patterns.map((pattern) => (
+                        <PatternCard key={pattern.pattern_id} pattern={pattern} />
+                    ))}
+                </div>
             </div>
         </SceneContent>
     )
