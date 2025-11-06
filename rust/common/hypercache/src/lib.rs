@@ -40,6 +40,7 @@ use common_types::{TeamId, TeamIdentifier};
 #[cfg(all(test, feature = "mock-client"))]
 use mockall::predicate;
 use serde_json::Value;
+use std::fmt::{self, Display};
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
@@ -99,6 +100,21 @@ impl From<common_types::Team> for KeyType {
     }
 }
 
+impl Display for KeyType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            KeyType::Team(team) => write!(
+                f,
+                "Team(id: {}, token: {})",
+                team.team_id(),
+                team.api_token()
+            ),
+            KeyType::String(s) => write!(f, "String({s})"),
+            KeyType::Int(i) => write!(f, "Int({i})"),
+        }
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum HyperCacheError {
     #[error("Redis error: {0}")]
@@ -124,6 +140,7 @@ pub enum HyperCacheError {
 pub enum CacheSource {
     Redis,
     S3,
+    DatabaseFallback,
 }
 
 #[derive(Debug, Clone)]
@@ -334,6 +351,79 @@ impl HyperCacheReader {
     pub async fn get(&self, key: &KeyType) -> Result<Value, HyperCacheError> {
         let (data, _source) = self.get_with_source(key).await?;
         Ok(data)
+    }
+
+    /// Get a value from cache with database fallback support
+    ///
+    /// This method tries to get data from cache (Redis first, then S3), and if both
+    /// cache tiers miss, calls the provided fallback function to retrieve the data
+    /// from an alternative source (typically a database).
+    ///
+    /// Unlike a read-through cache pattern, this method does NOT write the fallback
+    /// result back to the cache. This is intentional to handle catastrophic cache
+    /// miss scenarios without potentially corrupting the cache with data that may
+    /// not match the expected format or freshness requirements.
+    ///
+    /// # Arguments
+    /// * `key` - The key to look up
+    /// * `fallback` - Function to call if both cache tiers miss
+    ///
+    /// # Returns
+    /// * `Ok((Value, CacheSource))` - The value and its source (Redis, S3, or DatabaseFallback)
+    /// * `Err(E)` - Error from the fallback function, or HyperCacheError if fallback returns None
+    pub async fn get_with_source_or_fallback<F, Fut, E>(
+        &self,
+        key: &KeyType,
+        fallback: F,
+    ) -> Result<(Value, CacheSource), E>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<Option<Value>, E>>,
+        E: From<HyperCacheError>,
+    {
+        // First try to get from cache (Redis then S3)
+        match self.get_with_source(key).await {
+            Ok((data, source)) => {
+                // Cache hit - return the cached data
+                Ok((data, source))
+            }
+            Err(HyperCacheError::CacheMiss) => {
+                // Both cache tiers missed - try the fallback
+                debug!("Cache miss for key {}, trying fallback", key);
+
+                match fallback().await? {
+                    Some(value) => {
+                        inc(
+                            HYPERCACHE_COUNTER_NAME,
+                            &[
+                                ("result".to_string(), "hit_fallback".to_string()),
+                                ("namespace".to_string(), self.config.namespace.clone()),
+                                ("value".to_string(), self.config.value.clone()),
+                            ],
+                            1,
+                        );
+                        Ok((value, CacheSource::DatabaseFallback))
+                    }
+                    None => {
+                        // Fallback also returned no data
+                        inc(
+                            HYPERCACHE_COUNTER_NAME,
+                            &[
+                                ("result".to_string(), "missing_with_fallback".to_string()),
+                                ("namespace".to_string(), self.config.namespace.clone()),
+                                ("value".to_string(), self.config.value.clone()),
+                            ],
+                            1,
+                        );
+                        Err(HyperCacheError::CacheMiss.into())
+                    }
+                }
+            }
+            Err(e) => {
+                // Other cache errors - propagate them
+                Err(e.into())
+            }
+        }
     }
 
     /// Get access to the configuration (useful for testing)
@@ -902,5 +992,261 @@ mod tests {
         let result = reader.try_get_from_redis("test_key").await;
         // Should fail gracefully and return CacheMiss since we try multiple decompression approaches
         assert!(matches!(result, Err(HyperCacheError::CacheMiss)));
+    }
+
+    #[tokio::test]
+    async fn test_get_with_source_or_fallback_cache_hit_redis() {
+        // Test that fallback is not called when Redis cache hits
+        let team_key = KeyType::string("123");
+        let test_data = json!({"key": "value", "nested": {"data": "test"}});
+        let test_data_str = serde_json::to_string(&test_data).unwrap();
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+
+        let mut mock_redis = MockRedisClient::new();
+        // Simulate Django's pickle format (uncompressed)
+        let pickled_bytes = serde_pickle::to_vec(&test_data_str, Default::default()).unwrap();
+        mock_redis = mock_redis.get_raw_bytes_ret(&expected_cache_key, Ok(pickled_bytes));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(),
+            config,
+        };
+
+        let result: Result<(Value, CacheSource), HyperCacheError> = reader
+            .get_with_source_or_fallback(&team_key, || async {
+                // If this is called, the test should fail because we expect cache hit
+                panic!("Fallback should not be called when cache hits!");
+            })
+            .await;
+
+        assert!(result.is_ok());
+        let (data, source) = result.unwrap();
+        assert_eq!(source, CacheSource::Redis);
+        assert_eq!(data, test_data);
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "mock-client")]
+    async fn test_get_with_source_or_fallback_cache_hit_s3() {
+        // Test that fallback is not called when S3 cache hits (after Redis miss)
+        let team_key = KeyType::string("123");
+        let test_data = json!({"key": "value", "nested": {"data": "test"}});
+        let test_data_str = serde_json::to_string(&test_data).unwrap();
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+        let expected_s3_key = config.get_s3_cache_key(&team_key);
+
+        // Redis returns NotFound
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
+
+        // S3 returns data
+        let mut mock_s3 = MockS3Client::new();
+        mock_s3
+            .expect_get_string()
+            .with(
+                predicate::eq("test-bucket"),
+                predicate::eq(expected_s3_key.clone()),
+            )
+            .returning({
+                let test_data_str = test_data_str.clone();
+                move |_, _| {
+                    let data = test_data_str.clone();
+                    Box::pin(async move { Ok(data) })
+                }
+            });
+        let mock_s3 = Arc::new(mock_s3);
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: mock_s3,
+            config,
+        };
+
+        let result: Result<(Value, CacheSource), HyperCacheError> = reader
+            .get_with_source_or_fallback(&team_key, || async {
+                // If this is called, the test should fail because we expect cache hit
+                panic!("Fallback should not be called when S3 cache hits!");
+            })
+            .await;
+
+        assert!(result.is_ok());
+        let (data, source) = result.unwrap();
+        assert_eq!(source, CacheSource::S3);
+        assert_eq!(data, test_data);
+    }
+
+    #[tokio::test]
+    async fn test_get_with_source_or_fallback_uses_fallback() {
+        // Test that fallback is called when both cache tiers miss
+        let team_key = KeyType::string("123");
+        let fallback_data = json!({"fallback": "data", "from": "database"});
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+
+        // Redis returns NotFound
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(), // S3 will also return NotFound
+            config,
+        };
+
+        let fallback_data_clone = fallback_data.clone();
+        let result = reader
+            .get_with_source_or_fallback(&team_key, || {
+                let data = fallback_data_clone.clone();
+                async move { Ok::<Option<Value>, HyperCacheError>(Some(data)) }
+            })
+            .await;
+
+        assert!(result.is_ok());
+        let (data, source) = result.unwrap();
+        assert_eq!(source, CacheSource::DatabaseFallback);
+        assert_eq!(data, fallback_data);
+    }
+
+    #[tokio::test]
+    async fn test_get_with_source_or_fallback_fallback_returns_none() {
+        // Test when fallback returns None (data doesn't exist in database either)
+        let team_key = KeyType::string("123");
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+
+        // Redis returns NotFound
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(),
+            config,
+        };
+
+        let result = reader
+            .get_with_source_or_fallback(&team_key, || async {
+                Ok::<Option<Value>, HyperCacheError>(None)
+            })
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), HyperCacheError::CacheMiss));
+    }
+
+    #[tokio::test]
+    async fn test_get_with_source_or_fallback_fallback_error() {
+        // Test when fallback returns an error
+        let team_key = KeyType::string("123");
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+
+        // Redis returns NotFound
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(),
+            config,
+        };
+
+        #[derive(Debug)]
+        struct CustomError(String);
+        impl From<HyperCacheError> for CustomError {
+            fn from(e: HyperCacheError) -> Self {
+                CustomError(format!("Cache error: {e}"))
+            }
+        }
+
+        let result = reader
+            .get_with_source_or_fallback(&team_key, || async {
+                Err::<Option<Value>, CustomError>(CustomError(
+                    "Database connection failed".to_string(),
+                ))
+            })
+            .await;
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            CustomError(msg) => assert!(msg.contains("Database connection failed")),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_with_source_or_fallback_no_cache_write() {
+        // Verify that fallback data is NOT written to cache
+        let team_key = KeyType::string("123");
+        let fallback_data = json!({"fallback": "data"});
+
+        let config = HyperCacheConfig::new(
+            "test".to_string(),
+            "test".to_string(),
+            "us-east-1".to_string(),
+            "test-bucket".to_string(),
+        );
+        let expected_cache_key = config.get_redis_cache_key(&team_key);
+
+        // Redis returns NotFound initially
+        let mut mock_redis = MockRedisClient::new();
+        mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
+
+        // Important: mock_redis should NOT receive any set/setex calls
+        // If it did, the test would panic due to unexpected method calls
+
+        let reader = HyperCacheReader {
+            redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
+            s3_client: create_dummy_s3_client(),
+            config,
+        };
+
+        let fallback_data_clone = fallback_data.clone();
+        let result = reader
+            .get_with_source_or_fallback(&team_key, || {
+                let data = fallback_data_clone.clone();
+                async move { Ok::<Option<Value>, HyperCacheError>(Some(data)) }
+            })
+            .await;
+
+        assert!(result.is_ok());
+        let (data, source) = result.unwrap();
+        assert_eq!(source, CacheSource::DatabaseFallback);
+        assert_eq!(data, fallback_data);
+
+        // If we got here without panicking, it means no cache write was attempted
+        // (MockRedisClient would panic on unexpected method calls)
     }
 }
