@@ -35,8 +35,6 @@ def migrate_revenue_base_currency(apps, schema_editor):
             logger.error("Failed to migrate base currency for team", team_id=team.id, error=str(e), exc_info=True)
             continue
 
-    logger.info("Revenue base currency migration completed", teams_updated=teams_updated)
-
 
 class Migration(migrations.Migration):
     dependencies = [
