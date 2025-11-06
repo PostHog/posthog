@@ -268,13 +268,22 @@ The response includes the formatted text and metadata about the rendering.
             elif "properties" not in data:
                 raise ValidationError(f"{event_type} events require 'properties' object in data field")
 
-            # Extract entity ID for cache key generation
+            # Validate that entity IDs are present to prevent cache collisions
             if event_type == "$ai_trace":
-                entity_id = data.get("trace", {}).get("properties", {}).get("$ai_trace_id") or data.get(
-                    "trace", {}
-                ).get("id", "unknown")
+                trace_id = data.get("trace", {}).get("properties", {}).get("$ai_trace_id") or data.get("trace", {}).get(
+                    "id"
+                )
+                if not trace_id:
+                    raise ValidationError("Trace events require an ID (trace.id or trace.properties.$ai_trace_id)")
             else:
-                entity_id = data.get("id", "unknown")
+                if not data.get("id"):
+                    raise ValidationError(f"{event_type} events require an 'id' field")
+
+            # Extract entity ID for cache key generation (validated above)
+            if event_type == "$ai_trace":
+                entity_id = data.get("trace", {}).get("properties", {}).get("$ai_trace_id") or data["trace"]["id"]
+            else:
+                entity_id = data["id"]
 
             # Check cache
             cache_key = self._get_cache_key(event_type, entity_id, options)

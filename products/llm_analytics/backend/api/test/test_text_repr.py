@@ -154,6 +154,49 @@ class TestTextReprAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("data", str(response.data).lower())
 
+    def test_missing_event_id(self):
+        """Should return 400 when event ID is missing to prevent cache collisions."""
+        request_data = {
+            "event_type": "$ai_generation",
+            "data": {
+                "properties": {
+                    "$ai_input": "Test input",
+                },
+            },
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request_data,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("id", str(response.data).lower())
+
+    def test_missing_trace_id(self):
+        """Should return 400 when trace ID is missing to prevent cache collisions."""
+        request_data = {
+            "event_type": "$ai_trace",
+            "data": {
+                "trace": {
+                    "properties": {
+                        "$ai_span_name": "test",
+                    }
+                },
+                "hierarchy": [],
+            },
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/text_repr/",
+            request_data,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("id", str(response.data).lower())
+
     def test_default_options(self):
         """Should use default options when not provided."""
         request_data = {
@@ -235,9 +278,10 @@ class TestTextReprAPI(APIBaseTest):
             "event_type": "$ai_trace",
             "data": {
                 "trace": {
+                    "id": "trace1",
                     "properties": {
                         "$ai_span_name": "test",
-                    }
+                    },
                 },
                 "hierarchy": [
                     {
