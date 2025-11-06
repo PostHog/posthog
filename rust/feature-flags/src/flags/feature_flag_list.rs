@@ -160,7 +160,6 @@ impl FeatureFlagList {
                     }),
                     Err(e) => {
                         // This is highly unlikely to happen, but if it does, we skip the flag.
-                        // I'll create some sort of alert for this.
                         tracing::warn!(
                             "Failed to deserialize filters for flag {} in project {} (team {}): {}",
                             row.key,
