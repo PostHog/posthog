@@ -103,7 +103,16 @@ def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[in
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
         if exported_asset.insight is not None:
-            url_to_render = absolute_uri(f"/exporter?token={access_token}&legend")
+            # Check if the insight has legend enabled
+            legend_enabled = False
+            if exported_asset.insight.query and isinstance(exported_asset.insight.query, dict):
+                source = exported_asset.insight.query.get("source", {})
+                if isinstance(source, dict):
+                    trends_filter = source.get("trendsFilter", {})
+                    if isinstance(trends_filter, dict):
+                        legend_enabled = trends_filter.get("showLegend", False)
+
+            url_to_render = absolute_uri(f"/exporter?token={access_token}{'&legend' if legend_enabled else ''}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
         elif exported_asset.dashboard is not None:
