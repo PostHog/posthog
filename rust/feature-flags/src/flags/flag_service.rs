@@ -178,10 +178,7 @@ impl FlagService {
             );
         }
 
-        // Extract flags from cache result
-        let flags = cache_result
-            .value
-            .expect("cache result always contains a value after get_with_cache");
+        let flags = cache_result.value.unwrap_or_default();
 
         Ok(FlagResult {
             flag_list: FeatureFlagList { flags },
