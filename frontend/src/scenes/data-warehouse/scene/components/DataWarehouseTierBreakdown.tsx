@@ -1,7 +1,3 @@
-import './DataWarehouseTierBreakdown.scss'
-
-import clsx from 'clsx'
-
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { compactNumber } from 'lib/utils'
 
@@ -56,7 +52,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
     const projectedCost = parseFloat(tier.projected_amount_usd || '0')
 
     return (
-        <div className="DataWarehouseTierCard">
+        <div className="border rounded-lg p-4 bg-bg-light hover:bg-bg-3000 transition-colors">
             <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
                     <div className="font-medium text-sm mb-1">{tierName}</div>
@@ -76,16 +72,20 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
                 </div>
             </div>
 
-            <div className="DataWarehouseTierGauge">
+            <div className="relative h-2 bg-border-light rounded overflow-hidden mb-3">
                 {/* Current usage bar */}
                 <Tooltip
                     title={`Current: ${compactNumber(tier.current_usage)} rows ($${currentCost.toFixed(2)})`}
                     placement="top"
                 >
                     <div
-                        className="DataWarehouseTierGauge__bar DataWarehouseTierGauge__bar--current"
+                        className="absolute top-0 left-0 bottom-0 rounded z-[2] transition-all duration-700"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: `${currentPercentage}%` }}
+                        style={{
+                            width: `${currentPercentage}%`,
+                            background: 'var(--brand-blue)',
+                            transitionTimingFunction: 'cubic-bezier(0.15, 0.15, 0.2, 1)',
+                        }}
                     />
                 </Tooltip>
 
@@ -96,26 +96,37 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
                         placement="top"
                     >
                         <div
-                            className="DataWarehouseTierGauge__bar DataWarehouseTierGauge__bar--projected"
+                            className="absolute top-0 left-0 bottom-0 rounded opacity-50 z-[1] transition-all duration-700"
                             // eslint-disable-next-line react/forbid-dom-props
-                            style={{ width: `${projectedPercentage}%` }}
+                            style={{
+                                width: `${projectedPercentage}%`,
+                                background:
+                                    'repeating-linear-gradient(-45deg, var(--data-color-1), var(--data-color-1) 0.5rem, var(--data-color-1-hover) 0.5rem, var(--data-color-1-hover) 1rem)',
+                                transitionTimingFunction: 'cubic-bezier(0.15, 0.15, 0.2, 1)',
+                            }}
                         />
                     </Tooltip>
                 )}
 
                 {/* Labels */}
-                <div className="DataWarehouseTierGauge__labels">
-                    <div className="DataWarehouseTierGauge__label">
-                        <span className={clsx('DataWarehouseTierGauge__dot', 'DataWarehouseTierGauge__dot--current')} />
+                <div className="flex flex-col gap-1 mt-2 text-sm">
+                    <div className="flex items-center gap-2">
+                        <span
+                            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ background: 'var(--brand-blue)' }}
+                        />
                         <span className="font-medium">{compactNumber(tier.current_usage)} rows</span>
                     </div>
                     {hasProjected && (
-                        <div className="DataWarehouseTierGauge__label">
+                        <div className="flex items-center gap-2">
                             <span
-                                className={clsx(
-                                    'DataWarehouseTierGauge__dot',
-                                    'DataWarehouseTierGauge__dot--projected'
-                                )}
+                                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    background:
+                                        'repeating-linear-gradient(-45deg, var(--data-color-1), var(--data-color-1) 0.125rem, var(--data-color-1-hover) 0.125rem, var(--data-color-1-hover) 0.25rem)',
+                                }}
                             />
                             <span className="text-muted">
                                 Projected: {compactNumber(tier.projected_usage || 0)} rows · ${projectedCost.toFixed(2)}

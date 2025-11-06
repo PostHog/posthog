@@ -40,7 +40,7 @@ export function DataWarehousePricingCard({ product }: { product: BillingProductV
                     )}
                 </div>
             </div>
-            <DataWarehouseTierBreakdown product={product} />
+            <DataWarehouseTierBreakdown product={displayProduct} />
         </LemonCard>
     )
 }
