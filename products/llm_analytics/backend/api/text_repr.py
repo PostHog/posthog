@@ -83,7 +83,7 @@ class TextReprRequestSerializer(serializers.Serializer):
         choices=["$ai_generation", "$ai_span", "$ai_embedding", "$ai_trace"],
         help_text="Type of LLM event to stringify",
     )
-    data = serializers.JSONField(
+    data = serializers.JSONField(  # type: ignore[assignment]
         help_text="Event data to stringify. For traces, should include 'trace' and 'hierarchy' fields.",
     )
     options = TextReprOptionsSerializer(
@@ -119,7 +119,7 @@ class LLMAnalyticsTextReprViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     Uses pure Python formatters for all processing.
     """
 
-    scope_object = "llm_analytics"
+    scope_object = "llm_analytics"  # type: ignore[assignment]
 
     def get_throttles(self):
         """Apply rate limiting to prevent abuse of text formatting endpoint."""

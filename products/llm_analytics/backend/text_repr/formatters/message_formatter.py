@@ -178,7 +178,7 @@ def safe_extract_text(content: Any) -> str:
             return json.dumps(content)
 
         if isinstance(content, list):
-            text_parts = []
+            text_parts: list[str] = []
             for i, item in enumerate(content):
                 if isinstance(item, dict):
                     item_type = item.get("type")

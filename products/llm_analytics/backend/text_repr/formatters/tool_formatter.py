@@ -8,9 +8,12 @@ automatic collapsing for long tool lists.
 
 import json
 import base64
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from .constants import DEFAULT_TOOLS_COLLAPSE_THRESHOLD
+
+if TYPE_CHECKING:
+    from .message_formatter import FormatterOptions
 
 
 class Tool(TypedDict, total=False):
@@ -34,9 +37,6 @@ def _format_tools_list(tools_list: list[dict[str, Any]]) -> str:
     lines: list[str] = []
 
     for tool in tools_list:
-        if not isinstance(tool, dict):
-            continue
-
         # Handle Google/Gemini format: {functionDeclarations: [{name, description, parameters}]}
         tools_to_process: list[dict[str, Any]] = []
         if "functionDeclarations" in tool and isinstance(tool["functionDeclarations"], list):
@@ -103,7 +103,7 @@ def _format_tools_list(tools_list: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def format_tools(ai_tools: Any, options: dict[str, Any] | None = None) -> list[str]:
+def format_tools(ai_tools: Any, options: "FormatterOptions | None" = None) -> list[str]:
     """
     Format available tools section.
 

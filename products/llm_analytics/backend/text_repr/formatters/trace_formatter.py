@@ -187,10 +187,10 @@ def _render_tree(
             else:
                 # Create expandable generation content
                 # Disable line numbers for embedded content - they'll be added at trace level
-                event_options = (
+                gen_event_options: FormatterOptions = (
                     {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
                 )
-                gen_content = format_event_text_repr(event, event_options)
+                gen_content = format_event_text_repr(event, gen_event_options)
 
                 if include_markers:
                     # Encode content for frontend to expand
@@ -214,10 +214,10 @@ def _render_tree(
             else:
                 # Create expandable span content
                 # Disable line numbers for embedded content - they'll be added at trace level
-                event_options = (
+                span_event_options: FormatterOptions = (
                     {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
                 )
-                span_content = format_event_text_repr(event, event_options)
+                span_content = format_event_text_repr(event, span_event_options)
 
                 if include_markers:
                     # Encode content for frontend to expand
@@ -241,10 +241,10 @@ def _render_tree(
             else:
                 # Create expandable embedding content
                 # Disable line numbers for embedded content - they'll be added at trace level
-                event_options = (
+                embedding_event_options: FormatterOptions = (
                     {**options, "include_line_numbers": False} if options else {"include_line_numbers": False}
                 )
-                embedding_content = format_event_text_repr(event, event_options)
+                embedding_content = format_event_text_repr(event, embedding_event_options)
 
                 if include_markers:
                     # Encode content for frontend to expand
