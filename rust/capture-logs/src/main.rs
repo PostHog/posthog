@@ -129,10 +129,10 @@ async fn main() {
     // Wait for any server to finish
     tokio::select! {
         _ = http_server => {
-            error!("HTTP server stopped unexpectedly");
+            error!("HTTP server stopped");
         }
         _ = mgmt_server => {
-            error!("Management server stopped unexpectedly");
+            error!("Management server stopped");
         }
     }
 }
