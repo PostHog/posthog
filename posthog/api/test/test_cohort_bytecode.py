@@ -456,7 +456,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         self.assertEqual(cohort_filter["type"], "cohort")
         self.assertIsNotNone(cohort_filter.get("bytecode"))
         # Should contain IN_COHORT operation
-        self.assertIn(33, cohort_filter["bytecode"])  # 33 is the IN_COHORT operation
+        self.assertIn("inCohort", cohort_filter["bytecode"])
         self.assertIsNotNone(cohort_filter.get("conditionHash"))
 
         # The person property filter should also have bytecode
