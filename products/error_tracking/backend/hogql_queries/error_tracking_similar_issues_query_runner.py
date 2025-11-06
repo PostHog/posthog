@@ -272,7 +272,7 @@ class ErrorTrackingSimilarIssuesQueryRunner(AnalyticsQueryRunner[ErrorTrackingQu
                 AND document_id NOT IN {fingerprints}
                 AND product = 'error_tracking'
             ) as b
-            ORDER BY fingerprint, distance ASC
+            ORDER BY distance ASC
         ) as subquery
         WHERE subquery.distance <= {max_distance}
         GROUP BY fingerprint
