@@ -191,8 +191,8 @@ class ExperimentQueryBuilder:
                 -- num_steps - 1
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum,
                 countIf(entity_metrics.value.1 = {{num_steps_minus_1}}) AS total_sum_of_squares
-                -- step_counts added programatically below
-                -- steps_event_data added programatically below
+                -- step_counts added programmatically below
+                -- steps_event_data added programmatically below
             FROM entity_metrics
             WHERE notEmpty(variant)
             GROUP BY entity_metrics.variant
