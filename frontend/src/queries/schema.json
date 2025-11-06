@@ -344,7 +344,7 @@
             "type": "object"
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql"],
+            "enum": ["product_analytics", "noop"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -1845,9 +1845,7 @@
                 "read_data",
                 "todo_write",
                 "filter_revenue_analytics",
-                "create_feature_flag",
-                "execute_sql",
-                "switch_mode"
+                "create_feature_flag"
             ],
             "type": "string"
         },

@@ -2,8 +2,9 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel
 
+from posthog.schema import AgentMode
+
 from ee.hogai.graph.agent_modes.nodes import AgentNode, AgentToolkit, AgentToolsNode
-from ee.hogai.utils.types.base import AgentMode
 
 
 class AgentExample(BaseModel):
