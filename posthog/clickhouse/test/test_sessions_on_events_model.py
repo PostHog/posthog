@@ -55,7 +55,7 @@ class TestSessionsOnEventsModel(ClickhouseTestMixin, BaseTest):
         )
 
     def get_temp_table_name(self):
-        return f"{settings.CLICKHOUSE_DATABASE}test_session_overrides_table_{self.team.id}"
+        return f"test_session_overrides_table_{self.team.id}"
 
     def get_temp_dict_name(self):
         return f"{self.get_temp_table_name()}_dict"

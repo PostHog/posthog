@@ -19,7 +19,7 @@ The actual squashing process happens with these steps:
 """
 
 from posthog import settings
-from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.raw_sessions.sessions_v3 import SESSION_V3_LOWER_TIER_AD_IDS
 
@@ -279,10 +279,15 @@ def DISTRIBUTED_RAW_SESSIONS_OVERRIDES_TABLE_SQL_V3():
     )
 
 
-def SESSION_OVERRIDES_SNAPSHOT_TABLE_V3_CREATE_SQL(qualified_name: str) -> str:
+def SESSION_OVERRIDES_SNAPSHOT_TABLE_V3_CREATE_SQL(table_name: str) -> str:
     # these are the same field as the MV above, but with simpler types instead of aggregate function state
+    engine = ReplacingMergeTree(
+        table=table_name,
+        replication_scheme=ReplicationScheme.REPLICATED,
+        ver="max_inserted_at",
+    )
     return f"""
-CREATE TABLE IF NOT EXISTS {qualified_name} (
+CREATE TABLE IF NOT EXISTS {table_name} (
     team_id Int64,
     session_id_v7 UInt128,
 
@@ -321,16 +326,16 @@ CREATE TABLE IF NOT EXISTS {qualified_name} (
     -- bounce rate
     page_screen_autocapture_uniq_up_to Array(UUID)
 )
-ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/{qualified_name}', '{{replica}}-{{shard}}', max_inserted_at)
+ENGINE = {engine}
 ORDER BY (team_id, session_id_v7)
     """
 
 
 def SESSION_OVERRIDES_SNAPSHOT_TABLE_V3_POPULATE_SQL(
-    qualified_name: str, limit_clause: str = "", where_clause: str = "TRUE"
+    table_name: str, limit_clause: str = "", where_clause: str = "TRUE"
 ) -> str:
     return f"""
-INSERT INTO {qualified_name} (
+INSERT INTO {settings.CLICKHOUSE_DATABASE}.{table_name} (
     team_id,
     session_id_v7,
 
@@ -406,10 +411,10 @@ GROUP BY team_id, session_id_v7
 
 
 def SESSIONS_OVERRIDES_DICT_V3_CREATE_SQL(
-    qualified_name: str, shards: int, max_execution_time: int, max_memory_usage: int
+    dict_name: str, shards: int, max_execution_time: int, max_memory_usage: int
 ) -> str:
     return f"""
-CREATE DICTIONARY IF NOT EXISTS {qualified_name} (
+CREATE DICTIONARY IF NOT EXISTS {settings.CLICKHOUSE_DATABASE}.{dict_name} (
     team_id Int64,
     session_id_v7 UInt128,
 
