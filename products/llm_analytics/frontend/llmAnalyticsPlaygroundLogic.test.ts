@@ -375,6 +375,24 @@ describe('llmAnalyticsPlaygroundLogic', () => {
             ])
         })
 
+        it('should concatenate multiple system messages', () => {
+            const input = [
+                { role: 'system', content: 'You are a helpful assistant.' },
+                { role: 'system', content: 'Always respond in a friendly manner.' },
+                { role: 'system', content: 'Use markdown formatting when appropriate.' },
+                { role: 'user', content: 'Hello' },
+                { role: 'assistant', content: 'Hi there!' },
+            ]
+
+            logic.actions.setupPlaygroundFromEvent({ input })
+
+            expect(logic.values.systemPrompt).toBe('You are a helpful assistant.\n\nAlways respond in a friendly manner.\n\nUse markdown formatting when appropriate.')
+            expect(logic.values.messages).toEqual([
+                { role: 'user', content: 'Hello' },
+                { role: 'assistant', content: 'Hi there!' },
+            ])
+        })
+
         it('should normalize role names (ai/model to assistant)', () => {
             const input = [
                 { role: 'user', content: 'Question' },
