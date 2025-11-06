@@ -130,7 +130,7 @@ export class DecompressionWorkerManager {
                 compressedData,
             }
 
-            this.worker!.postMessage(message)
+            this.worker!.postMessage(message, { transfer: [compressedData.buffer] })
         })
     }
 
