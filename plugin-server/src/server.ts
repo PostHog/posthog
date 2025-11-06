@@ -25,6 +25,7 @@ import {
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
 } from './config/kafka-topics'
+import { HypercacheApi } from './hypercache/hypercache.api'
 import { IngestionConsumer } from './ingestion/ingestion-consumer'
 import { onShutdown } from './lifecycle'
 import { LogsIngestionConsumer } from './logs-ingestion/logs-ingestion-consumer'
@@ -293,6 +294,15 @@ export class PluginServer {
                     const consumer = new LogsIngestionConsumer(hub)
                     await consumer.start()
                     return consumer.service
+                })
+            }
+
+            if (capabilities.hypercacheApi) {
+                serviceLoaders.push(async () => {
+                    const api = new HypercacheApi(hub)
+                    this.expressApp.use('/', api.router())
+                    await api.start()
+                    return api.service
                 })
             }
 

@@ -5,6 +5,7 @@ import { PluginsServerConfig, RedisPool } from '../../types'
 import { logger } from '../../utils/logger'
 import { killGracefully } from '../../utils/utils'
 import { captureException } from '../posthog'
+import { timeoutGuard } from './utils'
 
 /** Number of Redis error events until the server is killed gracefully. */
 const REDIS_ERROR_COUNTER_LIMIT = 10
@@ -100,7 +101,7 @@ export async function createRedisClient(url: string, options?: RedisOptions): Pr
 }
 
 export function createRedisPool(options: PluginsServerConfig, kind: REDIS_SERVER_KIND): RedisPool {
-    return createPool<Redis.Redis>(
+    const pool = createPool<Redis.Redis>(
         {
             create: () => createRedis(options, kind),
             destroy: async (client) => {
@@ -113,4 +114,38 @@ export function createRedisPool(options: PluginsServerConfig, kind: REDIS_SERVER
             autostart: true,
         }
     )
+
+    const useClient: RedisPool['useClient'] = async (options, callback) => {
+        const timeout = timeoutGuard(
+            `Redis call ${options.name} delayed. Waiting over 30 seconds.`,
+            undefined,
+            options.timeout
+        )
+        const client = await pool.acquire()
+
+        try {
+            return await callback(client)
+        } catch (e) {
+            if (options.failOpen) {
+                // We log the error and return null
+                captureException(e)
+                logger.error(`Redis call${options.name} failed`, e)
+                return null
+            }
+            throw e
+        } finally {
+            await pool.release(client)
+            clearTimeout(timeout)
+        }
+    }
+
+    const usePipeline: RedisPool['usePipeline'] = async (options, callback) => {
+        return useClient(options, async (client) => {
+            const pipeline = client.pipeline()
+            callback(pipeline)
+            return pipeline.exec()
+        })
+    }
+
+    return Object.assign(pool, { useClient, usePipeline }) as RedisPool
 }

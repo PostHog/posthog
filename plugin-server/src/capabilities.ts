@@ -25,6 +25,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpApi: true,
                 evaluationScheduler: true,
                 logsIngestion: true,
+                hypercacheApi: true,
             }
 
         case PluginServerMode.local_cdp:
@@ -110,6 +111,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.ingestion_logs:
             return {
                 logsIngestion: true,
+            }
+        case PluginServerMode.hypercache_api:
+            return {
+                hypercacheApi: true,
             }
     }
 }

@@ -1,5 +1,5 @@
 import { Pool as GenericPool } from 'generic-pool'
-import { Redis } from 'ioredis'
+import { Pipeline, Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
@@ -83,6 +83,7 @@ export enum PluginServerMode {
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
+    hypercache_api = 'hypercache-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -566,6 +567,7 @@ export interface PluginServerCapabilities {
     cdpApi?: boolean
     appManagementSingleton?: boolean
     evaluationScheduler?: boolean
+    hypercacheApi?: boolean
 }
 
 export interface EnqueuedPluginJob {
@@ -1390,7 +1392,19 @@ export interface IncomingEventWithTeam {
     headers: EventHeaders
 }
 
-export type RedisPool = GenericPool<Redis>
+export type UseRedisOptions = {
+    name: string
+    timeout?: number
+    failOpen?: boolean
+}
+
+export type RedisPool = GenericPool<Redis> & {
+    useClient: <T>(options: UseRedisOptions, callback: (client: Redis) => Promise<T>) => Promise<T | null>
+    usePipeline: (
+        options: UseRedisOptions,
+        callback: (pipeline: Pipeline) => void
+    ) => Promise<Array<[Error | null, any]> | null>
+}
 
 export type RRWebEvent = Record<string, any> & {
     timestamp: number
