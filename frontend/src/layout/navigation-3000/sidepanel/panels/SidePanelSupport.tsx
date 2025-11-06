@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
@@ -231,6 +232,9 @@ export function SidePanelSupport(): JSX.Element {
         }
     }
 
+    const handleStartFeedbackRecording = (): void => {
+        posthog.startUserFeedbackRecording((result: any) => {})
+    }
     const SupportFormBlock = ({ onCancel }: { onCancel: () => void }): JSX.Element => {
         const { featureFlags } = useValues(featureFlagLogic)
 
@@ -332,6 +336,16 @@ export function SidePanelSupport(): JSX.Element {
                                         disabled={billingLoading}
                                     >
                                         {billingLoading ? 'Loading...' : 'Email our support engineers'}
+                                    </LemonButton>
+                                    <p>Start feedback recording</p>
+                                    <LemonButton
+                                        type="secondary"
+                                        fullWidth
+                                        center
+                                        onClick={handleStartFeedbackRecording}
+                                        className="mt-2"
+                                    >
+                                        Start feedback recordings
                                     </LemonButton>
                                 </Section>
                             )}
