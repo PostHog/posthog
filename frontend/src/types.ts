@@ -468,6 +468,7 @@ export interface OrganizationType extends OrganizationBasicType {
     metadata?: OrganizationMetadata
     member_count: number
     default_experiment_stats_method: ExperimentStatsMethod
+    default_anonymize_ips?: boolean
     default_role_id?: string | null
 }
 
@@ -1639,7 +1640,7 @@ export interface SavedSessionRecordingPlaylistsFilters {
     page: number
     pinned: boolean
     type?: 'collection' | 'saved_filters'
-    collectionType: 'custom' | 'synthetic' | null
+    collectionType: 'custom' | 'synthetic' | 'new-urls' | null
 }
 
 export interface SavedSessionRecordingPlaylistsResult extends PaginatedResponse<SessionRecordingPlaylistType> {
@@ -4686,6 +4687,7 @@ export enum ActivityScope {
     PLUGIN = 'Plugin',
     PLUGIN_CONFIG = 'PluginConfig',
     HOG_FUNCTION = 'HogFunction',
+    HOG_FLOW = 'HogFlow',
     DATA_MANAGEMENT = 'DataManagement',
     EVENT_DEFINITION = 'EventDefinition',
     PROPERTY_DEFINITION = 'PropertyDefinition',

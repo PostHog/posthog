@@ -5,7 +5,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CustomerAnalyticsDashboardCard } from './CustomerAnalyticsDashboardCard'
@@ -30,15 +29,12 @@ export function CustomerAnalyticsScene(): JSX.Element {
 
 const Header = (): JSX.Element => {
     return (
-        <>
-            <SceneTitleSection
-                name={sceneConfigurations[Scene.CustomerAnalytics].name}
-                description={sceneConfigurations[Scene.CustomerAnalytics].description}
-                resourceType={{
-                    type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
-                }}
-            />
-            <SceneDivider />
-        </>
+        <SceneTitleSection
+            name={sceneConfigurations[Scene.CustomerAnalytics].name}
+            description={sceneConfigurations[Scene.CustomerAnalytics].description}
+            resourceType={{
+                type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
+            }}
+        />
     )
 }

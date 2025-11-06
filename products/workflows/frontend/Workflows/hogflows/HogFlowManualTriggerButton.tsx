@@ -1,124 +1,101 @@
 import { useActions, useValues } from 'kea'
 
-import { IconButton, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, Popover } from '@posthog/lemon-ui'
+import { IconPlayFilled } from '@posthog/icons'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonInput, Popover } from '@posthog/lemon-ui'
 
-import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { CyclotronJobInputSchemaType } from '~/types'
 
-import { workflowLogic } from '../workflowLogic'
-import { WorkflowSceneLogicProps } from '../workflowSceneLogic'
-import { hogFlowManualTriggerLogic } from './hogFlowManualTriggerLogic'
+import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
+import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
 
 const VariableInputsPopover = ({
     setPopoverVisible,
+    props,
 }: {
     setPopoverVisible: (visible: boolean) => void
+    props: WorkflowLogicProps
 }): JSX.Element => {
-    const { workflow } = useValues(workflowLogic)
-    const { triggerManualWorkflow } = useActions(workflowLogic)
-    const {
-        inputs,
-        useDefaults,
-        scheduleEnabled,
-        scheduledDateTime,
-        variableValues,
-        scheduleDisabledReason,
-        timezone,
-    } = useValues(hogFlowManualTriggerLogic({ id: workflow?.id || 'new' }))
-    const { setInput, toggleUseDefaults, toggleScheduleEnabled, setScheduledDateTime } = useActions(
-        hogFlowManualTriggerLogic({ id: workflow?.id || 'new' })
-    )
+    const logic = hogFlowManualTriggerButtonLogic(props)
+    const { workflow, variableValues, inputs } = useValues(logic)
+    const { triggerManualWorkflow } = useActions(workflowLogic(props))
+    const { setInput, clearInputs } = useActions(logic)
 
-    const noVariablesMessage = <div className="text-muted">No variables to configure.</div>
-
-    const defaultVariableOption = (
-        <div className="flex items-center gap-2">
-            <LemonCheckbox label="Use default values" checked={useDefaults} onChange={() => toggleUseDefaults()} />
-        </div>
-    )
-
-    const variableInputs = useDefaults ? (
-        <>
-            {workflow.variables?.map((variable: CyclotronJobInputSchemaType) => (
-                <div key={variable.key} className="flex flex-col gap-1">
-                    <label className="font-semibold">{variable.label || variable.key}</label>
-                    <span className="text-xs text-muted">
-                        {variable.default ? `Default: ${String(variable.default)}` : 'No default'}
-                    </span>
+    if (!workflow?.variables || workflow.variables.length === 0) {
+        return (
+            <div className="flex flex-col gap-3 p-3 min-w-80">
+                <div className="pb-2 border-b">
+                    <h3 className="text-sm font-semibold">Configure variables</h3>
                 </div>
-            ))}
-        </>
-    ) : (
-        <>
-            {workflow.variables?.map((variable: CyclotronJobInputSchemaType) => (
-                <div key={variable.key} className="flex flex-col gap-1">
-                    <LemonField.Pure className="font-semibold" label={variable.label}>
-                        <LemonInput
-                            type="text"
-                            value={inputs[variable.key] ?? variable.default ?? ''}
-                            placeholder={variable.default ? `Default: ${variable.default}` : ''}
-                            onChange={(value) => setInput(variable.key, value)}
-                            disabled={useDefaults}
-                        />
-                        {variable.default !== undefined && (
-                            <span className="text-xs text-muted">
-                                {variable.default ? `Default: ${String(variable.default)}` : 'No default'}
-                            </span>
-                        )}
-                    </LemonField.Pure>
-                </div>
-            ))}
-        </>
-    )
-
-    const scheduleSection = (
-        <div className="flex flex-col gap-2 border-t pt-2">
-            <LemonCheckbox
-                label="Schedule for later"
-                checked={scheduleEnabled}
-                onChange={() => toggleScheduleEnabled()}
-            />
-            {scheduleEnabled && (
-                <div className="flex flex-col gap-2">
-                    <div className="text-xs text-muted">Project timezone: {timezone}</div>
-                    <LemonCalendarSelectInput
-                        value={scheduledDateTime}
-                        onChange={(date) => {
-                            // Interpret the selected wall-clock time in the team's timezone
-                            setScheduledDateTime(date)
+                <div className="text-muted text-sm">No variables to configure.</div>
+                <div className="flex justify-end border-t pt-3">
+                    <LemonButton
+                        type="primary"
+                        status="alt"
+                        onClick={() => {
+                            triggerManualWorkflow({})
+                            setPopoverVisible(false)
+                            clearInputs()
                         }}
-                        granularity="minute"
-                        selectionPeriod="upcoming"
-                        showTimeToggle={false}
-                    />
+                        data-attr="run-workflow-btn"
+                    >
+                        Run workflow
+                    </LemonButton>
                 </div>
-            )}
-        </div>
-    )
+            </div>
+        )
+    }
 
     return (
-        <div className="flex flex-col items-start gap-2 p-2 min-w-64">
-            {!workflow?.variables || workflow.variables.length === 0 ? (
-                noVariablesMessage
-            ) : (
-                <>
-                    {defaultVariableOption}
-                    {variableInputs}
-                </>
-            )}
-            {scheduleSection}
-            <div className="pt-2 flex justify-end w-full">
+        <div className="flex flex-col gap-4 p-3 min-w-80 max-w-96">
+            <div className="pb-2 border-b">
+                <h3 className="text-sm font-semibold">Configure variables</h3>
+                <p className="text-xs text-muted mt-0.5">Set variable values or leave empty to use defaults</p>
+            </div>
+            <div className="flex flex-col gap-3">
+                {workflow.variables.map((variable: CyclotronJobInputSchemaType) => {
+                    const inputValue = inputs[variable.key]
+                    const displayValue = inputValue ?? ''
+                    const hasDefault = variable.default !== undefined && variable.default !== ''
+
+                    return (
+                        <LemonField.Pure key={variable.key} label={variable.label || variable.key}>
+                            {variable.type === 'number' ? (
+                                <LemonInput
+                                    type="number"
+                                    value={displayValue === '' ? undefined : Number(displayValue)}
+                                    placeholder={hasDefault ? `Default: ${String(variable.default)}` : 'Enter value'}
+                                    onChange={(value: number | undefined) => {
+                                        setInput(variable.key, value !== undefined ? String(value) : '')
+                                    }}
+                                />
+                            ) : (
+                                <LemonInput
+                                    type="text"
+                                    value={displayValue}
+                                    placeholder={hasDefault ? `Default: ${String(variable.default)}` : 'Enter value'}
+                                    onChange={(value: string) => {
+                                        setInput(variable.key, value)
+                                    }}
+                                />
+                            )}
+                        </LemonField.Pure>
+                    )
+                })}
+            </div>
+
+            <div className="flex justify-end border-t pt-3">
                 <LemonButton
                     type="primary"
                     status="alt"
                     onClick={() => {
                         const scheduledAt =
                             scheduleEnabled && scheduledDateTime ? scheduledDateTime.toISOString() : undefined
-                        ;(triggerManualWorkflow as any)(variableValues, scheduledAt)
+                        triggerManualWorkflow(variableValues, scheduledAt)
                         setPopoverVisible(false)
+                        clearInputs()
                     }}
                     data-attr="run-workflow-btn"
                     sideIcon={<IconPlayFilled />}
@@ -131,14 +108,16 @@ const VariableInputsPopover = ({
     )
 }
 
-export const HogFlowManualTriggerButton = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
-    const logic = hogFlowManualTriggerLogic(props)
-    const { manualTriggerPopoverVisible, workflow, workflowChanged } = useValues(logic)
-    const { togglePopoverVisible } = useActions(logic)
+export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.Element => {
+    const logic = hogFlowManualTriggerButtonLogic(props)
+    const { workflow, workflowChanged } = useValues(workflowLogic(props))
+    const { popoverVisible } = useValues(logic)
+    const { setPopoverVisible } = useActions(logic)
 
     const triggerButton = (
         <LemonButton
             type="primary"
+            size="small"
             disabledReason={
                 workflow?.status !== 'active'
                     ? 'Must enable workflow to use trigger'
@@ -146,9 +125,9 @@ export const HogFlowManualTriggerButton = (props: WorkflowSceneLogicProps = {}):
                       ? 'Save changes first'
                       : undefined
             }
-            icon={<IconButton />}
+            sideIcon={<IconChevronDown className={`transition-transform ${popoverVisible ? 'rotate-180' : ''}`} />}
             tooltip="Triggers workflow immediately"
-            onClick={() => togglePopoverVisible()}
+            onClick={() => setPopoverVisible(!popoverVisible)}
         >
             Trigger
         </LemonButton>
@@ -156,10 +135,10 @@ export const HogFlowManualTriggerButton = (props: WorkflowSceneLogicProps = {}):
 
     return (
         <Popover
-            visible={manualTriggerPopoverVisible}
+            visible={popoverVisible}
             placement="bottom-start"
-            onClickOutside={() => togglePopoverVisible()}
-            overlay={<VariableInputsPopover setPopoverVisible={togglePopoverVisible} />}
+            onClickOutside={() => setPopoverVisible(false)}
+            overlay={<VariableInputsPopover setPopoverVisible={setPopoverVisible} props={props} />}
         >
             {triggerButton}
         </Popover>

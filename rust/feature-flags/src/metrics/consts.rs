@@ -64,3 +64,5 @@ pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
 
 // Error classification
 pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
+pub const FLAG_FILTER_DESERIALIZATION_ERROR_COUNTER: &str =
+    "flags_filter_deserialization_error_total";
