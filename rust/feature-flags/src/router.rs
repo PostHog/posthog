@@ -191,7 +191,7 @@ pub async fn readiness(
         let mut conn = pool.acquire().await.map_err(|e| {
             (
                 StatusCode::SERVICE_UNAVAILABLE,
-                format!("{} pool unavailable: {}", name, e),
+                format!("{name} pool unavailable: {e}"),
             )
         })?;
 
@@ -203,7 +203,7 @@ pub async fn readiness(
                 .map_err(|e| {
                     (
                         StatusCode::SERVICE_UNAVAILABLE,
-                        format!("{} connection test failed: {}", name, e),
+                        format!("{name} connection test failed: {e}"),
                     )
                 })?;
         }
