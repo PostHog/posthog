@@ -84,21 +84,23 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
                     const beforeMap = new Map(actionsBefore.map((a: any) => [a.id, a]))
                     const afterMap = new Map(actionsAfter.map((a: any) => [a.id, a]))
 
-                    const added: string[] = []
-                    const removed: string[] = []
-                    const modified: string[] = []
-
                     // Find added actions
                     for (const action of actionsAfter) {
                         if (!beforeMap.has(action.id)) {
-                            added.push(action.name || action.id)
+                            changes.push({
+                                inline: <>added action {action.name || action.id}</>,
+                                inlist: <>added action {action.name || action.id}</>,
+                            })
                         }
                     }
 
                     // Find removed actions
                     for (const action of actionsBefore) {
                         if (!afterMap.has(action.id)) {
-                            removed.push(action.name || action.id)
+                            changes.push({
+                                inline: <>deleted action {action.name || action.id}</>,
+                                inlist: <>deleted action {action.name || action.id}</>,
+                            })
                         }
                     }
 
@@ -106,39 +108,59 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
                     for (const action of actionsAfter) {
                         const beforeAction = beforeMap.get(action.id)
                         if (beforeAction && JSON.stringify(beforeAction) !== JSON.stringify(action)) {
-                            modified.push(action.name || action.id)
+                            changes.push({
+                                inline: <>updated action {action.name || action.id}</>,
+                                inlist: <>updated action {action.name || action.id}</>,
+                            })
+                        }
+                    }
+                    break
+                }
+                case 'variables': {
+                    const variablesBefore = (change.before as any[]) || []
+                    const variablesAfter = (change.after as any[]) || []
+
+                    // Create maps by key for easier comparison
+                    const beforeMap = new Map(variablesBefore.map((v: any) => [v.key, v]))
+                    const afterMap = new Map(variablesAfter.map((v: any) => [v.key, v]))
+
+                    // Find added variables
+                    for (const variable of variablesAfter) {
+                        if (!beforeMap.has(variable.key)) {
+                            const varName = variable.key || variable.label || 'unnamed'
+                            changes.push({
+                                inline: <>added variable {varName}</>,
+                                inlist: <>added variable {varName}</>,
+                            })
                         }
                     }
 
-                    const changesList: string[] = []
-                    if (added.length > 0) {
-                        changesList.push(`added ${added.length === 1 ? 'action' : 'actions'}: ${added.join(', ')}`)
-                    }
-                    if (removed.length > 0) {
-                        changesList.push(
-                            `removed ${removed.length === 1 ? 'action' : 'actions'}: ${removed.join(', ')}`
-                        )
-                    }
-                    if (modified.length > 0) {
-                        changesList.push(modified.join(', '))
+                    // Find removed variables
+                    for (const variable of variablesBefore) {
+                        if (!afterMap.has(variable.key)) {
+                            const varName = variable.key || variable.label || 'unnamed'
+                            changes.push({
+                                inline: <>deleted variable {varName}</>,
+                                inlist: <>deleted variable {varName}</>,
+                            })
+                        }
                     }
 
-                    if (changesList.length > 0) {
-                        changes.push({
-                            inline: <>updated actions ({changesList.join('; ')})</>,
-                            inlist: <>updated actions ({changesList.join('; ')})</>,
-                        })
-                    } else {
-                        changes.push({
-                            inline: 'updated actions',
-                            inlist: 'updated actions',
-                        })
+                    // Find modified variables (same key but different content)
+                    for (const variable of variablesAfter) {
+                        const beforeVariable = beforeMap.get(variable.key)
+                        if (beforeVariable && JSON.stringify(beforeVariable) !== JSON.stringify(variable)) {
+                            const varName = variable.key || variable.label || 'unnamed'
+                            changes.push({
+                                inline: <>updated variable {varName}</>,
+                                inlist: <>updated variable {varName}</>,
+                            })
+                        }
                     }
                     break
                 }
                 case 'trigger':
-                case 'edges':
-                case 'variables': {
+                case 'edges': {
                     changes.push({
                         inline: `updated ${change.field}`,
                         inlist: `updated ${change.field}`,
@@ -156,22 +178,16 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         const workflowName = nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)
 
         return {
-            description:
-                changes.length == 1 ? (
-                    <>
-                        <strong className="ph-no-capture">{name}</strong> {changes[0].inline} the {objectNoun}:{' '}
-                        {workflowName}
-                    </>
-                ) : (
-                    <div>
-                        <strong className="ph-no-capture">{name}</strong> updated the {objectNoun}: {workflowName}
-                        <ul className="ml-5 list-disc">
-                            {changes.map((c, i) => (
-                                <li key={i}>{c.inlist}</li>
-                            ))}
-                        </ul>
-                    </div>
-                ),
+            description: (
+                <div>
+                    <strong className="ph-no-capture">{name}</strong> updated the {objectNoun}: {workflowName}
+                    <ul className="ml-5 list-disc">
+                        {changes.map((c, i) => (
+                            <li key={i}>{c.inlist}</li>
+                        ))}
+                    </ul>
+                </div>
+            ),
         }
     }
     return defaultDescriber(logItem, asNotification, nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name))
