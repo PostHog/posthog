@@ -38,8 +38,31 @@ export class DecompressionWorkerManager {
         try {
             this.worker = new Worker('/static/decompressionWorker.js', { type: 'module' })
 
-            this.worker.addEventListener('message', (event: MessageEvent<DecompressionResponse>) => {
-                const { id, decompressedData, error } = event.data
+            // Attach ready handler first to avoid race condition
+            const readyPromise = Promise.race([
+                new Promise<void>((resolve) => {
+                    const handler = (event: MessageEvent): void => {
+                        if (event.data.type === 'ready') {
+                            this.worker?.removeEventListener('message', handler)
+                            resolve()
+                        }
+                    }
+                    this.worker?.addEventListener('message', handler)
+                }),
+                new Promise<void>((_, reject) =>
+                    setTimeout(() => reject(new Error('Worker initialization timeout')), 5000)
+                ),
+            ])
+
+            this.worker.addEventListener('message', (event: MessageEvent) => {
+                const data = event.data
+
+                // Ignore ready message (handled separately during initialization)
+                if ('type' in data && data.type === 'ready') {
+                    return
+                }
+
+                const { id, decompressedData, error } = data as DecompressionResponse
 
                 const pending = this.pendingRequests.get(id)
                 if (!pending) {
@@ -60,17 +83,13 @@ export class DecompressionWorkerManager {
 
             this.worker.addEventListener('error', (error) => {
                 console.error('[DecompressionWorkerManager] Worker error:', error)
+                this.pendingRequests.forEach((pending) => {
+                    pending.reject(new Error(`Worker error: ${error.message}`))
+                })
+                this.pendingRequests.clear()
             })
 
-            await new Promise<void>((resolve) => {
-                const handler = (event: MessageEvent): void => {
-                    if (event.data.type === 'ready') {
-                        this.worker?.removeEventListener('message', handler)
-                        resolve()
-                    }
-                }
-                this.worker?.addEventListener('message', handler)
-            })
+            await readyPromise
         } catch (error) {
             console.error('[DecompressionWorkerManager] Failed to initialize worker:', error)
             throw error
@@ -111,9 +130,7 @@ export class DecompressionWorkerManager {
                 compressedData,
             }
 
-            // Transfer buffer ownership to worker for zero-copy performance
-            // Caller must not reuse compressedData after this call
-            this.worker!.postMessage(message, [compressedData.buffer])
+            this.worker!.postMessage(message)
         })
     }
 
