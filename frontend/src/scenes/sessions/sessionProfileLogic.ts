@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 import { SessionEventType } from '~/types'
 
@@ -50,6 +51,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
         updateEventsOffset: (offset: number) => ({ offset }),
         loadTotalEventCount: true,
         setSortOrder: (sortOrder: 'asc' | 'desc') => ({ sortOrder }),
+        loadRecordingAvailability: true,
     }),
     reducers({
         hasMoreEvents: [
@@ -415,6 +417,25 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
                 },
             },
         ],
+        hasRecording: [
+            false as boolean,
+            {
+                loadRecordingAvailability: async () => {
+                    // Use UUIDv7 timestamp for partition pruning (session_id is UUIDv7)
+                    const startTime = `UUIDv7ToDateTime(toUUID('${props.sessionId}'))`
+                    const endTime = `${startTime} + INTERVAL 1 DAY`
+
+                    const response = await api.recordings.list({
+                        kind: NodeKind.RecordingsQuery,
+                        session_ids: [props.sessionId],
+                        date_from: startTime,
+                        date_to: endTime,
+                        limit: 1,
+                    })
+                    return (response.results?.length ?? 0) > 0
+                },
+            },
+        ],
     })),
     selectors({
         sessionDuration: [
@@ -474,6 +495,7 @@ export const sessionProfileLogic = kea<sessionProfileLogicType>([
         loadSessionData: () => {
             actions.loadSessionEvents()
             actions.loadTotalEventCount()
+            actions.loadRecordingAvailability()
         },
         setSortOrder: () => {
             // Reset hasMoreEvents when changing sort order

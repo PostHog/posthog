@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -43,6 +44,8 @@ export function SessionProfileScene(): JSX.Element {
         sortOrder,
         sessionDataLoading,
         sessionEventsLoading,
+        hasRecording,
+        hasRecordingLoading,
     } = useValues(sessionProfileLogic)
     const { loadEventDetails, loadSessionData, loadMoreSessionEvents, setSortOrder } = useActions(sessionProfileLogic)
 
@@ -67,14 +70,24 @@ export function SessionProfileScene(): JSX.Element {
                     key: 'sessions',
                 }}
                 actions={
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconRefresh />}
-                        onClick={() => loadSessionData()}
-                        loading={sessionDataLoading || sessionEventsLoading}
-                    >
-                        Refresh
-                    </LemonButton>
+                    <>
+                        <ViewRecordingButton
+                            sessionId={sessionData?.session_id}
+                            recordingStatus={hasRecording ? 'active' : 'none'}
+                            inModal={true}
+                            size="small"
+                            type="secondary"
+                            loading={hasRecordingLoading}
+                        />
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconRefresh />}
+                            onClick={() => loadSessionData()}
+                            loading={sessionDataLoading || sessionEventsLoading}
+                        >
+                            Refresh
+                        </LemonButton>
+                    </>
                 }
             />
             <SceneDivider />
