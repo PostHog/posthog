@@ -22,6 +22,7 @@ class Digest(BaseModel):
 class WeeklyDigestInput(BaseModel):
     dry_run: bool = False
     skip_generate: bool = False
+    digest_key_override: str | None = None
     common: CommonInput = CommonInput()
 
 
