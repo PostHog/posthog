@@ -41,25 +41,21 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
 
     const measureRef = useRef<HTMLDivElement | null>(null)
     useEffect(() => {
-        if (!measureRef.current || typeof ResizeObserver === 'undefined') {
-            return
-        }
-        const ro = new ResizeObserver((entries) => {
-            const w = entries[0]?.contentRect?.width
-            if (typeof w === 'number') {
-                setContainerWidth(w)
+        const measure = (): void => {
+            if (measureRef.current) {
+                const w = measureRef.current.getBoundingClientRect().width
+                setContainerWidth(typeof w === 'number' ? w : null)
             }
-        })
-        ro.observe(measureRef.current)
-        return () => ro.disconnect()
-    }, [])
-
-    useEffect(() => {
-        if (measureRef.current) {
-            const w = measureRef.current.getBoundingClientRect().width
-            setContainerWidth(typeof w === 'number' ? w : null)
         }
-    }, [widthOverride])
+        measure()
+        const onResize = (): void => {
+            measure()
+        }
+        window.addEventListener('resize', onResize)
+        return () => {
+            window.removeEventListener('resize', onResize)
+        }
+    }, [setContainerWidth, widthOverride])
 
     if (loading) {
         return (
