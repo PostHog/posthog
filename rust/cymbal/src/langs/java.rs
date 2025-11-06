@@ -187,7 +187,7 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
             context: None,
             suspicious: false,
             module: Some(raw.module.clone()),
-            exception_type: None,
+            exception_type: raw.exception_type.clone(),
         };
 
         add_raw_to_junk(&mut f, raw);
