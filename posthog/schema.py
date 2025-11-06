@@ -890,6 +890,17 @@ class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
     root: Literal["revenue_analytics"] = "revenue_analytics"
 
 
+class DataWarehouseSyncInterval(StrEnum):
+    FIELD_5MIN = "5min"
+    FIELD_30MIN = "30min"
+    FIELD_1HOUR = "1hour"
+    FIELD_6HOUR = "6hour"
+    FIELD_12HOUR = "12hour"
+    FIELD_24HOUR = "24hour"
+    FIELD_7DAY = "7day"
+    FIELD_30DAY = "30day"
+
+
 class DataWarehouseViewLinkConfiguration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15003,10 +15014,16 @@ class EndpointRequest(BaseModel):
     cache_age_seconds: Optional[float] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    is_materialized: Optional[bool] = Field(
+        default=None, description="Whether this endpoint's query results are materialized to S3"
+    )
     name: Optional[str] = None
     query: Optional[
         Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
     ] = None
+    sync_frequency: Optional[DataWarehouseSyncInterval] = Field(
+        default=None, description="How frequently should the underlying materialized view be updated"
+    )
 
 
 class FunnelCorrelationActorsQuery(BaseModel):
