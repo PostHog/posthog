@@ -134,7 +134,11 @@ function DashboardScene(): JSX.Element {
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
-                <div>
+                <div
+                    className={cn({
+                        '-mt-4': placement == DashboardPlacement.ProjectHomepage,
+                    })}
+                >
                     <DashboardOverridesBanner />
 
                     <SceneStickyBar showBorderBottom={false}>

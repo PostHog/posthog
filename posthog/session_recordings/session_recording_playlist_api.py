@@ -39,8 +39,8 @@ from posthog.session_recordings.session_recording_api import (
     query_as_params_to_dict,
 )
 from posthog.session_recordings.synthetic_playlists import (
-    SYNTHETIC_PLAYLISTS,
     SyntheticPlaylistDefinition,
+    get_all_synthetic_playlists,
     get_synthetic_playlist,
 )
 from posthog.utils import relative_date_parse
@@ -128,7 +128,7 @@ def count_synthetic_playlist(
     playlist: SessionRecordingPlaylist, user: User, team: Team
 ) -> dict[str, int | bool | None]:
     """Count recordings in a synthetic playlist using efficient database-level counting"""
-    synthetic_def = get_synthetic_playlist(playlist.short_id)
+    synthetic_def = get_synthetic_playlist(playlist.short_id, team=team)
     if not synthetic_def:
         return {
             "count": None,
@@ -361,7 +361,7 @@ class SessionRecordingPlaylistViewSet(
 
         # Check if this is a synthetic playlist
         if lookup_value and lookup_value.startswith("synthetic-"):
-            synthetic_def = get_synthetic_playlist(lookup_value)
+            synthetic_def = get_synthetic_playlist(lookup_value, team=self.team)
             if synthetic_def:
                 return create_synthetic_playlist_instance(synthetic_def, self.team, cast(User, self.request.user))
 
@@ -385,9 +385,11 @@ class SessionRecordingPlaylistViewSet(
         page_number = int(request.GET.get("page", 1))
         is_first_page = offset == 0 and page_number == 1
 
-        # Create synthetic playlist instances
+        # Create synthetic playlist instances (includes both static and dynamic)
+        all_synthetic_playlists = get_all_synthetic_playlists(self.team)
         synthetic_instances = [
-            create_synthetic_playlist_instance(sp, self.team, cast(User, request.user)) for sp in SYNTHETIC_PLAYLISTS
+            create_synthetic_playlist_instance(sp, self.team, cast(User, request.user))
+            for sp in all_synthetic_playlists
         ]
 
         # Filter synthetic playlists based on request filters
@@ -451,7 +453,8 @@ class SessionRecordingPlaylistViewSet(
                 elif request_value == SessionRecordingPlaylist.PlaylistType.FILTERS:
                     queryset = queryset.filter(type=SessionRecordingPlaylist.PlaylistType.FILTERS)
             elif key == "collection_type":
-                if request_value == "synthetic":
+                if request_value in ("synthetic", "new-urls"):
+                    # Exclude all DB playlists when filtering for synthetic or new-urls
                     queryset = queryset.none()
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
@@ -492,7 +495,11 @@ class SessionRecordingPlaylistViewSet(
                     pass
             elif key == "collection_type":
                 if request_value == "custom":
+                    # Custom means user-created only, exclude all synthetic playlists
                     return []
+                elif request_value == "new-urls":
+                    # Filter for only new-urls synthetic playlists
+                    filtered = [p for p in filtered if p.short_id.startswith("synthetic-new-url-")]
             elif key == "pinned":
                 # Synthetic playlists are never pinned, so exclude them
                 return []
@@ -540,7 +547,7 @@ class SessionRecordingPlaylistViewSet(
 
         # Handle synthetic playlists differently
         if getattr(playlist, "_is_synthetic", False):
-            synthetic_def = get_synthetic_playlist(playlist.short_id)
+            synthetic_def = get_synthetic_playlist(playlist.short_id, team=self.team)
             if synthetic_def:
                 playlist_items = synthetic_def.get_session_ids(self.team, cast(User, request.user), limit, offset)
             else:

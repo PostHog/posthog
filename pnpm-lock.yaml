@@ -372,8 +372,8 @@ importers:
         specifier: '*'
         version: 8.57.0
       posthog-js:
-        specifier: 1.287.0
-        version: 1.287.0
+        specifier: 1.288.1
+        version: 1.288.1
       prettier:
         specifier: '*'
         version: 3.4.2
@@ -433,8 +433,8 @@ importers:
         specifier: ^2.0.1
         version: 2.0.1
       '@monaco-editor/react':
-        specifier: 4.6.0
-        version: 4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
+        specifier: 4.7.0
+        version: 4.7.0(monaco-editor@0.49.0)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)
       '@posthog/ee':
         specifier: workspace:*
         version: link:../ee/frontend
@@ -829,8 +829,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.287.0
-        version: 1.287.0
+        specifier: 1.288.1
+        version: 1.288.1
       posthog-js-lite:
         specifier: 4.1.0
         version: 4.1.0
@@ -1804,8 +1804,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.287.0
-        version: 1.287.0
+        specifier: 1.288.1
+        version: 1.288.1
       react:
         specifier: '*'
         version: 18.2.0
@@ -2465,8 +2465,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.287.0
-        version: 1.287.0
+        specifier: 1.288.1
+        version: 1.288.1
       react:
         specifier: '*'
         version: 18.2.0
@@ -2537,8 +2537,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.287.0
-        version: 1.287.0
+        specifier: 1.288.1
+        version: 1.288.1
       react:
         specifier: '*'
         version: 18.2.0
@@ -5346,17 +5346,15 @@ packages:
     resolution: {integrity: sha512-3Y2h3MZKjec1eAqSTBclATlX+AbC6n1LgfVzRMJLt3v6w0RCYgwLrjbxPDbhsYHt6Wdqc/aCceNJYgj448ELQQ==}
     engines: {node: '>=18'}
 
-  '@monaco-editor/loader@1.4.0':
-    resolution: {integrity: sha512-00ioBig0x642hytVspPl7DbQyaSWRaolYie/UFNjoTdvoKPzo6xrXLhTk9ixgIKcLH5b5vDOjVNiGyY+uDCUlg==}
-    peerDependencies:
-      monaco-editor: '>= 0.21.0 < 1'
+  '@monaco-editor/loader@1.6.1':
+    resolution: {integrity: sha512-w3tEnj9HYEC73wtjdpR089AqkUPskFRcdkxsiSFt3SoUc3OHpmu+leP94CXBm4mHfefmhsdfI0ZQu6qJ0wgtPg==}
 
-  '@monaco-editor/react@4.6.0':
-    resolution: {integrity: sha512-RFkU9/i7cN2bsq/iTkurMWOEErmYcY6JiQI3Jn+WeR/FGISH8JbHERjpS9oRuSOPvDMJI0Z8nJeKkbOs9sBYQw==}
+  '@monaco-editor/react@4.7.0':
+    resolution: {integrity: sha512-cyzXQCtO47ydzxpQtCGSQGOC8Gk3ZUeBXFAxD+CWXYFo5OqZyZUonFl0DwUlTyAfRHntBfw2p3w4s9R6oe1eCA==}
     peerDependencies:
       monaco-editor: '>= 0.25.0 < 1'
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0
-      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+      react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.3':
     resolution: {integrity: sha512-QZHtlVgbAdy2zAqNA9Gu1UpIuI8Xvsd1v8ic6B2pZmeFnFcMWiPLfWXh7TVw4eGEZ/C9TH281KwhVoeQUKbyjw==}
@@ -6446,8 +6444,8 @@ packages:
   '@poppinss/exception@1.2.2':
     resolution: {integrity: sha512-m7bpKCD4QMlFCjA/nKTs23fuvoVFoA83brRKmObCUNmi/9tVu8Ve3w4YQAnJu4q3Tjf5fr685HYIC/IA2zHRSg==}
 
-  '@posthog/core@1.5.1':
-    resolution: {integrity: sha512-8fdEzfvdStr45iIncTD+gnqp45UBTUpRK/bwB4shP5usCKytnPIeilU8rIpNBOVjJPwfW+2N8yWhQ0l14x191Q==}
+  '@posthog/core@1.5.2':
+    resolution: {integrity: sha512-iedUP3EnOPPxTA2VaIrsrd29lSZnUV+ZrMnvY56timRVeZAXoYCkmjfIs3KBAsF8OUT5h1GXLSkoQdrV0r31OQ==}
 
   '@posthog/icons@0.35.0':
     resolution: {integrity: sha512-wa90PWt9dAxF3Y2jFFjmMGCIWyUaG/IfJzJnKxKdzNDGLllGawI5JJxwCJ1ZufCdiYTWAVBn7irCM+mLbTNixw==}
@@ -16439,8 +16437,8 @@ packages:
   posthog-js-lite@4.1.0:
     resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
 
-  posthog-js@1.287.0:
-    resolution: {integrity: sha512-5LCIpHF8/YmXyvuzwnwF4RPZvjj57XyBds7t6MY/+pH7YXFkJWMEpnpvzXKVjuLF6EH2qD1jy7AAWM4r3qYA2A==}
+  posthog-js@1.288.1:
+    resolution: {integrity: sha512-vDIbbtiLKehSZCwZhwfBQ67jxBBA4ah8yIjDkE1pK9dzWpIfpHf/3jbXyarU4Fu31KCL/z5KMufSvdMpF0tkkg==}
 
   posthog-node@4.14.0:
     resolution: {integrity: sha512-PitSiuxGiVFl0ItuhIfi3Sq1tcaMU4vlbPu1wv0qufTJGDjWthOOr4vYfFIs1xkbJFOQcfGczMXkr44kX5TDDg==}
@@ -23965,14 +23963,13 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@monaco-editor/loader@1.4.0(monaco-editor@0.49.0)':
+  '@monaco-editor/loader@1.6.1':
     dependencies:
-      monaco-editor: 0.49.0
       state-local: 1.0.7
 
-  '@monaco-editor/react@4.6.0(monaco-editor@0.49.0)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
+  '@monaco-editor/react@4.7.0(monaco-editor@0.49.0)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)':
     dependencies:
-      '@monaco-editor/loader': 1.4.0(monaco-editor@0.49.0)
+      '@monaco-editor/loader': 1.6.1
       monaco-editor: 0.49.0
       react: 18.2.0
       react-dom: 18.2.0(react@18.2.0)
@@ -25619,7 +25616,7 @@ snapshots:
 
   '@poppinss/exception@1.2.2': {}
 
-  '@posthog/core@1.5.1':
+  '@posthog/core@1.5.2':
     dependencies:
       cross-spawn: 7.0.6
 
@@ -28368,7 +28365,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -35010,7 +35007,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -35290,7 +35287,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.4.1
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -38264,9 +38261,9 @@ snapshots:
 
   posthog-js-lite@4.1.0: {}
 
-  posthog-js@1.287.0:
+  posthog-js@1.288.1:
     dependencies:
-      '@posthog/core': 1.5.1
+      '@posthog/core': 1.5.2
       core-js: 3.46.0
       fflate: 0.4.8
       preact: 10.27.2

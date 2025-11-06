@@ -36,14 +36,14 @@ export const RichContentMention = ({ id }: { id?: number }): JSX.Element => {
             title={
                 <div className="p-2 flex items-center gap-2">
                     <ProfilePicture user={member?.user} size="xl" />
-                    <div>
+                    <div className="ph-no-capture">
                         <div className="font-bold">{member?.user.first_name}</div>
                         <div className="text-sm">{member?.user.email}</div>
                     </div>
                 </div>
             }
         >
-            <span className="bg-fill-highlight-100 px-1 rounded font-medium">
+            <span className="ph-no-capture bg-fill-highlight-100 px-1 rounded font-medium">
                 @{member?.user.first_name ?? '(Member)'}
             </span>
         </Tooltip>

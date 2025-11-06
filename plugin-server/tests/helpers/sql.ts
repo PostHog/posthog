@@ -358,6 +358,7 @@ export async function createUserTeamAndOrganization(
         allow_publicly_shared_resources: true,
         members_can_use_personal_api_keys: true,
         slug: new UUIDT().toString(),
+        default_anonymize_ips: false,
     } as RawOrganization)
     await updateOrganizationAvailableFeatures(db, organizationId, [{ key: 'data_pipelines', name: 'Data Pipelines' }])
     await insertRow(db, 'posthog_organizationmembership', {
@@ -484,6 +485,7 @@ export const createOrganization = async (pg: PostgresRouter) => {
         members_can_use_personal_api_keys: true,
         is_member_join_email_enabled: false,
         slug: new UUIDT().toString(),
+        default_anonymize_ips: false,
     })
     return organizationId
 }

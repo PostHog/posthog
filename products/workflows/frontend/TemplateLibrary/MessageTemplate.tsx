@@ -9,7 +9,6 @@ import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTempla
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
@@ -60,7 +59,6 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                         </>
                     }
                 />
-                <SceneDivider />
 
                 <div className="flex flex-wrap gap-4 items-start">
                     <div className="flex-1 self-start p-3 space-y-2 rounded border min-w-100 bg-surface-primary">

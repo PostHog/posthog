@@ -174,6 +174,8 @@ pub struct Frame {
     // purposes, all production code should assume this is None
     #[serde(skip_serializing_if = "Option::is_none")]
     pub junk_drawer: Option<HashMap<String, Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code_variables: Option<Value>,
     // The lines of code surrounding the frame ptr, if known. We skip serialising this because
     // it should never go in clickhouse / be queried over, but we do store it in PG for
     // use in the frontend
@@ -357,6 +359,7 @@ impl From<Frame> for FrameData {
             line: frame.line,
             column: frame.column,
             lang: frame.lang,
+            code_variables: frame.code_variables,
         }
     }
 }

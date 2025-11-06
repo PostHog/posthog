@@ -1,5 +1,5 @@
 import datetime
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import Any, get_args, get_origin
 from uuid import UUID
 
@@ -7,15 +7,15 @@ from django.utils import timezone
 
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, CurrencyCode
+from posthog.schema import CurrencyCode
 
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.models.action.action import Action
 from posthog.models.user import User
 
-from ee.hogai.utils.dispatcher import AssistantDispatcher
-from ee.hogai.utils.types.base import BaseStateWithIntermediateSteps
+from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config
+from ee.hogai.utils.types.base import BaseStateWithIntermediateSteps, NodePath
 from ee.models import Conversation, CoreMemory
 
 
@@ -194,4 +194,33 @@ class TaxonomyUpdateDispatcherNodeMixin:
         content = "Picking relevant events and properties"
         if substeps:
             content = substeps[-1]
-        self.dispatcher.message(AssistantMessage(content=content))
+        self.dispatcher.update(content)
+
+
+class AssistantDispatcherMixin(ABC):
+    _node_path: tuple[NodePath, ...]
+    _config: RunnableConfig | None
+    _dispatcher: AssistantDispatcher | None = None
+
+    @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        return self._node_path
+
+    @property
+    @abstractmethod
+    def node_name(self) -> str: ...
+
+    @property
+    def tool_call_id(self) -> str:
+        parent_tool_call_id = next((path.tool_call_id for path in reversed(self._node_path) if path.tool_call_id), None)
+        if not parent_tool_call_id:
+            raise ValueError("No tool call ID found")
+        return parent_tool_call_id
+
+    @property
+    def dispatcher(self) -> AssistantDispatcher:
+        """Create a dispatcher for this node"""
+        if self._dispatcher:
+            return self._dispatcher
+        self._dispatcher = create_dispatcher_from_config(self._config or {}, self.node_path)
+        return self._dispatcher

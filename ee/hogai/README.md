@@ -320,7 +320,7 @@ class YourTaxonomyGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[Max
 4. Invoke it (typically from a `MaxTool`), mirroring `products/replay/backend/max_tools.py`:
 
 ```python
-graph = YourTaxonomyGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
+graph = YourTaxonomyGraph(team=self._team, user=self._user)
 
 graph_context = {
     "change": "Show me recordings of users in Germany that used a mobile device while performing a payment",

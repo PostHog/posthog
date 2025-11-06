@@ -167,6 +167,7 @@ impl From<&RawNodeFrame> for Frame {
             suspicious: false,
             module: raw.module.clone(),
             exception_type: None,
+            code_variables: None,
         }
     }
 }
@@ -205,6 +206,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>)> for Frame {
             resolved: true,
             resolve_failure: None,
             junk_drawer: None,
+            code_variables: None,
             context: get_sourcelocation_context(&location),
             release: None,
             synthetic: raw_frame.meta.synthetic,
@@ -250,6 +252,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             // why we thought a frame wasn't minified, they can see the error message
             resolve_failure: Some(resolve_err.to_string()),
             junk_drawer: None,
+            code_variables: None,
             context: raw_frame.get_context(),
             release: None,
             synthetic: raw_frame.meta.synthetic,
