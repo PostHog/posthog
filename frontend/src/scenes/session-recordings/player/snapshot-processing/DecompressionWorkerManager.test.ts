@@ -102,5 +102,31 @@ describe('DecompressionWorkerManager', () => {
 
             expect(instance1).not.toBe(instance2)
         })
+
+        it('recreates instance when useWorker config changes', () => {
+            const instance1 = getDecompressionWorkerManager(false)
+            const instance2 = getDecompressionWorkerManager(true)
+
+            expect(instance1).not.toBe(instance2)
+        })
+
+        it('recreates instance when posthog config changes', () => {
+            const mockPosthog1 = {} as any
+            const mockPosthog2 = {} as any
+
+            const instance1 = getDecompressionWorkerManager(false, mockPosthog1)
+            const instance2 = getDecompressionWorkerManager(false, mockPosthog2)
+
+            expect(instance1).not.toBe(instance2)
+        })
+
+        it('returns same instance when config has not changed', () => {
+            const mockPosthog = {} as any
+
+            const instance1 = getDecompressionWorkerManager(false, mockPosthog)
+            const instance2 = getDecompressionWorkerManager(false, mockPosthog)
+
+            expect(instance1).toBe(instance2)
+        })
     })
 })

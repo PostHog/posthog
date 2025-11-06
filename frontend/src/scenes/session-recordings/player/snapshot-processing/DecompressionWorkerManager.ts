@@ -177,12 +177,19 @@ export class DecompressionWorkerManager {
     }
 }
 
-// Singleton instance
 let workerManager: DecompressionWorkerManager | null = null
+let currentConfig: { useWorker?: boolean; posthog?: PostHog } | null = null
 
 export function getDecompressionWorkerManager(useWorker?: boolean, posthog?: PostHog): DecompressionWorkerManager {
+    const configChanged = currentConfig && (currentConfig.useWorker !== useWorker || currentConfig.posthog !== posthog)
+
+    if (configChanged) {
+        terminateDecompressionWorker()
+    }
+
     if (!workerManager) {
         workerManager = new DecompressionWorkerManager(useWorker, posthog)
+        currentConfig = { useWorker, posthog }
     }
     return workerManager
 }
@@ -192,4 +199,5 @@ export function terminateDecompressionWorker(): void {
         workerManager.terminate()
         workerManager = null
     }
+    currentConfig = null
 }
