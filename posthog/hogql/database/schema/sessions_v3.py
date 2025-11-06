@@ -81,7 +81,8 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "pageview_uniq": DatabaseField(name="pageview_uniq", nullable=False),
     "autocapture_uniq": DatabaseField(name="autocapture_uniq", nullable=False),
     "screen_uniq": DatabaseField(name="screen_uniq", nullable=False),
-    "page_screen_autocapture_uniq_up_to": DatabaseField(name="page_screen_autocapture_uniq_up_to", nullable=False),
+    "page_screen_uniq_up_to": DatabaseField(name="page_screen_uniq_up_to", nullable=False),
+    "has_autocapture": BooleanDatabaseField(name="has_autocapture", nullable=False),
     "has_replay_events": BooleanDatabaseField(name="has_replay_events", nullable=False),
 }
 
@@ -128,7 +129,8 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
     "$screen_count": IntegerDatabaseField(name="$screen_count"),
     # some perf optimisation columns
-    "$page_screen_autocapture_count_up_to": DatabaseField(name="$page_screen_autocapture_count_up_to"),
+    "$page_screen_count_up_to": DatabaseField(name="$page_screen_count_up_to"),
+    "$has_autocapture": BooleanDatabaseField(name="$has_autocapture"),
     "$entry_channel_type_properties": DatabaseField(name="$entry_channel_type_properties"),
     # computed fields
     "$channel_type": StringDatabaseField(name="$channel_type"),
@@ -240,10 +242,14 @@ def select_from_sessions_table_v3(
         "$pageview_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
         "$screen_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
         "$autocapture_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "autocapture_uniq"])]),
-        "$page_screen_autocapture_count_up_to": ast.Call(
+        "$page_screen_count_up_to": ast.Call(
             name="uniqUpToMerge",
             params=[ast.Constant(value=1)],
-            args=[ast.Field(chain=[table_name, "page_screen_autocapture_uniq_up_to"])],
+            args=[ast.Field(chain=[table_name, "page_screen_uniq_up_to"])],
+        ),
+        "$has_autocapture": ast.Call(
+            name="max",
+            args=[ast.Field(chain=[table_name, "has_autocapture"])],
         ),
         "$entry_ad_ids_map": arg_min_merge_field("entry_ad_ids_map"),
         "$entry_ad_ids_set": arg_min_merge_field("entry_ad_ids_set"),
@@ -305,12 +311,12 @@ def select_from_sessions_table_v3(
         if context.modifiers.bounceRateDurationSeconds is not None
         else DEFAULT_BOUNCE_RATE_DURATION_SECONDS
     )
-    bounce_event_count = aggregate_fields["$page_screen_autocapture_count_up_to"]
+    bounce_pageview_count = aggregate_fields["$page_screen_count_up_to"]
     aggregate_fields["$is_bounce"] = ast.Call(
         name="if",
         args=[
-            # if the count is 0, return NULL, so it doesn't contribute towards the bounce rate either way
-            ast.Call(name="equals", args=[bounce_event_count, ast.Constant(value=0)]),
+            # if the pageview/screen count is 0, return NULL, so it doesn't contribute towards the bounce rate either way
+            ast.Call(name="equals", args=[bounce_pageview_count, ast.Constant(value=0)]),
             ast.Constant(value=None),
             ast.Call(
                 name="not",
@@ -318,8 +324,10 @@ def select_from_sessions_table_v3(
                     ast.Call(
                         name="or",
                         args=[
-                            # if pageviews + autocaptures > 1, not a bounce
-                            ast.Call(name="greater", args=[bounce_event_count, ast.Constant(value=1)]),
+                            # if >= 2 pageviews/screens, not a bounce
+                            ast.Call(name="greater", args=[bounce_pageview_count, ast.Constant(value=1)]),
+                            # if there was an autocapture, not a bounce
+                            aggregate_fields["$has_autocapture"],
                             # if session duration >= bounce_rate_duration_seconds, not a bounce
                             ast.Call(
                                 name="greaterOrEquals",
