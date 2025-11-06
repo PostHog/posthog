@@ -88,7 +88,7 @@ class SnowflakeEstablishConnectionTestStep(DestinationTestStep):
                 password=self.password,
                 account=self.account,
                 private_key=private_key,
-                role=self.role,
+                role=f'"{self.role}"' if self.role is not None else None,
             )
         except (OperationalError, InterfaceError, DatabaseError) as err:
             if err.msg is not None and "404 Not Found" in err.msg:
@@ -170,7 +170,7 @@ class SnowflakeWarehouseTestStep(DestinationTestStep):
             password=self.password,
             account=self.account,
             private_key=private_key,
-            role=self.role,
+            role=f'"{self.role}"' if self.role is not None else None,
         )
 
         with connection.cursor() as cursor:
@@ -258,8 +258,8 @@ class SnowflakeDatabaseTestStep(DestinationTestStep):
             password=self.password,
             account=self.account,
             private_key=private_key,
-            role=self.role,
-            warehouse=self.warehouse,
+            role=f'"{self.role}"' if self.role is not None else None,
+            warehouse=f'"{self.warehouse}"',
         )
 
         with connection:
@@ -352,8 +352,8 @@ class SnowflakeSchemaTestStep(DestinationTestStep):
             password=self.password,
             account=self.account,
             private_key=private_key,
-            role=self.role,
-            warehouse=self.warehouse,
+            role=f'"{self.role}"' if self.role is not None else None,
+            warehouse=f'"{self.warehouse}"',
         )
 
         with connection:
