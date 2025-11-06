@@ -237,11 +237,7 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
         )
 
         if (to && typeof to === 'string') {
-            const contextMenuTrigger = (
-                <ContextMenuTrigger asChild className="cursor-context-menu">
-                    {element}
-                </ContextMenuTrigger>
-            )
+            const contextMenuTrigger = <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
 
             element = (
                 <ContextMenu>

@@ -1,4 +1,5 @@
 import {
+    ContextMenuGroup,
     ContextMenuItem,
     ContextMenuSeparator,
     ContextMenuSub,
@@ -6,6 +7,7 @@ import {
     ContextMenuSubTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import {
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
@@ -30,5 +32,6 @@ export interface CustomMenuProps {
     MenuSub?: typeof ContextMenuSub | typeof DropdownMenuSub
     MenuSubTrigger?: typeof ContextMenuSubTrigger | typeof DropdownMenuSubTrigger
     MenuSubContent?: typeof ContextMenuSubContent | typeof DropdownMenuSubContent
+    MenuGroup?: typeof ContextMenuGroup | typeof DropdownMenuGroup
     onLinkClick?: (keyboardAction?: boolean) => void
 }

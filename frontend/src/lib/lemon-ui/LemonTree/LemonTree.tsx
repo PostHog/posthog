@@ -387,7 +387,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         disabled: isEmptyFolder,
                                         className: cn(
                                             'group/lemon-tree-button gap-[5px]',
-                                            'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3',
+                                            'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3 cursor-pointer',
                                             {
                                                 'bg-fill-button-tertiary-hover':
                                                     ((selectMode === 'folder-only' || selectMode === 'all') &&
@@ -401,7 +401,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                     (selectMode === 'folder-only' && !isFolder) || isEmptyFolder,
                                                 'rounded-l-[var(--radius)] justify-center [&_svg]:size-4':
                                                     size === 'narrow',
-                                                'cursor-context-menu': !!itemContextMenu?.(item),
                                             }
                                         ),
                                     }}

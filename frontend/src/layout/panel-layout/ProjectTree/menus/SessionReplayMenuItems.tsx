@@ -6,6 +6,7 @@ import { IconChevronRight } from '@posthog/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
@@ -26,6 +27,7 @@ export function SessionReplayMenuItems({
     MenuSubTrigger = DropdownMenuSubTrigger,
     MenuSubContent = DropdownMenuSubContent,
     MenuSeparator = DropdownMenuSeparator,
+    MenuGroup = DropdownMenuGroup,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
     const { savedFilters, savedFiltersLoading } = useValues(sessionRecordingSavedFiltersLogic)
@@ -55,43 +57,45 @@ export function SessionReplayMenuItems({
                     </MenuSubTrigger>
 
                     <MenuSubContent>
-                        {savedFilters.results.map((savedFilter) => (
-                            <MenuItem asChild key={savedFilter.short_id}>
-                                <Link
-                                    buttonProps={{
-                                        menuItem: true,
-                                    }}
-                                    to={urls.absolute(
-                                        combineUrl(urls.replay(ReplayTabs.Home), {
-                                            savedFilterId: savedFilter.short_id,
-                                        }).url
-                                    )}
-                                    onKeyDown={handleKeyDown}
-                                    onClick={() => onLinkClick?.(false)}
-                                >
-                                    <span className="truncate">
-                                        {savedFilter.name || savedFilter.derived_name || 'Unnamed'}
-                                    </span>
-                                </Link>
-                            </MenuItem>
-                        ))}
-                        {savedFilters.next ? (
-                            <>
-                                <MenuSeparator />
-                                <MenuItem asChild key="all-saved-filters">
+                        <MenuGroup>
+                            {savedFilters.results.map((savedFilter) => (
+                                <MenuItem asChild key={savedFilter.short_id}>
                                     <Link
                                         buttonProps={{
                                             menuItem: true,
                                         }}
-                                        to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}
+                                        to={urls.absolute(
+                                            combineUrl(urls.replay(ReplayTabs.Home), {
+                                                savedFilterId: savedFilter.short_id,
+                                            }).url
+                                        )}
                                         onKeyDown={handleKeyDown}
                                         onClick={() => onLinkClick?.(false)}
                                     >
-                                        <span className="truncate">All saved filters</span>
+                                        <span className="truncate">
+                                            {savedFilter.name || savedFilter.derived_name || 'Unnamed'}
+                                        </span>
                                     </Link>
                                 </MenuItem>
-                            </>
-                        ) : null}
+                            ))}
+                            {savedFilters.next ? (
+                                <>
+                                    <MenuSeparator />
+                                    <MenuItem asChild key="all-saved-filters">
+                                        <Link
+                                            buttonProps={{
+                                                menuItem: true,
+                                            }}
+                                            to={`${urls.replay(ReplayTabs.Home)}?showFilters=true&filtersTab=saved`}
+                                            onKeyDown={handleKeyDown}
+                                            onClick={() => onLinkClick?.(false)}
+                                        >
+                                            <span className="truncate">All saved filters</span>
+                                        </Link>
+                                    </MenuItem>
+                                </>
+                            ) : null}
+                        </MenuGroup>
                     </MenuSubContent>
                 </MenuSub>
             ) : null}
@@ -110,39 +114,41 @@ export function SessionReplayMenuItems({
                     </MenuSubTrigger>
 
                     <MenuSubContent>
-                        {playlists.results.map((playlist) => (
-                            <MenuItem asChild key={playlist.short_id}>
-                                <Link
-                                    buttonProps={{
-                                        menuItem: true,
-                                    }}
-                                    to={urls.replayPlaylist(playlist.short_id)}
-                                    onKeyDown={handleKeyDown}
-                                    onClick={() => onLinkClick?.(false)}
-                                >
-                                    <span className="truncate">
-                                        {playlist.name || playlist.derived_name || 'Unnamed'}
-                                    </span>
-                                </Link>
-                            </MenuItem>
-                        ))}
-                        {playlists.next ? (
-                            <>
-                                <DropdownMenuSeparator />
-                                <MenuItem asChild key="all-collections">
+                        <MenuGroup>
+                            {playlists.results.map((playlist) => (
+                                <MenuItem asChild key={playlist.short_id}>
                                     <Link
                                         buttonProps={{
                                             menuItem: true,
                                         }}
-                                        to={`${urls.replay(ReplayTabs.Playlists)}`}
+                                        to={urls.replayPlaylist(playlist.short_id)}
                                         onKeyDown={handleKeyDown}
                                         onClick={() => onLinkClick?.(false)}
                                     >
-                                        <span className="truncate">All collections</span>
+                                        <span className="truncate">
+                                            {playlist.name || playlist.derived_name || 'Unnamed'}
+                                        </span>
                                     </Link>
                                 </MenuItem>
-                            </>
-                        ) : null}
+                            ))}
+                            {playlists.next ? (
+                                <>
+                                    <DropdownMenuSeparator />
+                                    <MenuItem asChild key="all-collections">
+                                        <Link
+                                            buttonProps={{
+                                                menuItem: true,
+                                            }}
+                                            to={`${urls.replay(ReplayTabs.Playlists)}`}
+                                            onKeyDown={handleKeyDown}
+                                            onClick={() => onLinkClick?.(false)}
+                                        >
+                                            <span className="truncate">All collections</span>
+                                        </Link>
+                                    </MenuItem>
+                                </>
+                            ) : null}
+                        </MenuGroup>
                     </MenuSubContent>
                 </MenuSub>
             ) : null}
