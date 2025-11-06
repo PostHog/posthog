@@ -89,6 +89,26 @@ NON_SHARDED_TABLES = [
 
 
 @dataclass
+class Table:
+    name: str
+
+    def is_backup_in_progress(self, client: Client) -> bool:
+        # We query the processes table to check if a backup for the requested table is in progress
+        rows = client.execute(
+            f"""
+            SELECT EXISTS(
+                SELECT 1
+                FROM system.processes
+                WHERE query_kind = 'Backup' AND query like '%{self.name}%'
+            )
+            """
+        )
+
+        [[exists]] = rows
+        return exists
+
+
+@dataclass
 class BackupStatus:
     hostname: str
     status: str
@@ -232,12 +252,6 @@ class BackupConfig(dagster.Config):
         default="",
         description="The table to backup. If not specified, the entire database will be backed up.",
     )
-    date: str = pydantic.Field(
-        default=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        description="The date to backup. If not specified, the current date will be used.",
-        pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
-        validate_default=True,
-    )
     workload: Workload = Workload.OFFLINE
 
 
@@ -261,14 +275,36 @@ def get_shards(cluster: dagster.ResourceParam[ClickhouseCluster]):
 
 
 @dagster.op
+def check_running_backup_for_table(
+    config: BackupConfig, cluster: dagster.ResourceParam[ClickhouseCluster]
+) -> Optional[Table]:
+    """
+    Check if a backup for the requested table is in progress (it shouldn't, so fail if that's the case).
+    """
+    table = Table(name=config.table)
+    is_running_backup = (
+        cluster.map_hosts_by_role(table.is_backup_in_progress, node_role=NodeRole.DATA, workload=config.workload)
+        .result()
+        .values()
+    )
+    if any(is_running_backup):
+        raise dagster.Failure(
+            description=f"A backup for table {table.name} is still in progress, this run shouldn't have been triggered. Review concurrency limits / schedule triggering logic. If there is not Dagster job running and there is a backup going on, it's worth checking what happened."
+        )
+
+    return table
+
+
+@dagster.op
 def get_latest_backups(
     context: dagster.OpExecutionContext,
     config: BackupConfig,
     s3: S3Resource,
+    running_backup: Optional[Table] = None,
     shard: Optional[int] = None,
 ) -> list[Backup]:
     """
-    Get the latest 7 backups metadata for a ClickHouse database / table from S3.
+    Get the latest 15 backups metadata for a ClickHouse database / table from S3.
 
     They are sorted from most recent to oldest.
     """
@@ -280,11 +316,11 @@ def get_latest_backups(
     base_prefix = f"{base_prefix}{shard_path}/"
 
     backups = s3.get_client().list_objects_v2(
-        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=base_prefix, Delimiter="/", MaxKeys=7
+        Bucket=settings.CLICKHOUSE_BACKUPS_BUCKET, Prefix=base_prefix, Delimiter="/", MaxKeys=15
     )
 
     if "CommonPrefixes" not in backups:
-        return None
+        return []
 
     latest_backups = [
         Backup.from_s3_path(backup["Prefix"])
@@ -302,8 +338,7 @@ def check_latest_backup_status(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> Optional[Backup]:
     """
-    Check if the latest backup is done. If not, wait for it to finish.
-    If it failed, go for the next backup.
+    Checks the latest succesful backup to use it as a base backup.
     """
     if not latest_backups or not config.incremental:
         context.log.info("No latest backup found or a full backup was requested. Skipping status check.")
@@ -319,22 +354,16 @@ def check_latest_backup_status(
     context.log.info(f"Find latest successful created backup")
     for latest_backup in latest_backups:
         context.log.info(f"Checking status of backup: {latest_backup.path}")
-        is_done = map_hosts(latest_backup.is_done).result().values()
-        if not all(is_done):
-            raise dagster.Failure(
-                description=f"Backup {latest_backup.path} is still in progress, this run shouldn't have been triggered. Review concurrency limits / schedule triggering logic."
+        most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
+        if most_recent_status and not most_recent_status.is_success():
+            context.log.warning(
+                f"Backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Checking next backup."
             )
         else:
-            most_recent_status = get_most_recent_status(map_hosts(latest_backup.status).result().values())
-            if most_recent_status and not most_recent_status.is_success():
-                context.log.warning(
-                    f"Backup {latest_backup.path} finished with an unexpected status: {most_recent_status.status} on the host {most_recent_status.hostname}. Checking next backup."
-                )
-            else:
-                context.log.info(
-                    f"Backup {latest_backup.path} finished successfully. Using it as the base backup for the new backup."
-                )
-                return latest_backup
+            context.log.info(
+                f"Backup {latest_backup.path} finished successfully. Using it as the base backup for the new backup."
+            )
+            return latest_backup
 
     raise dagster.Failure(
         f"All {len(latest_backups)} latest backups finished with an unexpected status. Please review them before launching a new one."
@@ -360,16 +389,12 @@ def run_backup(
         id=context.run_id,
         database=config.database,
         table=config.table,
-        date=config.date,
+        date=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         base_backup=latest_backup if config.incremental else None,
         shard=shard,
     )
 
-    if latest_backup and latest_backup.path == backup.path:
-        context.log.warning(
-            f"This backup directory exists in S3. Skipping its run, if you want to run it again, remove the data from {backup.path}"
-        )
-        return
+    context.log.info(f"Running backup for table {config.table} in path: {backup.path}")
 
     if backup.shard:
         cluster.map_any_host_in_shards_by_role(
@@ -415,6 +440,7 @@ def wait_for_backup(
             if most_recent_status and most_recent_status.status == "CREATING_BACKUP":
                 continue
             if most_recent_status and most_recent_status.status == "BACKUP_CREATED":
+                context.log.info(f"Backup for table {backup.table} in path {backup.path} finished successfully")
                 done = True
             if (most_recent_status and most_recent_status.status != "BACKUP_CREATED") or (
                 most_recent_status and tries >= 5
@@ -439,7 +465,7 @@ def sharded_backup():
     """
 
     def run_backup_for_shard(shard: int):
-        latest_backups = get_latest_backups(shard=shard)
+        latest_backups = get_latest_backups(check_running_backup_for_table(), shard=shard)
         checked_backup = check_latest_backup_status(latest_backups=latest_backups)
         new_backup = run_backup(latest_backup=checked_backup, shard=shard)
         wait_for_backup(backup=new_backup)
@@ -468,7 +494,7 @@ def non_sharded_backup():
     Since we don't want to keep the state about which host was selected to run the backup, we always search backups by their name in every node.
     When we find it in one of the nodes, we keep waiting on it only in that node. This is handy when we retry the job and a backup is in progress in any node, as we'll always wait for it to finish.
     """
-    latest_backups = get_latest_backups()
+    latest_backups = get_latest_backups(check_running_backup_for_table())
     new_backup = run_backup(check_latest_backup_status(latest_backups=latest_backups))
     wait_for_backup(new_backup)
 

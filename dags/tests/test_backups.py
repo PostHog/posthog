@@ -28,6 +28,17 @@ from dags.backups import (
 )
 
 
+def test_get_latest_backup_empty():
+    mock_s3 = MagicMock()
+    mock_s3.get_client().list_objects_v2.return_value = {}
+
+    config = BackupConfig(database="posthog", table="dummy")
+    context = dagster.build_op_context()
+    result = get_latest_backups(context=context, config=config, s3=mock_s3)
+
+    assert result == []
+
+
 @pytest.mark.parametrize("table", ["", "test"])
 def test_get_latest_backup(table: str):
     mock_s3 = MagicMock()
@@ -95,11 +106,9 @@ def test_check_latest_backup_status_returns_latest_backup():
     assert result == backup2
 
 
-@pytest.mark.parametrize("is_done", [True, False])
-def test_check_latest_backup_status_fails(is_done: bool):
+def test_check_latest_backup_status_fails():
     config = BackupConfig(database="posthog", table="test", incremental=True)
     backup1 = Backup(database="posthog", date="2024-02-01T07:54:04Z", table="test")
-    backup1.is_done = MagicMock(return_value=is_done)
     backup1.status = MagicMock(
         return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
     )
@@ -224,7 +233,6 @@ def run_backup_test(
 def test_full_non_sharded_backup(cluster: ClickhouseCluster):
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
-        date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         table="person_distinct_id_overrides",
         incremental=False,
         workload=Workload.ONLINE,
@@ -241,7 +249,6 @@ def test_full_non_sharded_backup(cluster: ClickhouseCluster):
 def test_full_sharded_backup(cluster: ClickhouseCluster):
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
-        date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         table="person_distinct_id_overrides",
         incremental=False,
         workload=Workload.ONLINE,
@@ -258,7 +265,6 @@ def test_full_sharded_backup(cluster: ClickhouseCluster):
 def test_incremental_non_sharded_backup(cluster: ClickhouseCluster):
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
-        date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         table="person_distinct_id_overrides",
         incremental=True,
         workload=Workload.ONLINE,
@@ -275,7 +281,6 @@ def test_incremental_non_sharded_backup(cluster: ClickhouseCluster):
 def test_incremental_sharded_backup(cluster: ClickhouseCluster):
     config = BackupConfig(
         database=settings.CLICKHOUSE_DATABASE,
-        date=datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ"),
         table="person_distinct_id_overrides",
         incremental=True,
         workload=Workload.ONLINE,
