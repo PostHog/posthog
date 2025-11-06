@@ -175,7 +175,7 @@ pub async fn fetch_and_filter(
     headers: &axum::http::HeaderMap,
     explicit_runtime: Option<EvaluationRuntime>,
     environment_tags: Option<&Vec<String>>,
-) -> Result<(FeatureFlagList, bool), FlagError> {
+) -> Result<FeatureFlagList, FlagError> {
     let flag_result = flag_service.get_flags_from_cache_or_pg(project_id).await?;
 
     // First filter by survey flags if requested
@@ -202,7 +202,7 @@ pub async fn fetch_and_filter(
         flags_after_tag_filter.len()
     );
 
-    Ok((FeatureFlagList::new(flags_after_tag_filter), false))
+    Ok(FeatureFlagList::new(flags_after_tag_filter))
 }
 
 /// Filters flags to only include survey flags if requested
