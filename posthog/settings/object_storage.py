@@ -6,7 +6,6 @@ from posthog.settings.base_variables import DEBUG, TEST
 from posthog.utils import str_to_bool
 
 if TEST or DEBUG:
-    # Default to MinIO in dev/test for generic object storage
     OBJECT_STORAGE_ENDPOINT = os.getenv("OBJECT_STORAGE_ENDPOINT", "http://localhost:19000")
     OBJECT_STORAGE_ACCESS_KEY_ID: Optional[str] = os.getenv("OBJECT_STORAGE_ACCESS_KEY_ID", "object_storage_root_user")
     OBJECT_STORAGE_SECRET_ACCESS_KEY: Optional[str] = os.getenv(
@@ -39,5 +38,3 @@ OBJECT_STORAGE_EXTERNAL_WEB_ANALYTICS_BUCKET = os.getenv("OBJECT_STORAGE_EXTERNA
 
 # Query cache specific bucket - falls back to general object storage bucket if not set
 QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUCKET
-
-## Full cutover: remove gradual migration flags and dedicated SeaweedFS settings
