@@ -16,8 +16,8 @@ class TestErrorTrackingSimilarIssuesQueryRunner(ClickhouseTestMixin, APIBaseTest
                 team=self.team,
                 query=ErrorTrackingSimilarIssuesQuery(
                     kind="ErrorTrackingSimilarIssuesQuery",
-                    issueId="019a2f10-49b0-7be3-8758-f5c03542e2db",
-                    maxDistance=1000,
+                    issueId="01936e81-b0ce-7b56-8497-791e505b0d0c",
+                    maxDistance=1,
                 ),
             )
             .calculate()
