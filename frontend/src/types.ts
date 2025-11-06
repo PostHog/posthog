@@ -282,11 +282,13 @@ export enum Region {
 }
 
 export type SSOProvider = 'google-oauth2' | 'github' | 'gitlab' | 'saml'
+export type LoginMethod = SSOProvider | 'password' | null
 
 export interface AuthBackends {
     'google-oauth2'?: boolean
     gitlab?: boolean
     github?: boolean
+    saml?: boolean
 }
 
 export type ColumnChoice = string[] | 'DEFAULT'

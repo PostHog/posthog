@@ -8,6 +8,7 @@ import { IconEye, IconSearch, IconX } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { IconEyeHidden } from 'lib/lemon-ui/icons'
 
 import { RawInputAutosize } from './RawInputAutosize'
@@ -60,6 +61,8 @@ interface LemonInputPropsBase
     'aria-label'?: string
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
+    /** Small label shown above the top-right corner, e.g. "last used" */
+    badgeText?: string
 }
 
 export interface LemonInputPropsText extends LemonInputPropsBase {
@@ -101,6 +104,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         inputRef,
         disabled,
         disabledReason,
+        badgeText,
         ...props
     },
     ref
@@ -185,6 +189,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     value && 'LemonInput--has-content',
                     !disabled && !disabledReason && focused && 'LemonInput--focused',
                     transparentBackground && 'LemonInput--transparent-background',
+                    badgeText && 'relative',
                     className
                 )}
                 aria-disabled={disabled || !!disabledReason}
@@ -233,6 +238,11 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     {...props}
                 />
                 {suffix}
+                {badgeText && (
+                    <LemonTag className="absolute -top-3 -right-2 pointer-events-none" size="small" type="muted">
+                        {badgeText}
+                    </LemonTag>
+                )}
             </span>
         </Tooltip>
     )

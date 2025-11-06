@@ -5,9 +5,10 @@ import { combineUrl, router } from 'kea-router'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { SSOProvider } from '~/types'
+import { LoginMethod, SSOProvider } from '~/types'
 
 import { SocialLoginIcon } from './SocialLoginIcon'
 
@@ -42,9 +43,14 @@ function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLi
 interface SocialLoginButtonProps {
     provider: SSOProvider
     extraQueryParams?: Record<string, string>
+    isLastUsed?: boolean
 }
 
-export function SocialLoginButton({ provider, extraQueryParams }: SocialLoginButtonProps): JSX.Element | null {
+export function SocialLoginButton({
+    provider,
+    extraQueryParams,
+    isLastUsed,
+}: SocialLoginButtonProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
     if (!preflight?.available_social_auth_providers[provider]) {
@@ -53,8 +59,22 @@ export function SocialLoginButton({ provider, extraQueryParams }: SocialLoginBut
 
     return (
         <SocialLoginLink provider={provider} extraQueryParams={extraQueryParams}>
-            <LemonButton size="medium" icon={<SocialLoginIcon provider={provider} />}>
+            <LemonButton
+                size="medium"
+                icon={<SocialLoginIcon provider={provider} />}
+                active={isLastUsed}
+                className="py-1 relative"
+            >
                 <span className="text-text-3000">{SSO_PROVIDER_NAMES[provider]}</span>
+                {isLastUsed && (
+                    <LemonTag
+                        type="muted"
+                        size="small"
+                        className="absolute -top-3 left-1/2 -translate-x-1/2 pointer-events-none"
+                    >
+                        Last used
+                    </LemonTag>
+                )}
             </LemonButton>
         </SocialLoginLink>
     )
@@ -68,6 +88,7 @@ interface SocialLoginButtonsProps {
     topDivider?: boolean
     bottomDivider?: boolean
     extraQueryParams?: Record<string, string>
+    lastUsedProvider?: LoginMethod
 }
 
 export function SocialLoginButtons({
@@ -77,6 +98,7 @@ export function SocialLoginButtons({
     className,
     topDivider,
     bottomDivider,
+    lastUsedProvider,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
@@ -98,7 +120,12 @@ export function SocialLoginButtons({
                     {Object.keys(preflight.available_social_auth_providers)
                         .sort((a, b) => order.indexOf(a) - order.indexOf(b))
                         .map((provider) => (
-                            <SocialLoginButton key={provider} provider={provider as SSOProvider} {...props} />
+                            <SocialLoginButton
+                                key={provider}
+                                provider={provider as SSOProvider}
+                                isLastUsed={lastUsedProvider === provider}
+                                {...props}
+                            />
                         ))}
                 </div>
                 {caption && captionLocation === 'bottom' && <p className="text-secondary">{caption}</p>}
@@ -120,12 +147,13 @@ export function SSOEnforcedLoginButton({
     email,
     extraQueryParams,
     actionText = 'Log in',
+    isLastUsed,
     ...props
 }: SSOEnforcedLoginButtonProps): JSX.Element {
     return (
         <SocialLoginLink provider={provider} extraQueryParams={{ ...extraQueryParams, email }}>
             <LemonButton
-                className="btn-bridge"
+                className="btn-bridge relative"
                 data-attr="sso-login"
                 htmlType="button"
                 type="secondary"
@@ -136,6 +164,11 @@ export function SSOEnforcedLoginButton({
                 {...props}
             >
                 {actionText} with {SSO_PROVIDER_NAMES[provider]}
+                {isLastUsed && (
+                    <LemonTag type="muted" size="medium" className="absolute -top-3 -right-2 pointer-events-none">
+                        Last used
+                    </LemonTag>
+                )}
             </LemonButton>
         </SocialLoginLink>
     )
