@@ -2,6 +2,7 @@ import {
     DataTableNode,
     DateRange,
     DocumentSimilarityQuery,
+    ErrorTrackingBreakdownsQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     ErrorTrackingSimilarIssuesQuery,
@@ -294,4 +295,30 @@ export const errorTrackingIssueBreakdownQuery = ({
     }
 
     return query
+}
+
+export const errorTrackingBreakdownsQuery = ({
+    issueId,
+    breakdownProperties,
+    dateRange,
+    filterTestAccounts,
+    maxValuesPerProperty = LIMIT_ITEMS,
+}: {
+    issueId: string
+    breakdownProperties: string[]
+    dateRange: DateRange
+    filterTestAccounts: boolean
+    maxValuesPerProperty?: number
+}): ErrorTrackingBreakdownsQuery => {
+    return setLatestVersionsOnQuery({
+        kind: NodeKind.ErrorTrackingBreakdownsQuery,
+        issueId,
+        breakdownProperties,
+        dateRange,
+        filterTestAccounts,
+        maxValuesPerProperty,
+        tags: {
+            productKey: ProductKey.ERROR_TRACKING,
+        },
+    })
 }

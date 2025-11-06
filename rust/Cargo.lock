@@ -1550,6 +1550,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "capture-logs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "apache-avro",
+ "axum 0.7.5",
+ "base64 0.22.1",
+ "bytes",
+ "capture",
+ "chrono",
+ "clickhouse",
+ "common-alloc",
+ "common-metrics",
+ "envconfig",
+ "health",
+ "jsonwebtoken",
+ "limiters",
+ "metrics",
+ "opentelemetry-proto 0.29.0",
+ "prost 0.13.5",
+ "rdkafka",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.16",
+ "tokio",
+ "tonic 0.12.3",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "cbindgen"
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1962,6 +1996,7 @@ dependencies = [
  "jiff",
  "rdkafka",
  "regex",
+ "rust_decimal",
  "serde",
  "serde_json",
  "sqlx",
@@ -4559,39 +4594,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
 dependencies = [
  "value-bag",
-]
-
-[[package]]
-name = "log-capture"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "apache-avro",
- "axum 0.7.5",
- "base64 0.22.1",
- "bytes",
- "capture",
- "chrono",
- "clickhouse",
- "common-alloc",
- "common-metrics",
- "envconfig",
- "health",
- "jsonwebtoken",
- "metrics",
- "opentelemetry-proto 0.29.0",
- "prost 0.13.5",
- "rdkafka",
- "serde",
- "serde_derive",
- "serde_json",
- "sha2",
- "thiserror 2.0.16",
- "tokio",
- "tonic 0.12.3",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]
