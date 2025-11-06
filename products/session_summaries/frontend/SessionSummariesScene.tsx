@@ -1335,6 +1335,13 @@ function PatternCard({
     const [visibleCount, setVisibleCount] = useState(3)
     const severityConfig = getSeverityConfig(pattern.severity)
 
+    const handleCollapseChange = (activeKey: number | null): void => {
+        // Reset visible count when panel is closed
+        if (activeKey === null) {
+            setVisibleCount(3)
+        }
+    }
+
     const header = (
         <div className="py-3 px-1">
             <div>
@@ -1370,7 +1377,16 @@ function PatternCard({
                 ))}
             </div>
             {pattern.events.length > 3 && (
-                <div className="mt-4 flex justify-center">
+                <div className="mt-4 flex justify-center gap-2">
+                    {visibleCount > 3 && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => setVisibleCount((prev) => Math.max(prev - 3, 3))}
+                        >
+                            Show fewer examples
+                        </LemonButton>
+                    )}
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -1394,6 +1410,7 @@ function PatternCard({
                 },
             ]}
             size="small"
+            onChange={handleCollapseChange}
         />
     )
 }
