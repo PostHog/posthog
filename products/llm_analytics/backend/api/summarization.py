@@ -41,7 +41,7 @@ class SummarizeRequestSerializer(serializers.Serializer):
         default="minimal",
         help_text="Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points",
     )
-    data = serializers.JSONField(
+    data = serializers.JSONField(  # type: ignore[assignment]
         help_text="Data to summarize. For traces: {trace, hierarchy}. For events: {event}.",
     )
     force_refresh = serializers.BooleanField(
@@ -90,7 +90,7 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
     Provides AI-powered summarization using line-numbered text representations.
     """
 
-    scope_object = "llm_analytics"
+    scope_object = "llm_analytics"  # type: ignore[assignment]
 
     def get_throttles(self):
         """Apply rate limiting to prevent abuse of summarization endpoint."""
@@ -273,9 +273,9 @@ The response includes the summary text and optional metadata.
 
             if summarize_type == "trace":
                 hierarchy = data["hierarchy"]
-                text_repr = format_trace_text_repr(trace=trace, hierarchy=hierarchy, options=options)
+                text_repr = format_trace_text_repr(trace=trace, hierarchy=hierarchy, options=options)  # type: ignore[arg-type]
             else:  # event
-                text_repr = format_event_text_repr(event=event, options=options)
+                text_repr = format_event_text_repr(event=event, options=options)  # type: ignore[arg-type]
 
             # Call summarization
             summary = async_to_sync(summarize)(

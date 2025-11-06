@@ -4,6 +4,8 @@ Tests for summarization API endpoint.
 Tests cover title field presence, request validation, and response format.
 """
 
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -138,7 +140,7 @@ class TestSummarizationAPI(APIBaseTest):
     @patch("products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled", return_value=True)
     def test_missing_summarize_type(self, mock_feature_enabled):
         """Should return 400 for missing summarize_type."""
-        request_data = {"data": {"event": {}}}
+        request_data: dict[str, Any] = {"data": {"event": {}}}
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/summarization/",
