@@ -84,21 +84,26 @@ def add_query_params(url: str, params: dict[str, str]) -> str:
     return urlunparse(parsed)
 
 
-def _get_breakdown_info(item: dict, breakdown_filter: Optional[dict]) -> tuple[list, list, bool]:
-    breakdown_values = []
-    breakdowns = []
+def _get_breakdown_info(
+    item: dict, breakdown_filter: Optional[dict]
+) -> tuple[list[str | int | None], list[dict], bool]:
+    """Extract breakdown info from query results.
+
+    Supports both breakdown formats from BreakdownFilter (posthog/schema.py)
+    """
+    breakdown_values: list[str | int | None] = []
+    breakdowns: list[dict] = []
 
     if "breakdown_value" in item:
         breakdown_value = item.get("breakdown_value")
         breakdown_values = breakdown_value if isinstance(breakdown_value, list) else [breakdown_value]
 
         breakdowns = breakdown_filter.get("breakdowns", []) if breakdown_filter else []
+        # Fallback to simplified breakdown field if breakdowns array not present
         if not breakdowns and breakdown_filter and "breakdown" in breakdown_filter:
             breakdowns = [{"property": breakdown_filter.get("breakdown")}]
 
-    has_breakdown_columns = any(
-        breakdowns[idx].get("property") if idx < len(breakdowns) else None for idx in range(len(breakdown_values))
-    )
+    has_breakdown_columns = bool(breakdowns)
 
     return breakdown_values, breakdowns, has_breakdown_columns
 
